@@ -1,0 +1,337 @@
+[["T cells"]]
+name = "T"
+color = "#1ba169" # Biel-Tan Green
+markers = ["CD3D", "CD3E", "CD3G", "CD8A", "TRBC2"]
+
+[["T cells".minor]]
+name = "CD8+ T"
+color = ""
+markers = ["CD8A", "CD8B"]
+
+[["T cells".minor]]
+name = "CD4+ T"
+color = ""
+markers = ["CD40LG", "FOXP3", "CD4"]
+
+[["T cells".minor]]
+name = "Tex"
+color = "#3eb753" # Classic Green
+markers = ["PDCD1", "TOX", "CXCL13", "TIGIT", "CTLA4", "TNFRSF9", "HAVCR2", "LAG3"]
+
+[["T cells".minor]]
+name = "Trm"
+color = "#8cfd7e" # Easter Green
+markers = ["ZNF683", "CD52", "HOPX", "TMSB4X", "S100A4", "KLRC1"]
+
+[["T cells".minor]]
+name = "NKT"
+color = "#04650d" # Apple II Green
+markers = ["TYROBP", "KLRD1", "KIR3DL1", "KIR3DL2", "CD160", "CXCL2", "KIR2DL1", "KIR2DL3"]
+
+[["T cells".minor]]
+name = "Treg"
+color = "#3b845e" # Adamite Green
+markers = ["FOXP3", "RTKN2", "IL2RA", "TNFRSF9"]
+
+[["T cells".minor]]
+name = "Tfh"
+color = "#10a674" # Bluish Green
+markers = ["IFNG", "HAVCR2", "LAG3", "GZMB", "ZBED2", "CCL3", "CCR7", "CXCR5", "TCF7", "TOX", "GNG4", "CD200", "CXCL3", "TOX2", "IL21"]
+
+[["T cells".minor]]
+name = "CD4+ Tn"
+color = "#11aa00" # Always Green Grass
+markers = ["TCF7", "SELL", "MAL", "CCR7", "LEF1"]
+
+[["T cells".minor]]
+name = "CD4+ Tm"
+color = "#b0e313" # Akhdhar Green
+markers = ["CCL4", "IL7R", "IFNG", "CAPG", "CCL5", "GZMK"]
+
+[["T cells".minor]]
+name = "CD4+ Tem"
+color = "#55ff00" # Hyper Green
+markers = ["GZMK", "CCL3", "CXCR4", "KLRG1", "HLA-DRB1", "LAG3"]
+
+
+[["T cells".minor]]
+name = "CD4+ Temra"
+color = "#00cc99" # Caribbean Green
+markers = ["CX3CR1", "GZMH", "TBX21", "S1PR1", "ASCL2", "KLRD1"]
+
+[["T cells".minor]]
+name = "CD8+ Tn"
+color = "#11aa00" # Always Green Grass
+markers = ["TCF7", "SELL", "MAL", "CCR7", "LEF1"]
+
+[["T cells".minor]]
+name = "CD8+ Tm"
+color = "#b0e313" # Akhdhar Green
+markers = ["CCL4", "IL7R", "IFNG", "CAPG", "CCL5", "GZMK"]
+
+[["T cells".minor]]
+name = "CD8+ Tem"
+color = "#55ff00" # Hyper Green
+markers = ["GZMK", "CCL3", "CXCR4", "KLRG1", "HLA-DRB1", "LAG3"]
+
+
+[["T cells".minor]]
+name = "CD8+ Temra"
+color = "#00cc99" # Caribbean Green
+markers = ["CX3CR1", "GZMH", "TBX21", "S1PR1", "ASCL2", "KLRD1"]
+
+
+
+[["NK cells"]]
+name = "NK"
+color = "#014431" # UP Forest Green
+markers = ["GNLY", "NKG7", "FGFBP2", "FCGR3A", "CX3CR1", "KLRB1", "NCR1"]
+
+
+
+[["B cells"]]
+name = "B"
+color = "#7ccbc5" # Brilliant Green
+markers = ["CD79A", "CD79B", "MS4A1", "IGHM", "VPREB3"]
+
+[["B cells".minor]]
+name = "naive B"
+color = "#00e8d8" # First Timer Green
+markers = ["CD69", "CD83", "CCr7", "NR4A2", "EGR1", "TNF"]
+
+[["B cells".minor]]
+name = "activated B"
+color = "#364d70" # Airforce
+markers = ["TCL1A", "FCER2", "IGHD"]
+
+[["B cells".minor]]
+name = "memory B"
+color = "#363151" # Astral Aura
+markers = ["ITGB1", "CRIP2", "S100A4"]
+
+[["B cells".minor]]
+name = "Pre-GC B"
+color = "#587d79" # Green Hour
+markers = ["ENO1", "PSME2", "NME1"]
+
+[["B cells".minor]]
+name = "GC B"
+color = "#005160" # Sandalwood Grey Blue
+markers = ["LMO2", "CXCR4", "MKI67", "SUGCT", "NEIL1", "MEF2B", "GMDS", "STMN1", "HMGB2"]
+
+[["B cells".minor]]
+name = "IFIT3+ B"
+color = "#46807b" # Fir Blue
+markers = ["IFIT3", "IFI44L", "STAT1", "ISG15"]
+
+[["B cells".minor]]
+name = "HSP+ B"
+color = "#3a6468" # China Green Blue
+markers = ["HSPA1A", "NFF2L2", "RELB", "NFKB1", "NFKB2", "DNAJB1"]
+
+[["B cells".minor]]
+name = "DUSP4+ AtM B"
+color = "#367f9a" # Greenland Blue
+markers = ["DUSP4", "FCRL5", "ZEB2", "ITGAX", "FGR"]
+
+[["B cells".minor]]
+name = "Plasmablast"
+color = "#629b92" # Goose Pond Green
+markers = ["TXNDC5", "MYDGF"]
+
+[["B cells".minor]]
+name = "Plasma"
+color = "#27a0a8" # Cancer Seagreen Scarab
+markers = ["IGHG1", "IGHA1", "JCHAIN", "MZB1", "SDC1", "XBP1"]
+
+
+[["Epithelial cells"]]
+name = "Epithelial"
+color = "#f19cbb" # Amaranth Pink
+markers = ["EPCAM", "KRT19", "KRT8", "CDH1"]
+
+[["Epithelial cells"]]
+name = "Malignant"
+color = "#9370DB" # Matt Purple
+markers = []
+
+
+[["Myeloid cells"]]
+name = "Myeloid"
+color = "#1151b4" # Blizzy Blueberry
+markers = ["CD68", "CD14", "LYZ", "CD1E", "IL3RA"]
+
+[["Myeloid cells"]]
+name = "Monocyte"
+color = "#1151b4" # Blizzy Blueberry
+markers = ["FCN1", "VCAN", "S100A8", "S100A9"]
+
+[["Myeloid cells".minor]]
+name = "CD14+ Mono"
+color = "#1560bd" # Amnesia Blue
+markers = ["FCN1", "HLA-DQB1", "S100A9", "CSF3R", "EGR1", "S100A8", "EGR1"]
+
+[["Myeloid cells".minor]]
+name = "CD16+ Mono"
+color = "#66ddff" # Athena Blue
+markers = ["FCGR3A", "HK3", "LST1", "PILRA", "LILRB2", "NR4A1"]
+
+[["Myeloid cells".minor]]
+name = "CD14+CD16+ Mono"
+color = "#003a6c" # Ateneo Blue
+markers = ["NFKBIA", "NFKB1", "NLRP3", "HLA-DQA1"]
+
+[["Myeloid cells"]]
+name = "Macrophage"
+color = "#1151b4" # Blizzy Blueberry
+markers = ["C1QA", "C1QB", "C1QC", "MSR1", "APOE", "CD163"]
+
+[["Myeloid cells".minor]]
+name = "IFN TAM"
+color = "#5729ce" # Blue Purple
+markers = ["IDO", "ISG15", "CXCL8", "CXCL9", "CXCL10", "IFNA", "IFNB1", "IFNG", "STAT1", "IRF7", "MX1", "OAS1", "ISG15", "JAK1", "SOCS1"]
+
+[["Myeloid cells".minor]]
+name = "Reg TAM"
+color = "#6a5bb1" # Blue Marguerite
+markers = ["ARG1", "MRC1", "CD274", "CX3CR1"]
+
+[["Myeloid cells".minor]]
+name = "Inflam TAM"
+color = "#333399" # Bluebell
+markers = ["IL1B", "CCL3", "CXCL1", "CXCL2", "CXCL3", "CXCL5"]
+
+[["Myeloid cells".minor]]
+name = "Angio TAM"
+color = "#ccd7e1" # Blue Reflection
+markers = ["VEGFA", "SPP1", "VEGFA", "FGF2", "ANGPT2", "MMP9", "TIMP1", "ENG", "PDGFB"]
+
+[["Myeloid cells".minor]]
+name = "Prolif TAM"
+color = "#00a9b8" # Bluebird
+markers = ["MKI67", "CDK1", "CCND1", "CDK4", "CDK6", "PCNA", "MCM2", "MCM3", "MCM4", "MCM5", "MCM6", "MCM7", "CCNA2", "CDC6", "CCNB1", "AURKA", "TOP2A", "KI67"]
+
+[["Myeloid cells".minor]]
+name = "LA TAM"
+color = "#9bacd8" # Aster Flower Blue
+markers = ["APOC1", "APOE", "ACP5", "FABP5", "FASN", "ACACA", "SCD", "CPT1", "ACOX1", "DGAT1", "PLIN1", "HMGCR", "LDLR", "ABCA1"]
+
+[["Myeloid cells".minor]]
+name = "TRM TAM"
+color = "#0000aa" # Bohemian Blue
+markers = ["LYVE1", "HES1", "FOLR2", "NLRP3", "EREG", "PLTP", "SEPP1", "IL1B", "ADGRE1", "CX3CR1", "MERTK"]
+
+[["Myeloid cells"]]
+name = "Dendritic"
+color = "#1151b4" # Blizzy Blueberry
+markers = ["CD1E", "CD1C", "FCER1A", "CLEC10A", "IL3RA", "CST3"]
+
+[["Myeloid cells".minor]]
+name = "pDC"
+color = "#50a7d9" # Blue Astro
+markers = ["LILRA4", "GZMB", "IL3RA", "FAM129C", "IGJ", "PTPRCAP", "IGKC"]
+
+[["Myeloid cells".minor]]
+name = "cDC1"
+color = "#a1caf1" # Baby Blue Eyes
+markers = ["CLEC9A", "XCR1", "CADM1", "IL12B", "BTLA"]
+
+[["Myeloid cells".minor]]
+name = "cDC2"
+color = "#5a79ba" # Blue Android Base
+markers = ["CD1C", "FCER1A", "CXCR4", "CD1E", "CCL17"]
+
+[["Myeloid cells"]]
+name = "Mast"
+color = "#1E90FF" # Clear Chill
+markers = ["TPSAB1", "KIT", "CPA3", "TPSB2"]
+
+[["Myeloid cells"]]
+name = "Neutrophil"
+color = "#a3e3ed" # Blizzard Blue
+markers = ["FCGR3B", "CXCR2"]
+
+[["Myeloid cells"]]
+name = "Eosinophil"
+color = ""
+markers = ["CCR3", "FUT4"]
+
+[["Myeloid cells"]]
+name = "Basophil"
+color = ""
+markers = ["CD63", "ENPP3"]
+
+[["Endothelial cells"]]
+name = "Endothelial"
+color = "#fecb51" # Capricorn Golden Key
+markers = ["VWF", "PECAM1", "RAMP2", "ENG"]
+
+[["Endothelial cells".minor]]
+name = "Lymphatic EC"
+color = "#e7e04e" # Dragon's Gold
+markers = ["CCL21", "PROX1", "LYVE1"]
+
+[["Endothelial cells".minor]]
+name = "Vascular EC"
+color = "#ffae42" # Mandarin Sorbet
+markers = ["HEY1", "IGFBP3", "CD36", "CA4", "ACKR1"]
+
+[["Fibroblasts"]]
+name = "Fibroblast"
+color = "#FF8C00" # Sun Crete
+markers = ["ACTA2", "COL1A1", "COL1A2", "COL3A1", "DCN"]
+
+[["Fibroblasts".minor]]
+name = "NF"
+color = "#FF8C00" # Sun Crete
+markers = ["CXCL8", "MT-RNR2", "MT-RNR1", "LINC00152", "MTATP6P1"]
+
+[["Fibroblasts".minor]]
+name = "iCAF"
+color = "#ee6600" # Royal Flycatcher Crest
+markers = ["CFD", "APOD", "IGF1", "MGP", "C3", "CCL11", "CXCL14", "CXCL12", "ITM2A", "C7", "FAP", "CFD", "TGFB1", "PTGDS", "MMP11", "FBLN1", "COL1A1", "COL11A1", "GSN", "CTHRC1", "POSTN", "IGFBP6"]
+
+[["Fibroblasts".minor]]
+name = "mCAF"
+color = "#e68750" # Orange Poppy
+markers = ["POSTN", "FN1", "VCAN", "MMP11", "CTHRC1", "COL1A2", "COL1A1", "COL3A1", "COL10A1", "COL11A1", "ACTA2", "ADIRF", "RGS5", "NDUFA4L2", "MYH11"]
+
+[["Fibroblasts".minor]]
+name = "pCAF"
+color = "#f08f00" # Saffron Gold
+markers = ["SCG2", "IGFBP2", "HIST1H4C", "IFI27", "PLAU", "TOP2A", "CENPF", "STMN1", "TUBA1B", "PTTG1"]
+
+[["Fibroblasts".minor]]
+name = "meCAF"
+color = "#ffaa66" # Transparent Orange
+markers = ["NDRG1", "BNIP3", "TMEM158", "ADM", "MMP1", "ENO1", "VEGFA", "SLC2A1", "HILPDA", "ANGPTL4"]
+
+[["Fibroblasts".minor]]
+name = "EndMTCAF"
+color = "#c56543" # Orange Rust
+markers = ["PLVAP", "RAMP2", "SLC9A3R2", "RGCC", "FLT1"]
+
+[["Fibroblasts".minor]]
+name = "pnCAF"
+color = "#e1583f" # Tiger Lily
+markers = ["S100B", "GPM6B", "PLP1", "LGI4", "NRXN1"]
+
+[["Fibroblasts".minor]]
+name = "apCAF"
+color = "#fcb001" # Yellow Orange
+markers = ["HLA-DRA", "LYZ", "TYROBP", "HLA-DRB1", "HLA-DPB1"]
+
+[["Pericytes"]]
+name = "Pericyte"
+color = "#b86d29" # Brown Alpaca
+markers = ["RGS5", "MYH11", "PDGFRB", "MCAM", "CD63", "HIGD1B", "NDUFA4L2", "FABP4", "COX4I2", "ARHGDIB", "APOA2", "GJA4", "COL4A1"]
+
+[["Smooth muscle cells"]]
+name = "SMC"
+color = "#FFA07A" # Dwarven Peaches
+markers = ["TAGLN", "MYH11", "DES", "CNN1", "PLN", "ADIRF", "RERGL", "DSTN", "ACTA2", "MUSTN1", "MYL9", "CRIP1"]
+
+[["Unidentified"]]
+name = "Unidentified"
+color = "#4b4247" # Apple Herb Black
+markers = []
