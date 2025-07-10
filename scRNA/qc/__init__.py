@@ -1,0 +1,21 @@
+"""
+Quality control module for single-cell RNA-seq data.
+
+This module provides functions for calculating QC metrics, identifying low-quality
+cells and doublets, and filtering cells based on QC parameters.
+"""
+
+# Import and expose key functions from submodules
+from .metrics import calculate_qc_metric, identify_outliers
+from .filtering import is_low_quality_cell, filter_low_quality_cells
+from .doublet import is_doublet, filter_doublets
+
+# Define what should be accessible when importing from this module
+__all__ = [
+    "calculate_qc_metric",
+    "identify_outliers",
+    "is_low_quality_cell", 
+    "filter_low_quality_cells",
+    "is_doublet",
+    "filter_doublets"
+]
