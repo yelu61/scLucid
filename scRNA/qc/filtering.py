@@ -1,12 +1,15 @@
 """
-Quality control module for single-cell RNA-seq data.
+Cell filtering utilities for single-cell RNA-seq data.
+
+This module provides functions for identifying and filtering low-quality
+cells based on various quality metrics.
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union, Literal
+from typing import List, Tuple
 
 __all__ = [
     "is_low_quality_cell", 
@@ -39,6 +42,13 @@ def is_low_quality_cell(
     Returns:
         adata (AnnData): AnnData object with low-quality cells identified.
     """
+    # Check if required columns exist
+    required_cols = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
+    missing_cols = [col for col in required_cols if col not in adata.obs.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns in adata.obs: {missing_cols}. "
+                         f"Run calculate_qc_metric() first.")
+        
     # Define default outlier metrics if not provided
     if outlier_metrics is None:
         outlier_metrics = [
@@ -243,5 +253,22 @@ def filter_low_quality_cells(
                          adata.obs["predicted_doublets_final"].values | 
                          adata.obs["overexpressed_doublets"].values).sum()
             print(f"  All types of doublets: {n_doublets} ({n_doublets/cells_before:.2%})")
+    
+    # Add simple visualization of filtering results
+    if cells_filtered > 0:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        categories = ["Low genes", "Outliers", "High MT", "High HB", "Doublets"]
+        counts = [
+            adata.obs["low_genes_outlier"].sum() if filter_low_genes and "low_genes_outlier" in adata.obs.columns else 0,
+            adata.obs["outlier"].sum() if filter_outliers else 0,
+            adata.obs["mt_outlier"].sum() if filter_mt else 0,
+            adata.obs["hb_outlier"].sum() if filter_hb else 0,
+            adata.obs["predicted_doublets_final"].sum() if filter_doublets and "predicted_doublets_final" in adata.obs.columns else 0
+        ]
+        ax.bar(categories, counts)
+        ax.set_ylabel("Number of cells")
+        ax.set_title("Filtered cells by category")
+        plt.tight_layout()
+        plt.show()
     
     return adata_filtered

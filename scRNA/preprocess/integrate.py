@@ -311,26 +311,39 @@ def adaptive_batch_correction(
     n_batches_threshold=5,
     **kwargs
 ):
-    """自适应批次校正，根据数据规模选择最佳方法"""
-    # 验证批次键
-    if batch_key not in adata.obs:
-        raise ValueError(f"批次键'{batch_key}'不在adata.obs中")
+    """
+    Adaptively select batch correction method based on data size.
     
-    # 计算批次数和细胞数
+    Args:
+        adata: AnnData object
+        batch_key: Key in adata.obs that denotes the batch
+        method: Batch correction method or "auto" to select automatically
+        n_cells_threshold: Threshold for number of cells to use scVI
+        n_batches_threshold: Threshold for number of batches to use scVI
+        **kwargs: Additional arguments for batch_correction
+        
+    Returns:
+        AnnData with batch-corrected data
+    """
+    # Validate batch key
+    if batch_key not in adata.obs:
+        raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
+    
+    # Calculate number of batches and cells
     n_batches = len(adata.obs[batch_key].unique())
     n_cells = adata.n_obs
     
     if method == "auto":
-        # 根据数据规模自动选择方法
+        # Automatically select method based on data size
         if n_cells > n_cells_threshold and n_batches > n_batches_threshold:
-            print(f"检测到大型数据集({n_cells}细胞, {n_batches}批次), 使用scVI进行批次校正")
+            print(f"Detected large dataset ({n_cells} cells, {n_batches} batches), using scVI for batch correction")
             method = "scvi"
         elif n_batches <= 2:
-            print(f"检测到较少批次({n_batches}), 使用Harmony进行批次校正")
+            print(f"Detected few batches ({n_batches}), using Harmony for batch correction")
             method = "harmony"
         else:
-            print(f"使用Scanorama进行批次校正")
+            print(f"Using Scanorama for batch correction")
             method = "scanorama"
     
-    print(f"执行批次校正, 方法: {method}")
+    print(f"Performing batch correction, method: {method}")
     return batch_correction(adata, batch_key=batch_key, method=method, **kwargs)

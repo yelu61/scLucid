@@ -1,3 +1,10 @@
+"""
+Cell type marker manager for single-cell RNA-seq analysis.
+
+This module provides functionality for managing and querying cell type markers,
+enabling robust cell type annotation and visualization.
+"""
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +22,16 @@ from rich.tree import Tree
 
 @dataclass
 class CellType:
+    """
+    Data class representing a cell type with its markers and metadata.
+    
+    Attributes:
+        name: Name of the cell type
+        color: Hex color code for visualization
+        markers: List of marker genes
+        level: Classification level ("major" or "minor")
+        minor: List of minor cell types (for major cell types)
+    """
     name: str
     color: str | None
     markers: list[str]
@@ -22,12 +39,25 @@ class CellType:
     minor: list[str] | None = None
 
     def __post_init__(self) -> None:
+        """Post-initialization processing"""
         if self.color == "":
             self.color = None
 
 
 class Manager:
+    """
+    Manager for cell type markers and their hierarchical relationships.
+    
+    Provides functionality for loading, querying, and visualizing cell type marker genes.
+    """
+    
     def __init__(self, config_file: str | Path) -> None:
+        """
+        Initialize the marker manager from a TOML configuration file.
+        
+        Args:
+            config_file: Path to the TOML configuration file containing cell type definitions
+        """
         with open(config_file, "rb") as f:
             data = tomllib.load(f)
 
@@ -62,12 +92,32 @@ class Manager:
                 )
 
     def __getitem__(self, key: str) -> CellType:
+        """
+        Get a cell type by name.
+        
+        Args:
+            key: Name of the cell type
+            
+        Returns:
+            CellType object
+            
+        Raises:
+            KeyError: If the cell type is not found
+        """
         if key not in self.CELLS:
             raise KeyError(f"{key} is not in CELLS")
         else:
             return self.CELLS[key]
         
-    def intersect_with(self, adata: AnnData):
+    def intersect_with(self, adata: AnnData) -> None:
+        """
+        Intersect marker genes with genes present in the AnnData object.
+        
+        This updates the marker lists to only include genes that are present in the dataset.
+        
+        Args:
+            adata: AnnData object containing gene expression data
+        """
         genes = adata.var_names
         for cell_name, cell_type in self.CELLS.items():
             self.CELLS[cell_name].markers = list(set(cell_type.markers).intersection(genes))
@@ -79,6 +129,23 @@ class Manager:
         cluster: str | None = None,
         include_major_type: bool = True,
     ) -> dict[str, str | list[str]]:
+        """
+        Query information about cell types.
+        
+        Args:
+            info: Type of information to query ("color" or "markers")
+            key: Cell type name(s) to query
+            cluster: Major cell type to query (returns info for all subtypes)
+            include_major_type: Whether to include the major type when querying a cluster
+            
+        Returns:
+            Dictionary mapping cell types to requested information
+            
+        Raises:
+            KeyError: If the specified cell type or cluster is not found
+            ValueError: If neither key nor cluster is specified
+            TypeError: If key is not a string or sequence of strings
+        """
         if cluster is not None:
             if cluster not in self.CLUSTERS.keys():
                 raise KeyError(f"{cluster} is not in CLUSTERS")
@@ -109,6 +176,11 @@ class Manager:
             raise ValueError("either cluster or key must be specified")
 
     def show_clusters(self) -> None:
+        """
+        Display a table of cell type clusters with their colors.
+        
+        Shows major cell types and their corresponding minor (sub) cell types.
+        """
         table = Table(title="Cluster")
         table.add_column("Major type", justify="center")
         table.add_column("Minor type", justify="center", max_width=80)
@@ -134,6 +206,11 @@ class Manager:
         console.print(table)
 
     def show_markers(self) -> None:
+        """
+        Display a table of cell types and their marker genes.
+        
+        Shows marker genes for both major cell types and their subtypes.
+        """
         table = Table(title="Marker")
         table.add_column("Cell type", justify="left")
         table.add_column("Markers", justify="center", max_width=80)
@@ -162,7 +239,12 @@ class Manager:
         console = Console()
         console.print(table)
 
-    def show_tree(self):
+    def show_tree(self) -> None:
+        """
+        Display a hierarchical tree of cell types and their marker genes.
+        
+        Visualizes the hierarchical structure of cell types and their markers.
+        """
         tree = Tree("Cluster")
         for major_name, minor_names in self.CLUSTERS.items():
             major_cell = self.CELLS[major_name]
@@ -197,3 +279,54 @@ class Manager:
 
         console = Console()
         console.print(tree)
+        
+    def add_cell_type(
+        self, 
+        name: str, 
+        markers: list[str], 
+        color: str = None, 
+        level: Literal["major", "minor"] = "major", 
+        parent: str = None
+    ) -> None:
+        """
+        Add a new cell type to the manager.
+        
+        Args:
+            name: Name of the cell type
+            markers: List of marker genes
+            color: Hex color code for visualization
+            level: Classification level ("major" or "minor")
+            parent: Parent cell type for minor cell types
+            
+        Raises:
+            ValueError: If adding a minor cell type without a parent,
+                       or if the parent does not exist
+        """
+        if level == "minor" and parent is None:
+            raise ValueError("Minor cell types must have a parent specified")
+            
+        if level == "minor" and parent not in self.CELLS:
+            raise ValueError(f"Parent cell type '{parent}' does not exist")
+            
+        # Create the cell type
+        cell_type = CellType(
+            name=name,
+            color=color,
+            markers=markers,
+            level=level,
+            minor=[] if level == "major" else None
+        )
+        
+        # Add to CELLS dictionary
+        self.CELLS[name] = cell_type
+        
+        # Update CLUSTERS dictionary for major cell types
+        if level == "major":
+            self.CLUSTERS[name] = []
+        
+        # Update parent's minor list and CLUSTERS for minor cell types
+        if level == "minor":
+            if self.CELLS[parent].minor is None:
+                self.CELLS[parent].minor = []
+            self.CELLS[parent].minor.append(name)
+            self.CLUSTERS[parent].append(name)

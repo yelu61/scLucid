@@ -5,6 +5,9 @@ This module provides functions for calculating QC metrics, identifying low-quali
 cells and doublets, and filtering cells based on QC parameters.
 """
 
+# Version tracking
+__version__ = "0.1.0"
+
 # Import and expose key functions from submodules
 from .metrics import calculate_qc_metric, identify_outliers
 from .filtering import is_low_quality_cell, filter_low_quality_cells

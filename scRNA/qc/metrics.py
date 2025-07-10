@@ -1,5 +1,8 @@
 """
-Quality control module for single-cell RNA-seq data.
+Quality control metrics calculation for single-cell RNA-seq data.
+
+This module provides functions for calculating standard QC metrics and 
+identifying outlier cells based on statistical methods.
 """
 
 import matplotlib.pyplot as plt
@@ -69,8 +72,9 @@ def calculate_qc_metric(
     adata.obs["pct_counts_ribo"] = 0.0
     adata.obs["pct_counts_hb"] = 0.0
 
-    for sample in adata.obs[sample_key].unique():
-        print(f"Begin of QC metric calculation and QC plot for sample: {sample}")
+    total_samples = len(adata.obs[sample_key].unique())
+    for i, sample in enumerate(adata.obs[sample_key].unique()):
+        print(f"Processing sample {i+1}/{total_samples}: {sample}")
         data = adata[adata.obs[sample_key] == sample, :]
 
         # Calculate the QC covariates or metric using provided patterns
@@ -156,6 +160,7 @@ def calculate_qc_metric(
         ]
         adata.obs.loc[data.obs.index, metric_cols] = data.obs[metric_cols]
         print("Done.")
+        print(f"Completed {i+1}/{total_samples} samples ({(i+1)/total_samples*100:.1f}%)")
                 
     return adata
 
@@ -196,8 +201,10 @@ def identify_outliers(
         print(f"Warning: {values.isna().sum()} NaN values in {metric}, will be excluded from outlier detection")
         values = values.dropna()
     
+    # Add informative message about distribution
     median = np.median(values)
     mad = median_abs_deviation(values)
+    print(f"Distribution info for {metric}: median={median:.2f}, MAD={mad:.2f}")
     
     if mad == 0:
         print(f"Warning: MAD=0 for {metric}, no outliers will be detected")

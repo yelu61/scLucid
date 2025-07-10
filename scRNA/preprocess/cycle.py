@@ -1,236 +1,220 @@
 """
-Utility functions for preprocessing single-cell RNA-seq data.
+Cell cycle scoring and utility functions for single-cell RNA-seq data.
+
+This module provides functions for scoring cell cycle phases and
+various utility functions for data validation and preprocessing.
 """
 
-import scanpy as sc
 import matplotlib.pyplot as plt
-import numpy as np
-import sparse
-from typing import Optional, Tuple, List, Dict, Union
+import scanpy as sc
+from scipy import sparse
+from typing import Optional, List, Union, Literal
 
-def check_adata(
+def score_cell_cycle(
     adata: sc.AnnData,
-    required_obs: Optional[List[str]] = None,
-    required_var: Optional[List[str]] = None,
-    required_layers: Optional[List[str]] = None,
-    required_obsm: Optional[List[str]] = None,
-) -> bool:
+    species: Literal["human", "mouse", "rat"] = "human",
+    s_genes: List[str] = None,
+    g2m_genes: List[str] = None,
+    copy: bool = False,
+    plot: bool = True,
+    save_dir: Optional[str] = None,
+    regress_out: bool = False,
+    layer: Optional[str] = "log1p_norm",
+) -> sc.AnnData:
     """
-    Check if AnnData object contains required attributes.
+    Score cell cycle phases and optionally regress out cell cycle effects.
     
     Args:
         adata: AnnData object
-        required_obs: Required columns in adata.obs
-        required_var: Required columns in adata.var
-        required_layers: Required layers in adata.layers
-        required_obsm: Required matrices in adata.obsm
+        species: Species of the dataset. Options: "human", "mouse", "rat"
+        s_genes: List of S phase marker genes. If provided, overrides the species-specific list.
+        g2m_genes: List of G2M phase marker genes. If provided, overrides the species-specific list.
+        copy: Whether to return a copy of the AnnData object
+        plot: Whether to plot cell cycle scores
+        save_dir: Directory to save plots. If None, plots are not saved to disk.
+        regress_out: Whether to regress out cell cycle effects
+        layer: Layer to use for regression if regress_out=True
         
     Returns:
-        True if all requirements are met, otherwise raises ValueError
-    """
-    if required_obs:
-        missing_obs = [key for key in required_obs if key not in adata.obs]
-        if missing_obs:
-            raise ValueError(f"Missing required columns in adata.obs: {', '.join(missing_obs)}")
-    
-    if required_var:
-        missing_var = [key for key in required_var if key not in adata.var]
-        if missing_var:
-            raise ValueError(f"Missing required columns in adata.var: {', '.join(missing_var)}")
-    
-    if required_layers:
-        missing_layers = [key for key in required_layers if key not in adata.layers]
-        if missing_layers:
-            raise ValueError(f"Missing required layers in adata.layers: {', '.join(missing_layers)}")
-    
-    if required_obsm:
-        missing_obsm = [key for key in required_obsm if key not in adata.obsm]
-        if missing_obsm:
-            raise ValueError(f"Missing required matrices in adata.obsm: {', '.join(missing_obsm)}")
-    
-    return True
-
-def validate_adata(adata):
-    """验证AnnData对象的有效性和完整性"""
-    import anndata as ad
-    
-    if not isinstance(adata, ad.AnnData):
-        raise TypeError("输入必须是AnnData对象")
-    
-    if adata.n_obs == 0:
-        raise ValueError("AnnData对象不包含任何细胞")
-    
-    if adata.n_vars == 0:
-        raise ValueError("AnnData对象不包含任何基因")
-    
-    # 检查计数数据的基本特性
-    if not sparse.issparse(adata.X) and not isinstance(adata.X, np.ndarray):
-        raise TypeError("adata.X必须是稀疏矩阵或numpy数组")
-    
-    # 检查表达值是否为负
-    if isinstance(adata.X, np.ndarray):
-        if np.any(adata.X < 0):
-            print("警告: 表达矩阵包含负值，可能不是原始计数数据")
-    else:
-        if sparse.issparse(adata.X) and np.any(adata.X.data < 0):
-            print("警告: 表达矩阵包含负值，可能不是原始计数数据")
-    
-    return True
-
-def plot_preprocessing_summary(
-    adata: sc.AnnData,
-    save_dir: Optional[str] = None,
-    file_name: str = "preprocessing_summary.png",
-):
-    """
-    Generate a summary of preprocessing steps.
-    
-    Args:
-        adata: AnnData object
-        save_dir: Directory to save plot
-        file_name: File name for saved plot
-    """
-    # Collect information about the data
-    n_cells = adata.n_obs
-    n_genes = adata.n_vars
-    
-    # Check which preprocessing steps have been done
-    has_normalized = "log1p_norm" in adata.layers
-    has_hvg = "highly_variable" in adata.var or "highly_variable_scanpy" in adata.var
-    has_scaled = "scaled" in adata.layers
-    has_integrated = any(key.startswith("X_") and key != "X_pca" for key in adata.obsm)
-    
-    # Create figure
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("Preprocessing Summary", fontsize=16)
-    
-    # Plot 1: Cell count stats
-    if "sampleID" in adata.obs:
-        sample_counts = adata.obs["sampleID"].value_counts()
-        sample_counts.plot(kind="bar", ax=axes[0, 0])
-        axes[0, 0].set_title("Cells per Sample")
-        axes[0, 0].set_ylabel("Number of Cells")
-        axes[0, 0].tick_params(axis='x', rotation=45)
-    else:
-        axes[0, 0].text(0.5, 0.5, f"Total Cells: {n_cells}\nTotal Genes: {n_genes}", 
-                     ha='center', va='center', fontsize=12)
-        axes[0, 0].set_title("Dataset Size")
-        axes[0, 0].axis('off')
-    
-    # Plot 2: Gene expression distribution
-    if has_normalized:
-        if "log1p_norm" in adata.layers:
-            gene_means = np.mean(adata.layers["log1p_norm"], axis=0)
-            axes[0, 1].hist(gene_means, bins=50)
-            axes[0, 1].set_title("Gene Expression Distribution (Normalized)")
-            axes[0, 1].set_xlabel("Mean Expression")
-            axes[0, 1].set_ylabel("Frequency")
-    else:
-        axes[0, 1].text(0.5, 0.5, "Normalization not performed", 
-                     ha='center', va='center', fontsize=12)
-        axes[0, 1].set_title("Gene Expression")
-        axes[0, 1].axis('off')
-    
-    # Plot 3: HVG stats
-    if has_hvg:
-        hvg_key = "highly_variable" if "highly_variable" in adata.var else "highly_variable_scanpy"
-        n_hvgs = sum(adata.var[hvg_key])
+        AnnData object with cell cycle scores added
         
-        if "dispersions" in adata.var:
-            # Create scatter plot of dispersion vs mean
-            axes[1, 0].scatter(
-                adata.var["means"],
-                adata.var["dispersions"],
-                c=adata.var[hvg_key].map({True: "red", False: "gray"}),
-                alpha=0.5
-            )
-            axes[1, 0].set_title(f"Highly Variable Genes ({n_hvgs})")
-            axes[1, 0].set_xlabel("Mean")
-            axes[1, 0].set_ylabel("Dispersion")
-            axes[1, 0].set_xscale("log")
-            axes[1, 0].set_yscale("log")
+    Example:
+        >>> # For human data
+        >>> adata = pp.score_cell_cycle(adata, species="human")
+        >>> # For mouse data
+        >>> adata = pp.score_cell_cycle(adata, species="mouse")
+        >>> # To regress out cell cycle effects
+        >>> adata = pp.score_cell_cycle(adata, species="mouse", regress_out=True)
+    """
+    # Species-specific gene lists
+    species_genes = {
+        "human": {
+            "s_genes": [
+                'MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG', 'GINS2',
+                'MCM6', 'CDCA7', 'DTL', 'PRIM1', 'UHRF1', 'MLF1IP', 'HELLS', 'RFC2',
+                'RPA2', 'NASP', 'RAD51AP1', 'GMNN', 'WDR76', 'SLBP', 'CCNE2', 'UBR7',
+                'POLD3', 'MSH2', 'ATAD2', 'RAD51', 'RRM2', 'CDC45', 'CDC6', 'EXO1', 'TIPIN',
+                'DSCC1', 'BLM', 'CASP8AP2', 'USP1', 'CLSPN', 'POLA1', 'CHAF1B', 'BRIP1', 'E2F8'
+            ],
+            "g2m_genes": [
+                'HMGB2', 'CDK1', 'NUSAP1', 'UBE2C', 'BIRC5', 'TPX2', 'TOP2A', 'NDC80',
+                'CKS2', 'NUF2', 'CKS1B', 'MKI67', 'TMPO', 'CENPF', 'TACC3', 'FAM64A',
+                'SMC4', 'CCNB2', 'CKAP2L', 'CKAP2', 'AURKB', 'BUB1', 'KIF11', 'ANP32E',
+                'TUBB4B', 'GTSE1', 'KIF20B', 'HJURP', 'CDCA3', 'HN1', 'CDC20', 'TTK',
+                'CDC25C', 'KIF2C', 'RANGAP1', 'NCAPD2', 'DLGAP5', 'CDCA2', 'CDCA8',
+                'ECT2', 'KIF23', 'HMMR', 'AURKA', 'PSRC1', 'ANLN', 'LBR', 'CKAP5',
+                'CENPE', 'CTCF', 'NEK2', 'G2E3', 'GAS2L3', 'CBX5', 'CENPA'
+            ]
+        },
+        "mouse": {
+            "s_genes": [
+                'Mcm5', 'Pcna', 'Tyms', 'Fen1', 'Mcm2', 'Mcm4', 'Rrm1', 'Ung', 'Gins2',
+                'Mcm6', 'Cdca7', 'Dtl', 'Prim1', 'Uhrf1', 'Cenpu', 'Hells', 'Rfc2',
+                'Rpa2', 'Nasp', 'Rad51ap1', 'Gmnn', 'Wdr76', 'Slbp', 'Ccne2', 'Ubr7',
+                'Pold3', 'Msh2', 'Atad2', 'Rad51', 'Rrm2', 'Cdc45', 'Cdc6', 'Exo1', 'Tipin',
+                'Dscc1', 'Blm', 'Casp8ap2', 'Usp1', 'Clspn', 'Pola1', 'Chaf1b', 'Brip1', 'E2f8'
+            ],
+            "g2m_genes": [
+                'Hmgb2', 'Cdk1', 'Nusap1', 'Ube2c', 'Birc5', 'Tpx2', 'Top2a', 'Ndc80',
+                'Cks2', 'Nuf2', 'Cks1b', 'Mki67', 'Tmpo', 'Cenpf', 'Tacc3', 'Fam64a',
+                'Smc4', 'Ccnb2', 'Ckap2l', 'Ckap2', 'Aurkb', 'Bub1', 'Kif11', 'Anp32e',
+                'Tubb4b', 'Gtse1', 'Kif20b', 'Hjurp', 'Cdca3', 'Hn1', 'Cdc20', 'Ttk',
+                'Cdc25c', 'Kif2c', 'Rangap1', 'Ncapd2', 'Dlgap5', 'Cdca2', 'Cdca8',
+                'Ect2', 'Kif23', 'Hmmr', 'Aurka', 'Psrc1', 'Anln', 'Lbr', 'Ckap5',
+                'Cenpe', 'Ctcf', 'Nek2', 'G2e3', 'Gas2l3', 'Cbx5', 'Cenpa'
+            ]
+        },
+        "rat": {
+            "s_genes": [
+                'Mcm5', 'Pcna', 'Tyms', 'Fen1', 'Mcm2', 'Mcm4', 'Rrm1', 'Ung', 'Gins2',
+                'Mcm6', 'Cdca7', 'Dtl', 'Prim1', 'Uhrf1', 'Cenpu', 'Hells', 'Rfc2',
+                'Rpa2', 'Nasp', 'Rad51ap1', 'Gmnn', 'Wdr76', 'Slbp', 'Ccne2', 'Ubr7',
+                'Pold3', 'Msh2', 'Atad2', 'Rad51', 'Rrm2', 'Cdc45', 'Cdc6', 'Exo1', 'Tipin',
+                'Dscc1', 'Blm', 'Casp8ap2', 'Usp1', 'Clspn', 'Pola1', 'Chaf1b', 'Brip1', 'E2f8'
+            ],
+            "g2m_genes": [
+                'Hmgb2', 'Cdk1', 'Nusap1', 'Ube2c', 'Birc5', 'Tpx2', 'Top2a', 'Ndc80',
+                'Cks2', 'Nuf2', 'Cks1b', 'Mki67', 'Tmpo', 'Cenpf', 'Tacc3', 'Fam64a',
+                'Smc4', 'Ccnb2', 'Ckap2l', 'Ckap2', 'Aurkb', 'Bub1', 'Kif11', 'Anp32e',
+                'Tubb4b', 'Gtse1', 'Kif20b', 'Hjurp', 'Cdca3', 'Hn1', 'Cdc20', 'Ttk',
+                'Cdc25c', 'Kif2c', 'Rangap1', 'Ncapd2', 'Dlgap5', 'Cdca2', 'Cdca8',
+                'Ect2', 'Kif23', 'Hmmr', 'Aurka', 'Psrc1', 'Anln', 'Lbr', 'Ckap5',
+                'Cenpe', 'Ctcf', 'Nek2', 'G2e3', 'Gas2l3', 'Cbx5', 'Cenpa'
+            ]
+        }
+    }
+    
+    # Check if species is valid
+    if species not in species_genes:
+        raise ValueError(f"Unknown species: {species}. Valid options are: {', '.join(species_genes.keys())}")
+    
+    # Use provided gene lists or species-specific defaults
+    s_genes = s_genes if s_genes is not None else species_genes[species]["s_genes"]
+    g2m_genes = g2m_genes if g2m_genes is not None else species_genes[species]["g2m_genes"]
+    
+    # Try to detect species if not specified
+    if species == "human" and not any(gene in adata.var_names for gene in s_genes[:10]):
+        # Check if mouse genes might be present
+        mouse_genes = species_genes["mouse"]["s_genes"]
+        if any(gene in adata.var_names for gene in mouse_genes[:10]):
+            print("Human genes not found, but mouse genes detected. Switching to mouse gene list.")
+            s_genes = mouse_genes
+            g2m_genes = species_genes["mouse"]["g2m_genes"]
         else:
-            # Just show number of HVGs
-            axes[1, 0].text(0.5, 0.5, f"Number of HVGs: {n_hvgs}", 
-                         ha='center', va='center', fontsize=12)
-            axes[1, 0].set_title("Highly Variable Genes")
-            axes[1, 0].axis('off')
-    else:
-        axes[1, 0].text(0.5, 0.5, "HVG selection not performed", 
-                     ha='center', va='center', fontsize=12)
-        axes[1, 0].set_title("Highly Variable Genes")
-        axes[1, 0].axis('off')
+            # Check if rat genes might be present
+            rat_genes = species_genes["rat"]["s_genes"]
+            if any(gene in adata.var_names for gene in rat_genes[:10]):
+                print("Human genes not found, but rat genes detected. Switching to rat gene list.")
+                s_genes = rat_genes
+                g2m_genes = species_genes["rat"]["g2m_genes"]
     
-    # Plot 4: Preprocessing steps
-    steps = ["Normalized", "HVG Selection", "Scaled", "Integrated"]
-    completed = [has_normalized, has_hvg, has_scaled, has_integrated]
+    # Filter gene lists to include only genes present in the dataset
+    s_genes_in_data = [gene for gene in s_genes if gene in adata.var_names]
+    g2m_genes_in_data = [gene for gene in g2m_genes if gene in adata.var_names]
     
-    axes[1, 1].bar(steps, [int(c) for c in completed], color=["green" if c else "red" for c in completed])
-    axes[1, 1].set_title("Preprocessing Steps Completed")
-    axes[1, 1].set_ylim(0, 1.5)
-    axes[1, 1].set_yticks([0, 1])
-    axes[1, 1].set_yticklabels(["No", "Yes"])
-    axes[1, 1].tick_params(axis='x', rotation=45)
-    
-    plt.tight_layout()
-    
-    if save_dir:
-        import os
-        os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(os.path.join(save_dir, file_name), dpi=300)
-    
-    plt.show()
-
-import logging
-
-def setup_logger(name, level=logging.INFO, log_file=None):
-    """设置日志记录器"""
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    # 控制台处理程序
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-    logger.addHandler(console)
-    
-    # 文件处理程序(如果指定)
-    if log_file:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    
-    return logger
-def progress_monitor(iterable, desc="Processing", total=None):
-    """使用tqdm创建进度条"""
-    try:
-        from tqdm.notebook import tqdm
-        return tqdm(iterable, desc=desc, total=total)
-    except ImportError:
-        try:
-            from tqdm import tqdm
-            return tqdm(iterable, desc=desc, total=total)
-        except ImportError:
-            print("建议安装tqdm包以显示进度条")
-            return iterable
-
-def memory_efficient_operation(func):
-    """装饰器用于内存高效操作"""
-    import gc
-    import functools
-    
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        # 执行操作前收集垃圾
-        gc.collect()
+    if len(s_genes_in_data) < 5 or len(g2m_genes_in_data) < 5:
+        print(f"Warning: Few cell cycle genes found in data (S: {len(s_genes_in_data)}, G2M: {len(g2m_genes_in_data)})")
+        print(f"This may indicate that your data is from a different species than '{species}'.")
+        print("Consider specifying the correct species or providing custom gene lists.")
         
-        # 调用原始函数
-        result = func(*args, **kwargs)
+        # Show some of the genes that weren't found
+        missing_s = [gene for gene in s_genes[:10] if gene not in adata.var_names]
+        missing_g2m = [gene for gene in g2m_genes[:10] if gene not in adata.var_names]
+        if missing_s:
+            print(f"Example missing S genes: {', '.join(missing_s[:5])}")
+        if missing_g2m:
+            print(f"Example missing G2M genes: {', '.join(missing_g2m[:5])}")
+            
+        # Suggest solutions
+        print("\nPotential solutions:")
+        print("1. Try a different species: pp.score_cell_cycle(adata, species='mouse')")
+        print("2. Provide custom gene lists matching your dataset")
+        print("3. Check your gene symbols for correct capitalization or naming conventions")
         
-        # 操作后再次收集垃圾
-        gc.collect()
-        
-        return result
+        if len(s_genes_in_data) < 3 or len(g2m_genes_in_data) < 3:
+            raise ValueError("Insufficient cell cycle genes found. Cannot proceed with scoring.")
     
-    return wrapper
+    print(f"Scoring cell cycle using {len(s_genes_in_data)} S-phase genes and {len(g2m_genes_in_data)} G2M-phase genes")
+    if len(s_genes_in_data) < 10:
+        print(f"S-phase genes used: {', '.join(s_genes_in_data)}")
+    if len(g2m_genes_in_data) < 10:
+        print(f"G2M-phase genes used: {', '.join(g2m_genes_in_data)}")
+    
+    # Create a copy if requested
+    if copy:
+        adata = adata.copy()
+    
+    # Score cell cycle
+    sc.tl.score_genes_cell_cycle(
+        adata, 
+        s_genes=s_genes_in_data, 
+        g2m_genes=g2m_genes_in_data
+    )
+    
+    # Add information about species used
+    adata.uns["cell_cycle"] = {
+        "species": species,
+        "s_genes_used": s_genes_in_data,
+        "g2m_genes_used": g2m_genes_in_data
+    }
+    
+    # Plot cell cycle scores
+    if plot:
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        
+        # Scatter plot
+        sc.pl.scatter(
+            adata, 
+            x='S_score', 
+            y='G2M_score', 
+            color='phase',
+            title=f'Cell Cycle Scores ({species.capitalize()})',
+            show=False,
+            ax=axes[0]
+        )
+        
+        # Distribution by phase
+        phase_counts = adata.obs['phase'].value_counts()
+        axes[1].bar(phase_counts.index, phase_counts.values, color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+        for i, v in enumerate(phase_counts.values):
+            axes[1].text(i, v + 0.5, str(v), ha='center')
+        axes[1].set_title('Cell Cycle Phase Distribution')
+        axes[1].set_ylabel('Number of Cells')
+        
+        plt.tight_layout()
+        plt.show()
+        
+        if save_dir:
+            import os
+            os.makedirs(save_dir, exist_ok=True)
+            plt.savefig(os.path.join(save_dir, f"cell_cycle_scores_{species}.png"), dpi=300)
+            plt.close()
+    
+    # Regress out cell cycle effects if requested
+    if regress_out:
+        print("Regressing out cell cycle effects...")
+        from .normalize import regress_out as reg_out
+        reg_out(adata, keys=['S_score', 'G2M_score'], layer=layer, output_layer="cell_cycle_regressed")
+        print("Cell cycle effects regressed out and stored in 'cell_cycle_regressed' layer.")
+    
+    return adata

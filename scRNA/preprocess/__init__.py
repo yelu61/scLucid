@@ -5,6 +5,9 @@ This module provides functions for normalization, feature selection,
 batch correction, scaling, and other preprocessing steps.
 """
 
+__version__ = "0.1.0"
+
+# Import key functions
 from .normalize import normalize_data, regress_out
 from .hvg import annotate_hvg, select_hvg
 from .scale import scale_data

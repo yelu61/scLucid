@@ -1,147 +1,566 @@
-# 添加新模块 annotation.py
 """
-细胞类型注释模块，用于自动化细胞类型识别
+Clustering functions for single-cell RNA-seq data.
+
+This module provides functions for marker-guided clustering,
+optimal resolution selection, and cluster evaluation.
 """
 
-import scanpy as sc
-import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional
+import pandas as pd
+import scanpy as sc
+from scipy.stats import entropy
+from sklearn import metrics
+from typing import Optional, List, Tuple, Dict, Literal, Union
+import matplotlib.pyplot as plt
 
-def score_gene_groups(
-    adata: sc.AnnData,
-    markers: Dict[str, List[str]],
-    ctrl_size: int = 50,
-    score_name: str = "cell_type_scores"
+from .manager import Manager
+
+
+def marker_guided_clustering(
+    adata,
+    marker_config: str,
+    resolution_range: Tuple[float, float, int] = (0.1, 2.0, 10),
+    metric: Literal["marker_separation", "silhouette", "calinski_harabasz"] = "marker_separation",
+    clustering_method: Literal["leiden", "louvain"] = "leiden",
+    neighbors_key: Optional[str] = None,
+    key_added: Optional[str] = None,
+    plot: bool = True,
+    min_cluster_genes: int = 3,
+    random_state: int = 42,
 ) -> sc.AnnData:
     """
-    根据已知标记基因对细胞类型进行评分
+    Perform clustering with resolution optimization guided by marker genes.
     
     Args:
-        adata: AnnData对象
-        markers: 细胞类型标记基因字典，{细胞类型: [标记基因列表]}
-        ctrl_size: 每个标记基因集的控制基因数量
-        score_name: 结果评分存储前缀名称
+        adata: AnnData object
+        marker_config: Path to marker configuration file
+        resolution_range: (start, end, steps) for resolution search
+        metric: Metric to evaluate clustering quality
+        clustering_method: Method to use for clustering ("leiden" or "louvain")
+        neighbors_key: Key to use for neighbors graph. If None, uses "neighbors"
+        key_added: Key under which to add the clustering result
+        plot: Whether to plot the evaluation metrics for different resolutions
+        min_cluster_genes: Minimum number of marker genes required to evaluate a cell type
+        random_state: Random seed for clustering
         
     Returns:
-        添加了细胞类型评分的AnnData对象
+        AnnData with optimized clustering results
     """
-    # 检查标记基因是否存在于数据中
-    for cell_type, genes in markers.items():
-        genes_found = [gene for gene in genes if gene in adata.var_names]
-        if len(genes_found) == 0:
-            print(f"警告: 未找到细胞类型 '{cell_type}' 的任何标记基因")
-        elif len(genes_found) < len(genes):
-            print(f"警告: 细胞类型 '{cell_type}' 的部分标记基因未找到, 仅使用 {len(genes_found)}/{len(genes)} 个基因")
-            markers[cell_type] = genes_found
+    # Prepare marker genes
+    mgr = Manager(marker_config)
+    mgr.intersect_with(adata)
     
-    # 为每种细胞类型计算评分
-    for cell_type, genes in markers.items():
-        if len(genes) > 0:
-            score_key = f"{score_name}_{cell_type}"
-            sc.tl.score_genes(adata, genes, ctrl_size=ctrl_size, score_name=score_key)
+    # Get marker genes dictionary filtered by min_cluster_genes
+    marker_genes = {
+        cell_type: cell.markers 
+        for cell_type, cell in mgr.CELLS.items() 
+        if len(cell.markers) >= min_cluster_genes
+    }
     
-    return adata
-
-def classify_cells(
-    adata: sc.AnnData,
-    score_name: str = "cell_type_scores",
-    min_score: float = 0.1,
-    category_name: str = "predicted_cell_type"
-) -> sc.AnnData:
-    """
-    基于得分将细胞分类为最可能的细胞类型
+    # Generate resolutions to try
+    start, end, steps = resolution_range
+    resolutions = np.linspace(start, end, steps)
     
-    Args:
-        adata: 包含细胞类型评分的AnnData对象
-        score_name: 评分的前缀名称
-        min_score: 分配细胞类型的最小评分阈值
-        category_name: 分类结果的列名
-        
-    Returns:
-        添加了预测细胞类型的AnnData对象
-    """
-    # 获取所有评分列
-    score_cols = [col for col in adata.obs.columns if col.startswith(score_name)]
+    # Set key_added
+    if key_added is None:
+        key_added = clustering_method
     
-    if len(score_cols) == 0:
-        raise ValueError(f"未找到以'{score_name}'开头的评分列")
+    # Create dictionary to store evaluation results
+    eval_results = []
     
-    # 提取实际细胞类型名称
-    cell_types = [col.replace(f"{score_name}_", "") for col in score_cols]
-    
-    # 找出每个细胞的最高评分及其对应的细胞类型
-    cell_type_scores = adata.obs[score_cols]
-    max_score_idx = np.argmax(cell_type_scores.values, axis=1)
-    max_scores = np.max(cell_type_scores.values, axis=1)
-    
-    # 分配细胞类型，如果最高分低于阈值则标记为"未知"
-    predicted_types = np.array(["未知"] * adata.n_obs, dtype=object)
-    for i, (idx, score) in enumerate(zip(max_score_idx, max_scores)):
-        if score >= min_score:
-            predicted_types[i] = cell_types[idx]
-    
-    # 添加结果到adata.obs
-    adata.obs[category_name] = pd.Categorical(predicted_types)
-    
-    # 打印分类统计信息
-    type_counts = adata.obs[category_name].value_counts()
-    print(f"细胞类型分类结果:")
-    for cell_type, count in type_counts.items():
-        print(f"  {cell_type}: {count} 细胞 ({count/adata.n_obs:.2%})")
-    
-    return adata
-
-def annotate_clusters(
-    adata: sc.AnnData,
-    cluster_key: str = "leiden",
-    cell_type_key: str = "predicted_cell_type",
-    output_key: str = "cluster_annotation",
-    min_fraction: float = 0.5
-) -> sc.AnnData:
-    """
-    基于预测的细胞类型注释聚类
-    
-    Args:
-        adata: AnnData对象
-        cluster_key: 聚类标识的obs列名
-        cell_type_key: 细胞类型预测结果的obs列名
-        output_key: 输出聚类注释的obs列名
-        min_fraction: 将聚类标记为特定类型所需的最小细胞比例
-        
-    Returns:
-        添加了聚类注释的AnnData对象
-    """
-    if cluster_key not in adata.obs:
-        raise ValueError(f"聚类键'{cluster_key}'不在adata.obs中")
-    
-    if cell_type_key not in adata.obs:
-        raise ValueError(f"细胞类型键'{cell_type_key}'不在adata.obs中")
-    
-    # 获取每个聚类中的细胞类型分布
-    cluster_annotations = {}
-    
-    for cluster in adata.obs[cluster_key].unique():
-        cluster_mask = adata.obs[cluster_key] == cluster
-        cell_types = adata.obs.loc[cluster_mask, cell_type_key]
-        
-        # 计算细胞类型计数和比例
-        type_counts = cell_types.value_counts()
-        type_fractions = type_counts / type_counts.sum()
-        
-        # 找出最多的细胞类型
-        most_common_type = type_counts.idxmax()
-        fraction = type_fractions[most_common_type]
-        
-        # 如果比例足够高，则注释为该类型
-        if fraction >= min_fraction:
-            annotation = f"{most_common_type} ({fraction:.1%})"
+    # Run clustering at different resolutions
+    for res in resolutions:
+        # Perform clustering
+        if clustering_method == "leiden":
+            sc.tl.leiden(adata, resolution=res, key_added=f"{key_added}_{res:.2f}", 
+                         neighbors_key=neighbors_key, random_state=random_state)
+            cluster_key = f"{key_added}_{res:.2f}"
         else:
-            annotation = f"Mixed (top: {most_common_type}, {fraction:.1%})"
+            sc.tl.louvain(adata, resolution=res, key_added=f"{key_added}_{res:.2f}", 
+                          neighbors_key=neighbors_key, random_state=random_state)
+            cluster_key = f"{key_added}_{res:.2f}"
         
-        cluster_annotations[cluster] = annotation
+        # Evaluate clustering
+        if metric == "marker_separation":
+            score = evaluate_marker_separation(adata, cluster_key, marker_genes)
+        elif metric == "silhouette":
+            score = evaluate_silhouette(adata, cluster_key)
+        elif metric == "calinski_harabasz":
+            score = evaluate_calinski_harabasz(adata, cluster_key)
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
+        
+        # Store results
+        n_clusters = len(adata.obs[cluster_key].unique())
+        eval_results.append({
+            'resolution': res,
+            'n_clusters': n_clusters,
+            'score': score
+        })
+        
+        print(f"Resolution {res:.2f}: {n_clusters} clusters, {metric} score = {score:.4f}")
     
-    # 将注释添加到adata.obs
-    adata.obs[output_key] = adata.obs[cluster_key].map(cluster_annotations)
+    # Convert to DataFrame
+    eval_df = pd.DataFrame(eval_results)
+    
+    # Find optimal resolution
+    if metric in ["marker_separation", "silhouette", "calinski_harabasz"]:
+        # Higher is better
+        optimal_idx = eval_df['score'].idxmax()
+    else:
+        # This shouldn't happen with current metrics, but for future-proofing
+        raise ValueError(f"Unknown optimization direction for metric: {metric}")
+    
+    optimal_res = eval_df.loc[optimal_idx, 'resolution']
+    optimal_score = eval_df.loc[optimal_idx, 'score']
+    optimal_n_clusters = eval_df.loc[optimal_idx, 'n_clusters']
+    
+    print(f"\nOptimal resolution: {optimal_res:.2f} with {optimal_n_clusters} clusters")
+    print(f"Optimal {metric} score: {optimal_score:.4f}")
+    
+    # Use the optimal resolution for the final clustering
+    if clustering_method == "leiden":
+        sc.tl.leiden(adata, resolution=optimal_res, key_added=key_added, 
+                     neighbors_key=neighbors_key, random_state=random_state)
+    else:
+        sc.tl.louvain(adata, resolution=optimal_res, key_added=key_added, 
+                      neighbors_key=neighbors_key, random_state=random_state)
+    
+    # Store evaluation results
+    adata.uns[f"{key_added}_evaluation"] = {
+        'metric': metric,
+        'results': eval_df.to_dict('records'),
+        'optimal_resolution': optimal_res,
+        'optimal_score': optimal_score,
+        'optimal_n_clusters': optimal_n_clusters
+    }
+    
+    # Plot evaluation metrics
+    if plot:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        
+        # Plot score vs resolution
+        axes[0].plot(eval_df['resolution'], eval_df['score'], 'o-')
+        axes[0].set_xlabel('Resolution')
+        axes[0].set_ylabel(metric.replace('_', ' ').title())
+        axes[0].set_title(f"{metric.replace('_', ' ').title()} vs Resolution")
+        axes[0].axvline(x=optimal_res, color='r', linestyle='--')
+        axes[0].grid(True)
+        
+        # Plot number of clusters vs resolution
+        axes[1].plot(eval_df['resolution'], eval_df['n_clusters'], 'o-')
+        axes[1].set_xlabel('Resolution')
+        axes[1].set_ylabel('Number of Clusters')
+        axes[1].set_title('Number of Clusters vs Resolution')
+        axes[1].axvline(x=optimal_res, color='r', linestyle='--')
+        axes[1].grid(True)
+        
+        plt.tight_layout()
+        plt.show()
+    
+    return adata
+
+
+def evaluate_resolution(
+    adata,
+    resolution_range: Tuple[float, float, int] = (0.1, 2.0, 10),
+    clustering_method: Literal["leiden", "louvain"] = "leiden",
+    metric: Literal["silhouette", "calinski_harabasz", "davies_bouldin"] = "silhouette",
+    representation: str = "X_pca",
+    neighbors_key: Optional[str] = None,
+    plot: bool = True,
+    random_state: int = 42,
+) -> Dict:
+    """
+    Evaluate different clustering resolutions using internal metrics.
+    
+    Args:
+        adata: AnnData object
+        resolution_range: (start, end, steps) for resolution search
+        clustering_method: Method to use for clustering ("leiden" or "louvain")
+        metric: Metric to evaluate clustering quality
+        representation: Representation to use for metric calculation
+        neighbors_key: Key to use for neighbors graph. If None, uses "neighbors"
+        plot: Whether to plot the evaluation metrics
+        random_state: Random seed for clustering
+        
+    Returns:
+        Dictionary containing evaluation results and optimal resolution
+    """
+    # Generate resolutions to try
+    start, end, steps = resolution_range
+    resolutions = np.linspace(start, end, steps)
+    
+    # Create dictionary to store evaluation results
+    eval_results = []
+    
+    # Run clustering at different resolutions
+    for res in resolutions:
+        # Perform clustering
+        if clustering_method == "leiden":
+            sc.tl.leiden(adata, resolution=res, key_added=f"leiden_res{res:.2f}", 
+                         neighbors_key=neighbors_key, random_state=random_state)
+            cluster_key = f"leiden_res{res:.2f}"
+        else:
+            sc.tl.louvain(adata, resolution=res, key_added=f"louvain_res{res:.2f}", 
+                          neighbors_key=neighbors_key, random_state=random_state)
+            cluster_key = f"louvain_res{res:.2f}"
+        
+        # Get cluster labels
+        labels = adata.obs[cluster_key].cat.codes.values
+        n_clusters = len(np.unique(labels))
+        
+        # Skip if only one cluster (some metrics will fail)
+        if n_clusters <= 1:
+            eval_results.append({
+                'resolution': res,
+                'n_clusters': n_clusters,
+                'score': np.nan
+            })
+            continue
+        
+        # Get representation for metric calculation
+        X = adata.obsm[representation]
+        
+        # Calculate metric
+        if metric == "silhouette":
+            score = metrics.silhouette_score(X, labels)
+        elif metric == "calinski_harabasz":
+            score = metrics.calinski_harabasz_score(X, labels)
+        elif metric == "davies_bouldin":
+            score = -metrics.davies_bouldin_score(X, labels)  # Negate so higher is better
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
+        
+        # Store results
+        eval_results.append({
+            'resolution': res,
+            'n_clusters': n_clusters,
+            'score': score
+        })
+        
+        print(f"Resolution {res:.2f}: {n_clusters} clusters, {metric} score = {score:.4f}")
+    
+    # Convert to DataFrame
+    eval_df = pd.DataFrame(eval_results)
+    
+    # Find optimal resolution (ignoring NaN values)
+    if metric in ["silhouette", "calinski_harabasz"] or metric == "davies_bouldin":
+        # Higher is better (davies_bouldin is already negated)
+        valid_df = eval_df.dropna(subset=['score'])
+        if len(valid_df) > 0:
+            optimal_idx = valid_df['score'].idxmax()
+            optimal_res = eval_df.loc[optimal_idx, 'resolution']
+            optimal_score = eval_df.loc[optimal_idx, 'score']
+            optimal_n_clusters = eval_df.loc[optimal_idx, 'n_clusters']
+        else:
+            optimal_res = resolutions[0]
+            optimal_score = np.nan
+            optimal_n_clusters = 0
+    else:
+        # This shouldn't happen with current metrics, but for future-proofing
+        raise ValueError(f"Unknown optimization direction for metric: {metric}")
+    
+    print(f"\nOptimal resolution: {optimal_res:.2f} with {optimal_n_clusters} clusters")
+    print(f"Optimal {metric} score: {optimal_score:.4f}")
+    
+    # Plot evaluation metrics
+    if plot:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        
+        # Plot score vs resolution
+        axes[0].plot(eval_df['resolution'], eval_df['score'], 'o-')
+        axes[0].set_xlabel('Resolution')
+        axes[0].set_ylabel(metric.replace('_', ' ').title())
+        axes[0].set_title(f"{metric.replace('_', ' ').title()} vs Resolution")
+        axes[0].axvline(x=optimal_res, color='r', linestyle='--')
+        axes[0].grid(True)
+        
+        # Plot number of clusters vs resolution
+        axes[1].plot(eval_df['resolution'], eval_df['n_clusters'], 'o-')
+        axes[1].set_xlabel('Resolution')
+        axes[1].set_ylabel('Number of Clusters')
+        axes[1].set_title('Number of Clusters vs Resolution')
+        axes[1].axvline(x=optimal_res, color='r', linestyle='--')
+        axes[1].grid(True)
+        
+        plt.tight_layout()
+        plt.show()
+    
+    # Return evaluation results
+    return {
+        'metric': metric,
+        'results': eval_df.to_dict('records'),
+        'optimal_resolution': optimal_res,
+        'optimal_score': optimal_score,
+        'optimal_n_clusters': optimal_n_clusters
+    }
+
+
+def evaluate_marker_separation(
+    adata,
+    cluster_key: str,
+    marker_genes: Dict[str, List[str]],
+) -> float:
+    """
+    Evaluate clustering by how well it separates marker genes.
+    
+    Calculates a score based on how exclusively marker genes are
+    expressed in different clusters.
+    
+    Args:
+        adata: AnnData object
+        cluster_key: Key in adata.obs containing cluster assignments
+        marker_genes: Dictionary mapping cell types to lists of marker genes
+        
+    Returns:
+        Marker separation score (higher is better)
+    """
+    # Get expression matrix (normalized or log-normalized)
+    if "normalized" in adata.layers:
+        X = adata.layers["normalized"]
+    elif "log1p_norm" in adata.layers:
+        X = adata.layers["log1p_norm"]
+    else:
+        X = adata.X
+    
+    # Get clusters
+    clusters = adata.obs[cluster_key].cat.categories
+    n_clusters = len(clusters)
+    
+    # Initialize scores
+    cluster_scores = []
+    
+    # For each marker set, calculate score
+    for cell_type, markers in marker_genes.items():
+        # Get indices of marker genes
+        marker_indices = [adata.var_names.get_loc(gene) for gene in markers if gene in adata.var_names]
+        
+        if not marker_indices:
+            continue
+        
+        # Calculate mean expression of markers in each cluster
+        cluster_means = np.zeros(n_clusters)
+        
+        for i, cluster in enumerate(clusters):
+            mask = adata.obs[cluster_key] == cluster
+            if isinstance(X, np.ndarray):
+                cluster_means[i] = np.mean(X[mask][:, marker_indices])
+            else:  # sparse matrix
+                cluster_means[i] = np.mean(X[mask][:, marker_indices].mean())
+        
+        # Skip if all means are zero
+        if np.sum(cluster_means) == 0:
+            continue
+        
+        # Normalize to get a probability distribution
+        cluster_probs = cluster_means / np.sum(cluster_means)
+        
+        # Calculate entropy (lower entropy means better separation)
+        marker_entropy = entropy(cluster_probs)
+        
+        # Convert to a score where higher is better
+        # Max entropy is log(n_clusters), so we normalize to [0, 1] and invert
+        max_entropy = np.log(n_clusters)
+        if max_entropy > 0:
+            marker_score = 1 - (marker_entropy / max_entropy)
+        else:
+            marker_score = 0
+        
+        cluster_scores.append(marker_score)
+    
+    # Return average score across all marker sets
+    if cluster_scores:
+        return np.mean(cluster_scores)
+    else:
+        return 0.0
+
+
+def evaluate_silhouette(
+    adata,
+    cluster_key: str,
+    representation: str = "X_pca",
+) -> float:
+    """
+    Evaluate clustering using silhouette score.
+    
+    Args:
+        adata: AnnData object
+        cluster_key: Key in adata.obs containing cluster assignments
+        representation: Representation to use for distance calculation
+        
+    Returns:
+        Silhouette score (higher is better)
+    """
+    # Get cluster labels
+    labels = adata.obs[cluster_key].cat.codes.values
+    
+    # Check if we have more than one cluster
+    if len(np.unique(labels)) <= 1:
+        return 0.0
+    
+    # Get representation
+    X = adata.obsm[representation]
+    
+    # Calculate silhouette score
+    return metrics.silhouette_score(X, labels)
+
+
+def evaluate_calinski_harabasz(
+    adata,
+    cluster_key: str,
+    representation: str = "X_pca",
+) -> float:
+    """
+    Evaluate clustering using Calinski-Harabasz index.
+    
+    Args:
+        adata: AnnData object
+        cluster_key: Key in adata.obs containing cluster assignments
+        representation: Representation to use for distance calculation
+        
+    Returns:
+        Calinski-Harabasz index (higher is better)
+    """
+    # Get cluster labels
+    labels = adata.obs[cluster_key].cat.codes.values
+    
+    # Check if we have more than one cluster
+    if len(np.unique(labels)) <= 1:
+        return 0.0
+    
+    # Get representation
+    X = adata.obsm[representation]
+    
+    # Calculate Calinski-Harabasz index
+    return metrics.calinski_harabasz_score(X, labels)
+
+
+def merge_clusters(
+    adata,
+    cluster_key: str,
+    marker_config: str,
+    similarity_threshold: float = 0.8,
+    method: Literal["marker_overlap", "expression_correlation"] = "marker_overlap",
+    inplace: bool = True,
+    key_added: Optional[str] = None,
+) -> sc.AnnData:
+    """
+    Merge similar clusters based on marker overlap or expression correlation.
+    
+    Args:
+        adata: AnnData object
+        cluster_key: Key in adata.obs containing cluster assignments
+        marker_config: Path to marker configuration file
+        similarity_threshold: Threshold for merging clusters
+        method: Method to calculate similarity between clusters
+        inplace: Whether to modify adata inplace
+        key_added: Key under which to add the merged clustering result
+        
+    Returns:
+        AnnData with merged clusters
+    """
+    if not inplace:
+        adata = adata.copy()
+    
+    if key_added is None:
+        key_added = f"{cluster_key}_merged"
+    
+    # Get clusters
+    clusters = adata.obs[cluster_key].cat.categories
+    n_clusters = len(clusters)
+    
+    # Calculate similarity matrix
+    if method == "marker_overlap":
+        # Find top marker genes for each cluster
+        sc.tl.rank_genes_groups(adata, groupby=cluster_key, method='wilcoxon')
+        
+        # Get top markers for each cluster
+        top_markers = {}
+        for i, cluster in enumerate(clusters):
+            genes = [gene for gene in adata.uns['rank_genes_groups']['names'][str(i)]]
+            scores = [score for score in adata.uns['rank_genes_groups']['scores'][str(i)]]
+            
+            # Keep only positive markers with score > 0
+            pos_markers = [(gene, score) for gene, score in zip(genes, scores) if score > 0]
+            top_markers[cluster] = [gene for gene, _ in pos_markers[:50]]  # Top 50 positive markers
+        
+        # Calculate Jaccard similarity
+        similarity_matrix = np.zeros((n_clusters, n_clusters))
+        for i, c1 in enumerate(clusters):
+            for j, c2 in enumerate(clusters):
+                if i == j:
+                    similarity_matrix[i, j] = 1.0
+                else:
+                    set1 = set(top_markers[c1])
+                    set2 = set(top_markers[c2])
+                    if not set1 or not set2:
+                        similarity_matrix[i, j] = 0.0
+                    else:
+                        similarity_matrix[i, j] = len(set1.intersection(set2)) / len(set1.union(set2))
+    
+    elif method == "expression_correlation":
+        # Get expression matrix
+        if "normalized" in adata.layers:
+            X = adata.layers["normalized"]
+        elif "log1p_norm" in adata.layers:
+            X = adata.layers["log1p_norm"]
+        else:
+            X = adata.X
+            
+        # Calculate mean expression profile for each cluster
+        mean_profiles = np.zeros((n_clusters, adata.n_vars))
+        for i, cluster in enumerate(clusters):
+            mask = adata.obs[cluster_key] == cluster
+            if isinstance(X, np.ndarray):
+                mean_profiles[i] = np.mean(X[mask], axis=0)
+            else:  # sparse matrix
+                mean_profiles[i] = np.array(X[mask].mean(axis=0)).flatten()
+        
+        # Calculate correlation matrix
+        similarity_matrix = np.corrcoef(mean_profiles)
+    
+    else:
+        raise ValueError(f"Unknown method: {method}")
+    
+    # Create cluster graph based on similarity
+    import networkx as nx
+    G = nx.Graph()
+    
+    # Add nodes
+    for i, cluster in enumerate(clusters):
+        G.add_node(cluster)
+    
+    # Add edges for clusters with similarity above threshold
+    for i, c1 in enumerate(clusters):
+        for j, c2 in enumerate(clusters):
+            if i < j and similarity_matrix[i, j] >= similarity_threshold:
+                G.add_edge(c1, c2, weight=similarity_matrix[i, j])
+    
+    # Find connected components (clusters to merge)
+    connected_components = list(nx.connected_components(G))
+    
+    # Create mapping from old to new clusters
+    cluster_mapping = {}
+    for i, component in enumerate(connected_components):
+        for cluster in component:
+            cluster_mapping[cluster] = f"Cluster_{i+1}"
+    
+    # Apply mapping to create new cluster assignments
+    adata.obs[key_added] = adata.obs[cluster_key].map(cluster_mapping).astype('category')
+    
+    # Print merge results
+    print(f"Original clusters: {n_clusters}")
+    print(f"Merged clusters: {len(connected_components)}")
+    
+    # Add merge info to adata.uns
+    adata.uns[f"{key_added}_info"] = {
+        'original_key': cluster_key,
+        'similarity_threshold': similarity_threshold,
+        'method': method,
+        'original_clusters': n_clusters,
+        'merged_clusters': len(connected_components),
+        'mapping': cluster_mapping
+    }
     
     return adata

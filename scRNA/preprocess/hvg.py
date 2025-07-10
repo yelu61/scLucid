@@ -219,6 +219,7 @@ def select_hvg(
     subset: bool = True,
     key: Optional[str] = None,
     n_top_genes: Optional[int] = None,
+    inplace: bool = True,
 ) -> sc.AnnData:
     """
     Select highly variable genes (HVGs) based on previous annotations.
@@ -229,10 +230,15 @@ def select_hvg(
         subset: Whether to subset adata to only include HVGs
         key: If provided, use this key in adata.var instead of the method
         n_top_genes: If provided, select only this many top genes
+        inplace: Whether to modify adata inplace or return a copy
         
     Returns:
         AnnData with selected HVGs
     """
+    # Create a copy if not modifying inplace
+    if not inplace:
+        adata = adata.copy()
+        
     # Determine which key to use
     if key is not None:
         if key not in adata.var:

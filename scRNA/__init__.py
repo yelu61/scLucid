@@ -19,9 +19,9 @@ from . import workflows
 # Import key functions for direct access from the package
 from .qc import calculate_qc_metric, filter_low_quality_cells
 from .preprocess import normalize_data, annotate_hvg, batch_correction
-from .analysis import annotate_cell_types
+from .analysis import annotate_clusters
 from .tools import run_cnv_analysis
-from .workflows import run_standard_workflow
+#from .workflows import run_standard_workflow
 
 # Define what should be accessible when using `from scRNA import *`
 __all__ = [
@@ -39,7 +39,7 @@ __all__ = [
     "normalize_data",
     "annotate_hvg",
     "batch_correction",
-    "annotate_cell_types",
+    "annotate_clusters",
     "run_cnv_analysis",
-    "run_standard_workflow"
+    #"run_standard_workflow"
 ]

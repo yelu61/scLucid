@@ -1,59 +1,83 @@
-# preprocess/config.py
-"""单细胞RNA-seq数据预处理配置模块"""
+"""Configuration module for single-cell RNA-seq data analysis"""
 
 import os
 from typing import Dict, Any, Optional
 
-# 默认参数
+# Default parameters
 DEFAULT_PARAMS = {
-    # 通用参数
-    "batch_key": "sampleID",     # 批次/样本标识符
-    "random_seed": 42,           # 随机种子
+    # General parameters
+    "batch_key": "sampleID",     # Batch/sample identifier
+    "random_seed": 42,           # Random seed
     
-    # 层名称
-    "layer_raw": "counts",       # 原始计数层
-    "layer_norm": "log1p_norm",  # 标准化层
-    "layer_scale": "scaled",     # 缩放层
+    # Layer names
+    "layer_raw": "counts",       # Raw count layer
+    "layer_norm": "log1p_norm",  # Normalized layer
+    "layer_scale": "scaled",     # Scaled layer
     
-    # 标准化参数
-    "target_sum": 1e4,           # 标准化目标总和
+    # Normalization parameters
+    "target_sum": 1e4,           # Normalization target sum
     
-    # 高变基因参数
-    "n_top_genes": 2000,         # HVG数量
-    "min_mean": 0.0125,          # 最小平均表达
-    "max_mean": 3,               # 最大平均表达
-    "min_disp": 0.5,             # 最小离散度
+    # Highly variable genes parameters
+    "n_top_genes": 2000,         # Number of HVGs
+    "min_mean": 0.0125,          # Minimum mean expression
+    "max_mean": 3,               # Maximum mean expression
+    "min_disp": 0.5,             # Minimum dispersion
     
-    # 降维参数
-    "n_pcs": 50,                 # PCA维度
-    "n_neighbors": 15,           # KNN邻居数
+    # Dimensionality reduction parameters
+    "n_pcs": 50,                 # Number of principal components
+    "n_neighbors": 30,           # Number of neighbors for KNN
     
-    # 聚类参数
-    "resolution": 0.8,           # 聚类分辨率
+    # Clustering parameters
+    "resolution": 0.8,           # Clustering resolution
     
-    # 质量控制参数
-    "min_genes": 200,            # 最小基因数
-    "max_genes": 5000,           # 最大基因数
-    "min_cells": 3,              # 最小细胞数
-    "max_mt_percent": 20,        # 最大线粒体百分比
+    # Quality control parameters
+    "min_genes": 300,            # Minimum number of genes
+    "max_genes": 6000,           # Maximum number of genes
+    "min_cells": 3,              # Minimum number of cells
+    "max_mt_percent": 20,        # Maximum mitochondrial percentage
 }
 
 def get_param(name: str, user_params: Optional[Dict[str, Any]] = None) -> Any:
-    """获取参数值，优先使用用户指定的值"""
+    """Get parameter value, prioritizing user-specified values
+    
+    Args:
+        name: Parameter name to retrieve
+        user_params: Dictionary of user-specified parameters
+        
+    Returns:
+        The parameter value
+        
+    Raises:
+        ValueError: If the parameter name is not found
+    """
     if user_params and name in user_params:
         return user_params[name]
     if name in DEFAULT_PARAMS:
         return DEFAULT_PARAMS[name]
-    raise ValueError(f"未知参数: {name}")
+    raise ValueError(f"Unknown parameter: {name}")
 
 def load_config(config_file: str) -> Dict[str, Any]:
-    """从配置文件加载参数"""
+    """Load parameters from a configuration file
+    
+    Args:
+        config_file: Path to the JSON configuration file
+        
+    Returns:
+        Dictionary of user parameters
+        
+    Raises:
+        FileNotFoundError: If the configuration file does not exist
+        JSONDecodeError: If the configuration file contains invalid JSON
+    """
     import json
     
     if not os.path.exists(config_file):
-        raise FileNotFoundError(f"配置文件不存在: {config_file}")
+        raise FileNotFoundError(f"Configuration file not found: {config_file}")
     
-    with open(config_file, 'r') as f:
-        user_params = json.load(f)
+    try:
+        with open(config_file, 'r') as f:
+            user_params = json.load(f)
+    except json.JSONDecodeError as e:
+        raise json.JSONDecodeError(f"Invalid JSON in configuration file: {e.msg}", e.doc, e.pos)
     
     return user_params
