@@ -8,15 +8,12 @@ using the Scrublet algorithm and custom filtering approaches.
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
-import pandas as pd
 import scrublet as scr
-from typing import Dict, List, Optional
+from typing import Optional
 
 __all__ = [
-    "is_doublet", 
-    "filter_doublets"
+    "is_doublet"
 ]
-
 def is_doublet(
     adata: sc.AnnData,
     sample_key: str = "sampleID",
@@ -26,6 +23,7 @@ def is_doublet(
     over_genes: float = 0.99,
     plot_umap: bool = True,
     save_dir: Optional[str] = None,
+    show: bool = True,
 ) -> sc.AnnData:
     """
     Identify and plot potential doublet cells using the scrublet package.
@@ -97,7 +95,8 @@ def is_doublet(
                         import os
                         os.makedirs(save_dir, exist_ok=True)
                         plt.savefig(os.path.join(save_dir, f"{sample}_doublets_umap.png"), dpi=300)
-                    plt.show()
+                    if show:
+                        plt.show()
                     plt.close()
                 except Exception as e:
                     print(f"  Warning: Could not generate UMAP for doublets: {e}")
@@ -149,141 +148,3 @@ def is_doublet(
         )
 
     return adata
-
-def filter_doublets(
-    adata: sc.AnnData,
-    only_predicted_final: bool = True,
-    include_overexpressed: bool = False,
-    min_score: Optional[float] = None,
-    copy: bool = False
-) -> sc.AnnData:
-    """
-    Filter out doublet cells from the AnnData object.
-    
-    This function removes cells identified as doublets by the is_doublet function.
-    
-    Args:
-        adata (AnnData): AnnData object with doublet information (use is_doublet first)
-        only_predicted_final (bool, optional): If True, only filter cells marked as 
-                                              final predicted doublets. Defaults to True.
-        include_overexpressed (bool, optional): If True, also filter cells with 
-                                               overexpressed genes. Defaults to False.
-        min_score (float, optional): If provided, filter cells with doublet scores 
-                                    above this threshold. Defaults to None.
-        copy (bool, optional): If True, return a filtered copy of the AnnData object.
-                              If False, filter the AnnData object in place. Defaults to False.
-    
-    Returns:
-        AnnData: Filtered AnnData object with doublet cells removed
-        
-    Example:
-        >>> adata = sc.read_h5ad("data.h5ad")
-        >>> adata = scRNA.qc.is_doublet(adata, sample_key="batch")
-        >>> adata_filtered = scRNA.qc.filter_doublets(
-        ...     adata, only_predicted_final=True, include_overexpressed=True
-        ... )
-    """
-    # Check if doublet detection has been run
-    required_cols = ["doublet_scores", "predicted_doublets", "predicted_doublets_final"]
-    missing_cols = [col for col in required_cols if col not in adata.obs.columns]
-    
-    if missing_cols:
-        raise ValueError(
-            f"Missing required columns in adata.obs: {missing_cols}. "
-            f"Run is_doublet() first to identify doublets."
-        )
-    
-    # Create a mask for cells to keep (non-doublets)
-    keep_cells = np.ones(adata.n_obs, dtype=bool)
-    
-    # Filter based on final predicted doublets
-    if only_predicted_final:
-        keep_cells &= ~adata.obs["predicted_doublets_final"].values
-        filter_type = "final predicted doublets"
-    else:
-        keep_cells &= ~adata.obs["predicted_doublets"].values
-        filter_type = "all predicted doublets"
-    
-    # Optionally filter based on overexpressed genes
-    if include_overexpressed:
-        if "overexpressed_doublets" not in adata.obs.columns:
-            print("Warning: 'overexpressed_doublets' column not found. Skipping this filter.")
-        else:
-            keep_cells &= ~adata.obs["overexpressed_doublets"].values
-            filter_type += " and overexpressed genes"
-    
-    # Optionally filter based on doublet score threshold
-    if min_score is not None:
-        if min_score < 0 or min_score > 1:
-            raise ValueError(f"min_score must be between 0 and 1, got {min_score}")
-        
-        keep_cells &= (adata.obs["doublet_scores"] < min_score).values
-        filter_type += f" and score threshold {min_score}"
-    
-    # Get statistics before filtering
-    cells_before = adata.n_obs
-    cells_to_remove = np.sum(~keep_cells)
-    
-    # Create output object
-    if copy:
-        adata_out = adata[keep_cells].copy()
-    else:
-        adata_out = adata[keep_cells]
-    
-    # Print filtering statistics
-    cells_after = adata_out.n_obs
-    
-    print(f"Doublet filtering based on {filter_type}:")
-    print(f"  Cells before filtering: {cells_before}")
-    print(f"  Cells after filtering: {cells_after}")
-    print(f"  Removed doublets: {cells_to_remove} ({cells_to_remove/cells_before:.2%})")
-    
-    # Create a summary breakdown of removed cells
-    if cells_to_remove > 0:
-        if only_predicted_final:
-            n_final = np.sum(adata.obs["predicted_doublets_final"])
-            print(f"  - Final predicted doublets: {n_final} ({n_final/cells_before:.2%})")
-        else:
-            n_predicted = np.sum(adata.obs["predicted_doublets"])
-            print(f"  - All predicted doublets: {n_predicted} ({n_predicted/cells_before:.2%})")
-        
-        if include_overexpressed and "overexpressed_doublets" in adata.obs.columns:
-            n_overexp = np.sum(adata.obs["overexpressed_doublets"])
-            print(f"  - Overexpressed gene doublets: {n_overexp} ({n_overexp/cells_before:.2%})")
-        
-        if min_score is not None:
-            n_score = np.sum(adata.obs["doublet_scores"] >= min_score)
-            print(f"  - Score-based doublets (>={min_score}): {n_score} ({n_score/cells_before:.2%})")
-    
-    # Optional visualization of filtering results
-    try:
-        import matplotlib.pyplot as plt
-        
-        if cells_to_remove > 0:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            
-            # Plot doublet score distribution
-            ax.hist(adata.obs["doublet_scores"], bins=50, alpha=0.7, 
-                   label=f"All cells (n={cells_before})")
-            
-            # Highlight removed cells
-            if min_score is not None:
-                ax.axvline(x=min_score, color='r', linestyle='--', 
-                          label=f"Score threshold ({min_score})")
-            
-            removed_scores = adata.obs.loc[~keep_cells, "doublet_scores"]
-            if not removed_scores.empty:
-                ax.hist(removed_scores, bins=30, alpha=0.7, color='red',
-                       label=f"Removed doublets (n={cells_to_remove})")
-            
-            ax.set_xlabel("Doublet score")
-            ax.set_ylabel("Number of cells")
-            ax.set_title("Distribution of doublet scores")
-            ax.legend()
-            
-            plt.tight_layout()
-            plt.show()
-    except Exception as e:
-        print(f"Couldn't generate visualization: {e}")
-    
-    return adata_out

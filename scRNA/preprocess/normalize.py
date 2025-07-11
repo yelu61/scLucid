@@ -7,12 +7,14 @@ import scanpy as sc
 import seaborn as sns
 import numpy as np
 from scipy import sparse
-from typing import Optional, List, Union, Literal
+from typing import Optional, List, Literal
+from .utils.anndata_helpers import use_layer_as_X
+import os
 
 def normalize_data(
     adata: sc.AnnData,
     method: Literal["standard", "scran", "pearson_residuals"] = "standard",
-    layer: Optional[str] = None,
+    layer: Optional[str] = "counts",
     target_sum: float = 1e4,
     exclude_highly_expressed: bool = False,
     max_fraction: float = 0.05,
@@ -47,119 +49,83 @@ def normalize_data(
     Raises:
         ValueError: If `target_sum` is negative or `max_fraction` is not between 0 and 1.
     """
-    from scipy import sparse
+    print(f"Begin data normalization using '{method}' method.")
     
-    # Check input parameter validity
+    # Validate parameters
     if target_sum is not None and target_sum <= 0:
         raise ValueError("target_sum must be a positive number.")
     if not 0 < max_fraction < 1:
         raise ValueError("max_fraction must be between 0 and 1 (exclusive).")
     
-    # Check normalization method
-    valid_methods = ["standard", "scran", "pearson_residuals"]
-    if method not in valid_methods:
-        raise ValueError(f"method must be one of {valid_methods}")
+    # Ensure a raw counts layer exists for comparison plotting
+    if 'counts' not in adata.layers and layer is None:
+         adata.layers['counts'] = adata.X.copy()
+         print("Saved current adata.X to adata.layers['counts'] for reference.")
+        
+    input_data_source = adata.layers.get(layer, adata.X)
     
-    # Get raw data
-    if layer is None:
-        X_raw = adata.X.copy()
-    else:
-        if layer not in adata.layers:
-            print(f"Layer '{layer}' not found in adata.layers. Creating a new layer.")
-            adata.layers[layer] = adata.X.copy()
-        X_raw = adata.layers[layer].copy()
-    
-    # Save raw counts if 'raw_counts' layer doesn't exist
-    if 'raw_counts' not in adata.layers:
-        adata.layers['raw_counts'] = X_raw.copy()
-        print("Raw counts saved in adata.layers['raw_counts']")
-
-    print(f"Begin data normalization using {method} method.")
-
-    # Normalize data using the selected method
+     # --- Normalization ---
     if method == "standard":
-        # Standard normalization
-        if layer is None:
-            X_norm = sc.pp.normalize_total(
-                adata, 
-                target_sum=target_sum, 
-                exclude_highly_expressed=exclude_highly_expressed,
-                max_fraction=max_fraction,
-                inplace=False, 
-            )['X']
-        else:
-            X_norm = sc.pp.normalize_total(
-                adata, 
-                layer=layer,
-                target_sum=target_sum, 
-                exclude_highly_expressed=exclude_highly_expressed,
-                max_fraction=max_fraction,
-                inplace=False, 
-            )['X']
+        # Use a temporary AnnData object for normalization to avoid inplace modification issues
+        temp_adata = sc.AnnData(input_data_source.copy())
+        sc.pp.normalize_total(
+            temp_adata,
+            target_sum=target_sum,
+            exclude_highly_expressed=exclude_highly_expressed,
+            max_fraction=max_fraction,
+            inplace=True,
+        )
+        X_norm = temp_adata.X.copy()
     
     elif method == "scran":
-        try:
-            import rpy2
-            import rpy2.robjects as ro
-            from rpy2.robjects.packages import importr
-            from rpy2.robjects import pandas2ri
-            pandas2ri.activate()
+        print("Warning: The 'scran' method requires a separate installation of R, rpy2, and Bioconductor's scran package.")
+        print("This is a complex dependency. For now, this is a placeholder and will proceed with 'standard' normalization.")
+        # Fallback to standard normalization
+        temp_adata = sc.AnnData(input_data_source.copy())
+        sc.pp.normalize_total(temp_adata, target_sum=target_sum, inplace=True)
+        X_norm = temp_adata.X.copy()
+        #try:
+        #    import rpy2
+        #    import rpy2.robjects as ro
+        #    from rpy2.robjects.packages import importr
+        #    from rpy2.robjects import pandas2ri
+        #    pandas2ri.activate()
             
-            # Use scran from R via rpy2
-            importr('scran')
-            # Simplified example - in practice this would use rpy2 to call R's scran
-            print("Using scran for normalization...")
-            # This is a placeholder - actual implementation would involve R code
-            X_norm = sc.pp.normalize_total(adata, layer=layer, inplace=False)['X']
-            print("Note: This is currently a placeholder. Full scran implementation requires R integration.")
-        except ImportError:
-            raise ValueError("scran method requires rpy2. Please install with 'pip install rpy2'")
+        #    # Use scran from R via rpy2
+        #    importr('scran')
+        #    # Simplified example - in practice this would use rpy2 to call R's scran
+        #    print("Using scran for normalization...")
+        #    # This is a placeholder - actual implementation would involve R code
+        #    X_norm = sc.pp.normalize_total(adata, layer=layer, inplace=False)['X']
+        #    print("Note: This is currently a placeholder. Full scran implementation requires R integration.")
+        #except ImportError:
+        #    raise ValueError("scran method requires rpy2. Please install with 'pip install rpy2'")
     
     elif method == "pearson_residuals":
-        try:
-            from scipy import sparse
-            
-            # Calculate means and variances
-            if sparse.issparse(X_raw):
-                means = np.array(X_raw.mean(axis=0)).flatten()
-                X_raw_dense = X_raw.toarray()
-            else:
-                means = np.mean(X_raw, axis=0)
-                X_raw_dense = X_raw
-            
-            # Calculate Pearson residuals: (x - mean) / sqrt(mean)
-            residuals = (X_raw_dense - means) / np.sqrt(means + 0.1)  # Add 0.1 to avoid division by zero
-            
-            # Cap values to avoid extreme residuals
-            residuals = np.clip(residuals, -10, 10)
-            
-            if sparse.issparse(X_raw):
-                X_norm = sparse.csr_matrix(residuals)
-            else:
-                X_norm = residuals
-                
-        except Exception as e:
-            raise ValueError(f"Error computing Pearson residuals: {str(e)}")
+        # Pearson residuals normalization is an advanced method that replaces standard normalization and scaling.
+        print("Applying Pearson residuals normalization...")
+        X_norm = sc.experimental.pp.normalize_pearson_residuals(
+                    sc.AnnData(input_data_source.copy()), inplace=False
+                    )['X']
+        # Log transform is not needed for Pearson residuals
+        log_transform = False
     
-    # Store the normalized result
+    # --- Store Results and Log Transform ---
     adata.layers["normalized"] = X_norm.copy()
     
-    # Log transform if requested
-    if log_transform and method != "pearson_residuals":  # No need to log Pearson residuals
+    if log_transform:
         print("Applying log1p transformation.")
-        if sparse.issparse(X_norm):
-            X_log = X_norm.copy()
-            X_log.data = np.log1p(X_log.data)
-        else:
-            X_log = np.log1p(X_norm)
-        adata.layers[output_layer] = X_log
+        # sc.pp.log1p is robust for both sparse and dense matrices
+        adata.layers[output_layer] = sc.pp.log1p(X_norm, copy=True)
     else:
-        adata.layers[output_layer] = X_norm
-    
-    print("Normalization complete.")
+        adata.layers[output_layer] = X_norm.copy()
 
+    print(f"Normalization complete. Final data stored in adata.layers['{output_layer}']")
+
+    # --- Plotting ---
     if plot:
         # Visualize the distributions
+        print("Generating comparison plots...")
         plt.rcParams.update({
             'figure.facecolor': 'white',
             'axes.facecolor': 'white',
@@ -170,100 +136,65 @@ def normalize_data(
             'xtick.color': 'black',
             'ytick.color': 'black'
         })
-        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 5), facecolor='white')
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 5))
         fig.suptitle(f"Data Distributions Before and After {method.capitalize()} Normalization", fontsize=16, color='black')
 
-        # Plot total counts before normalization
-        if sparse.issparse(X_raw):
-            raw_sums = np.array(X_raw.sum(axis=1)).flatten()
-        else:
-            raw_sums = np.sum(X_raw, axis=1)
-            raw_sums = np.clip(raw_sums, 0, None)
-        sns.histplot(
-            raw_sums,
-            bins=100,
-            kde=True,
-            ax=axes[0],
-            color="navy",
-        )
-        axes[0].set_title("Total Counts (Before Normalization)", fontsize=14, color='black')
-        axes[0].set_xlabel("Total Counts", fontsize=12, color='black')
-        axes[0].set_ylabel("Frequency", fontsize=12, color='black')
-        axes[0].tick_params(colors='black')
-        
-        # Plot values after normalization
-        if sparse.issparse(X_norm):
-            norm_sums = np.array(adata.layers[output_layer].sum(axis=1)).flatten()
-        else:
-            norm_sums = np.sum(adata.layers[output_layer], axis=1)
-            
-        sns.histplot(
-            norm_sums,
-            bins=100,
-            kde=True,
-            ax=axes[1],
-            color="crimson",
-        )
-        title_suffix = " (Log-Transformed)" if log_transform and method != "pearson_residuals" else ""
-        axes[1].set_title(f"After {method.capitalize()} Normalization{title_suffix}", fontsize=14, color = 'black')
-        axes[1].set_xlabel("Values", fontsize=12, color='black')
-        axes[1].set_ylabel("Frequency", fontsize=12, color='black')
-        axes[1].tick_params(colors='black')
+        # Before
+        sns.histplot(np.array(input_data_source.sum(axis=1)).flatten(), bins=100, kde=True, ax=axes[0], color="navy")
+        axes[0].set_title("Before Normalization")
+        axes[0].set_xlabel("Total Counts per Cell")
 
-        plt.tight_layout(pad=2.0)
-        
+        # After
+        final_data = adata.layers[output_layer]
+        sns.histplot(np.array(final_data.sum(axis=1)).flatten(), bins=100, kde=True, ax=axes[1], color="crimson")
+        title_suffix = " (Log-Transformed)" if log_transform else ""
+        axes[1].set_title(f"After Normalization{title_suffix}")
+        axes[1].set_xlabel("Sum of Normalized Values per Cell")
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
         if save_dir:
-            import os
             os.makedirs(save_dir, exist_ok=True)
-            plt.savefig(os.path.join(save_dir, f"normalization_{method}.png"), dpi=300, facecolor='white', bbox_inches='tight', pad_inches=0.5)
-        
-        plt.show(fig)
+            plt.savefig(os.path.join(save_dir, f"normalization_{method}.png"), dpi=300)
+        plt.show()
         plt.close(fig)
 
     return adata
 
 def regress_out(
     adata: sc.AnnData,
-    keys: list,
+    keys: List[str],
     layer: Optional[str] = "log1p_norm",
-    n_jobs: int = None,
+    n_jobs: Optional[int] = None,
     output_layer: str = "regressed_out",
 ) -> sc.AnnData:
     """
-    Regress out unwanted sources of variation.
+    Regress out unwanted sources of variation from a specified layer.
     
     Args:
         adata: AnnData object
         keys: Variables to regress out (must be in adata.obs)
-        layer: Layer to use as input
-        n_jobs: Number of parallel jobs
-        output_layer: Layer to store result
+        layer: Layer to use as input for regression.
+        n_jobs: Number of parallel jobs to use
+        output_layer: Layer to store the regressed-out data.
         
     Returns:
         AnnData with regressed out variables
     """
-    # Check if keys exist
-    for key in keys:
-        if key not in adata.obs:
-            raise ValueError(f"Key '{key}' not found in adata.obs")
+    # Check if keys exist in adata.obs
+    missing_keys = [key for key in keys if key not in adata.obs]
+    if missing_keys:
+        raise ValueError(f"Keys not found in adata.obs: {', '.join(missing_keys)}")
     
-    # Determine data source
-    if layer is not None and layer in adata.layers:
-        print(f"Using layer '{layer}' for regression")
-        X_backup = adata.X.copy()
-        adata.X = adata.layers[layer].copy()
-    
-    # Regress out the specified variables
-    print(f"Regressing out: {', '.join(keys)}")
-    sc.pp.regress_out(adata, keys=keys, n_jobs=n_jobs)
-    
-    # Store result
-    if output_layer is not None:
+    print(f"Regressing out: {', '.join(keys)} from layer '{layer}'")
+
+    # Use the context manager to safely handle layers
+    with use_layer_as_X(adata, layer):
+        # The regress_out function modifies adata.X in place
+        sc.pp.regress_out(adata, keys=keys, n_jobs=n_jobs)
+        
+        # Store the result from the modified adata.X into the output layer
         adata.layers[output_layer] = adata.X.copy()
-        print(f"Regressed data stored in adata.layers['{output_layer}']")
     
-    # Restore original data if needed
-    if layer is not None and layer in adata.layers:
-        adata.X = X_backup
+    print(f"Regressed data stored in adata.layers['{output_layer}']")
     
     return adata

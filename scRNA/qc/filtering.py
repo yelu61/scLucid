@@ -5,18 +5,18 @@ This module provides functions for identifying and filtering low-quality
 cells based on various quality metrics.
 """
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 import pandas as pd
+import os
 from scipy.stats import median_abs_deviation
 from typing import List, Tuple, Literal
 
 __all__ = [
-    "is_low_quality_cell", 
+    "is_low_quality_cell",
     "identify_outliers",
-    "filter_low_quality_cells"
+    "filter_cells",
 ]
 
 def identify_outliers(
@@ -84,6 +84,8 @@ def is_low_quality_cell(
     pc_mt: int = 20,
     pc_hb: int = 20,
     plot_outliers: bool = False,
+    save_dir: str = None,
+    show: bool = True,
     outlier_metrics: List[Tuple[str, str]] = None,
 ) -> sc.AnnData:
     """
@@ -97,6 +99,8 @@ def is_low_quality_cell(
         pc_mt (int, optional): Maximum percentage of mitochondrial counts allowed. Defaults to 20.
         pc_hb (int, optional): Maximum percentage of hemoglobin counts allowed. Defaults to 20.
         plot_outliers (bool, optional): Whether to plot outlier cells. Defaults to False.
+        save_dir (str, optional): Directory to save plots. Defaults to None.
+        show (bool, optional): Whether to show plots. Defaults to True.
         outlier_metrics (List[Tuple[str, str]], optional): List of (metric, direction) tuples for outlier detection.
                                                          If None, default metrics will be used. Defaults to None.
 
@@ -207,135 +211,86 @@ def is_low_quality_cell(
             print(f"Plotting outliers for sample: {sample}")
             fig, axs = plt.subplots(2, 2, figsize=(10, 8), facecolor='white')
             axs = axs.flatten()
+            fig.suptitle(f"Outlier Plots for Sample: {sample}")
             for i, col in enumerate(["outlier", "mt_outlier", "hb_outlier", "low_genes_outlier"]):
-                if col in data.obs.columns:
-                    scatter = axs[i].scatter(
-                        data.obs["total_counts"], 
-                        data.obs["n_genes_by_counts"],
-                        c=data.obs[col].map({True: 'red', False: 'gray'}),
-                        alpha=0.6,
-                        s=10
+                if col in data.obs:
+                    sc.pl.scatter(
+                        data,
+                        x="total_counts", 
+                        y="n_genes_by_counts",
+                        color=col,
+                        ax=axs[i],
+                        show=False,
+                        title=col.replace("_", " ").title()
                     )
-                    axs[i].set_title(f"{col} - {sample}")
-                    axs[i].set_xlabel("Total counts")
-                    axs[i].set_ylabel("Number of genes")
-                    axs[i].legend(*scatter.legend_elements(), title=col)
-            
-            plt.tight_layout()
-            plt.show(fig)
-                       
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            if save_dir:
+                os.makedirs(save_dir, exist_ok=True)
+                fig.savefig(os.path.join(save_dir, f"{sample}_qc_outliers.png"), dpi=300, facecolor='white')
+            if show:
+                plt.show()
+            plt.close(fig)           
     return adata
-def filter_low_quality_cells(
+
+def filter_cells(
     adata: sc.AnnData,
-    filter_low_genes: bool = True,
-    filter_outliers: bool = True,
-    filter_mt: bool = True,
-    filter_hb: bool = True,
-    filter_doublets: bool = False,  # Default: do not filter doublets
-    only_predicted_final: bool = True,  # Only filter final predicted doublets
+    filter_by_outliers: bool = True,
+    filter_by_low_genes: bool = True,
+    filter_by_mt: bool = True,
+    filter_by_hb: bool = False, # Often not default
+    filter_by_doublets: bool = True,
+    copy: bool = False,
 ) -> sc.AnnData:
     """
-    Filter low-quality cells based on quality control results.
-    
-    This function completely removes cells that meet the specified filtering criteria,
-    returning a new AnnData object with only high-quality cells.
-    
+    Filter cells based on previously calculated QC and doublet metrics.
+
+    This function acts as a unified wrapper to remove cells marked by 
+    `is_low_quality_cell` and `is_doublet`.
+
     Args:
-        adata: AnnData object with QC metrics calculated (use is_low_quality_cell first)
-        filter_low_genes: Whether to filter cells with low gene counts
-        filter_outliers: Whether to filter outlier cells
-        filter_mt: Whether to filter cells with high mitochondrial content
-        filter_hb: Whether to filter cells with high hemoglobin content
-        filter_doublets: Whether to filter doublet cells
-        only_predicted_final: If filtering doublets, whether to only filter final predicted doublets
-        
+        adata: AnnData object with QC metrics calculated.
+        filter_by_*: Flags to determine which criteria to use for filtering.
+        copy: Whether to return a copy or filter in place.
+
     Returns:
-        adata_filtered: A new AnnData object with only high-quality cells
-        
-    Example:
-        >>> adata = scRNA.qc.calculate_qc_metric(adata, sample_key="batch")
-        >>> adata = scRNA.qc.is_low_quality_cell(adata, sample_key="batch")
-        >>> adata_filtered = scRNA.qc.filter_low_quality_cells(
-        ...     adata, filter_outliers=True, filter_mt=True, filter_doublets=True
-        ... )
+        Filtered AnnData object.
     """
-    mask = np.ones(adata.n_obs, dtype=bool)
     
-    if filter_low_genes and "low_genes_outlier" in adata.obs.columns:
-        mask &= ~adata.obs["low_genes_outlier"].values
+    initial_cells = adata.n_obs
+    cell_mask = pd.Series(True, index=adata.obs.index)
     
-    if filter_outliers:
-        mask &= ~adata.obs["outlier"].values
+    reasons = []
     
-    if filter_mt:
-        mask &= ~adata.obs["mt_outlier"].values
+    if filter_by_outliers and "outlier" in adata.obs.columns:
+        cell_mask &= ~adata.obs["outlier"]
+        reasons.append("outliers")
+
+    if filter_by_low_genes and "low_genes_outlier" in adata.obs.columns:
+        cell_mask &= ~adata.obs["low_genes_outlier"]
+        reasons.append("low gene counts")
+
+    if filter_by_mt and "mt_outlier" in adata.obs.columns:
+        cell_mask &= ~adata.obs["mt_outlier"]
+        reasons.append("high mitochondrial %")
+
+    if filter_by_hb and "hb_outlier" in adata.obs.columns:
+        cell_mask &= ~adata.obs["hb_outlier"]
+        reasons.append("high hemoglobin %")
+
+    if filter_by_doublets and "predicted_doublets_final" in adata.obs.columns:
+        cell_mask &= ~adata.obs["predicted_doublets_final"]
+        reasons.append("predicted doublets")
+
+    if not reasons:
+        print("No filtering criteria selected. Returning original object.")
+        return adata.copy() if copy else adata
+
+    print(f"Filtering cells based on: {', '.join(reasons)}")
     
-    if filter_hb:
-        mask &= ~adata.obs["hb_outlier"].values
+    adata_filtered = adata[cell_mask, :].copy() if copy else adata[cell_mask, :]
     
-    if filter_doublets:
-        if "predicted_doublets_final" not in adata.obs.columns:
-            print("Warning: Doublet detection has not been run. Skipping doublet filtering.")
-        else:
-            if only_predicted_final:
-                mask &= ~adata.obs["predicted_doublets_final"].values
-            else:
-                mask &= ~(adata.obs["predicted_doublets"].values | 
-                         adata.obs["predicted_doublets_final"].values | 
-                         adata.obs["overexpressed_doublets"].values)
-    
-    # Calculate the number of filtered cells
-    cells_before = adata.n_obs
-    adata_filtered = adata[mask].copy()
-    cells_after = adata_filtered.n_obs
-    cells_filtered = cells_before - cells_after
-    
-    print(f"Cells before filtering: {cells_before}")
-    print(f"Cells after filtering: {cells_after}")
-    print(f"Filtered cells: {cells_filtered} ({cells_filtered/cells_before:.2%})")
-    
-    # Detailed report of filtered cell types
-    if filter_low_genes and "low_genes_outlier" in adata.obs.columns:
-        n_low_genes = adata.obs["low_genes_outlier"].sum()
-        print(f"  Low gene count cells: {n_low_genes} ({n_low_genes/cells_before:.2%})")
-    
-    if filter_outliers:
-        n_outliers = adata.obs["outlier"].sum()
-        print(f"  Outlier cells: {n_outliers} ({n_outliers/cells_before:.2%})")
-    
-    if filter_mt:
-        n_mt = adata.obs["mt_outlier"].sum()
-        print(f"  High mitochondrial cells: {n_mt} ({n_mt/cells_before:.2%})")
-    
-    if filter_hb:
-        n_hb = adata.obs["hb_outlier"].sum()
-        print(f"  High hemoglobin cells: {n_hb} ({n_hb/cells_before:.2%})")
-    
-    if filter_doublets and "predicted_doublets_final" in adata.obs.columns:
-        if only_predicted_final:
-            n_doublets = adata.obs["predicted_doublets_final"].sum()
-            print(f"  Final predicted doublets: {n_doublets} ({n_doublets/cells_before:.2%})")
-        else:
-            n_doublets = (adata.obs["predicted_doublets"].values | 
-                         adata.obs["predicted_doublets_final"].values | 
-                         adata.obs["overexpressed_doublets"].values).sum()
-            print(f"  All types of doublets: {n_doublets} ({n_doublets/cells_before:.2%})")
-    
-    # Add simple visualization of filtering results
-    if cells_filtered > 0:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        categories = ["Low genes", "Outliers", "High MT", "High HB", "Doublets"]
-        counts = [
-            adata.obs["low_genes_outlier"].sum() if filter_low_genes and "low_genes_outlier" in adata.obs.columns else 0,
-            adata.obs["outlier"].sum() if filter_outliers else 0,
-            adata.obs["mt_outlier"].sum() if filter_mt else 0,
-            adata.obs["hb_outlier"].sum() if filter_hb else 0,
-            adata.obs["predicted_doublets_final"].sum() if filter_doublets and "predicted_doublets_final" in adata.obs.columns else 0
-        ]
-        ax.bar(categories, counts)
-        ax.set_ylabel("Number of cells")
-        ax.set_title("Filtered cells by category")
-        plt.tight_layout()
-        plt.show()
-    
+    print(f"  Initial cell count: {initial_cells}")
+    print(f"  Final cell count:   {adata_filtered.n_obs}")
+    print(f"  Cells removed:      {initial_cells - adata_filtered.n_obs} ({(initial_cells - adata_filtered.n_obs) / initial_cells:.2%})")
+
     return adata_filtered

@@ -8,300 +8,197 @@ import scanpy as sc
 from scipy import sparse
 import itertools
 from typing import Optional, List, Literal
+from .utils.anndata_helpers import use_layer_as_X
+
+# --- Helper Function for the 'custom' method ---
+
+def _get_sample_specific_genes(
+    adata: sc.AnnData,
+    sample_key: str,
+    n_specific_genes: int,
+) -> List[str]:
+    """
+    Identifies top genes specific to each sample using rank_genes_groups.
+    
+    This is a helper for the 'custom' HVG method to find genes that might
+    drive batch effects rather than shared biological variation.
+    """
+    # Ensure there are multiple samples to compare
+    if adata.obs[sample_key].nunique() <= 1:
+        print("Info: Only one sample group found. Skipping sample-specific gene identification.")
+        return []
+
+    try:
+        # Use a copy to avoid modifying the original object's .uns field
+        temp_adata = adata.copy()
+        
+        # rank_genes_groups requires a 'log1p' normalized layer in .X
+        if 'log1p' not in str(temp_adata.X[:5]): # Heuristic check
+             sc.pp.log1p(temp_adata)
+
+        sc.tl.rank_genes_groups(
+            temp_adata,
+            groupby=sample_key,
+            method="t-test",
+            n_genes=n_specific_genes,
+        )
+        
+        # Extract gene names from the result
+        specific_genes_df = pd.DataFrame(temp_adata.uns["rank_genes_groups"]["names"])
+        return list(np.unique(specific_genes_df.values.flatten()))
+
+    except Exception as e:
+        print(f"Warning: Could not identify sample-specific genes due to an error: {e}")
+        return []
+
+# --- Main Functions ---
 
 def annotate_hvg(
     adata: sc.AnnData,
-    method: str = 'scanpy',
-    flavor: str = 'seurat',
-    n_top_genes_scanpy: int = None,
+    method: Literal['scanpy', 'custom'] = 'scanpy',
+    layer: str = "log1p_norm",
+    n_top_genes: Optional[int] = 2000,
+    # Scanpy-specific args
+    flavor: Literal['seurat', 'seurat_v3', 'pearson_residuals'] = 'seurat',
+    batch_key: Optional[str] = None,
+    # Custom-specific args
     sample_key: str = "sampleID",
-    min_cells_per_sample: int = 10,
-    n_top_genes_custom: int = None,
     min_n_samples: int = 2,
     n_highly_expressed_genes: int = 100,
     n_specific_genes: int = 20,
-    exclude_mt: bool = False,
-    exclude_ribo: bool = False,
-    batch_key: str = None,
-    layer: str = "log1p_norm",
-):
+    exclude_mt_ribo: bool = True,
+) -> sc.AnnData:
     """
-    Annotate highly variable genes.
+    Annotates highly variable genes using one of two methods.
+
+    This function adds a boolean column to `adata.var` indicating HVGs.
 
     Args:
-        adata (AnnData): AnnData object containing single-cell data.
-        method (str, optional): Method to use for identifying highly variable genes.
-            Can be 'scanpy' or 'custom'. Defaults to 'scanpy'.
-        flavor (str, optional): Flavor to use for Scanpy's built-in method.
-            Can be 'seurat', 'seurat_v3' or 'pearson_residuals'. Defaults to 'seurat'.
-        n_top_genes_scanpy (int or None, optional): For Scanpy's built-in method, the number of highly variable genes to keep. Defaults to 'None'.
-            If None and flavor='seurat', Scanpy will automatically determine the number.
-            If flavor='seurat_v3' or flavor='pearson_residuals', this argument is mandatory and must be provided.
-        sample_key (str, optional): The key in adata.obs to identify different samples. Defaults to "sampleID".
-        min_cells_per_sample (int, optional): Minimum number of cells per sample. Defaults to 10.
-        n_top_genes_custom (int or None, optional): For the custom multi-criteria method, the number of highly variable genes to keep per sample. Defaults to None.
-        min_n_samples (int, optional): For the custom multi-criteria method, minimum number of samples where a gene must be highly variable. Defaults to 2.
-        n_highly_expressed_genes (int, optional): For the custom multi-criteria method, the number of top expressed genes to exclude from the highly variable gene set. Defaults to 100.
-        n_specific_genes (int, optional): For the custom multi-criteria method, number of sample-specific genes to exclude from the highly variable gene set. Defaults to 20.
-        exclude_mt (bool, optional): Whether to exclude mitochondrial genes from the highly variable gene set. Defaults to False.
-        exclude_ribo (bool, optional): Whether to exclude ribosomal genes from the highly variable gene set. Defaults to False.
-        batch_key (str, optional): The key in adata.obs to identify different batches for batch correction. Defaults to None.
-        layer (str, optional): Layer to use for HVG detection. Defaults to "log1p_norm".
+        adata: AnnData object.
+        method: Method for HVG selection ('scanpy' or 'custom').
+        layer: Layer to use for HVG detection.
+        n_top_genes: Number of top HVGs to select. Behavior depends on the method.
+        flavor: For 'scanpy' method, the flavor of HVG selection.
+        batch_key: For 'scanpy' method, batch key for batch-aware HVG selection.
+        sample_key: For 'custom' method, the key in adata.obs for per-sample HVG selection.
+        min_n_samples: For 'custom' method, min number of samples a gene must be HVG in.
+        n_highly_expressed_genes: For 'custom' method, number of top expressed genes to exclude.
+        n_specific_genes: For 'custom' method, number of sample-specific genes to exclude.
+        exclude_mt_ribo: Whether to exclude mitochondrial and ribosomal genes.
 
     Returns:
-        adata (AnnData): AnnData object with highly variable genes identified.
+        AnnData object with HVG annotations in `adata.var`.
     """
-    # Backup X if we're using a layer
-    if layer is not None and layer in adata.layers:
-        X_backup = adata.X.copy()
-        adata.X = adata.layers[layer].copy()
-        restore_X = True
-    else:
-        restore_X = False
-
-    if method == 'scanpy':
-        # Input parameter validation for Scanpy method
-        allowed_flavors = ['seurat', 'seurat_v3', 'pearson_residuals']
-        if flavor not in allowed_flavors:
-            raise ValueError(f"Invalid flavor '{flavor}'. Allowed values are: {', '.join(allowed_flavors)}")
-
-        if flavor in ['seurat_v3', 'pearson_residuals'] and n_top_genes_scanpy is None:
-            raise ValueError(f"`pp.highly_variable_genes` requires the argument `n_top_genes` for `flavor='{flavor}'`")
-
-        if batch_key is not None and batch_key not in adata.obs.columns:
-            raise KeyError(f"Key '{batch_key}' not found in adata.obs")
-        
-        if flavor == 'pearson_residuals':
-            sc.experimental.pp.highly_variable_genes(
-                adata,
-                flavor=flavor,
-                n_top_genes=n_top_genes_scanpy,
-                batch_key=batch_key,
-            )
-
-        elif flavor in ['seurat', 'seurat_v3']:
+    output_key = f"highly_variable_{method}"
+    
+    with use_layer_as_X(adata, layer):
+        if method == 'scanpy':
+            print(f"Running HVG selection with 'scanpy' method (flavor: {flavor}).")
+            if flavor in ['seurat_v3', 'pearson_residuals'] and n_top_genes is None:
+                raise ValueError(f"flavor='{flavor}' requires `n_top_genes` to be set.")
+            
             sc.pp.highly_variable_genes(
                 adata,
                 flavor=flavor,
-                n_top_genes=n_top_genes_scanpy,
+                n_top_genes=n_top_genes,
                 batch_key=batch_key,
+                inplace=True
             )
+            # Rename the default output for clarity
+            adata.var[output_key] = adata.var['highly_variable']
+            del adata.var['highly_variable']
 
-        adata.var['highly_variable_scanpy'] = adata.var['highly_variable'].astype(bool)
+        elif method == 'custom':
+            print("Running HVG selection with 'custom' multi-criteria method.")
+            if sample_key not in adata.obs.columns:
+                raise KeyError(f"Sample key '{sample_key}' not found in adata.obs")
 
-        # Exclude mitochondrial and ribosomal genes
-        if exclude_mt or exclude_ribo:
-            mt_patterns = [r"^MT-", r"^mt-", r"^mt:", r"^MT:"] if exclude_mt else []
-            rp_patterns = [r"^RP[SL]", r"^Rp[sl]"] if exclude_ribo else []
-            exclude_patterns = mt_patterns + rp_patterns
-
-            for pattern in exclude_patterns:
-                adata.var['highly_variable_scanpy'] = adata.var['highly_variable_scanpy'] & ~adata.var_names.str.contains(pattern)
-
-        print(f"Number of highly variable genes (Scanpy method): {sum(adata.var['highly_variable_scanpy'])}")
-
-    elif method == 'custom':
-        # Input parameter validation for custom method
-        if sample_key not in adata.obs.columns:
-            raise KeyError(f"Key '{sample_key}' not found in adata.obs")
-
-        highly_variable_masks = []
-        valid_samples = []
-
-        for sample in adata.obs[sample_key].unique():
-            sample_adata = adata[adata.obs[sample_key] == sample, :]
+            # 1. Find HVGs per sample
+            hvg_masks = []
+            for sample in adata.obs[sample_key].unique():
+                sample_adata = adata[adata.obs[sample_key] == sample].copy()
+                if sample_adata.n_obs > 10: # Min cells for seurat flavor
+                    sc.pp.highly_variable_genes(sample_adata, n_top_genes=n_top_genes, inplace=True)
+                    hvg_masks.append(sample_adata.var['highly_variable'])
             
-            if sample_adata.n_obs < min_cells_per_sample:
-                print(f"Warning: Sample '{sample}' has fewer than {min_cells_per_sample} cells. Skipping this sample.")
-                continue
+            if not hvg_masks:
+                raise ValueError("No samples had enough cells to compute HVGs.")
 
-            try:
-                highly_variable_mask = sc.pp.highly_variable_genes(
-                    sample_adata,
-                    flavor='seurat',
-                    n_top_genes=n_top_genes_custom,
-                    inplace=False,
-                )["highly_variable"]
-                highly_variable_masks.append(highly_variable_mask)
-                valid_samples.append(sample)
-            except Exception as e:
-                print(f"Error processing sample '{sample}': {str(e)}")
+            # 2. Combine HVGs across samples
+            combined_hvgs = pd.concat(hvg_masks, axis=1).sum(axis=1) >= min_n_samples
+            print(f"Found {combined_hvgs.sum()} genes considered HVG in at least {min_n_samples} samples.")
 
-        if not highly_variable_masks:
-            raise ValueError("No valid samples to process. Check your data and min_cells_per_sample threshold.")
+            # 3. Identify genes to exclude
+            # Highly expressed genes
+            gene_expr = np.array(adata.X.sum(axis=0)).flatten()
+            top_expr_genes = adata.var_names[np.argsort(-gene_expr)[:n_highly_expressed_genes]]
+            
+            # Sample-specific genes
+            specific_genes = _get_sample_specific_genes(adata, sample_key, n_specific_genes)
+            
+            exclude_genes = set(top_expr_genes) | set(specific_genes)
+            print(f"Identified {len(exclude_genes)} highly expressed or sample-specific genes to exclude.")
 
-        highly_variable = np.sum(highly_variable_masks, axis=0) >= min(min_n_samples, len(valid_samples))
-        adata.var["highly_variable_custom"] = pd.Series(highly_variable, index=adata.var_names)
-        print(f"Number of highly variable genes across samples (before filtering): {sum(adata.var['highly_variable_custom'])}")
+            # 4. Final HVG list
+            adata.var[output_key] = combined_hvgs & ~adata.var_names.isin(exclude_genes)
 
-        # Filter out highly expressed genes
-        if sparse.issparse(adata.X):
-            gene_expression_sum = np.array(adata.X.sum(axis=0)).flatten()
         else:
-            gene_expression_sum = np.sum(adata.X, axis=0)
-        gene_names = adata.var_names
-        gene_expression_df = pd.DataFrame({'gene': gene_names, 'expression_sum': gene_expression_sum})
-        top_genes = gene_expression_df.nlargest(n_highly_expressed_genes, 'expression_sum')['gene'].tolist()
-        print(f"Length of top_genes: {len(top_genes)}")
-        print(f"Top expressed genes: {', '.join(top_genes[:5])}...")
+            raise ValueError(f"Unknown method '{method}'. Choose 'scanpy' or 'custom'.")
 
-        # Identify sample-specific genes
-        specific_genes = []
-        if len(valid_samples) > 1:  # 只在有多个有效样本时执行
-            try:
-                valid_adata = adata[adata.obs[sample_key].isin(valid_samples)].copy()
-            
-                # 检查每个样本是否有足够的变异
-                if sparse.issparse(valid_adata.X):
-                    sample_vars = valid_adata.X.power(2).mean(axis=0).A1 - np.power(valid_adata.X.mean(axis=0).A1, 2)
-                else:
-                    sample_vars = np.var(valid_adata.X, axis=0)
-            
-                if np.any(sample_vars == 0):
-                    print("Warning: Some genes have zero variance. Removing these genes for rank_genes_groups.")
-                    valid_genes = sample_vars > 0
-                    valid_adata = valid_adata[:, valid_genes]
-            
-                sc.tl.rank_genes_groups(
-                    valid_adata,
-                    groupby=sample_key, 
-                    method="t-test", 
-                    n_genes=n_specific_genes,
-                )
+    # Common exclusion step for both methods
+    if exclude_mt_ribo:
+        mt_mask = adata.var_names.str.contains(r'^(MT|mt)-', regex=True)
+        ribo_mask = adata.var_names.str.contains(r'^(RP[SL]|Rp[sl])', regex=True)
+        exclude_mask = mt_mask | ribo_mask
+        adata.var[output_key] &= ~exclude_mask
+        print(f"Excluded {exclude_mask.sum()} mitochondrial/ribosomal genes.")
 
-                # 检查 rank_genes_groups 的结果是否按预期存储
-                if 'rank_genes_groups' in valid_adata.uns and 'names' in valid_adata.uns['rank_genes_groups']:
-                    specific_genes = list(
-                        set(itertools.chain.from_iterable(valid_adata.uns["rank_genes_groups"]["names"]))
-                    )
-                else:
-                    print("Warning: rank_genes_groups results not found in the expected format.")
-                    print("Available keys in valid_adata.uns['rank_genes_groups']:", valid_adata.uns['rank_genes_groups'].keys())
-            except Exception as e:
-                print(f"Error in rank_genes_groups: {str(e)}")
-    
-            if not specific_genes:
-                print("No sample-specific genes identified. Proceeding without sample-specific genes.")
-            
-        else:
-            print("Not enough valid samples to perform rank_genes_groups. Skipping this step.")
-
-        print(f"Length of specific_genes: {len(specific_genes)}")
-        if specific_genes:
-            print(f"Sample-specific genes: {', '.join(specific_genes[:5])}...")
-
-        combined_genes = list(set(top_genes + specific_genes))
-        print(f"Number of highest expressed or highly sample-specific genes: {len(combined_genes)}")
-
-        final_highly_variable = adata.var["highly_variable_custom"] & ~adata.var_names.isin(combined_genes)
-
-        # Exclude mitochondrial and ribosomal genes
-        if exclude_mt or exclude_ribo:
-            mt_patterns = [r"^MT-", r"^mt-", r"^mt:", r"^MT:"] if exclude_mt else []
-            rp_patterns = [r"^RP[SL]", r"^Rp[sl]"] if exclude_ribo else []
-            exclude_patterns = mt_patterns + rp_patterns
-            for pattern in exclude_patterns:
-                final_highly_variable = final_highly_variable & ~adata.var_names.str.contains(pattern)
-
-        adata.var["highly_variable_custom"] = final_highly_variable
-        print(f"Number of final highly variable genes (custom method): {sum(adata.var['highly_variable_custom'])}")
-
-    # Restore original X if we used a layer
-    if restore_X:
-        adata.X = X_backup
-
+    print(f"Final number of highly variable genes ({method} method): {adata.var[output_key].sum()}")
     return adata
 
 
 def select_hvg(
     adata: sc.AnnData,
-    method: Literal["scanpy", "custom", "combined", "intersection"] = "scanpy",
-    subset: bool = True,
-    key: Optional[str] = None,
+    hvg_key: str,
     n_top_genes: Optional[int] = None,
-    inplace: bool = True,
-) -> sc.AnnData:
+    subset: bool = True,
+) -> Optional[sc.AnnData]:
     """
-    Select highly variable genes (HVGs) based on previous annotations.
-    
+    Selects a final set of HVGs and optionally subsets the AnnData object.
+
     Args:
-        adata: AnnData object with HVG annotations (run annotate_hvg first)
-        method: Which method's results to use
-        subset: Whether to subset adata to only include HVGs
-        key: If provided, use this key in adata.var instead of the method
-        n_top_genes: If provided, select only this many top genes
-        inplace: Whether to modify adata inplace or return a copy
-        
+        adata: AnnData object with HVG annotations.
+        hvg_key: The column in `adata.var` to use (e.g., 'highly_variable_custom').
+        n_top_genes: If provided, select the top N genes based on normalized dispersion.
+        subset: If True, subsets `adata` to the selected HVGs and returns it.
+                If False, adds a new boolean mask to `adata.var` and returns None.
+
     Returns:
-        AnnData with selected HVGs
+        A subsetted AnnData object if `subset=True`, otherwise None.
     """
-    # Create a copy if not modifying inplace
-    if not inplace:
-        adata = adata.copy()
-        
-    # Determine which key to use
-    if key is not None:
-        if key not in adata.var:
-            raise KeyError(f"Key '{key}' not found in adata.var")
-        hvg_key = key
-    else:
-        if method == "scanpy":
-            if "highly_variable_scanpy" not in adata.var:
-                raise KeyError("Run annotate_hvg with method='scanpy' first")
-            hvg_key = "highly_variable_scanpy"
-        elif method == "custom":
-            if "highly_variable_custom" not in adata.var:
-                raise KeyError("Run annotate_hvg with method='custom' first")
-            hvg_key = "highly_variable_custom"
-        elif method == "combined":
-            # Union of scanpy and custom HVGs
-            if "highly_variable_scanpy" not in adata.var or "highly_variable_custom" not in adata.var:
-                raise KeyError("Run annotate_hvg with both method='scanpy' and method='custom' first")
-            adata.var["highly_variable_combined"] = (
-                adata.var["highly_variable_scanpy"] | adata.var["highly_variable_custom"]
-            )
-            hvg_key = "highly_variable_combined"
-        elif method == "intersection":
-            # Intersection of scanpy and custom HVGs
-            if "highly_variable_scanpy" not in adata.var or "highly_variable_custom" not in adata.var:
-                raise KeyError("Run annotate_hvg with both method='scanpy' and method='custom' first")
-            adata.var["highly_variable_intersection"] = (
-                adata.var["highly_variable_scanpy"] & adata.var["highly_variable_custom"]
-            )
-            hvg_key = "highly_variable_intersection"
-        else:
-            raise ValueError(f"Unknown method: {method}")
+    if hvg_key not in adata.var:
+        raise KeyError(f"HVG key '{hvg_key}' not found in `adata.var`. Please run `annotate_hvg` first.")
+
+    final_hvg_mask = adata.var[hvg_key].copy()
     
-    # If n_top_genes is provided, select top genes
     if n_top_genes is not None:
-        if "dispersions_norm" in adata.var:
-            dispersion_key = "dispersions_norm"
-        elif "dispersions" in adata.var:
-            dispersion_key = "dispersions"
-        else:
-            raise KeyError("No dispersion values found in adata.var")
+        if "dispersions_norm" not in adata.var:
+            raise KeyError("`dispersions_norm` not found in `adata.var`. Needed to select top N genes.")
         
-        # Create mask of HVGs sorted by dispersion
-        hvg_mask = adata.var[hvg_key]
-        dispersions = adata.var[dispersion_key]
-        top_genes = dispersions[hvg_mask].sort_values(ascending=False).index[:n_top_genes]
+        # Sort genes by dispersion, but only consider those already marked as HVG
+        dispersions = adata.var.loc[final_hvg_mask, 'dispersions_norm']
+        top_genes = dispersions.nlargest(n_top_genes).index
         
-        # Create new mask with only top genes
-        new_mask = pd.Series(False, index=adata.var_names)
-        new_mask.loc[top_genes] = True
-        
-        # Store the result
-        new_key = f"{hvg_key}_top{n_top_genes}"
-        adata.var[new_key] = new_mask
-        hvg_key = new_key
-    
-    # Print stats
-    n_hvgs = sum(adata.var[hvg_key])
-    print(f"Selected {n_hvgs} highly variable genes using {hvg_key}")
-    
-    # Subset if requested
+        # Create a new mask with only the top N genes
+        final_hvg_mask = adata.var_names.isin(top_genes)
+        print(f"Selected top {final_hvg_mask.sum()} HVGs based on dispersion.")
+
+    # Update adata.var['highly_variable'] which is the default for downstream tools
+    adata.var['highly_variable'] = final_hvg_mask
+    print(f"Adata.var['highly_variable'] updated with {final_hvg_mask.sum()} genes.")
+
     if subset:
-        print(f"Subsetting adata to {n_hvgs} highly variable genes")
-        adata = adata[:, adata.var[hvg_key]].copy()
+        print("Subsetting AnnData object to selected HVGs.")
+        return adata[:, adata.var['highly_variable']].copy()
     
-    return adata
+    return None # Return None if inplace

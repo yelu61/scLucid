@@ -1,349 +1,185 @@
 """
-Data integration methods for single-cell RNA-seq data.
+Data integration and batch effect correction methods.
 """
 
-import anndata as ad
-import numpy as np
 import scanpy as sc
-from typing import Optional, Literal, Union, List
+import numpy as np
+import pandas as pd
+from typing import Optional, Literal, List
 import matplotlib.pyplot as plt
+import os
 
-def integrate_scanorama(
+# ==============================================================================
+# Low-Level Integration Wrappers
+# ==============================================================================
+
+def _integrate_harmony(
     adata: sc.AnnData,
-    batch_key: str = "sampleID", 
-    dims: int = 50,
-    hvg_key: Optional[str] = "highly_variable",
-    min_batches: int = 2,
-    embedding_key: str = "X_scanorama",
-):
-    """
-    Integrate data using Scanorama.
-    
-    Args:
-        adata: AnnData object
-        batch_key: Key in adata.obs that denotes the batch
-        dims: Number of dimensions for the integrated embedding
-        hvg_key: Key in adata.var to use for highly variable genes
-        min_batches: Minimum number of batches in which a gene should be variable
-        embedding_key: Key to store the integrated embedding
-        
-    Returns:
-        AnnData with Scanorama integration
-    """
-    try:
-        import scanorama
-    except ImportError:
-        raise ImportError("Please install Scanorama: pip install scanorama")
-    
-    # Check batch_key
-    if batch_key not in adata.obs:
-        raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
-    
-    # Use HVGs across multiple batches
-    if hvg_key is not None and hvg_key in adata.var:
-        # If we have information about number of batches where gene is variable
-        if "highly_variable_nbatches" in adata.var:
-            var_select = adata.var.highly_variable_nbatches >= min_batches
-        else:
-            var_select = adata.var[hvg_key]
-        
-        var_genes = var_select.index[var_select]
-        print(f"Using {len(var_genes)} genes for integration")
-    else:
-        # Use all genes if no HVG information
-        var_genes = adata.var_names
-        print("No highly variable genes specified. Using all genes.")
-    
-    # Split per batch into new objects
-    batches = adata.obs[batch_key].cat.categories.tolist()
-    alldata = {}
-    for batch in batches:
-        alldata[batch] = adata[adata.obs[batch_key] == batch,]
-
-    # Subset the individual dataset to the variable genes
-    alldata2 = dict()
-    for ds in alldata.keys():
-        print(f"Processing batch: {ds}")
-        alldata2[ds] = alldata[ds][:,var_genes]
-
-    # Convert to list of AnnData objects
-    adatas = list(alldata2.values())
-
-    # Run scanorama.integrate
-    print(f"Running Scanorama with {dims} dimensions...")
-    scanorama.integrate_scanpy(adatas, dimred=dims) 
-    
-    # Get all the integrated matrices
-    scanorama_int = [ad_.obsm['X_scanorama'] for ad_ in adatas]
-
-    # Make into one matrix
-    all_s = np.concatenate(scanorama_int)
-    print(f"Integrated matrix shape: {all_s.shape}")
-
-    # Add to the AnnData object
-    adata.obsm[embedding_key] = all_s
-    
-    print(f"Scanorama integration complete. Results stored in adata.obsm['{embedding_key}']")
-    
-    return adata
-
-
-def integrate_scvi(
-    adata: sc.AnnData, 
-    layer: Optional[str] = "counts", 
-    batch_key: str = "sampleID", 
-    batch_size: int = 256,
-    max_epochs: int = 500,
-    n_layers: int = 2, 
-    n_latent: int = 30, 
-    embedding_key: str = "X_scVI",
-):
-    """
-    Integrate data using scVI.
-    
-    Args:
-        adata: AnnData object
-        layer: Layer containing count data
-        batch_key: Key in adata.obs that denotes the batch
-        batch_size: Batch size for training
-        max_epochs: Maximum number of training epochs
-        n_layers: Number of layers in the model
-        n_latent: Number of latent dimensions
-        embedding_key: Key to store the integrated embedding
-        
-    Returns:
-        AnnData with scVI integration
-    """
-    try:
-        import scvi
-    except ImportError:
-        raise ImportError("Please install scVI: pip install scvi-tools")
-    
-    # Check batch_key
-    if batch_key not in adata.obs:
-        raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
-    
-    # Setup anndata for scVI
-    print("Setting up AnnData for scVI...")
-    scvi.model.SCVI.setup_anndata(adata, layer=layer, batch_key=batch_key)
-    
-    # Create and train the model
-    print(f"Creating scVI model with {n_latent} latent dimensions...")
-    model = scvi.model.SCVI(
-        adata, 
-        n_layers=n_layers, 
-        n_latent=n_latent,
-        gene_likelihood="nb")
-    
-    print(f"Training scVI model (max_epochs={max_epochs})...")
-    model.train(
-        batch_size=batch_size,
-        max_epochs=max_epochs,
-        early_stopping=True,
-    )
-    
-    # Get latent representation
-    print("Extracting latent representation...")
-    adata.obsm[embedding_key] = model.get_latent_representation()
-    
-    print(f"scVI integration complete. Results stored in adata.obsm['{embedding_key}']")
- 
-    return adata
-
-
-def integrate_harmony(
-    adata: sc.AnnData, 
-    batch_key: str = "sampleID", 
+    batch_key: str,
     basis: str = 'X_pca',
     embedding_key: str = "X_harmony",
+    **kwargs
 ):
-    """
-    Integrate data using Harmony.
-    
-    Args:
-        adata: AnnData object
-        batch_key: Key in adata.obs that denotes the batch
-        basis: Representation to use for integration
-        embedding_key: Key to store the integrated embedding
-        
-    Returns:
-        AnnData with Harmony integration
-    """
+    """Internal wrapper for Harmony integration."""
     try:
         from scanpy.external.pp import harmony_integrate
     except ImportError:
         raise ImportError("Please install harmonypy: pip install harmonypy")
-    
-    # Check batch_key
-    if batch_key not in adata.obs:
-        raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
-    
-    # Check if basis exists
+
     if basis not in adata.obsm:
         raise ValueError(f"Basis '{basis}' not found in adata.obsm. Run PCA first.")
+
+    # Harmony modifies the basis in-place and saves to a new key
+    harmony_integrate(adata, key=batch_key, basis=basis, **kwargs)
     
-    print(f"Running Harmony integration using {basis} as input...")
-    harmony_integrate(adata, key=batch_key, basis=basis)
-    
-    # If the key isn't the desired one, rename it
-    if f"X_pca_{batch_key}" in adata.obsm and embedding_key != f"X_pca_{batch_key}":
-        adata.obsm[embedding_key] = adata.obsm[f"X_pca_{batch_key}"].copy()
-    
-    print(f"Harmony integration complete. Results stored in adata.obsm['{embedding_key}']")
+    # Standardize output key
+    adata.obsm[embedding_key] = adata.obsm['X_pca_harmony'].copy()
+    if 'X_pca_harmony' != embedding_key:
+        del adata.obsm['X_pca_harmony']
     
     return adata
 
+def _integrate_scanorama(
+    adata: sc.AnnData,
+    batch_key: str,
+    hvg: Optional[List[str]] = None,
+    dims: int = 50,
+    embedding_key: str = "X_scanorama",
+    **kwargs
+):
+    """Internal wrapper for Scanorama integration."""
+    try:
+        import scanorama
+    except ImportError:
+        raise ImportError("Please install Scanorama: pip install scanorama")
+
+    # Split AnnData object by batch
+    batches = adata.obs[batch_key].unique()
+    adatas_list = [adata[adata.obs[batch_key] == b].copy() for b in batches]
+
+    # Use HVGs if provided
+    if hvg is not None:
+        print(f"Subsetting to {len(hvg)} highly variable genes for Scanorama.")
+        for ad in adatas_list:
+            # Ensure we don't error on missing genes, just use what's available
+            genes_in_batch = ad.var_names.intersection(hvg)
+            ad._inplace_subset_var(genes_in_batch)
+
+    # Run Scanorama integration
+    scanorama.integrate_scanpy(adatas_list, dimred=dims, **kwargs)
+    
+    # Concatenate the results back into the original adata object
+    # The order is preserved from the initial split
+    integrated_embedding = np.concatenate([ad.obsm['X_scanorama'] for ad in adatas_list])
+    adata.obsm[embedding_key] = integrated_embedding
+    
+    return adata
+
+def _integrate_scvi(
+    adata: sc.AnnData,
+    batch_key: str,
+    layer: Optional[str] = "counts",
+    n_latent: int = 30,
+    embedding_key: str = "X_scVI",
+    **kwargs
+):
+    """Internal wrapper for scVI integration."""
+    try:
+        import scvi
+    except ImportError:
+        raise ImportError("Please install scvi-tools: pip install scvi-tools")
+
+    # scVI requires setup on the AnnData object
+    scvi.model.SCVI.setup_anndata(adata, layer=layer, batch_key=batch_key)
+    
+    model = scvi.model.SCVI(adata, n_latent=n_latent)
+    model.train(**kwargs) # Pass other training args like max_epochs
+    
+    adata.obsm[embedding_key] = model.get_latent_representation()
+    return adata
+
+# ==============================================================================
+# High-Level Batch Correction Workflow Function
+# ==============================================================================
 
 def batch_correction(
     adata: sc.AnnData,
     batch_key: str,
-    method: Literal["harmony", "scanorama", "scvi", "bbknn"] = "harmony",
-    embedding_key: Optional[str] = None,
-    n_pcs: int = 50,
+    method: Literal["harmony", "scanorama", "scvi"] = "harmony",
     use_rep: str = "X_pca",
-    hvg_key: str = "highly_variable",
-    layer: Optional[str] = None,
+    hvg_key: Optional[str] = "highly_variable",
+    layer: Optional[str] = "counts",
     plot: bool = True,
     save_dir: Optional[str] = None,
     **kwargs
 ) -> sc.AnnData:
     """
-    Perform batch correction on the AnnData object.
-    
+    Performs batch correction using a specified integration method.
+
+    This function serves as a high-level wrapper that calls the appropriate
+    integration tool and visualizes the result.
+
     Args:
-        adata: AnnData object
-        batch_key: Key in adata.obs that denotes the batch
-        method: Method for batch correction
-        embedding_key: Key to store the corrected embedding
-        n_pcs: Number of principal components to use
-        use_rep: Representation to use for batch correction
-        hvg_key: Key in adata.var for highly variable genes
-        layer: Layer to use for scVI integration
-        plot: Whether to plot UMAP before and after correction
-        save_dir: Directory to save plots
-        **kwargs: Additional arguments to pass to the integration method
-        
+        adata: AnnData object. Must contain a dimensionality reduction (e.g., PCA).
+        batch_key: Key in `adata.obs` that denotes the batch.
+        method: Integration method to use.
+        use_rep: The representation to use as input for Harmony. Defaults to 'X_pca'.
+        hvg_key: Key in `adata.var` specifying HVGs, used by Scanorama.
+        layer: Layer containing raw counts, used by scVI.
+        plot: If True, plots UMAPs before and after correction for comparison.
+        save_dir: Directory to save plots.
+        **kwargs: Additional arguments to pass to the integration method's train/run function.
+
     Returns:
-        AnnData with batch-corrected representation
+        The AnnData object with a new batch-corrected embedding in `adata.obsm`.
     """
-    import gc
-    
-    # Check if PCA has been computed
-    if use_rep == "X_pca" and use_rep not in adata.obsm:
-        print("Computing PCA...")
-        sc.pp.pca(adata, n_comps=n_pcs)
-    
-    # Check batch_key
     if batch_key not in adata.obs:
-        raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
+        raise ValueError(f"Batch key '{batch_key}' not found in `adata.obs`.")
+
+    output_key = f"X_{method}"
     
-    # Set default embedding key if not provided
-    if embedding_key is None:
-        embedding_key = f"X_{method}"
-    
-    # Make a copy for visualization
+    # --- Plotting: Before Correction ---
     if plot:
-        adata_copy = adata.copy()
-        sc.pp.neighbors(adata_copy, use_rep=use_rep)
-        sc.tl.umap(adata_copy)
-    
-    print(f"Performing batch correction using {method}...")
-    
+        print("Generating UMAP before batch correction...")
+        adata_before = adata.copy()
+        sc.pp.neighbors(adata_before, use_rep=use_rep)
+        sc.tl.umap(adata_before)
+
+    # --- Integration ---
+    print(f"Performing batch correction using '{method}'...")
     if method == "harmony":
-        integrate_harmony(adata, batch_key=batch_key, basis=use_rep, embedding_key=embedding_key, **kwargs)
+        _integrate_harmony(adata, batch_key=batch_key, basis=use_rep, embedding_key=output_key, **kwargs)
     
     elif method == "scanorama":
-        integrate_scanorama(adata, batch_key=batch_key, dims=n_pcs, hvg_key=hvg_key, embedding_key=embedding_key, **kwargs)
-    
+        hvg_list = adata.var_names[adata.var[hvg_key]] if hvg_key in adata.var else None
+        _integrate_scanorama(adata, batch_key=batch_key, hvg=hvg_list, dims=adata.obsm[use_rep].shape[1], embedding_key=output_key, **kwargs)
+
     elif method == "scvi":
-        integrate_scvi(adata, layer=layer, batch_key=batch_key, n_latent=n_pcs, embedding_key=embedding_key, **kwargs)
-    
-    elif method == "bbknn":
-        try:
-            from scanpy.external.pp import bbknn
-            
-            # Run BBKNN
-            bbknn(adata, batch_key=batch_key, use_rep=use_rep, **kwargs)
-            
-            # BBKNN directly modifies the neighbor graph
-            print("BBKNN batch correction complete.")
-            
-        except ImportError:
-            raise ImportError("Please install BBKNN: pip install bbknn")
-    
+        _integrate_scvi(adata, batch_key=batch_key, layer=layer, n_latent=adata.obsm[use_rep].shape[1], embedding_key=output_key, **kwargs)
+
     else:
-        raise ValueError(f"Unknown batch correction method: {method}")
-    
-    gc.collect()
-    
-    # Plot results if requested
+        raise ValueError(f"Unknown integration method: '{method}'. Choose from 'harmony', 'scanorama', 'scvi'.")
+
+    print(f"Integration complete. Corrected embedding stored in `adata.obsm['{output_key}']`.")
+
+    # --- Plotting: After Correction ---
     if plot:
-        import matplotlib.pyplot as plt
+        print("Generating UMAP after batch correction...")
+        # Compute neighbors and UMAP on the new, corrected embedding
+        sc.pp.neighbors(adata, use_rep=output_key)
+        sc.tl.umap(adata)
         
         fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+        fig.suptitle("Batch Correction Comparison", fontsize=16)
         
-        # Before correction
-        sc.pl.umap(adata_copy, color=batch_key, ax=axes[0], show=False, title="Before Batch Correction")
+        sc.pl.umap(adata_before, color=batch_key, ax=axes[0], show=False, title=f"Before Correction ({use_rep})")
+        sc.pl.umap(adata, color=batch_key, ax=axes[1], show=False, title=f"After {method.capitalize()} Correction")
         
-        # After correction
-        if method != "bbknn":
-            # Compute neighbors and UMAP with corrected embedding
-            sc.pp.neighbors(adata, use_rep=embedding_key)
-        sc.tl.umap(adata)
-        sc.pl.umap(adata, color=batch_key, ax=axes[1], show=False, title=f"After {method.upper()} Correction")
-        
-        plt.tight_layout()
-        
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         if save_dir:
-            import os
             os.makedirs(save_dir, exist_ok=True)
             plt.savefig(os.path.join(save_dir, f"batch_correction_{method}.png"), dpi=300)
-        
         plt.show()
-    
-    return adata
+        plt.close(fig)
 
-def adaptive_batch_correction(
-    adata,
-    batch_key,
-    method="auto",
-    n_cells_threshold=5000,
-    n_batches_threshold=5,
-    **kwargs
-):
-    """
-    Adaptively select batch correction method based on data size.
-    
-    Args:
-        adata: AnnData object
-        batch_key: Key in adata.obs that denotes the batch
-        method: Batch correction method or "auto" to select automatically
-        n_cells_threshold: Threshold for number of cells to use scVI
-        n_batches_threshold: Threshold for number of batches to use scVI
-        **kwargs: Additional arguments for batch_correction
-        
-    Returns:
-        AnnData with batch-corrected data
-    """
-    # Validate batch key
-    if batch_key not in adata.obs:
-        raise ValueError(f"Batch key '{batch_key}' not found in adata.obs")
-    
-    # Calculate number of batches and cells
-    n_batches = len(adata.obs[batch_key].unique())
-    n_cells = adata.n_obs
-    
-    if method == "auto":
-        # Automatically select method based on data size
-        if n_cells > n_cells_threshold and n_batches > n_batches_threshold:
-            print(f"Detected large dataset ({n_cells} cells, {n_batches} batches), using scVI for batch correction")
-            method = "scvi"
-        elif n_batches <= 2:
-            print(f"Detected few batches ({n_batches}), using Harmony for batch correction")
-            method = "harmony"
-        else:
-            print(f"Using Scanorama for batch correction")
-            method = "scanorama"
-    
-    print(f"Performing batch correction, method: {method}")
-    return batch_correction(adata, batch_key=batch_key, method=method, **kwargs)
+    return adata
