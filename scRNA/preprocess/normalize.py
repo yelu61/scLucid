@@ -160,15 +160,25 @@ def normalize_data(
 
     if plot:
         # Visualize the distributions
-        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(15, 5))
-        fig.suptitle(f"Data Distributions Before and After {method.capitalize()} Normalization", fontsize=16)
+        plt.rcParams.update({
+            'figure.facecolor': 'white',
+            'axes.facecolor': 'white',
+            'savefig.facecolor': 'white',
+            'text.color': 'black',
+            'axes.labelcolor': 'black',
+            'axes.edgecolor': 'black',
+            'xtick.color': 'black',
+            'ytick.color': 'black'
+        })
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 5), facecolor='white')
+        fig.suptitle(f"Data Distributions Before and After {method.capitalize()} Normalization", fontsize=16, color='black')
 
         # Plot total counts before normalization
         if sparse.issparse(X_raw):
             raw_sums = np.array(X_raw.sum(axis=1)).flatten()
         else:
             raw_sums = np.sum(X_raw, axis=1)
-            
+            raw_sums = np.clip(raw_sums, 0, None)
         sns.histplot(
             raw_sums,
             bins=100,
@@ -176,9 +186,11 @@ def normalize_data(
             ax=axes[0],
             color="navy",
         )
-        axes[0].set_title("Total Counts (Before Normalization)", fontsize=14)
-        axes[0].set_xlabel("Total Counts", fontsize=12)
-
+        axes[0].set_title("Total Counts (Before Normalization)", fontsize=14, color='black')
+        axes[0].set_xlabel("Total Counts", fontsize=12, color='black')
+        axes[0].set_ylabel("Frequency", fontsize=12, color='black')
+        axes[0].tick_params(colors='black')
+        
         # Plot values after normalization
         if sparse.issparse(X_norm):
             norm_sums = np.array(adata.layers[output_layer].sum(axis=1)).flatten()
@@ -193,17 +205,20 @@ def normalize_data(
             color="crimson",
         )
         title_suffix = " (Log-Transformed)" if log_transform and method != "pearson_residuals" else ""
-        axes[1].set_title(f"After {method.capitalize()} Normalization{title_suffix}", fontsize=14)
-        axes[1].set_xlabel("Values", fontsize=12)
+        axes[1].set_title(f"After {method.capitalize()} Normalization{title_suffix}", fontsize=14, color = 'black')
+        axes[1].set_xlabel("Values", fontsize=12, color='black')
+        axes[1].set_ylabel("Frequency", fontsize=12, color='black')
+        axes[1].tick_params(colors='black')
 
-        plt.tight_layout()
+        plt.tight_layout(pad=2.0)
         
         if save_dir:
             import os
             os.makedirs(save_dir, exist_ok=True)
-            plt.savefig(os.path.join(save_dir, f"normalization_{method}.png"), dpi=300)
+            plt.savefig(os.path.join(save_dir, f"normalization_{method}.png"), dpi=300, facecolor='white', bbox_inches='tight', pad_inches=0.5)
         
-        plt.show()
+        plt.show(fig)
+        plt.close(fig)
 
     return adata
 

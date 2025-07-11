@@ -9,8 +9,8 @@ cells and doublets, and filtering cells based on QC parameters.
 __version__ = "0.1.0"
 
 # Import and expose key functions from submodules
-from .metrics import calculate_qc_metric, identify_outliers
-from .filtering import is_low_quality_cell, filter_low_quality_cells
+from .metrics import calculate_qc_metric
+from .filtering import is_low_quality_cell, filter_low_quality_cells, identify_outliers
 from .doublet import is_doublet, filter_doublets
 
 # Define what should be accessible when importing from this module

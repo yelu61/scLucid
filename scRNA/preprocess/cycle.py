@@ -7,7 +7,6 @@ various utility functions for data validation and preprocessing.
 
 import matplotlib.pyplot as plt
 import scanpy as sc
-from scipy import sparse
 from typing import Optional, List, Union, Literal
 
 def score_cell_cycle(
@@ -180,8 +179,8 @@ def score_cell_cycle(
     
     # Plot cell cycle scores
     if plot:
-        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-        
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5), facecolor='white')
+        plt.rcParams.update({'figure.facecolor':'white', 'axes.facecolor':'white'})
         # Scatter plot
         sc.pl.scatter(
             adata, 
@@ -193,22 +192,29 @@ def score_cell_cycle(
             ax=axes[0]
         )
         
+        axes[0].set_xlabel('S_score', fontsize=12, color='black')
+        axes[0].set_ylabel('G2M_score', fontsize=12, color='black')
+        axes[0].tick_params(axis='both', colors='black')
+        axes[0].title.set_color('black')
+        
         # Distribution by phase
         phase_counts = adata.obs['phase'].value_counts()
         axes[1].bar(phase_counts.index, phase_counts.values, color=['#1f77b4', '#ff7f0e', '#2ca02c'])
         for i, v in enumerate(phase_counts.values):
-            axes[1].text(i, v + 0.5, str(v), ha='center')
-        axes[1].set_title('Cell Cycle Phase Distribution')
-        axes[1].set_ylabel('Number of Cells')
+            axes[1].text(i, v + 0.5, str(v), ha='center', color='black')
+        axes[1].set_title('Cell Cycle Phase Distribution', color='black')
+        axes[1].set_ylabel('Number of Cells', color='black')
+        axes[1].tick_params(axis='both', colors='black')
         
-        plt.tight_layout()
-        plt.show()
+        plt.tight_layout(pad=2.0)
         
         if save_dir:
             import os
             os.makedirs(save_dir, exist_ok=True)
-            plt.savefig(os.path.join(save_dir, f"cell_cycle_scores_{species}.png"), dpi=300)
-            plt.close()
+            plt.savefig(os.path.join(save_dir, f"cell_cycle_scores_{species}.png"), dpi=300, facecolor='white',bbox_inches='tight',pad_inches=0.5)
+        
+        plt.show(fig)
+        plt.close(fig)
     
     # Regress out cell cycle effects if requested
     if regress_out:

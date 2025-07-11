@@ -63,11 +63,17 @@ def is_doublet(
         # Dynamically set n_pcs parameter
         actual_n_pcs = min(n_pcs, n_cells-1, n_features-1)
         
+        # Initialize arrays for doublet scores and predictions
+        doublet_scores = np.full(data.shape[0], np.nan)
+        predicted_doublets = np.full(data.shape[0], False)
+        final_doublets = np.full(data.shape[0], False)
+        
+        # Check if the sample has enough cells for doublet detection
         if n_cells < 10:
             print(f"  Warning: Sample {sample} has fewer than 10 cells ({n_cells}). Skipping doublet detection.")
-            adata.obs.loc[data.obs.index, "doublet_scores"] = np.nan
-            adata.obs.loc[data.obs.index, "predicted_doublets"] = False
-            adata.obs.loc[data.obs.index, "predicted_doublets_final"] = False
+            adata.obs.loc[data.obs.index, "doublet_scores"] = doublet_scores
+            adata.obs.loc[data.obs.index, "predicted_doublets"] = predicted_doublets
+            adata.obs.loc[data.obs.index, "predicted_doublets_final"] = final_doublets
             continue
 
         try:
@@ -103,9 +109,9 @@ def is_doublet(
             doublet_scores = np.full(data.shape[0], np.nan)
             
         adata.obs.loc[data.obs.index, "doublet_scores"] = doublet_scores
-        adata.obs.loc[data.obs.index, "predicted_doublets"] = predicted_doublets.astype(bool)
-        adata.obs.loc[data.obs.index, "predicted_doublets_final"] = final_doublets.astype(bool)
-        
+        adata.obs.loc[data.obs.index, "predicted_doublets"] = predicted_doublets
+        adata.obs.loc[data.obs.index, "predicted_doublets_final"] = final_doublets
+
         # Force garbage collection
         gc.collect()
         

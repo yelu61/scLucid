@@ -5,16 +5,77 @@ This module provides functions for identifying and filtering low-quality
 cells based on various quality metrics.
 """
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 import pandas as pd
-from typing import List, Tuple
+from scipy.stats import median_abs_deviation
+from typing import List, Tuple, Literal
 
 __all__ = [
     "is_low_quality_cell", 
+    "identify_outliers",
     "filter_low_quality_cells"
 ]
+
+def identify_outliers(
+    adata: sc.AnnData, 
+    metric: str, 
+    nmads: int,
+    direction: Literal["both", "upper", "lower"] = "both"
+) -> pd.Series:
+    """
+    Identify outliers based on the given metric and number of median absolute deviations.
+
+    Args:
+        adata (AnnData): AnnData object to check for outliers.
+        metric (str): The metric to use for outlier detection. Must be a valid column in adata.obs.
+        nmads (int): Number of median absolute deviations for outlier detection.
+        direction (str): Direction for outlier detection. Options are 'both', 'upper', or 'lower'.
+                        'both': Detects values that are too high or too low
+                        'upper': Only detects values that are too high
+                        'lower': Only detects values that are too low
+
+    Returns:
+        outliers (pandas.Series): Boolean mask indicating if a cell is an outlier or not.
+    """
+    if metric not in adata.obs.columns:
+        raise ValueError(f"Invalid metric '{metric}'. Must be a column in adata.obs.")
+    
+    if nmads <= 0:
+        raise ValueError(f"nmads must be positive, got {nmads}")
+    
+    if direction not in ["both", "upper", "lower"]:
+        raise ValueError(f"direction must be one of 'both', 'upper', or 'lower', got {direction}")
+    
+    values = adata.obs[metric].copy()
+    
+    if values.isna().any():
+        print(f"Warning: {values.isna().sum()} NaN values in {metric}, will be excluded from outlier detection")
+        values = values.dropna()
+    
+    # Add informative message about distribution
+    median = np.median(values)
+    mad = median_abs_deviation(values)
+    print(f"Distribution info for {metric}: median={median:.2f}, MAD={mad:.2f}")
+    
+    if mad == 0:
+        print(f"Warning: MAD=0 for {metric}, no outliers will be detected")
+        return pd.Series(False, index=adata.obs_names)
+    
+    outliers = pd.Series(False, index=adata.obs_names)
+    
+    if direction == "both":
+        outliers.loc[values.index] = [abs(value - median) > nmads * mad for value in values]
+    elif direction == "upper":
+        outliers.loc[values.index] = [value > median + nmads * mad for value in values]
+    elif direction == "lower":
+        outliers.loc[values.index] = [value < median - nmads * mad for value in values]
+    
+    print(f"Identified {outliers.sum()} outliers in {metric} with nmads={nmads} in direction '{direction}'")
+    return outliers
+
 def is_low_quality_cell(
     adata: sc.AnnData,
     sample_key: str = "sampleID",
@@ -144,19 +205,25 @@ def is_low_quality_cell(
             
             # Plotting outliers
             print(f"Plotting outliers for sample: {sample}")
-            fig, ax = plt.subplots(figsize=(10, 8))
-            sc.pl.scatter(
-                data, 
-                x="total_counts", 
-                y="n_genes_by_counts",
-                color=["outlier", "mt_outlier", "hb_outlier", "low_genes_outlier"],
-                title=f"Outliers in sample: {sample}",
-                show=False,
-                ax=ax
-            )
-            plt.tight_layout()
-            plt.show()
+            fig, axs = plt.subplots(2, 2, figsize=(10, 8), facecolor='white')
+            axs = axs.flatten()
+            for i, col in enumerate(["outlier", "mt_outlier", "hb_outlier", "low_genes_outlier"]):
+                if col in data.obs.columns:
+                    scatter = axs[i].scatter(
+                        data.obs["total_counts"], 
+                        data.obs["n_genes_by_counts"],
+                        c=data.obs[col].map({True: 'red', False: 'gray'}),
+                        alpha=0.6,
+                        s=10
+                    )
+                    axs[i].set_title(f"{col} - {sample}")
+                    axs[i].set_xlabel("Total counts")
+                    axs[i].set_ylabel("Number of genes")
+                    axs[i].legend(*scatter.legend_elements(), title=col)
             
+            plt.tight_layout()
+            plt.show(fig)
+                       
     return adata
 def filter_low_quality_cells(
     adata: sc.AnnData,

@@ -4,17 +4,17 @@ Quality control metrics calculation for single-cell RNA-seq data.
 This module provides functions for calculating standard QC metrics and 
 identifying outlier cells based on statistical methods.
 """
-
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 import pandas as pd
-from scipy.stats import median_abs_deviation
+import re
+
 from typing import Dict, Literal
 
 __all__ = [
-    "calculate_qc_metric", 
-    "identify_outliers"
+    "calculate_qc_metric"
 ]
 
 def calculate_qc_metric(
@@ -75,12 +75,12 @@ def calculate_qc_metric(
     total_samples = len(adata.obs[sample_key].unique())
     for i, sample in enumerate(adata.obs[sample_key].unique()):
         print(f"Processing sample {i+1}/{total_samples}: {sample}")
-        data = adata[adata.obs[sample_key] == sample, :]
+        data = adata[adata.obs[sample_key] == sample, :].copy()
 
         # Calculate the QC covariates or metric using provided patterns
         for gene_type, pattern in gene_patterns.items():
             data.var[gene_type] = data.var_names.str.contains(
-                pattern, regex=True, na=False
+                pattern, regex=True, na=False, flags=re.IGNORECASE
             )
         
         sc.pp.calculate_qc_metrics(
@@ -92,11 +92,15 @@ def calculate_qc_metric(
         )
 
         # Plot the QC covariates per sample
+        matplotlib.rcParams.update(matplotlib.rcParamsDefault)
+        plt.style.use('default')
+        
         if plot_violin:
-            fig, axes = plt.subplots(nrows=1, ncols=len(keys), figsize=(12, 3))
+            fig, axes = plt.subplots(nrows=1, ncols=len(keys), figsize=(12, 3), facecolor='white')
             if len(keys) == 1:  # Handle single key case
                 axes = [axes]
             for i, ax in enumerate(axes):
+                ax.set_facecolor('white') 
                 sc.pl.violin(data, keys[i], ax=ax, jitter=0.4, show=False)
                 ax.set_title(f"Sample: {sample}", fontsize=10)
             plt.tight_layout()
@@ -104,12 +108,13 @@ def calculate_qc_metric(
             if save_dir:
                 import os
                 os.makedirs(save_dir, exist_ok=True)
-                plt.savefig(os.path.join(save_dir, f"{sample}_qc_violin.png"), dpi=300)
-                plt.close()
+                fig.savefig(os.path.join(save_dir, f"{sample}_qc_violin.png"), dpi=300, facecolor='white')
+                plt.close(fig)
 
         if plot_scatter:
             # Standard scatter plot
-            fig, ax = plt.subplots(figsize=(8, 6))
+            fig, ax = plt.subplots(figsize=(8, 6), facecolor='white')
+            ax.set_facecolor('white')
             sc.pl.scatter(
                 data,
                 x="total_counts",
@@ -125,11 +130,11 @@ def calculate_qc_metric(
             if save_dir:
                 import os
                 os.makedirs(save_dir, exist_ok=True)
-                plt.savefig(os.path.join(save_dir, f"{sample}_qc_scatter.png"), dpi=300)
-                plt.close()
+                fig.savefig(os.path.join(save_dir, f"{sample}_qc_scatter.png"), dpi=300, facecolor='white')
+                plt.close(fig)
             
             # Additional mt vs ribo scatter plot for deeper analysis
-            fig, ax = plt.subplots(figsize=(8, 6))
+            fig, ax = plt.subplots(figsize=(8, 6), facecolor='white')
             sc.pl.scatter(
                 data,
                 x="pct_counts_mt",
@@ -145,9 +150,9 @@ def calculate_qc_metric(
             if save_dir:
                 import os
                 os.makedirs(save_dir, exist_ok=True)
-                plt.savefig(os.path.join(save_dir, f"{sample}_mt_ribo_scatter.png"), dpi=300)
-                plt.close()
-        
+                fig.savefig(os.path.join(save_dir, f"{sample}_mt_ribo_scatter.png"), dpi=300, facecolor='white')
+                plt.close(fig)
+
         metric_cols = [
             "total_counts",
             "log1p_total_counts",
@@ -160,64 +165,5 @@ def calculate_qc_metric(
         ]
         adata.obs.loc[data.obs.index, metric_cols] = data.obs[metric_cols]
         print("Done.")
-        print(f"Completed {i+1}/{total_samples} samples ({(i+1)/total_samples*100:.1f}%)")
                 
     return adata
-
-
-def identify_outliers(
-    adata: sc.AnnData, 
-    metric: str, 
-    nmads: int,
-    direction: Literal["both", "upper", "lower"] = "both"
-) -> pd.Series:
-    """
-    Identify outliers based on the given metric and number of median absolute deviations.
-
-    Args:
-        adata (AnnData): AnnData object to check for outliers.
-        metric (str): The metric to use for outlier detection. Must be a valid column in adata.obs.
-        nmads (int): Number of median absolute deviations for outlier detection.
-        direction (str): Direction for outlier detection. Options are 'both', 'upper', or 'lower'.
-                        'both': Detects values that are too high or too low
-                        'upper': Only detects values that are too high
-                        'lower': Only detects values that are too low
-
-    Returns:
-        outliers (pandas.Series): Boolean mask indicating if a cell is an outlier or not.
-    """
-    if metric not in adata.obs.columns:
-        raise ValueError(f"Invalid metric '{metric}'. Must be a column in adata.obs.")
-    
-    if nmads <= 0:
-        raise ValueError(f"nmads must be positive, got {nmads}")
-    
-    if direction not in ["both", "upper", "lower"]:
-        raise ValueError(f"direction must be one of 'both', 'upper', or 'lower', got {direction}")
-    
-    values = adata.obs[metric].copy()
-    
-    if values.isna().any():
-        print(f"Warning: {values.isna().sum()} NaN values in {metric}, will be excluded from outlier detection")
-        values = values.dropna()
-    
-    # Add informative message about distribution
-    median = np.median(values)
-    mad = median_abs_deviation(values)
-    print(f"Distribution info for {metric}: median={median:.2f}, MAD={mad:.2f}")
-    
-    if mad == 0:
-        print(f"Warning: MAD=0 for {metric}, no outliers will be detected")
-        return pd.Series(False, index=adata.obs_names)
-    
-    outliers = pd.Series(False, index=adata.obs_names)
-    
-    if direction == "both":
-        outliers.loc[values.index] = [abs(value - median) > nmads * mad for value in values]
-    elif direction == "upper":
-        outliers.loc[values.index] = [value > median + nmads * mad for value in values]
-    elif direction == "lower":
-        outliers.loc[values.index] = [value < median - nmads * mad for value in values]
-    
-    print(f"Identified {outliers.sum()} outliers in {metric} with nmads={nmads} in direction '{direction}'")
-    return outliers
