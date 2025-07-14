@@ -8,29 +8,26 @@ including quality control, preprocessing, analysis, specialized tools, and workf
 __version__ = "0.1.0"
 __author__ = "Ye Lu"
 
+# Import main functionality for easy access
+from . import analysis, preprocess, qc, tools, utils
+# from . import workflows
 from .config import settings
 
-# Import main functionality for easy access
-from . import qc
-from . import preprocess
-from . import analysis
-from . import tools
-from . import utils
-#from . import workflows
+# from . import workflows
 
 # Optional
-#from .workflows import run_standard_workflow
+# from .workflows import run_standard_workflow
 
 # Define what should be accessible when using `from scRNA import *`
 __all__ = [
     # Configuration settings
-    "settings",  
+    "settings",
     # Modules
     "qc",
     "preprocess",
     "analysis",
     "tools",
     "utils",
-    #"workflows",
-    #"run_standard_workflow"
+    # "workflows",
+    # "run_standard_workflow"
 ]

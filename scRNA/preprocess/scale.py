@@ -2,14 +2,21 @@
 Data scaling function for single-cell RNA-seq data.
 """
 
-import scanpy as sc
-import numpy as np
+import sys
+
+sys.path.append("..")
+
 from typing import Optional
-from .utils.anndata_helpers import use_layer_as_X
+
+import numpy as np
+import scanpy as sc
+
+from ..utils import use_layer_as_X
 
 __all__ = [
     "scale_data",
 ]
+
 
 def scale_data(
     adata: sc.AnnData,
@@ -36,7 +43,7 @@ def scale_data(
 
     Returns:
         The modified AnnData object with the new scaled layer.
-        
+
     Example:
         >>> # Standard workflow: normalize, then scale
         >>> adata = pp.normalize_data(adata)
@@ -48,14 +55,16 @@ def scale_data(
         # Heuristic check: Warn user if data looks like raw counts
         # np.max works efficiently on both sparse and dense matrices
         if np.max(adata.X) > 100:
-            print(f"Warning: Max value in layer '{layer}' is > 100. "
-                  "Scaling is typically performed on log-normalized data, not raw counts.")
+            print(
+                f"Warning: Max value in layer '{layer}' is > 100. "
+                "Scaling is typically performed on log-normalized data, not raw counts."
+            )
 
         # sc.pp.scale modifies adata.X in place
         sc.pp.scale(adata, max_value=max_value, zero_center=zero_center)
-        
+
         # Store the result from the modified adata.X into the output layer
         adata.layers[output_layer] = adata.X.copy()
-    
+
     print("Scaling complete.")
     return adata

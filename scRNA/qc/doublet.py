@@ -5,15 +5,16 @@ This module provides functions for identifying potential doublet cells
 using the Scrublet algorithm and custom filtering approaches.
 """
 
+from typing import Optional
+
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 import scrublet as scr
-from typing import Optional
 
-__all__ = [
-    "is_doublet"
-]
+__all__ = ["is_doublet"]
+
+
 def is_doublet(
     adata: sc.AnnData,
     sample_key: str = "sampleID",
@@ -42,7 +43,7 @@ def is_doublet(
         adata (AnnData): AnnData object with doublet scores and predictions added.
     """
     import gc
-    
+
     adata.obs["doublet_scores"] = 0.0
     adata.obs["predicted_doublets"] = False
     adata.obs["predicted_doublets_final"] = False
@@ -51,24 +52,26 @@ def is_doublet(
     # Get total number of samples for progress reporting
     samples = adata.obs[sample_key].unique()
     total_samples = len(samples)
-    
+
     for i, sample in enumerate(samples):
-        print(f"Processing sample {i+1}/{total_samples}: {sample}")
+        print(f"Processing sample {i + 1}/{total_samples}: {sample}")
         data = adata[adata.obs[sample_key] == sample, :]
 
         # Get the current sample's cell count and feature count
         n_cells, n_features = data.shape
         # Dynamically set n_pcs parameter
-        actual_n_pcs = min(n_pcs, n_cells-1, n_features-1)
-        
+        actual_n_pcs = min(n_pcs, n_cells - 1, n_features - 1)
+
         # Initialize arrays for doublet scores and predictions
         doublet_scores = np.full(data.shape[0], np.nan)
         predicted_doublets = np.full(data.shape[0], False)
         final_doublets = np.full(data.shape[0], False)
-        
+
         # Check if the sample has enough cells for doublet detection
         if n_cells < 10:
-            print(f"  Warning: Sample {sample} has fewer than 10 cells ({n_cells}). Skipping doublet detection.")
+            print(
+                f"  Warning: Sample {sample} has fewer than 10 cells ({n_cells}). Skipping doublet detection."
+            )
             adata.obs.loc[data.obs.index, "doublet_scores"] = doublet_scores
             adata.obs.loc[data.obs.index, "predicted_doublets"] = predicted_doublets
             adata.obs.loc[data.obs.index, "predicted_doublets_final"] = final_doublets
@@ -81,49 +84,57 @@ def is_doublet(
                 verbose=False, n_prin_comps=actual_n_pcs
             )
             final_doublets = scrub.call_doublets(threshold=threshold)
-            
-            print(f"  Doublet detection complete. Found {sum(final_doublets)} potential doublets.")
-            
+
+            print(
+                f"  Doublet detection complete. Found {sum(final_doublets)} potential doublets."
+            )
+
             if plot_umap:
                 try:
                     scrub.set_embedding(
                         "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
                     )
                     fig = scrub.plot_embedding("UMAP", order_points=True)
-                    
+
                     if save_dir:
                         import os
+
                         os.makedirs(save_dir, exist_ok=True)
-                        plt.savefig(os.path.join(save_dir, f"{sample}_doublets_umap.png"), dpi=300)
+                        plt.savefig(
+                            os.path.join(save_dir, f"{sample}_doublets_umap.png"),
+                            dpi=300,
+                        )
                     if show:
                         plt.show()
                     plt.close()
                 except Exception as e:
                     print(f"  Warning: Could not generate UMAP for doublets: {e}")
-                    
+
         except Exception as e:
             print(f"  Error: Scrublet failed for sample {sample}: {e}")
             predicted_doublets = np.full(data.shape[0], False)
             final_doublets = np.full(data.shape[0], False)
             doublet_scores = np.full(data.shape[0], np.nan)
-            
+
         adata.obs.loc[data.obs.index, "doublet_scores"] = doublet_scores
         adata.obs.loc[data.obs.index, "predicted_doublets"] = predicted_doublets
         adata.obs.loc[data.obs.index, "predicted_doublets_final"] = final_doublets
 
         # Force garbage collection
         gc.collect()
-        
+
         # Print progress
-        print(f"  Completed {i+1}/{total_samples} samples ({(i+1)/total_samples*100:.1f}%)")
-        
+        print(
+            f"  Completed {i + 1}/{total_samples} samples ({(i + 1) / total_samples * 100:.1f}%)"
+        )
+
     # Identify cells with overexpressed genes as potential doublets
     top_genes = np.quantile(adata.obs.n_genes_by_counts, over_genes)
     adata.obs["overexpressed_doublets"] = adata.obs["n_genes_by_counts"] > top_genes
 
     # Print the overall statistics for the entire adata object
     total_cells = adata.n_obs
-    print(f"\nOverall statistics for the entire adata object:")
+    print("\nOverall statistics for the entire adata object:")
     print(f"Total number of cells: {total_cells}")
 
     potential_doublets = adata.obs["predicted_doublets"].sum()

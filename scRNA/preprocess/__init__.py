@@ -8,11 +8,11 @@ batch correction, scaling, and other preprocessing steps.
 __version__ = "0.1.0"
 
 # Import key functions
-from .normalize import normalize_data, regress_out
-from .hvg import annotate_hvg, select_hvg
-from .scale import scale_data
 from .cycle import score_cell_cycle
-from .integrate import integrate_scanorama, integrate_scvi, integrate_harmony, batch_correction
+from .hvg import annotate_hvg, select_hvg
+from .integrate import batch_correction
+from .normalize import normalize_data, regress_out
+from .scale import scale_data
 
 __all__ = [
     # Normalization

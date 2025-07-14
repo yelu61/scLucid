@@ -6,18 +6,10 @@ data input/output, and statistical calculations.
 """
 
 # Import and expose key functions from submodules
-from .plotting import plot_qc, plot_clusters, plot_gene_expression
-from .io import read_data, write_data, merge_datasets
-from .stats import calculate_statistics, perform_test
+# from .plotting import plot_qc, plot_clusters, plot_gene_expression
+# from .io import read_data, write_data, merge_datasets
+# from .stats import calculate_statistics, perform_test
+from .anndata_helpers import use_layer_as_X
 
 # Define what should be accessible when importing from this module
-__all__ = [
-    "plot_qc",
-    "plot_clusters",
-    "plot_gene_expression",
-    "read_data",
-    "write_data",
-    "merge_datasets",
-    "calculate_statistics",
-    "perform_test"
-]
+__all__ = ["use_layer_as_X"]
