@@ -11,7 +11,7 @@ __author__ = "Ye Lu"
 # Import main functionality for easy access
 from . import analysis, preprocess, qc, tools, utils
 # from . import workflows
-from .config import settings
+from .config import settings, set_figure_params
 
 # from . import workflows
 
@@ -22,6 +22,7 @@ from .config import settings
 __all__ = [
     # Configuration settings
     "settings",
+    "set_figure_params",
     # Modules
     "qc",
     "preprocess",
