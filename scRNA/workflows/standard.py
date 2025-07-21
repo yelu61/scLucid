@@ -11,8 +11,8 @@ adata.layers["counts"] = adata.X.copy()  # IMPORTANT: Backup raw counts
 adata = scRNA.qc.calculate_qc_metric(adata, sample_key="batch")
 
 # 3. Identify problematic cells
-adata = scRNA.qc.is_low_quality_cell(adata, sample_key="batch")
 adata = scRNA.qc.is_doublet(adata, sample_key="batch")
+adata = scRNA.qc.is_low_quality_cell(adata, sample_key="batch")
 
 # 4. Filter cells based on the annotations
 adata = scRNA.qc.filter_cells(

@@ -212,6 +212,16 @@ def is_low_quality_cell(
         f"Cells with high hemoglobin percentage (> {pc_hb}%): {hb_outlier_cells} ({hb_outlier_cells / total_cells * 100:.2f}%)"
     )
 
+    doublets_outlier_cells = adata.obs.predicted_doublets_final.sum()
+    print(
+        f"Predicted doublets: {doublets_outlier_cells} ({doublets_outlier_cells / total_cells * 100:.2f}%)"
+    )
+
+    overexpression_outlier_cells = adata.obs.overexpressed_doublets.sum()
+    print(
+        f"Potential doublets with high overexpression: {overexpression_outlier_cells} ({overexpression_outlier_cells / total_cells * 100:.2f}%)"
+    )
+
     combined_outliers = adata.obs.filter(regex="outlier").sum(axis=1).value_counts()
     for n_outliers, count in sorted(combined_outliers.items()):
         print(
@@ -224,11 +234,18 @@ def is_low_quality_cell(
 
             # Plotting outliers
             print(f"Plotting outliers for sample: {sample}")
-            fig, axs = plt.subplots(2, 2, figsize=(10, 8), facecolor="white")
+            fig, axs = plt.subplots(2, 3, figsize=(11, 7), facecolor="white")
             axs = axs.flatten()
             fig.suptitle(f"Outlier Plots for Sample: {sample}")
             for i, col in enumerate(
-                ["outlier", "mt_outlier", "hb_outlier", "low_genes_outlier"]
+                [
+                    "outlier",
+                    "mt_outlier",
+                    "hb_outlier",
+                    "low_genes_outlier",
+                    "predicted_doublets_final",
+                    "overexpressed_doublets",
+                ]
             ):
                 if col in data.obs:
                     sc.pl.scatter(
@@ -239,6 +256,8 @@ def is_low_quality_cell(
                         ax=axs[i],
                         show=False,
                         title=col.replace("_", " ").title(),
+                        # palette=["#bbbbbb", "#e41a1dbf"],
+                        color_map=None,
                     )
             plt.tight_layout(rect=[0, 0, 1, 0.96])
             if save_dir:
@@ -261,6 +280,7 @@ def filter_cells(
     filter_by_mt: bool = True,
     filter_by_hb: bool = False,  # Often not default
     filter_by_doublets: bool = True,
+    filter_by_overexpression: bool = True,
     copy: bool = False,
 ) -> sc.AnnData:
     """
@@ -302,6 +322,10 @@ def filter_cells(
     if filter_by_doublets and "predicted_doublets_final" in adata.obs.columns:
         cell_mask &= ~adata.obs["predicted_doublets_final"]
         reasons.append("predicted doublets")
+
+    if filter_by_overexpression and "overexpressed_doublets" in adata.obs.columns:
+        cell_mask &= ~adata.obs["overexpressed_doublets"]
+        reasons.append("overexpressed_doublets")
 
     if not reasons:
         print("No filtering criteria selected. Returning original object.")

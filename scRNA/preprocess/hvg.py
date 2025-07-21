@@ -197,6 +197,10 @@ def select_hvg(
     Returns:
         A subsetted AnnData object if `subset=True`, otherwise None.
     """
+    if adata.raw is None:
+        adata.raw = adata.copy()
+    print(adata)
+    
     if hvg_key not in adata.var:
         raise KeyError(
             f"HVG key '{hvg_key}' not found in `adata.var`. Please run `annotate_hvg` first."

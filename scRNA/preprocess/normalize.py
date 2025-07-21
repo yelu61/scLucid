@@ -64,7 +64,7 @@ def normalize_data(
         raise ValueError("max_fraction must be between 0 and 1 (exclusive).")
 
     # Ensure a raw counts layer exists for comparison plotting
-    if "counts" not in adata.layers and layer is None:
+    if "counts" not in adata.layers:
         adata.layers["counts"] = adata.X.copy()
         print("Saved current adata.X to adata.layers['counts'] for reference.")
 
