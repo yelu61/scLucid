@@ -14,8 +14,6 @@ import pandas as pd
 import scanpy as sc
 from scipy.stats import entropy
 from sklearn import metrics
-from sklearn.metrics import silhouette_score
-from tqdm import tqdm
 
 from .manager import Manager
 
@@ -85,9 +83,12 @@ def optimize_neighbors_pcs(
     clustering_method="leiden",
     progress=True,
     save_path=None,
+    n_jobs=-1,  # Use all available cores by default
+    compute_umap=False,  # Option to skip UMAP for faster processing
+    subsample=None,  # Optional subsampling for very large datasets
 ):
     """
-    Grid search for optimal n_neighbors and n_pcs parameters using silhouette score.
+    Memory-efficient grid search for optimal n_neighbors and n_pcs parameters.
 
     Args:
         adata: AnnData object (will not be modified).
@@ -97,46 +98,148 @@ def optimize_neighbors_pcs(
         clustering_method: Clustering method ('leiden' or 'louvain').
         progress: Whether to show progress bar.
         save_path: If specified, save results to CSV.
+        n_jobs: Number of parallel jobs for silhouette score calculation.
+        compute_umap: Whether to compute UMAP (can be skipped for speed).
+        subsample: Number of cells to subsample for large datasets (None=use all).
 
     Returns:
-        pandas.DataFrame with clustering results and silhouette scores for all parameter combinations.
+        pandas.DataFrame with clustering results and silhouette scores.
     """
+    import gc
+    import os
+
+    import numpy as np
+    from joblib import Parallel, delayed
+    from sklearn.metrics import silhouette_score
+
+    # If dataset is very large, subsample for parameter tuning
+    if subsample is not None and subsample < adata.n_obs:
+        print(f"Subsampling {subsample} cells from {adata.n_obs} for optimization")
+        # Use deterministic sampling with fixed seed
+        import numpy as np
+
+        np.random.seed(42)
+        indices = np.random.choice(adata.n_obs, subsample, replace=False)
+        adata_opt = adata[indices].copy()
+    else:
+        adata_opt = adata.copy()  # Make just one copy instead of many
 
     results = []
-    iterator = (
-        tqdm(n_neighbors_list, desc="n_neighbors") if progress else n_neighbors_list
-    )
-    for n_neighbors in iterator:
-        for n_pcs in n_pcs_list:
-            adata_tmp = adata.copy()
-            sc.pp.neighbors(
-                adata_tmp, use_rep=use_rep, n_neighbors=n_neighbors, n_pcs=n_pcs
-            )
-            sc.tl.umap(adata_tmp)
-            if clustering_method == "leiden":
-                sc.tl.leiden(adata_tmp, key_added="leiden_temp")
-            else:
-                sc.tl.louvain(adata_tmp, key_added="leiden_temp")
-            n_clusters = adata_tmp.obs["leiden_temp"].nunique()
-            try:
-                sil_score = silhouette_score(
-                    adata_tmp.obsm["X_umap"], adata_tmp.obs["leiden_temp"]
-                )
-            except Exception:
-                sil_score = np.nan
-            results.append(
-                {
-                    "n_neighbors": n_neighbors,
-                    "n_pcs": n_pcs,
-                    "n_clusters": n_clusters,
-                    "silhouette_score": sil_score,
-                }
-            )
-            del adata_tmp
 
+    # Pre-extract the dimensional reduction embedding to avoid repeatedly accessing it
+    X_embed = adata_opt.obsm[use_rep].copy() if use_rep in adata_opt.obsm else None
+
+    # Define silhouette calculation function for parallel processing
+    def compute_silhouette_for_params(n_neighbors, n_pcs):
+        nonlocal np
+        # Set up neighbors graph with specific parameters
+        sc.pp.neighbors(
+            adata_opt,
+            use_rep=use_rep,
+            n_neighbors=n_neighbors,
+            n_pcs=n_pcs,
+            key_added=f"neighbors_{n_neighbors}_{n_pcs}",  # Use unique key to avoid overwriting
+        )
+
+        # Compute clustering
+        if clustering_method == "leiden":
+            sc.tl.leiden(
+                adata_opt,
+                neighbors_key=f"neighbors_{n_neighbors}_{n_pcs}",
+                key_added=f"leiden_{n_neighbors}_{n_pcs}",
+                resolution=0.5,  # Use moderate resolution
+            )
+            cluster_key = f"leiden_{n_neighbors}_{n_pcs}"
+        else:
+            sc.tl.louvain(
+                adata_opt,
+                neighbors_key=f"neighbors_{n_neighbors}_{n_pcs}",
+                key_added=f"louvain_{n_neighbors}_{n_pcs}",
+                resolution=0.5,
+            )
+            cluster_key = f"louvain_{n_neighbors}_{n_pcs}"
+
+        n_clusters = adata_opt.obs[cluster_key].nunique()
+
+        # Compute silhouette score
+        sil_score = np.nan
+        if n_clusters > 1:
+            try:
+                if compute_umap:
+                    # Only compute UMAP if specifically requested
+                    sc.tl.umap(
+                        adata_opt, neighbors_key=f"neighbors_{n_neighbors}_{n_pcs}"
+                    )
+                    embedding = adata_opt.obsm["X_umap"]
+                else:
+                    # Use the original embedding for silhouette calculation
+                    # This is much faster but less visually interpretable
+                    embedding = X_embed
+
+                # Only use silhouette score if more than one cluster
+                labels = adata_opt.obs[cluster_key].cat.codes
+                sil_score = silhouette_score(
+                    embedding, labels, sample_size=min(10000, len(labels))
+                )
+
+                # Clean up to save memory
+                if compute_umap and "X_umap" in adata_opt.obsm:
+                    del adata_opt.obsm["X_umap"]
+            except Exception as e:
+                print(
+                    f"Error computing silhouette for n_neighbors={n_neighbors}, n_pcs={n_pcs}: {e}"
+                )
+
+        return {
+            "n_neighbors": n_neighbors,
+            "n_pcs": n_pcs,
+            "n_clusters": n_clusters,
+            "silhouette_score": sil_score,
+        }
+
+    # Generate parameter combinations
+    param_combinations = [(n, p) for n in n_neighbors_list for p in n_pcs_list]
+
+    # Run parameter search with progress bar
+    if progress:
+        from tqdm import tqdm
+
+        results = [
+            compute_silhouette_for_params(n, p)
+            for n, p in tqdm(param_combinations, desc="Parameter optimization")
+        ]
+    else:
+        # Optional: Use parallel processing for faster computation on multiple cores
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(compute_silhouette_for_params)(n, p) for n, p in param_combinations
+        )
+
+    # Clean up temporary neighbor and cluster annotations
+    for key in list(adata_opt.obs.keys()):
+        if key.startswith(("leiden_", "louvain_")):
+            del adata_opt.obs[key]
+
+    for key in list(adata_opt.uns.keys()):
+        if key.startswith("neighbors_"):
+            del adata_opt.uns[key]
+
+    for key in list(adata_opt.obsp.keys()):
+        if "_connectivities" in key or "_distances" in key:
+            if not key.startswith(
+                ("connectivities", "distances")
+            ):  # Keep the original ones
+                del adata_opt.obsp[key]
+
+    # Free memory
+    del adata_opt
+    gc.collect()
+
+    # Create and return results DataFrame
     df_results = pd.DataFrame(results)
     if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         df_results.to_csv(save_path, index=False)
+
     return df_results
 
 
