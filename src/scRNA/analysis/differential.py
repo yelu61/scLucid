@@ -5,8 +5,9 @@ This module provides functions for identifying marker genes and
 performing enrichment analysis for cell clusters.
 """
 
-from typing import Dict, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
+import gseapy as gp
 import pandas as pd
 import scanpy as sc
 
@@ -175,3 +176,72 @@ def get_conserved_markers(
         print(f"  Found {len(agg_df)} conserved markers for group '{group}'.")
 
     return conserved_markers
+
+
+def run_enrichment(
+    adata: sc.AnnData,
+    groupby: str,
+    rank_genes_key: str = "rank_genes_groups",
+    organism: str = "Human",
+    gene_sets: List[str] = ["GO_Biological_Process_2023"],
+    n_top_genes: int = 100,
+    key_added: str = "enrichment",
+) -> Dict[str, pd.DataFrame]:
+    """
+    Perform functional enrichment analysis for marker genes in each cluster.
+
+    Args:
+        adata: AnnData object.
+        groupby: Column name in adata.obs that specifies cluster grouping.
+        rank_genes_key: The key_added value used when running find_markers.
+        organism: Species, either 'Human' or 'Mouse'.
+        gene_sets: List of gene sets to use for enrichment analysis (from GSEApy).
+        n_top_genes: Number of top marker genes per cluster to use for enrichment analysis.
+        key_added: Key to store results in adata.uns.
+
+    Returns:
+        A dictionary where keys are cluster names and values are DataFrames of enrichment results.
+    """
+    # Check if find_markers results exist
+    de_results_key = f"{rank_genes_key}_df"
+    if de_results_key not in adata.uns:
+        raise KeyError(
+            f"DE results not found at `adata.uns['{de_results_key}']`. "
+            "Please run `scRNA.analysis.find_markers()` first."
+        )
+
+    marker_df = adata.uns[de_results_key]
+    clusters = marker_df["group"].unique()
+    enrichment_results = {}
+
+    print(f"Running enrichment analysis for {len(clusters)} clusters...")
+    for cluster in clusters:
+        # Extract genes from the existing marker DataFrame
+        gene_list = (
+            marker_df[marker_df["group"] == cluster]["names"].head(n_top_genes).tolist()
+        )
+
+        if not gene_list:
+            print(f"Warning: No marker genes found for cluster '{cluster}'. Skipping.")
+            continue
+
+        try:
+            print(f"  Analyzing cluster: {cluster}")
+            enr = gp.enrichr(
+                gene_list=gene_list,
+                gene_sets=gene_sets,
+                organism=organism,
+                outdir=None,  # Don't generate output files
+            )
+            enrichment_results[cluster] = enr.results
+        except Exception as e:
+            print(f"  Error analyzing cluster {cluster}: {e}")
+            enrichment_results[cluster] = pd.DataFrame()  # Return empty DataFrame
+
+    # Store all results in the anndata object
+    adata.uns[key_added] = enrichment_results
+    print(
+        f"Enrichment analysis complete. Results stored in `adata.uns['{key_added}']`."
+    )
+
+    return enrichment_results

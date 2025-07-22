@@ -5,10 +5,15 @@ This module provides functions to annotate cell clusters with cell type labels
 based on marker gene expression.
 """
 
+import sys
+
+sys.path.append("..")
+
 from typing import Literal, Optional
 
 import scanpy as sc
 
+from ..utils import use_layer_as_X
 from .manager import Manager
 
 # --- Helper Annotation Functions ---
@@ -61,7 +66,7 @@ def _annotate_by_enrichment(adata, cluster_key, mgr):
 
 def score_cell_types(
     adata: sc.AnnData,
-    marker_config: str,
+    marker_config: str | Manager,
     layer: Optional[str] = "log1p_norm",
     min_genes: int = 3,
 ) -> sc.AnnData:
@@ -77,7 +82,14 @@ def score_cell_types(
     Returns:
         AnnData object with score columns added to `adata.obs`.
     """
-    mgr = Manager(marker_config)
+    if isinstance(marker_config, str):
+        mgr = Manager(marker_config)
+    elif isinstance(marker_config, Manager):
+        mgr = marker_config
+    else:
+        raise TypeError(
+            "marker_config must be a file path (str) or a Manager instance."
+        )
     mgr.intersect_with(adata)
 
     with use_layer_as_X(adata, layer):
@@ -96,7 +108,7 @@ def score_cell_types(
 def annotate_clusters(
     adata: sc.AnnData,
     cluster_key: str,
-    marker_config: str,
+    marker_config: str | Manager,
     method: Literal["max_score", "enrichment"] = "max_score",
     key_added: Optional[str] = None,
 ) -> sc.AnnData:
@@ -116,7 +128,14 @@ def annotate_clusters(
     if key_added is None:
         key_added = f"{cluster_key}_annotated"
 
-    mgr = Manager(marker_config)
+    if isinstance(marker_config, str):
+        mgr = Manager(marker_config)
+    elif isinstance(marker_config, Manager):
+        mgr = marker_config
+    else:
+        raise TypeError(
+            "marker_config must be a file path (str) or a Manager instance."
+        )
     mgr.intersect_with(adata)
 
     print(f"Annotating clusters in '{cluster_key}' using '{method}' method...")

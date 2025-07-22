@@ -264,7 +264,7 @@ markers = ["CD63", "ENPP3"]
 [["Endothelial cells"]]
 name = "Endothelial"
 color = "#fecb51" # Capricorn Golden Key
-markers = ["VWF", "PECAM1", "RAMP2", "ENG"]
+markers = ["VWF", "PECAM1", "RAMP2", "ENG", "CDH5"]
 
 [["Endothelial cells".minor]]
 name = "Lymphatic EC"
@@ -330,6 +330,21 @@ markers = ["RGS5", "MYH11", "PDGFRB", "MCAM", "CD63", "HIGD1B", "NDUFA4L2", "FAB
 name = "SMC"
 color = "#FFA07A" # Dwarven Peaches
 markers = ["TAGLN", "MYH11", "DES", "CNN1", "PLN", "ADIRF", "RERGL", "DSTN", "ACTA2", "MUSTN1", "MYL9", "CRIP1"]
+
+[["Melanocytes"]]
+name = "Melanocyte"
+color = "#36454F" # Charcoal
+markers = ["MLANA", "TYRP1", "TYR", "MITF"]
+
+[["Schwann cells"]]
+name = "Schwann"
+color = ""
+markers = ["S100B", "CRYAB", "CDH19", "SOX10", "PLP1", "GAP43"]
+
+[["Müller Glia"]]
+name = "Müller Glia"
+color = "#DAA520"
+markers = ["RLBP1", "GLUL", "SLC1A3"]
 
 [["Unidentified"]]
 name = "Unidentified"

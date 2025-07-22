@@ -32,7 +32,16 @@ adata = scRNA.preprocess.annotate_hvg(
     adata, method="scanpy", layer="log1p_norm", n_top_genes=2000
 )
 
-# 7. Select HVGs (subset the object) and Scale the data
+# 7. Regress out cell cycle (optional, good to do before scaling)
+adata = scRNA.preprocess.score_cell_cycle(adata)
+adata = scRNA.preprocess.regress_out(
+    adata,
+    keys=["S_score", "G2M_score"],
+    layer="log1p_norm",
+    output_layer="log1p_norm_regressed" # Store in a new layer
+)
+
+# 8. Select HVGs (subset the object) and Scale the data
 # Note: select_hvg now returns a new, subsetted AnnData object
 adata_hvg = scRNA.preprocess.select_hvg(
     adata, hvg_key="highly_variable_scanpy", subset=True
@@ -45,11 +54,11 @@ adata_hvg = scRNA.preprocess.scale_data(
     output_layer="scaled",
 )
 
-# 8. Run PCA
+# 9. Run PCA
 # PCA uses the scaled data in .X by default
 sc.pp.pca(adata_hvg, n_comps=50)
 
-# 9. Perform Batch Correction
+# 10. Perform Batch Correction
 # This adds the final 'X_harmony' embedding
 adata_hvg = scRNA.preprocess.batch_correction(
     adata_hvg,
@@ -115,3 +124,52 @@ scRNA.analysis.plot_composition(
 scRNA.analysis.plot_marker_heatmap(
     adata, markers_df=filtered_markers, groupby="leiden_optimal", n_genes=5
 )
+
+# 假设 adata_hvg 是预处理好的 AnnData 对象
+# ...
+
+# --- 阶段一: 聚类 ---
+# 1. 优化参数 (假如之前已完成，这里直接使用)
+sc.pp.neighbors(adata_hvg, n_neighbors=15, n_pcs=30, use_rep="X_harmony")
+sc.tl.umap(adata_hvg)
+
+# 2. 寻找最优分辨率并聚类
+# 使用marker分离度作为指标，需要提供marker配置文件
+adata_hvg = scRNA.analysis.find_resolution(
+    adata_hvg,
+    metric="marker_separation",
+    marker_config="./manager_human.toml"
+)
+
+# 3. 可视化聚类结果
+scRNA.analysis.plot_embedding(adata_hvg, color_by="leiden_optimal", title="Optimal Leiden Clustering")
+
+# --- 阶段二: 细胞注释 ---
+# 4. 基于打分进行初步注释
+adata_hvg = scRNA.analysis.score_cell_types(adata_hvg, marker_config="./manager_human.toml")
+adata_hvg = scRNA.analysis.annotate_clusters(
+    adata_hvg,
+    cluster_key="leiden_optimal",
+    marker_config="./manager_human.toml",
+    method="max_score"
+)
+
+# 5. 通过DE分析寻找数据驱动的marker
+markers_df = scRNA.analysis.find_markers(adata_hvg, groupby="leiden_optimal")
+filtered_markers = scRNA.analysis.filter_markers(markers_df, min_log2fc=1.0)
+
+# 6. 人工校验
+# 查看自动注释结果
+scRNA.analysis.plot_embedding(adata_hvg, color_by="leiden_optimal_annotated", title="Automated Annotation (Max Score)")
+
+# 验证B细胞(假设是cluster '3')的marker
+scRNA.analysis.plot_embedding(adata_hvg, color=["MS4A1", "CD79A"], title="B Cell Markers")
+
+# 查看各cluster的top marker热图
+scRNA.analysis.plot_marker_heatmap(adata_hvg, markers_df=filtered_markers, groupby="leiden_optimal", n_genes=5)
+
+# 假设经过校验，您创建了一个最终的手动注释列 adata_hvg.obs['cell_type_manual']
+
+# --- 阶段三: 下游分析 ---
+# 7. 查看最终注释的细胞类型组成
+scRNA.analysis.plot_composition(adata_hvg, group_key="sample", stack_key="cell_type_manual")

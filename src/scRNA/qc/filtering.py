@@ -16,12 +16,13 @@ from scipy.stats import median_abs_deviation
 
 __all__ = [
     "is_low_quality_cell",
-    "identify_outliers",
     "filter_cells",
+    "_identify_outliers",
 ]
 
 
-def identify_outliers(
+# --- Helper functions ---#
+def _identify_outliers(
     adata: sc.AnnData,
     metric: str,
     nmads: int,
@@ -87,6 +88,7 @@ def identify_outliers(
     return outliers
 
 
+# --- Main functions ---#
 def is_low_quality_cell(
     adata: sc.AnnData,
     sample_key: str = "sampleID",
@@ -162,7 +164,7 @@ def is_low_quality_cell(
         # Identify outlier cells
         outlier_mask = pd.Series(False, index=data.obs_names)
         for metric, direction in outlier_metrics:
-            metric_outliers = identify_outliers(
+            metric_outliers = _identify_outliers(
                 data, metric=metric, nmads=nmad, direction=direction
             )
             outlier_mask = outlier_mask | metric_outliers

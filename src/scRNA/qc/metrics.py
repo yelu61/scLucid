@@ -87,6 +87,7 @@ def calculate_qc_metric(
     if plot_violin or plot_scatter:
         if save_dir:
             import os
+
             os.makedirs(save_dir, exist_ok=True)  # Create directory once
 
         samples = adata.obs[sample_key].unique()
@@ -97,31 +98,31 @@ def calculate_qc_metric(
             if plot_violin:
                 # Create a new figure for violin plots
                 fig = plt.figure(figsize=(15, 4))
-                
+
                 for i, key in enumerate(keys):
                     # Create a subplot for each key
-                    ax = fig.add_subplot(1, len(keys), i+1)
-                    
+                    ax = fig.add_subplot(1, len(keys), i + 1)
+
                     # Use scanpy's plotting but with show=False
                     sc.pl.violin(data_view, key, ax=ax, show=False)
-                    
+
                     # Explicitly set labels AFTER scanpy's plotting
                     ax.set_title(f"{key}\nSample: {sample}")
                     ax.set_ylabel(key)
-                    
+
                     # Force display of tick labels
                     plt.setp(ax.get_xticklabels(), visible=True)
                     plt.setp(ax.get_yticklabels(), visible=True)
-                
+
                 # Adjust layout and add a main title
                 plt.suptitle(f"QC Metrics for Sample: {sample}", fontsize=16)
                 plt.tight_layout(rect=[0, 0, 1, 0.95])  # Make room for suptitle
-                
+
                 if save_dir:
                     plt.savefig(
                         os.path.join(save_dir, f"{sample}_qc_violin.png"),
                         dpi=300,
-                        bbox_inches='tight'
+                        bbox_inches="tight",
                     )
                 if show:
                     plt.show()
@@ -131,7 +132,7 @@ def calculate_qc_metric(
             if plot_scatter:
                 # Create a new figure for scatter plot
                 plt.figure(figsize=(8, 6))
-                
+
                 # Use scanpy's plotting but force labels
                 ax = sc.pl.scatter(
                     data_view,
@@ -139,25 +140,25 @@ def calculate_qc_metric(
                     y="n_genes_by_counts",
                     color="pct_counts_mt",
                     show=False,
-                    return_fig=True
+                    return_fig=True,
                 )
-                
+
                 # Manually set the title and labels
                 plt.title(f"Sample: {sample} - Basic QC", fontsize=14)
                 plt.xlabel("Total Counts", fontsize=12)
                 plt.ylabel("Number of Genes", fontsize=12)
-                
+
                 # Add a colorbar label
                 cbar = plt.colorbar()
                 cbar.set_label("% Mitochondrial", fontsize=12)
-                
+
                 plt.tight_layout()
-                
+
                 if save_dir:
                     plt.savefig(
                         os.path.join(save_dir, f"{sample}_qc_scatter.png"),
                         dpi=300,
-                        bbox_inches='tight'
+                        bbox_inches="tight",
                     )
                 if show:
                     plt.show()

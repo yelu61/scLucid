@@ -1,0 +1,5 @@
+# --- Cell State ---
+[["Cell States"]]
+name = "Proliferating"
+color = "#810b0bb1" # Red
+markers = ["MKI67", "TOP2A"]

@@ -7,6 +7,7 @@ enabling robust cell type annotation and visualization.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +19,40 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
+
+
+def _get_marker_path(name_or_path: str) -> Path:
+    """
+    Parse built-in marker name or external file path.
+
+    Args:
+        name_or_path: If 'human' or 'mouse', etc., looks for built-in resources.
+                      Otherwise, treated as a file path.
+    Returns:
+        A Path object pointing to a TOML file.
+    """
+    # Try treating it as a file path
+    path = Path(name_or_path)
+    if path.is_file():
+        return path
+
+    # If not a file, try as a built-in resource
+    # .joinpath() is a safe way to build paths
+    # .files() returns a Traversable object pointing to the package resources
+    try:
+        resource_path = resources.files("scRNA").joinpath(
+            f"resources/manager_{name_or_path}.toml"
+        )
+        if resource_path.is_file():
+            return resource_path
+    except (ModuleNotFoundError, FileNotFoundError):
+        # Fails if the scRNA package or resource file doesn't exist
+        pass
+
+    raise FileNotFoundError(
+        f"Marker configuration '{name_or_path}' could not be found as a local file "
+        "or as a built-in resource."
+    )
 
 
 @dataclass
@@ -52,14 +87,16 @@ class Manager:
     Provides functionality for loading, querying, and visualizing cell type marker genes.
     """
 
-    def __init__(self, config_file: str | Path) -> None:
+    def __init__(self, config: str | Path) -> None:
         """
         Initialize the marker manager from a TOML configuration file.
 
         Args:
             config_file: Path to the TOML configuration file containing cell type definitions
         """
-        with open(config_file, "rb") as f:
+        config_file_path = _get_marker_path(config)
+
+        with open(config_file_path, "rb") as f:
             data = tomllib.load(f)
 
         self.CELLS = {}

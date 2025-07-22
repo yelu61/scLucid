@@ -5,14 +5,17 @@ This module provides functions for marker-guided clustering,
 optimal resolution selection, and cluster merging.
 """
 
+from typing import Literal, Optional, Tuple
+
+import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 import pandas as pd
 import scanpy as sc
 from scipy.stats import entropy
 from sklearn import metrics
-from typing import Optional, Tuple, Literal
-import matplotlib.pyplot as plt
-import networkx as nx
+from sklearn.metrics import silhouette_score
+from tqdm import tqdm
 
 from .manager import Manager
 
@@ -44,7 +47,10 @@ def _evaluate_marker_separation(adata, cluster_key, marker_genes):
 
         # Mean expression of marker set in each cluster
         cluster_means = np.array(
-            [X[adata.obs[cluster_key] == c][:, marker_indices].mean() for c in clusters]
+            [
+                X[(adata.obs[cluster_key] == c).values][:, marker_indices].mean()
+                for c in clusters
+            ]
         )
 
         if np.sum(cluster_means) == 0:
@@ -71,6 +77,67 @@ def _evaluate_silhouette(adata, cluster_key, use_rep="X_pca"):
 
 
 # --- Main Clustering Functions ---
+def optimize_neighbors_pcs(
+    adata,
+    n_neighbors_list,
+    n_pcs_list,
+    use_rep="X_scvi",
+    clustering_method="leiden",
+    progress=True,
+    save_path=None,
+):
+    """
+    Grid search for optimal n_neighbors and n_pcs parameters using silhouette score.
+
+    Args:
+        adata: AnnData object (will not be modified).
+        n_neighbors_list: List of n_neighbors values to evaluate.
+        n_pcs_list: List of n_pcs values to evaluate.
+        use_rep: Dimensionality reduction to use (e.g., 'X_scvi').
+        clustering_method: Clustering method ('leiden' or 'louvain').
+        progress: Whether to show progress bar.
+        save_path: If specified, save results to CSV.
+
+    Returns:
+        pandas.DataFrame with clustering results and silhouette scores for all parameter combinations.
+    """
+
+    results = []
+    iterator = (
+        tqdm(n_neighbors_list, desc="n_neighbors") if progress else n_neighbors_list
+    )
+    for n_neighbors in iterator:
+        for n_pcs in n_pcs_list:
+            adata_tmp = adata.copy()
+            sc.pp.neighbors(
+                adata_tmp, use_rep=use_rep, n_neighbors=n_neighbors, n_pcs=n_pcs
+            )
+            sc.tl.umap(adata_tmp)
+            if clustering_method == "leiden":
+                sc.tl.leiden(adata_tmp, key_added="leiden_temp")
+            else:
+                sc.tl.louvain(adata_tmp, key_added="leiden_temp")
+            n_clusters = adata_tmp.obs["leiden_temp"].nunique()
+            try:
+                sil_score = silhouette_score(
+                    adata_tmp.obsm["X_umap"], adata_tmp.obs["leiden_temp"]
+                )
+            except Exception:
+                sil_score = np.nan
+            results.append(
+                {
+                    "n_neighbors": n_neighbors,
+                    "n_pcs": n_pcs,
+                    "n_clusters": n_clusters,
+                    "silhouette_score": sil_score,
+                }
+            )
+            del adata_tmp
+
+    df_results = pd.DataFrame(results)
+    if save_path is not None:
+        df_results.to_csv(save_path, index=False)
+    return df_results
 
 
 def find_resolution(
@@ -228,6 +295,16 @@ def merge_clusters(
 ) -> sc.AnnData:
     """
     Merge similar clusters based on marker overlap or expression correlation.
+
+    Args:
+        adata: AnnData object.
+        cluster_key: Key in adata.obs containing cluster assignments.
+        similarity_threshold: Threshold for similarity to merge clusters.
+        method: Method to calculate similarity ('marker_overlap' or 'expression_correlation').
+        key_added: Key in adata.obs to store merged cluster assignments.
+
+    Returns:
+        AnnData object with merged clusters in adata.obs[key_added].
     """
     if key_added is None:
         key_added = f"{cluster_key}_merged"
