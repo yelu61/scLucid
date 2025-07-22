@@ -10,13 +10,9 @@ __author__ = "Ye Lu"
 
 # Import main functionality for easy access
 from . import analysis, preprocess, qc, tools, utils
-# from . import workflows
-from .config import settings, set_figure_params
 
 # from . import workflows
-
-# Optional
-# from .workflows import run_standard_workflow
+from .config import set_figure_params, settings
 
 # Define what should be accessible when using `from scRNA import *`
 __all__ = [
@@ -29,6 +25,4 @@ __all__ = [
     "analysis",
     "tools",
     "utils",
-    # "workflows",
-    # "run_standard_workflow"
 ]
