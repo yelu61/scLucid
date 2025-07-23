@@ -1,0 +1,83 @@
+# --- Proliferating（增殖）---
+[["Cell States"]]
+name = "Proliferating"
+color = "#a32121ff" # 深红
+markers = ["MKI67", "TOP2A", "PCNA", "CCNB1", "CCNB2"]
+
+# --- Stress (应激) ---
+[["Cell States"]]
+name = "Stress"
+color = "#FF69B4" # HotPink
+markers = ["HSPA1A", "HSPB1", "HSPA6", "HSP90AA1", "ATF3", "DDIT3", "FOS", "JUN"]
+
+# --- Hypoxia (缺氧) ---
+[["Cell States"]]
+name = "Hypoxia"
+color = "#800080" # Purple
+markers = ["VEGFA", "ADM", "NDRG1", "BNIP3", "CA9", "SLC2A1", "PGK1"]
+
+# --- Apoptosis（凋亡）---
+[["Cell States"]]
+name = "Apoptosis"
+color = "#8B0000" # 深红
+markers = ["BAX", "CASP3", "CASP7", "CASP8", "CASP9", "FAS", "TP53", "BCL2L11", "BBC3", "CYCS"]
+
+# --- DNA Damage（DNA损伤应答）---
+[["Cell States"]]
+name = "DNA Damage"
+color = "#6495ED" # 蓝
+markers = ["ATM", "ATR", "CHEK1", "CHEK2", "RAD51", "BRCA1", "BRCA2", "H2AFX", "TP53BP1", "GADD45A"]
+
+# --- Differentiation（分化）---
+[["Cell States"]]
+name = "Differentiation"
+color = "#228B22" # 森林绿
+markers = ["CDKN1A", "CDKN1B", "SOX9", "GATA1", "GATA3", "MYOD1", "RUNX2"]
+
+# --- EMT（上皮-间质转化）---
+[["Cell States"]]
+name = "EMT"
+color = "#FFD700" # 金黄
+markers = ["VIM", "SNAI1", "SNAI2", "ZEB1", "ZEB2", "CDH2", "FN1", "TWIST1", "CDH1"]
+
+# --- Activation（激活）---
+[["Cell States"]]
+name = "Activation"
+color = "#FF8C00" # 橙
+markers = ["CD69", "CD25", "FOS", "JUNB", "CD38", "CD44"]
+
+# --- Exhaustion（耗竭）---
+[["Cell States"]]
+name = "Exhaustion"
+color = "#A9A9A9" # 灰
+markers = ["PDCD1", "LAG3", "HAVCR2", "TIGIT", "CTLA4", "ENTPD1", "TOX", "CD244"]
+
+# --- Migration（迁移）---
+[["Cell States"]]
+name = "Migration"
+color = "#20B2AA" # 青色
+markers = ["MMP2", "MMP9", "CXCR4", "S100A4", "ITGB1", "CD44", "VIM"]
+
+# --- Inflammation（炎症/激活）---
+[["Cell States"]]
+name = "Inflammation"
+color = "#B22222" # 火红
+markers = ["IL1B", "TNF", "NFKB1", "NFKBIA", "CXCL8", "PTGS2", "ICAM1"]
+
+# --- Metabolic activation（代谢激活）---
+[["Cell States"]]
+name = "Metabolic activation"
+color = "#4682B4" # 钢蓝
+markers = ["LDHA", "SLC2A1", "ENO1", "PKM", "PGK1", "GAPDH"]
+
+# --- Senescence-Associated Secretory Phenotype (SASP) ---
+[["Cell States"]]
+name = "SASP"
+color = "#A0522D" # 棕
+markers = ["IL6", "IL8", "CXCL1", "MMP1", "MMP3", "SERPINE1"]
+
+# --- Precursor/Progenitor（前体/祖细胞状态）---
+[["Cell States"]]
+name = "Progenitor"
+color = "#00CED1"
+markers = ["SOX2", "NESTIN", "PROM1", "PAX6", "ASCL1"]

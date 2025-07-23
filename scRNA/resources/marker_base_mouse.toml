@@ -1,0 +1,147 @@
+# ==========================
+# Mouse Basic Cell Markers
+# ==========================
+
+# --- 免疫细胞 Immune cells ---
+
+## T细胞
+[["Mouse Basic Markers"]]
+name = "Pan-T cell"
+markers = ["Cd3d", "Cd3e", "Cd3g", "Trac"]
+
+[["Mouse Basic Markers"]]
+name = "CD4+ T cell"
+markers = ["Cd4"]
+
+[["Mouse Basic Markers"]]
+name = "CD8+ T cell"
+markers = ["Cd8a", "Cd8b1"]
+
+[["Mouse Basic Markers"]]
+name = "Treg"
+markers = ["Foxp3", "Il2ra", "Ctla4"]
+
+[["Mouse Basic Markers"]]
+name = "Exhausted T cell"
+markers = ["Pdcd1", "Lag3", "Havcr2", "Tox"]
+
+[["Mouse Basic Markers"]]
+name = "Memory T cell"
+markers = ["Sell", "Cd44", "Il7r", "Ccr7"]
+
+## B细胞
+[["Mouse Basic Markers"]]
+name = "Pan-B cell"
+markers = ["Cd19", "Ms4a1", "Cd79a", "Cd79b"]
+
+[["Mouse Basic Markers"]]
+name = "Plasma cell"
+markers = ["Jchain", "Xbp1", "Sdc1", "Prdm1"]
+
+[["Mouse Basic Markers"]]
+name = "Germinal center B cell"
+markers = ["Mki67", "Mef2b", "Cxcr4"]
+
+## NK细胞
+[["Mouse Basic Markers"]]
+name = "NK cell"
+markers = ["Ncr1", "Klrb1c", "Nkg7", "Gzma"]
+
+## 单核/巨噬
+[["Mouse Basic Markers"]]
+name = "Monocyte"
+markers = ["Fcgr3", "Itgam", "Csf1r", "Ly6c2"]
+
+[["Mouse Basic Markers"]]
+name = "Macrophage"
+markers = ["Cd68", "Adgre1", "Cd163", "Csf1r", "Mrc1"]
+
+## 树突细胞
+[["Mouse Basic Markers"]]
+name = "Dendritic cell"
+markers = ["Itgax", "Cd74", "H2-Ab1", "Flt3"]
+
+## 中性粒细胞
+[["Mouse Basic Markers"]]
+name = "Neutrophil"
+markers = ["S100a8", "S100a9", "Ly6g", "Mpo"]
+
+## 嗜酸/嗜碱粒细胞
+[["Mouse Basic Markers"]]
+name = "Eosinophil"
+markers = ["Siglecf", "Ccr3", "Prg2"]
+
+[["Mouse Basic Markers"]]
+name = "Basophil"
+markers = ["Mcpt8", "Il4", "Cma1"]
+
+## 肥大细胞
+[["Mouse Basic Markers"]]
+name = "Mast cell"
+markers = ["Kit", "Cpa3", "Tpsb2"]
+
+# --- 上皮/内皮/基质 ---
+
+[["Mouse Basic Markers"]]
+name = "Epithelial cell"
+markers = ["Epcam", "Krt8", "Krt18", "Krt19", "Cdh1"]
+
+[["Mouse Basic Markers"]]
+name = "Endothelial cell"
+markers = ["Pecam1", "Cdh5", "Vwf", "Eng"]
+
+[["Mouse Basic Markers"]]
+name = "Fibroblast"
+markers = ["Dcn", "Col1a1", "Col3a1", "Pdgfra", "Pdgfrb"]
+
+[["Mouse Basic Markers"]]
+name = "Smooth muscle cell"
+markers = ["Acta2", "Myh11", "Tagln", "Cnn1"]
+
+[["Mouse Basic Markers"]]
+name = "Pericyte"
+markers = ["Rgs5", "Pdgfrb", "Kcnj8", "Notch3"]
+
+# --- 神经与干细胞 ---
+
+[["Mouse Basic Markers"]]
+name = "Neuron"
+markers = ["Rbfox3", "Snap25", "Syt1", "Map2"]
+
+[["Mouse Basic Markers"]]
+name = "Astrocyte"
+markers = ["Gfap", "Aldh1l1", "Aqp4", "S100b"]
+
+[["Mouse Basic Markers"]]
+name = "Oligodendrocyte"
+markers = ["Plp1", "Mog", "Mbp", "Cnp"]
+
+[["Mouse Basic Markers"]]
+name = "OPC"
+markers = ["Pdgfra", "Cspg4"]
+
+[["Mouse Basic Markers"]]
+name = "Microglia"
+markers = ["Cx3cr1", "P2ry12", "Tmem119"]
+
+[["Mouse Basic Markers"]]
+name = "Neural stem cell"
+markers = ["Sox2", "Nestin", "Prom1"]
+
+# --- 其他特化细胞 ---
+
+[["Mouse Basic Markers"]]
+name = "Hepatocyte"
+markers = ["Alb", "Ttr", "Cyp2e1"]
+
+[["Mouse Basic Markers"]]
+name = "Cardiomyocyte"
+markers = ["Tnnt2", "Myh6", "Actc1"]
+
+[["Mouse Basic Markers"]]
+name = "Adipocyte"
+markers = ["Adipoq", "Pparg", "Plin1", "Fabp4"]
+
+[["Mouse Basic Markers"]]
+name = "Erythrocyte"
+markers = ["Hbb-bt", "Hba-a1", "Alas2"]
