@@ -18,7 +18,6 @@ from anndata import AnnData
 from rich.console import Console
 from rich.panel import Panel
 from rich.style import Style
-from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
@@ -26,29 +25,17 @@ from rich.tree import Tree
 def _get_marker_path(name_or_path: str) -> Path:
     """
     Finds a marker file, searching for built-in resources first, then local paths.
-
-    Args:
-        name_or_path: Name of a built-in set (e.g., 'base_human') or a direct file path.
-
-    Returns:
-        A Path object to a valid TOML file.
-
-    Raises:
-        FileNotFoundError: If the configuration cannot be located.
     """
-    # First, try to resolve it as a built-in resource.
-    full_resource_name = f"marker_{name_or_path}.toml" # <-- This is the key change
+    full_resource_name = f"marker_{name_or_path}.toml"
     try:
-        # Note: The file name in the resources directory should not have "marker_" prefix.
-        # It should be exactly 'base_human.toml', 'tissue_specific_human.toml', etc.
-        resource_path = resources.files("scRNA").joinpath(f"resources/{full_resource_name}")
+        resource_path = resources.files("scRNA").joinpath(
+            f"resources/{full_resource_name}"
+        )
         if resource_path.is_file():
             return resource_path
     except (ModuleNotFoundError, FileNotFoundError):
-        # This is not an error, just means it's not a built-in resource.
         pass
 
-    # If not found as a resource, try as a direct file path.
     path = Path(name_or_path)
     if path.is_file():
         return path
@@ -61,46 +48,39 @@ def _get_marker_path(name_or_path: str) -> Path:
 
 @dataclass
 class CellType:
-    """
-    Data class representing a cell type with its markers and metadata.
+    """Data class representing a cell type with its markers and metadata."""
 
-    Attributes:
-        name: The unique name of the cell type.
-        color: A hex color code for visualization.
-        markers: A list of marker genes.
-        level: The hierarchical level ('major' or 'minor').
-        minor: A list of names of direct subtypes.
-    """
     name: str
     color: Optional[str]
     markers: List[str]
     level: Literal["major", "minor"]
-    minor: List[str] = field(default_factory=list)
+    parent: Optional[CellType] = None
+    minor: List[CellType] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Post-initialization processing."""
         if self.color == "":
             self.color = None
 
+    # ADD THIS METHOD INSIDE THE CLASS
+    def to_dict(self) -> dict:
+        """Converts this CellType object back to a dictionary."""
+        d = {
+            "name": self.name,
+            "color": self.color,
+            "markers": self.markers,
+        }
+        # Recursively convert children to dictionaries as well
+        if self.minor:
+            d["minor"] = [m.to_dict() for m in self.minor]
+        return d
+
 
 class Manager:
-    """
-    Manages hierarchical cell type markers for analysis.
-
-    This class loads marker definitions from TOML files, supports unlimited
-    nesting of cell types, and provides methods for querying, visualization,
-    and dynamic modification.
-    """
+    """Manages hierarchical cell type markers for analysis."""
 
     def __init__(self, config: str, root_key: Optional[str] = None) -> None:
-        """
-        Initializes the marker manager from a configuration.
-
-        Args:
-            config: Path to a TOML file or the name of a built-in marker set.
-            root_key: If specified, only loads definitions from this top-level
-                      category within the TOML file.
-        """
+        """Initializes the marker manager from a configuration."""
         config_file_path = _get_marker_path(config)
         with open(config_file_path, "rb") as f:
             data = tomllib.load(f)
@@ -112,45 +92,52 @@ class Manager:
             data_to_parse = {root_key: data[root_key]}
 
         self.CELLS: Dict[str, CellType] = {}
-        self.CLUSTERS: Dict[str, List[str]] = {}
+        self.CLUSTERS: Dict[str, List[CellType]] = {}
         self._parse_level(data_to_parse)
 
     def _parse_level(self, level_data: dict, parent_obj: Optional[CellType] = None):
-        """
-        Recursively parses a level of the marker hierarchy.
-
-        Args:
-            level_data: A dictionary representing the current level from the TOML data.
-            parent_obj: The parent CellType object for the current level, if any.
-        """
+        """Recursively parses a level of the marker hierarchy."""
         for major_name, definitions in level_data.items():
-            if parent_obj is None:  # This is a top-level category
+            if parent_obj is None:
                 self.CLUSTERS[major_name] = []
 
             for cell_def in definitions:
                 cell_name = cell_def["name"]
+
+                # Create or update the cell type object
                 if cell_name in self.CELLS:
-                    # If cell type already exists, update it instead of overwriting
-                    # This can happen when merging files with overlapping but refined definitions
                     cell_obj = self.CELLS[cell_name]
-                    cell_obj.color = cell_def.get("color", cell_obj.color)
-                    cell_obj.markers.extend(m for m in cell_def.get("markers", []) if m not in cell_obj.markers)
+                    cell_obj.color = (
+                        cell_def.get("color")
+                        if cell_def.get("color")
+                        else cell_obj.color
+                    )
+                    cell_obj.markers.extend(
+                        m
+                        for m in cell_def.get("markers", [])
+                        if m not in cell_obj.markers
+                    )
                 else:
                     cell_obj = CellType(
                         name=cell_name,
                         color=cell_def.get("color"),
                         markers=cell_def.get("markers", []),
                         level="minor" if parent_obj else "major",
+                        parent=parent_obj,
                     )
                     self.CELLS[cell_name] = cell_obj
 
+                # Establish parent-child relationship
                 if parent_obj:
-                    parent_obj.minor.append(cell_name)
+                    parent_obj.minor.append(cell_obj)
                 else:
-                    self.CLUSTERS[major_name].append(cell_name)
+                    self.CLUSTERS[major_name].append(cell_obj)
 
+                # Recurse if there are further subtypes
                 if "minor" in cell_def:
-                    self._parse_level({cell_name: cell_def["minor"]}, parent_obj=cell_obj)
+                    self._parse_level(
+                        {cell_name: cell_def["minor"]}, parent_obj=cell_obj
+                    )
 
     def __getitem__(self, key: str) -> CellType:
         """Allows dictionary-style access to cell types."""
@@ -159,22 +146,20 @@ class Manager:
         return self.CELLS[key]
 
     def intersect_with(self, adata: AnnData) -> None:
-        """
-        Filters all marker lists to include only genes present in the AnnData object.
-        """
+        """Filters all marker lists to include only genes present in the AnnData object."""
         genes_in_data = set(adata.var_names)
         for cell in self.CELLS.values():
             cell.markers = [m for m in cell.markers if m in genes_in_data]
 
-    def query(self, info: Literal["color", "markers"], key: str | Sequence[str]) -> dict:
-        """
-        Queries for information (colors or markers) for one or more cell types.
-        """
+    def query(
+        self, info: Literal["color", "markers"], key: str | Sequence[str]
+    ) -> dict:
+        """Queries for information for one or more cell types."""
         keys_to_query = [key] if isinstance(key, str) else key
         missing = [k for k in keys_to_query if k not in self.CELLS]
         if missing:
             raise KeyError(f"Cell types not found: {', '.join(missing)}")
-        
+
         return {k: getattr(self.CELLS[k], info) for k in keys_to_query}
 
     def show_tree(self) -> None:
@@ -193,40 +178,20 @@ class Manager:
                 width=60,
             )
             child_node = parent_node.add(node_panel)
-            for minor_name in cell_obj.minor:
-                add_to_tree(child_node, self.CELLS[minor_name])
+            for minor_obj in cell_obj.minor:
+                add_to_tree(child_node, minor_obj)
 
-        for major_name, cell_names in self.CLUSTERS.items():
+        for major_name, cell_objects in self.CLUSTERS.items():
             major_node = tree.add(f"[bold magenta]{major_name}[/bold magenta]")
-            for cell_name in cell_names:
-                add_to_tree(major_node, self.CELLS[cell_name])
-        
+            for cell_obj in cell_objects:
+                add_to_tree(major_node, cell_obj)
+
         console.print(tree)
 
-    def add_cell_type(self, **kwargs) -> None:
-        """A simple wrapper to add a single cell type definition."""
-        self._parse_level({"adhoc": [kwargs]})
-
-    def merge_from(self, other_manager: Manager) -> None:
-        """
-        Merges all definitions from another Manager instance into this one.
-
-        Args:
-            other_manager: Another Manager instance to merge from.
-        """
-        for cell_name, cell_obj in other_manager.CELLS.items():
-            parent_name = None
-            for major, minors in other_manager.CLUSTERS.items():
-                if cell_name in minors:
-                    parent_name = major
-                    break
-            self.add_cell_type(
-                name=cell_obj.name,
-                markers=cell_obj.markers,
-                color=cell_obj.color,
-                level=cell_obj.level,
-                parent=parent_name
-            )
+    def merge_from(self, other_manager: "Manager") -> None:
+        """Merges all definitions from another Manager instance into this one."""
+        for major_name, cell_list in other_manager.CLUSTERS.items():
+            self._parse_level({major_name: [cell.to_dict() for cell in cell_list]})
 
 
 def get_marker_manager(
@@ -245,23 +210,39 @@ def get_marker_manager(
     Returns:
         A fully configured and combined Manager instance.
     """
-    print(f"Building manager for species: {species}, tissue: {tissue}, states: {states}")
+    print(
+        f"Building manager for species: {species}, tissue: {tissue}, states: {states}"
+    )
 
-    # 1. Load the base manager for the specified species
     mgr = Manager(f"base_{species}")
 
-    # 2. Optionally, load and merge tissue-specific markers
     if tissue:
         mgr_tissue = Manager(f"tissue_specific_{species}", root_key=tissue)
         mgr.merge_from(mgr_tissue)
         print(f"-> Merged tissue-specific markers for '{tissue}'.")
 
-    # 3. Optionally, load and merge cell state markers
     if states:
-        for state in states:
-            mgr_state = Manager(f"cell_state_{species}", root_key=state)
-            mgr.merge_from(mgr_state)
-            print(f"-> Merged cell state markers for '{state}'.")
+        # Load the entire cell state file once
+        mgr_states_all = Manager(f"cell_state_{species}")
+
+        # Now, selectively merge only the requested states
+        for state_name in states:
+            if state_name in mgr_states_all.CELLS:
+                # Find the parent category ("Cell States")
+                parent_category = "Cell States"
+
+                # Re-create a temporary manager with just this one state to merge
+                state_obj = mgr_states_all.CELLS[state_name]
+                temp_mgr = Manager(f"cell_state_{species}", root_key=parent_category)
+                temp_mgr.CELLS = {state_name: state_obj}
+                temp_mgr.CLUSTERS = {parent_category: [state_obj]}
+
+                mgr.merge_from(temp_mgr)
+                print(f"-> Merged cell state markers for '{state_name}'.")
+            else:
+                print(
+                    f"Warning: State '{state_name}' not found in {f'cell_state_{species}.toml'}"
+                )
 
     print("✅ Manager built successfully.")
     return mgr

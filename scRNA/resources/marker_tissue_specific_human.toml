@@ -5,367 +5,145 @@
 # ===================================================================
 
 # --- Cornea (眼角膜) ---
-[["Cornea".minor]]
-name = "Corneal EpC"
-color = "#D8BFD8"
-markers = ["KRT12", "KRT3", "KRT15"]
-
-[["Cornea".minor]]
-name = "Basal EpC"
-color = ""
-markers = ["KRT5", "KRT14", "ITGB4"]
-
-[["Cornea".minor]]
-name = "Superficial EpC"
-color = ""
-markers = ["DSC3", "DSP", "KRT24", "MUC21"]
-
-[["Cornea".minor]]
-name = "Limbal Stem Cells"
-color = "#FF4500"
-markers = ["KRT15", "ABCG2", "P63", "TP63", "LGALS7"]
-
-[["Cornea".minor]]
-name = "Limbal EpC"
-color = "#FF6347"
-markers = ["KRT13", "KRT14", "KRT19", "KRT4"]
-
-[["Cornea".minor]]
-name = "Progenitors"
-color = ""
-markers = ["PAX6", "MITF"]
-
-[["Cornea".minor]]
-name = "Corneal EndoC"
-color = "#4682B4"
-markers = ["PTPRB", "CDH5", "ATP1A1"]
-
-[["Cornea".minor]]
-name = "Corneal Stromal"
-color = "#20B2AA"
-markers = ["DCN", "KERA", "LUM"]
-
-[["Cornea".minor]]
-name = "Keratocyte"
-color = "#008B8B"
-markers = ["KERA", "ALDH3A1", "COL6A1", "COL6A3"]
-
-[["Cornea".minor]]
-name = "Limbal Stromal"
-color = "#5F9EA0"
-markers = ["VIM", "PDGFRB"]
-
-[["Cornea".minor]]
-name = "Scleral Cells"
-color = "#A0522D"
-markers = ["COL1A1", "COL5A1", "DCN"]
-
-[["Cornea".minor]]
-name = "Iridocytes"
-color = "#8A2BE2"
-markers = ["TYR", "RPE65", "PMEL"]
-
-[["Cornea".minor]]
-name = "Corneal Nerve"
-color = "#FFD700"
-markers = ["TUBB3", "ENO2", "TUJ1", "NSE", "SYP", "GAP43", "SYT1"]
-
+[["Cornea"]]
+name = "Cornea Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Corneal EpC", color = "#D8BFD8", markers = ["KRT12", "KRT3", "KRT15"] },
+    { name = "Basal EpC", color = "", markers = ["KRT5", "KRT14", "ITGB4"] },
+    { name = "Superficial EpC", color = "", markers = ["DSC3", "DSP", "KRT24", "MUC21"] },
+    { name = "Limbal Stem Cells", color = "#FF4500", markers = ["KRT15", "ABCG2", "TP63", "LGALS7"] },
+    { name = "Limbal EpC", color = "#FF6347", markers = ["KRT13", "KRT14", "KRT19", "KRT4"] },
+    { name = "Progenitors", color = "", markers = ["PAX6", "MITF"] },
+    { name = "Corneal EndoC", color = "#4682B4", markers = ["PTPRB", "CDH5", "ATP1A1"] },
+    { name = "Corneal Stromal", color = "#20B2AA", markers = ["DCN", "KERA", "LUM"] },
+    { name = "Keratocyte", color = "#008B8B", markers = ["KERA", "ALDH3A1", "COL6A1", "COL6A3"] },
+    { name = "Limbal Stromal", color = "#5F9EA0", markers = ["VIM", "PDGFRB"] },
+    { name = "Scleral Cells", color = "#A0522D", markers = ["COL1A1", "COL5A1", "DCN"] },
+    { name = "Iridocytes", color = "#8A2BE2", markers = ["TYR", "RPE65", "PMEL"] },
+    { name = "Corneal Nerve", color = "#FFD700", markers = ["TUBB3", "ENO2", "SYP", "GAP43", "SYT1"] }
+]
 
 # --- Pancreas (胰腺) ---
-[["Pancreas".minor]]
-name = "Endocrine cells"
-color = ""
-markers = ["CHGA", "CHGB", "INS", "GCG", "SST", "PPY"]
-
-[["Pancreas".minor]]
-name = "Acinar cells"
-color = ""
-markers = ["CLPS", "CPB1", "CPA1", "PRSS1", "CTRB1", "CTRB2", "CELA3A"]
-
-[["Pancreas".minor]]
-name = "Ductal-like1"
-color = ""
-markers = ["CFTR", "BICC1", "SLC4A4", "GLIS3", "SCTR", "AMBP", "ANXA4", "SPP1", "SOX9", "FOS", "JUN"]
-
-[["Pancreas".minor]]
-name = "Ductal-like2"
-color = ""
-markers = ["CRP", "MUC5B", "ONECUT2", "CRISP3", "TFF3"]
-
-[["Pancreas".minor]]
-name = "Alpha cell"
-color = ""
-markers = ["GCG", "ARX", "IRX2"]
-
-[["Pancreas".minor]]
-name = "Beta cell"
-color = ""
-markers = ["INS", "IAPP", "MAFA", "NKX6-1"]
-
-[["Pancreas".minor]]
-name = "Delta cell"
-color = ""
-markers = ["SST", "HHEX"]
-
-[["Pancreas".minor]]
-name = "PP cell"
-color = ""
-markers = ["PPY", "PAX6"]
-
+[["Pancreas"]]
+name = "Pancreas Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Endocrine cells", color = "", markers = ["CHGA", "CHGB", "INS", "GCG", "SST", "PPY"] },
+    { name = "Acinar cells", color = "", markers = ["CLPS", "CPB1", "CPA1", "PRSS1", "CTRB1"] },
+    { name = "Ductal-like1", color = "", markers = ["CFTR", "BICC1", "SLC4A4", "GLIS3", "SOX9"] },
+    { name = "Ductal-like2", color = "", markers = ["CRP", "MUC5B", "ONECUT2", "TFF3"] },
+    { name = "Alpha cell", color = "", markers = ["GCG", "ARX", "IRX2"] },
+    { name = "Beta cell", color = "", markers = ["INS", "IAPP", "MAFA", "NKX6-1"] },
+    { name = "Delta cell", color = "", markers = ["SST", "HHEX"] },
+    { name = "PP cell", color = "", markers = ["PPY", "PAX6"] }
+]
 
 # --- Lung (肺) ---
-[["Lung".minor]]
-name = "AT1 cell"
-color = "#B0C4DE"
-markers = ["AGER", "PDPN", "CAV1"]
-
-[["Lung".minor]]
-name = "AT2 cell"
-color = "#ADD8E6"
-markers = ["SFTPC", "SFTPA1", "SFTPB", "NAPSA"]
-
-[["Lung".minor]]
-name = "Ciliated cell"
-color = "#20B2AA"
-markers = ["FOXJ1", "TPPP3", "DNAH5"]
-
-[["Lung".minor]]
-name = "Club cell"
-color = "#FFA07A"
-markers = ["SCGB1A1", "SCGB3A2", "UGT1A6"]
-
-[["Lung".minor]]
-name = "Goblet cell"
-color = "#FFD700"
-markers = ["MUC5AC", "SPDEF", "TFF3"]
-
-[["Lung".minor]]
-name = "Basal cell"
-color = "#A9A9A9"
-markers = ["KRT5", "TP63", "KRT14"]
-
-[["Lung".minor]]
-name = "Pulmonary EC"
-color = "#4682B4"
-markers = ["CCL21", "ACKR1", "PLVAP"]
-
-[["Lung".minor]]
-name = "Pulmonary Fibroblast"
-color = "#4682B4"
-markers = ["PDGFRA", "WNT2", "GREM1"]
+[["Lung"]]
+name = "Lung Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "AT1 cell", color = "#B0C4DE", markers = ["AGER", "PDPN", "CAV1"] },
+    { name = "AT2 cell", color = "#ADD8E6", markers = ["SFTPC", "SFTPA1", "SFTPB", "NAPSA"] },
+    { name = "Ciliated cell", color = "#20B2AA", markers = ["FOXJ1", "TPPP3", "DNAH5"] },
+    { name = "Club cell", color = "#FFA07A", markers = ["SCGB1A1", "SCGB3A2"] },
+    { name = "Goblet cell", color = "#FFD700", markers = ["MUC5AC", "SPDEF", "TFF3"] },
+    { name = "Basal cell", color = "#A9A9A9", markers = ["KRT5", "TP63", "KRT14"] },
+    # Renamed to be specific subtypes of base types
+    { name = "Pulmonary EC", color = "#4682B4", markers = ["CCL21", "ACKR1", "PLVAP"] },
+    { name = "Pulmonary Fibroblast", color = "#4682B4", markers = ["PDGFRA", "WNT2", "GREM1"] }
+]
 
 # --- Liver (肝脏) ---
-[["Liver".minor]]
-name = "Hepatocyte"
-color = "#F4A460"
-markers = ["ALB", "APOB", "CYP3A4", "HNF4A"]
-
-[["Liver".minor]]
-name = "Cholangiocyte"
-color = "#48D1CC"
-markers = ["KRT19", "SOX9", "CFTR"]
-
-[["Liver".minor]]
-name = "Kupffer cell"
-color = "#8B4513"
-markers = ["MARCO", "CD163", "VSIG4", "CLEC4F"]
-
-[["Liver".minor]]
-name = "Hepatic stellate cell"
-color = "#BDB76B"
-markers = ["RBP1", "ACTA2", "LRAT", "DES"]
-
-[["Liver".minor]]
-name = "Liver endothelial cell"
-color = "#00CED1"
-markers = ["STAB2", "LYVE1", "PECAM1"]
-
+[["Liver"]]
+name = "Liver Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Hepatocyte", color = "#F4A460", markers = ["ALB", "APOB", "CYP3A4"] },
+    { name = "Cholangiocyte", color = "#48D1CC", markers = ["KRT19", "SOX9", "CFTR"] },
+    { name = "Kupffer cell", color = "#8B4513", markers = ["MARCO", "CD163", "VSIG4", "CLEC4F"] },
+    { name = "Hepatic stellate cell", color = "#BDB76B", markers = ["RBP1", "ACTA2", "LRAT", "DES"] },
+    { name = "Liver EC", color = "#00CED1", markers = ["STAB2", "LYVE1", "PECAM1"] }
+]
 
 # --- Kidney (肾脏) ---
-[["Kidney".minor]]
-name = "Proximal tubule cell"
-color = "#C1FFC1"
-markers = ["SLC5A2", "LRP2", "CUBN", "AQP1"]
-
-[["Kidney".minor]]
-name = "Distal tubule cell"
-color = "#87CEFA"
-markers = ["SLC12A3", "PVALB", "SLC4A1"]
-
-[["Kidney".minor]]
-name = "Podocyte"
-color = "#B0E0E6"
-markers = ["NPHS1", "NPHS2", "WT1", "SYNPO"]
-
-[["Kidney".minor]]
-name = "Collecting duct cell"
-color = "#E0FFFF"
-markers = ["AQP2", "SCNN1A", "FXYD4"]
-
-[["Kidney".minor]]
-name = "Glomerular endothelial cell"
-color = "#00BFFF"
-markers = ["PECAM1", "EMCN", "CDH5"]
-
-[["Kidney".minor]]
-name = "Mesangial cell"
-color = "#4682B4"
-markers = ["PDGFRB", "ITGA8", "ACTA2"]
-
+[["Kidney"]]
+name = "Kidney Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Proximal tubule cell", color = "#C1FFC1", markers = ["SLC5A2", "LRP2", "CUBN", "AQP1"] },
+    { name = "Distal tubule cell", color = "#87CEFA", markers = ["SLC12A3", "PVALB", "SLC4A1"] },
+    { name = "Podocyte", color = "#B0E0E6", markers = ["NPHS1", "NPHS2", "WT1", "SYNPO"] },
+    { name = "Collecting duct cell", color = "#E0FFFF", markers = ["AQP2", "SCNN1A", "FXYD4"] },
+    { name = "Glomerular EC", color = "#00BFFF", markers = ["PECAM1", "EMCN", "CDH5"] },
+    { name = "Mesangial cell", color = "#4682B4", markers = ["PDGFRB", "ITGA8", "ACTA2"] }
+]
 
 # --- Brain (大脑/神经系统) ---
-[["Brain".minor]]
-name = "Excitatory neuron"
-color = "#DC143C"
-markers = ["SLC17A7", "SLC17A6", "SATB2"]
-
-[["Brain".minor]]
-name = "Inhibitory neuron"
-color = "#8B0000"
-markers = ["GAD1", "GAD2", "SLC32A1"]
-
-[["Brain".minor]]
-name = "Astrocyte"
-color = "#7FFFD4"
-markers = ["GFAP", "AQP4", "SLC1A3"]
-
-[["Brain".minor]]
-name = "Oligodendrocyte"
-color = "#4682B4"
-markers = ["MBP", "PLP1", "MOG", "MAG"]
-
-[["Brain".minor]]
-name = "OPC"  # Oligodendrocyte progenitor cell
-color = "#6495ED"
-markers = ["PDGFRA", "CSPG4", "SOX10"]
-
-[["Brain".minor]]
-name = "Microglia"
-color = "#A0522D"
-markers = ["CX3CR1", "P2RY12", "TMEM119", "TREM2"]
-
-[["Brain".minor]]
-name = "Endothelial cell"
-color = "#4169E1"
-markers = ["CLDN5", "FLT1", "PECAM1"]
-
-[["Brain".minor]]
-name = "Pericyte"
-color = "#778899"
-markers = ["PDGFRB", "RGS5", "KCNJ8"]
-
-[["Brain".minor]]
-name = "Ependymal cell"
-color = "#6A5ACD"
-markers = ["FOXJ1", "S100B", "PIFO"]
-
+[["Brain"]]
+name = "Brain Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Excitatory neuron", color = "#DC143C", markers = ["SLC17A7", "SLC17A6", "SATB2"] },
+    { name = "Inhibitory neuron", color = "#8B0000", markers = ["GAD1", "GAD2", "SLC32A1"] },
+    { name = "Astrocyte", color = "#7FFFD4", markers = ["GFAP", "AQP4", "SLC1A3"] },
+    { name = "Oligodendrocyte", color = "#4682B4", markers = ["MBP", "PLP1", "MOG", "MAG"] },
+    { name = "OPC", color = "#6495ED", markers = ["PDGFRA", "CSPG4", "SOX10"] },
+    { name = "Microglia", color = "#A0522D", markers = ["CX3CR1", "P2RY12", "TMEM119", "TREM2"] },
+    { name = "Ependymal cell", color = "#6A5ACD", markers = ["FOXJ1", "S100B", "PIFO"] },
+    # Renamed to be specific subtypes of base types
+    { name = "Brain EC", color = "#4169E1", markers = ["CLDN5", "FLT1", "PECAM1"] },
+    { name = "Brain Pericyte", color = "#778899", markers = ["PDGFRB", "RGS5", "KCNJ8"] }
+]
 
 # --- Heart (心脏) ---
-[["Heart".minor]]
-name = "Cardiomyocyte"
-color = "#DC143C"
-markers = ["TNNT2", "MYH6", "ACTC1", "MYL7"]
-
-[["Heart".minor]]
-name = "Cardiac fibroblast"
-color = "#8B4513"
-markers = ["DCN", "LUM", "COL1A2", "POSTN"]
-
-[["Heart".minor]]
-name = "Cardiac endothelial cell"
-color = "#4682B4"
-markers = ["PECAM1", "VWF", "CDH5"]
-
-[["Heart".minor]]
-name = "Smooth muscle cell"
-color = "#DAA520"
-markers = ["ACTA2", "MYH11", "TAGLN"]
-
-[["Heart".minor]]
-name = "Cardiac conduction cell"
-color = "#FFD700"
-markers = ["HCN4", "GJA5", "SHOX2"]
-
+[["Heart"]]
+name = "Heart Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Cardiomyocyte", color = "#DC143C", markers = ["TNNT2", "MYH6", "ACTC1", "MYL7"] },
+    { name = "Cardiac Fibroblast", color = "#8B4513", markers = ["DCN", "LUM", "COL1A2", "POSTN"] },
+    { name = "Cardiac EC", color = "#4682B4", markers = ["PECAM1", "VWF", "CDH5"] },
+    { name = "Cardiac SMC", color = "#DAA520", markers = ["ACTA2", "MYH11", "TAGLN"] },
+    { name = "Cardiac Conduction Cell", color = "#FFD700", markers = ["HCN4", "GJA5", "SHOX2"] }
+]
 
 # --- Intestine (小肠/结肠) ---
-[["Intestine".minor]]
-name = "Enterocyte"
-color = "#9ACD32"
-markers = ["ALPI", "APOA1", "FABP2"]
-
-[["Intestine".minor]]
-name = "Goblet cell"
-color = "#ADD8E6"
-markers = ["MUC2", "SPDEF", "TFF3"]
-
-[["Intestine".minor]]
-name = "Paneth cell"
-color = "#FFA07A"
-markers = ["LYZ", "DEFA5", "DEFA6"]
-
-[["Intestine".minor]]
-name = "Enteroendocrine cell"
-color = "#FFD700"
-markers = ["CHGA", "CHGB", "TPH1"]
-
-[["Intestine".minor]]
-name = "Tuft cell"
-color = "#8A2BE2"
-markers = ["POU2F3", "TRPM5", "DCLK1"]
-
-[["Intestine".minor]]
-name = "Intestinal stem cell"
-color = "#FF4500"
-markers = ["LGR5", "ASCL2", "OLFM4"]
-
-[["Intestine".minor]]
-name = "Intestinal transit amplifying cell"
-color = "#FFDAB9"
-markers = ["MKI67", "PCNA"]
-
-[["Intestine".minor]]
-name = "Intestinal myofibroblast"
-color = "#D2B48C"
-markers = ["ACTA2", "VIM", "PDGFRA"]
-
+[["Intestine"]]
+name = "Intestine Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Enterocyte", color = "#9ACD32", markers = ["ALPI", "APOA1", "FABP2"] },
+    { name = "Goblet cell", color = "#ADD8E6", markers = ["MUC2", "SPDEF", "TFF3"] },
+    { name = "Paneth cell", color = "#FFA07A", markers = ["LYZ", "DEFA5", "DEFA6"] },
+    { name = "Enteroendocrine cell", color = "#FFD700", markers = ["CHGA", "CHGB", "TPH1"] },
+    { name = "Tuft cell", color = "#8A2BE2", markers = ["POU2F3", "TRPM5", "DCLK1"] },
+    { name = "Intestinal Stem Cell", color = "#FF4500", markers = ["LGR5", "ASCL2", "OLFM4"] },
+    { name = "Intestinal TA Cell", color = "#FFDAB9", markers = ["MKI67", "PCNA"] },
+    { name = "Intestinal Myofibroblast", color = "#D2B48C", markers = ["ACTA2", "VIM", "PDGFRA"] }
+]
 
 # --- Skin (皮肤) ---
-[["Skin".minor]]
-name = "Epidermal keratinocyte"
-color = "#F5DEB3"
-markers = ["KRT1", "KRT10", "KRT14"]
-
-[["Skin".minor]]
-name = "Basal keratinocyte"
-color = "#FFE4B5"
-markers = ["KRT5", "KRT14", "TP63"]
-
-[["Skin".minor]]
-name = "Melanocyte"
-color = "#A0522D"
-markers = ["MITF", "TYR", "PMEL", "DCT"]
-
-[["Skin".minor]]
-name = "Dermal fibroblast"
-color = "#DEB887"
-markers = ["COL1A1", "DCN", "LUM"]
-
-[["Skin".minor]]
-name = "Langerhans cell"
-color = "#DA70D6"
-markers = ["CD207", "CD1A", "Langerin"]
-
-[["Skin".minor]]
-name = "Merkel cell"
-color = "#48D1CC"
-markers = ["KRT20", "KRT18", "PIEZO2"]
-
-[["Skin".minor]]
-name = "Sebaceous gland cell"
-color = "#FFFFE0"
-markers = ["KRT7", "SOX9", "PPARG"]
-
-[["Skin".minor]]
-name = "Sweat gland cell"
-color = "#AFEEEE"
-markers = ["KRT7", "DCD", "AQP5"]
+[["Skin"]]
+name = "Skin Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Epidermal Keratinocyte", color = "#F5DEB3", markers = ["KRT1", "KRT10", "KRT14"] },
+    { name = "Basal Keratinocyte", color = "#FFE4B5", markers = ["KRT5", "KRT14", "TP63"] },
+    { name = "Skin Melanocyte", color = "#A0522D", markers = ["MITF", "TYR", "PMEL", "DCT"] },
+    { name = "Dermal Fibroblast", color = "#DEB887", markers = ["COL1A1", "DCN", "LUM"] },
+    { name = "Langerhans Cell", color = "#DA70D6", markers = ["CD207", "CD1A"] },
+    { name = "Merkel Cell", color = "#48D1CC", markers = ["KRT20", "KRT18", "PIEZO2"] },
+    { name = "Sebaceous Gland Cell", color = "#FFFFE0", markers = ["KRT7", "SOX9", "PPARG"] },
+    { name = "Sweat Gland Cell", color = "#AFEEEE", markers = ["KRT7", "DCD", "AQP5"] }
+]

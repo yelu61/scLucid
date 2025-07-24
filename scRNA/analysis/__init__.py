@@ -20,11 +20,12 @@ from .dimension import (
     plot_marker_heatmap,
     plot_enrichment,
 )
-from .manager import Manager
+from .manager import (Manager, get_marker_manager)
 
 # Define what should be accessible when importing from this module
 __all__ = [
     "Manager",
+    "get_marker_manager",
     "optimize_neighbors_pcs",
     "annotate_clusters",
     "score_cell_types",

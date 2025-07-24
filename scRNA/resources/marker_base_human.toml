@@ -4,7 +4,7 @@
 
 [["Immune cells"]]
 name = "Immune"
-color = "#7878cfff" # GhostWhite, parent color
+color = "#5353cc" # Blue-purple, parent color
 markers = ["PTPRC"] # CD45, pan-immune
 minor = [
     # --- Level 2: Lymphoid Lineage ---
@@ -23,12 +23,12 @@ minor = [
             ]},
             # CD8+ T
             { name = "CD8+ T", color = "#ff7f0e", markers = ["CD8A", "CD8B", "GZMA", "GZMB"], minor = [
-                { name = "CD8+ Tn",    color = "#11aa00", markers = ["TCF7", "SELL", "CCR7", "LEF1", "MAL"] },
-                { name = "CD8+ Tm",    color = "#8cfd7e", markers = ["IL7R", "EOMES", "GZMK", "CCL4", "CAPG"] },
-                { name = "CD8+ Trm",   color = "#b0e313", markers = ["ZNF683", "CD52", "HOPX", "S100A4"] },
-                { name = "CD8+ Tem",   color = "#55ff00", markers = ["GZMK", "CCL3", "CXCR4", "KLRG1"] },
-                { name = "CD8+ Temra", color = "#00cc99", markers = ["CX3CR1", "GZMH", "TBX21", "KLRD1"] },
-                { name = "Tex",        color = "#3eb753", markers = ["PDCD1", "TOX", "LAG3", "HAVCR2", "CTLA4"] }
+                { name = "CD8+ Tn",    color = "#ff9900", markers = ["TCF7", "SELL", "CCR7", "LEF1", "MAL"] },
+                { name = "CD8+ Tm",    color = "#ffbb33", markers = ["IL7R", "EOMES", "GZMK", "CCL4", "CAPG"] },
+                { name = "CD8+ Trm",   color = "#ffaa00", markers = ["ZNF683", "CD52", "HOPX", "S100A4"] },
+                { name = "CD8+ Tem",   color = "#ff8800", markers = ["GZMK", "CCL3", "CXCR4", "KLRG1"] },
+                { name = "CD8+ Temra", color = "#ff6600", markers = ["CX3CR1", "GZMH", "TBX21", "KLRD1"] },
+                { name = "Tex",        color = "#cc5500", markers = ["PDCD1", "TOX", "LAG3", "HAVCR2", "CTLA4"] }
             ]},
             # NKT, MAIT
             { name = "NKT", color = "#04650d", markers = ["KLRD1", "NKG7", "TYROBP", "KIR3DL1", "CD160"] },
@@ -37,7 +37,7 @@ minor = [
         # Level 3: B cells
         { name = "B cells", color = "#7ccbc5", markers = ["MS4A1", "CD19", "CD79A", "CD79B", "IGHM"], minor = [
             { name = "Naive B",     color = "#00e8d8", markers = ["TCL1A", "FCER2", "IGHD", "YBX3"] },
-            { name = "Memory B",    color = "#363151", markers = ["CD27", "IGHG1", "AIM2", "ITGB1"] },
+            { name = "Memory B",    color = "#00b3aa", markers = ["CD27", "IGHG1", "AIM2", "ITGB1"] },
             { name = "GC B",        color = "#005160", markers = ["LMO2", "CXCR4", "MKI67", "MEF2B"] },
             { name = "Plasmablast", color = "#629b92", markers = ["TXNDC5", "MYDGF"] },
             { name = "Plasma",      color = "#27a0a8", markers = ["JCHAIN", "XBP1", "SDC1", "MZB1"] }
@@ -45,7 +45,7 @@ minor = [
         # Level 3: NK cells
         { name = "NK cells", color = "#014431", markers = ["NCAM1", "NKG7", "KLRF1", "KLRD1"], minor = [
             { name = "CD56+CD16- NK", color = "#0c5d3d", markers = ["NCAM1", "KLRK1", "KIT", "GZMK"] },
-            { name = "CD56-CD16+ NK", color = "#0c5d3d", markers = ["FCGR3A", "NCR3", "GZMB", "PRF1"] }
+            { name = "CD56-CD16+ NK", color = "#093d29", markers = ["FCGR3A", "NCR3", "GZMB", "PRF1"] }
         ]},
         # Level 3: ILC
         { name = "ILC", color = "#c5b0d5", markers = ["ID2", "IL7R", "RORC", "GATA3"] }
@@ -64,8 +64,8 @@ minor = [
             { name = "Reg TAM",    color = "#6a5bb1", markers = ["ARG1", "MRC1", "CD274", "CX3CR1"] },
             { name = "Inflam TAM", color = "#333399", markers = ["IL1B", "CCL3", "CXCL1", "CXCL2"] },
             { name = "IFN TAM",    color = "#5729ce", markers = ["IDO1", "ISG15", "CXCL10", "STAT1"] },
-            { name = "Angio TAM",  color = "#ccd7e1", markers = ["VEGFA", "SPP1", "FGF2", "MMP9"] },
-            { name = "Prolif TAM", color = "#00a9b8", markers = ["MKI67", "CDK1", "PCNA"] },
+            { name = "Angio TAM",  color = "#9966cc", markers = ["VEGFA", "SPP1", "FGF2", "MMP9"] },
+            { name = "Prolif TAM", color = "#cc99ff", markers = ["MKI67", "CDK1", "PCNA"] },
             { name = "LA TAM",     color = "#9bacd8", markers = ["APOC1", "APOE", "FABP5"] },
             { name = "TRM TAM",    color = "#0000aa", markers = ["LYVE1", "FOLR2", "CX3CR1", "MERTK"] }
         ]},
@@ -74,13 +74,13 @@ minor = [
             { name = "pDC",  color = "#50a7d9", markers = ["LILRA4", "GZMB", "IL3RA", "TCF4"] },
             { name = "cDC1", color = "#a1caf1", markers = ["CLEC9A", "XCR1", "CADM1"] },
             { name = "cDC2", color = "#5a79ba", markers = ["CD1C", "FCER1A", "CLEC10A"] },
-            { name = "cDC3", color = "#4c69a7ff", markers = ["LAMP3", "CCR7", "FSCN1", "CST7"] }
+            { name = "cDC3", color = "#4c69a7", markers = ["LAMP3", "CCR7", "FSCN1", "CST7"] }
         ]},
         # --- Other Granulocytes ---
-        { name = "Mast cells", color = "#1E90FF", markers = ["TPSAB1", "KIT", "CPA3", "TPSB2", "FCER1A"] },
+        { name = "Mast cells",  color = "#1E90FF", markers = ["TPSAB1", "KIT", "CPA3", "TPSB2", "FCER1A"] },
         { name = "Neutrophils", color = "#a3e3ed", markers = ["FCGR3B", "CXCR2", "CSF3R"] },
-        { name = "Eosinophils", color = "", markers = ["CCR3", "FUT4"] },
-        { name = "Basophils", color = "", markers = ["CD63", "ENPP3"] }
+        { name = "Eosinophils", color = "#ff99cc", markers = ["CCR3", "FUT4"] },
+        { name = "Basophils",   color = "#cc99ff", markers = ["CD63", "ENPP3"] }
     ]}
 ]
 
@@ -95,20 +95,20 @@ markers = ["COL1A1", "PECAM1", "PDGFRA", "PDGFRB", "ACTA2"]
 minor = [
     { name = "Endothelial cells", color = "#fecb51", markers = ["PECAM1", "VWF", "CDH5", "RAMP2", "ENG"], minor = [
         { name = "Arterial EC",   color = "#ffae42", markers = ["SEMA3G", "GJA5", "BMX"] },
-        { name = "Venous EC",     color = "#ffae42", markers = ["ACKR1", "SELP", "NRG1"] },
-        { name = "Capillary EC",  color = "#ffae42", markers = ["RGCC", "CA4", "CD36"] },
+        { name = "Venous EC",     color = "#ff9e2c", markers = ["ACKR1", "SELP", "NRG1"] },
+        { name = "Capillary EC",  color = "#ffb347", markers = ["RGCC", "CA4", "CD36"] },
         { name = "Lymphatic EC",  color = "#e7e04e", markers = ["PROX1", "LYVE1", "CCL21"] },
-        { name = "TipEC",         color = "#ffae42", markers = ["COL4A1","KDR","ESM1"] },
-        { name = "EndoMT",        color = "#ffae42", markers = ["PDGFRB"] }
+        { name = "TipEC",         color = "#ffcc66", markers = ["COL4A1","KDR","ESM1"] },
+        { name = "EndoMT",        color = "#ffa700", markers = ["PDGFRB"] }
     ]},
     { name = "Fibroblasts", color = "#FF8C00", markers = ["ACTA2", "COL1A1", "COL3A1", "COL1A2", "DCN"], minor = [
-        { name = "iCAF", color = "#ee6600", markers = ["CFD", "APOD", "IGF1", "CXCL12", "MGP", "FAP"] },
-        { name = "mCAF", color = "#e68750", markers = ["POSTN", "FN1", "VCAN", "CTHRC1", "COL1A2"] },
-        { name = "pCAF", color = "#f08f00", markers = ["SCG2", "IGFBP2", "HIST1H4C", "PLAU"] },
-        { name = "meCAF", color = "#ffaa66", markers = ["NDRG1", "BNIP3", "TMEM158", "ADM"] },
-        { name = "EndMTCAF", color = "#c56543", markers = ["PLVAP", "RAMP2", "RGCC"] },
-        { name = "pnCAF", color = "#e1583f", markers = ["S100B", "GPM6B", "PLP1"] },
-        { name = "apCAF", color = "#fcb001", markers = ["HLA-DRA", "LYZ", "TYROBP"] }
+        { name = "iCAF",    color = "#ee6600", markers = ["CFD", "APOD", "IGF1", "CXCL12", "MGP", "FAP"] },
+        { name = "mCAF",    color = "#e68750", markers = ["POSTN", "FN1", "VCAN", "CTHRC1", "COL1A2"] },
+        { name = "pCAF",    color = "#f08f00", markers = ["SCG2", "IGFBP2", "HIST1H4C", "PLAU"] },
+        { name = "meCAF",   color = "#ffaa66", markers = ["NDRG1", "BNIP3", "TMEM158", "ADM"] },
+        { name = "EndMTCAF",color = "#c56543", markers = ["PLVAP", "RAMP2", "RGCC"] },
+        { name = "pnCAF",   color = "#e1583f", markers = ["S100B", "GPM6B", "PLP1"] },
+        { name = "apCAF",   color = "#fcb001", markers = ["HLA-DRA", "LYZ", "TYROBP"] }
     ]},
     { name = "Pericytes", color = "#b86d29", markers = ["RGS5", "MYH11", "PDGFRB", "MCAM"] },
     { name = "Smooth muscle cells", color = "#FFA07A", markers = ["TAGLN", "MYH11", "DES", "CNN1", "ACTA2"] }
@@ -130,7 +130,7 @@ markers = ["MLANA", "TYRP1", "TYR", "MITF"]
 
 [["Schwann cells"]]
 name = "Schwann"
-color = ""
+color = "#304655"
 markers = ["S100B", "CRYAB", "CDH19", "SOX10", "PLP1"]
 
 [["Adipocytes"]]
@@ -140,5 +140,5 @@ markers = ["ADIPOQ", "LEP", "FABP4", "PPARG", "PLIN1"]
 
 [["RBC"]]
 name = "RBC"
-color = "#4b4247"
+color = "#990000"
 markers = ["HBB", "HBA1", "HBA2"]

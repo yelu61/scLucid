@@ -1,7 +1,7 @@
 # --- Proliferating（增殖）---
 [["Cell States"]]
 name = "Proliferating"
-color = "#a32121ff" # 深红
+color = "#a32121" # 深红
 markers = ["MKI67", "TOP2A", "PCNA", "CCNB1", "CCNB2"]
 
 # --- Stress (应激) ---

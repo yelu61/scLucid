@@ -243,12 +243,15 @@ def optimize_neighbors_pcs(
     return df_results
 
 
+# In scRNA/analysis/cluster.py
+
+
 def find_resolution(
     adata: sc.AnnData,
     resolution_range: Tuple[float, float, int] = (0.1, 2.0, 10),
     clustering_method: Literal["leiden", "louvain"] = "leiden",
     metric: Literal["marker_separation", "silhouette"] = "marker_separation",
-    marker_config: Optional[str] = None,
+    marker_config: Optional[str | Manager] = None,
     use_rep: str = "X_pca",
     neighbors_key: Optional[str] = None,
     plot: bool = True,
@@ -257,15 +260,16 @@ def find_resolution(
     """
     Perform clustering across a range of resolutions and find the optimal one.
 
-    This function evaluates clustering quality using either marker gene separation
-    or silhouette score to guide the selection of the best resolution.
+    This function evaluates clustering quality. If a marker_config is provided,
+    it defaults to using marker gene separation. Otherwise, it automatically
+    falls back to using the silhouette score.
 
     Args:
         adata: AnnData object.
         resolution_range: Tuple of (start, end, steps) for resolution search.
         clustering_method: 'leiden' or 'louvain'.
         metric: Metric for evaluation ('marker_separation' or 'silhouette').
-        marker_config: Path to marker TOML file, required for 'marker_separation' metric.
+        marker_config: (Optional) A Manager instance or path to a marker TOML file.
         use_rep: Representation to use for silhouette score (e.g., 'X_pca').
         neighbors_key: Key in `adata.obsp` for the neighbors graph.
         plot: Whether to plot the evaluation metrics vs. resolution.
@@ -274,12 +278,31 @@ def find_resolution(
     Returns:
         AnnData object with the optimal clustering stored in `adata.obs`.
     """
-    if metric == "marker_separation" and marker_config is None:
-        raise ValueError(
-            "`marker_config` must be provided for 'marker_separation' metric."
+    # --- THIS IS THE NEW, SMARTER LOGIC ---
+    effective_metric = metric
+    if marker_config is None and metric == "marker_separation":
+        effective_metric = "silhouette"
+        print(
+            "Warning: `marker_config` not provided. "
+            f"Falling back to '{effective_metric}' metric for resolution optimization."
         )
 
-    mgr = Manager(marker_config) if marker_config else None
+    if effective_metric == "marker_separation" and marker_config is None:
+        raise ValueError(
+            "`marker_config` must be provided when explicitly using 'marker_separation' metric."
+        )
+    # --- END OF NEW LOGIC ---
+
+    if isinstance(marker_config, Manager):
+        mgr = marker_config
+    elif isinstance(marker_config, str):
+        mgr = Manager(marker_config)
+    else:
+        mgr = None
+
+    if mgr:
+        mgr.intersect_with(adata)
+
     marker_genes = (
         {cell.name: cell.markers for cell in mgr.CELLS.values()} if mgr else {}
     )
@@ -288,7 +311,7 @@ def find_resolution(
     resolutions = np.linspace(start, end, steps)
     eval_results = []
 
-    print(f"Searching for optimal resolution using '{metric}' metric...")
+    print(f"Searching for optimal resolution using '{effective_metric}' metric...")
     for res in resolutions:
         key = f"{clustering_method}_res_{res:.2f}"
         if clustering_method == "leiden":
@@ -308,19 +331,17 @@ def find_resolution(
                 random_state=random_state,
             )
 
-        if metric == "marker_separation":
+        if effective_metric == "marker_separation":
             score = _evaluate_marker_separation(adata, key, marker_genes)
-        elif metric == "silhouette":
+        else:  # Silhouette
             score = _evaluate_silhouette(adata, key, use_rep)
-        else:
-            raise ValueError(f"Unknown metric: {metric}")
 
         n_clusters = adata.obs[key].nunique()
         eval_results.append(
             {"resolution": res, "n_clusters": n_clusters, "score": score}
         )
         print(
-            f"  Resolution {res:.2f}: {n_clusters} clusters, {metric} score = {score:.4f}"
+            f"  Resolution {res:.2f}: {n_clusters} clusters, {effective_metric} score = {score:.4f}"
         )
 
     eval_df = pd.DataFrame(eval_results).dropna()
@@ -330,7 +351,6 @@ def find_resolution(
     optimal_idx = eval_df["score"].idxmax()
     optimal_res = eval_df.loc[optimal_idx, "resolution"]
 
-    # Final clustering with optimal resolution
     key_added = f"{clustering_method}_optimal"
     if clustering_method == "leiden":
         sc.tl.leiden(
@@ -362,7 +382,7 @@ def find_resolution(
             eval_df["score"],
             "o-",
             color="b",
-            label=f"{metric} score",
+            label=f"{effective_metric} score",
         )
         ax2.plot(
             eval_df["resolution"],
@@ -372,7 +392,7 @@ def find_resolution(
             label="# Clusters",
         )
         ax1.set_xlabel("Resolution")
-        ax1.set_ylabel(f"{metric.replace('_', ' ').title()} Score", color="b")
+        ax1.set_ylabel(f"{effective_metric.replace('_', ' ').title()} Score", color="b")
         ax2.set_ylabel("Number of Clusters", color="g")
         ax1.axvline(
             x=optimal_res,
