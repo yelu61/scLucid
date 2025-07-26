@@ -20,15 +20,21 @@ from .manager import Manager
 # --- Helper Evaluation Functions ---
 
 
-def _evaluate_marker_separation(adata, cluster_key, marker_genes):
-    """Calculates how well clusters separate known marker gene sets."""
-    if "log1p_norm" not in adata.layers:
-        print(
-            "Warning: 'log1p_norm' layer not found. Using adata.X for marker separation score."
-        )
-        X = adata.X
+def _evaluate_marker_separation(adata, cluster_key, marker_genes, use_raw):
+    """Calculates how well clusters separate known marker gene sets.""" 
+    if use_raw:
+        if adata.raw is None:
+            raise ValueError("adata.raw must be set to use `use_raw=True`.")
+        X = adata.raw.X
+        var_names = adata.raw.var_names
     else:
-        X = adata.layers["log1p_norm"]
+        # Fallback to layer or .X
+        if "log1p_norm" not in adata.layers:
+            print("Warning: 'log1p_norm' layer not found. Using adata.X for marker separation score.")
+            X = adata.X
+        else:
+            X = adata.layers["log1p_norm"]
+        var_names = adata.var_names
 
     clusters = adata.obs[cluster_key].cat.categories
     n_clusters = len(clusters)
@@ -38,7 +44,7 @@ def _evaluate_marker_separation(adata, cluster_key, marker_genes):
     scores = []
     for cell_type, markers in marker_genes.items():
         marker_indices = [
-            i for i, gene in enumerate(adata.var_names) if gene in markers
+            i for i, gene in enumerate(var_names) if gene in markers
         ]
         if not marker_indices:
             continue
@@ -255,6 +261,7 @@ def find_resolution(
     use_rep: str = "X_pca",
     neighbors_key: Optional[str] = None,
     plot: bool = True,
+    use_raw: bool = False,
     random_state: int = 42,
 ) -> sc.AnnData:
     """
@@ -332,7 +339,7 @@ def find_resolution(
             )
 
         if effective_metric == "marker_separation":
-            score = _evaluate_marker_separation(adata, key, marker_genes)
+            score = _evaluate_marker_separation(adata, key, marker_genes, use_raw=use_raw)
         else:  # Silhouette
             score = _evaluate_silhouette(adata, key, use_rep)
 
