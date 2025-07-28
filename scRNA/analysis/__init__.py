@@ -14,12 +14,6 @@ from .differential import (
     get_conserved_markers,
     run_enrichment,
 )
-from .dimension import (
-    plot_composition,
-    plot_embedding,
-    plot_marker_heatmap,
-    plot_enrichment,
-)
 from .manager import (Manager, get_marker_manager)
 
 # Define what should be accessible when importing from this module
@@ -35,8 +29,4 @@ __all__ = [
     "filter_markers",
     "get_conserved_markers",
     "run_enrichment",
-    "plot_embedding",
-    "plot_marker_heatmap",
-    "plot_composition",
-    "plot_enrichment",
 ]

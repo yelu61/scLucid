@@ -23,9 +23,6 @@ __all__ = [
     "annotate_hvg",
     "select_hvg",
     # Integration
-    "integrate_scanorama",
-    "integrate_scvi",
-    "integrate_harmony",
     "batch_correction",
     # Scaling
     "scale_data",

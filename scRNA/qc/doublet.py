@@ -5,88 +5,146 @@ This module provides functions for identifying potential doublet cells
 using the Scrublet algorithm and custom filtering approaches.
 """
 
-from typing import Optional
+import gc
+import logging
+from typing import Dict, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-import scanpy as sc
 import scrublet as scr
+from anndata import AnnData
 
-__all__ = ["is_doublet"]
+log = logging.getLogger(__name__)
+
+__all__ = ["generate_doublet_rates", "is_doublet"]
+
+
+def generate_doublet_rates(
+    adata: AnnData,
+    sample_key: str = "sampleID",
+    rate_per_1000_cells: float = 0.008,
+) -> Dict[str, float]:
+    """
+    Automatically generate expected doublet rates dictionary based on cell count per sample.
+
+    This function is based on 10x Genomics general guideline: for every 1000 cells,
+    the multiplet rate increases by approximately 0.8% (0.008).
+
+    Args:
+        adata (AnnData): AnnData object containing cell count information.
+        sample_key (str, optional): Column name in adata.obs used to distinguish samples.
+                                   Defaults to "sampleID".
+        rate_per_1000_cells (float, optional): Expected doublet rate per 1000 cells.
+                                              0.008 corresponds to standard 3' v3.1 kit.
+                                              For high-throughput (HT) kits, this value may be higher (e.g., 0.016).
+                                              Defaults to 0.008.
+
+    Returns:
+        Dict[str, float]: A dictionary with sample IDs as keys and calculated doublet rates as values.
+
+    Example:
+        >>> doublet_rates = generate_doublet_rates(adata, sample_key="sampleID")
+        >>> print(doublet_rates)
+        {'sample_A': 0.04, 'sample_B': 0.08}
+    """
+    log.info(
+        "Automatically generating doublet rates based on cell counts per sample..."
+    )
+    # Group and sum cell counts by sample ID
+    cell_counts = adata.obs[sample_key].value_counts()
+
+    doublet_rates = {}
+    for sample, n_cells in cell_counts.items():
+        # Apply 10x Genomics linear formula
+        rate = (n_cells / 1000) * rate_per_1000_cells
+        # Cap the rate at a reasonable maximum, e.g., not exceeding 20%
+        rate = min(rate, 0.20)
+        doublet_rates[sample] = rate
+        log.info(
+            f"  - Sample '{sample}': {n_cells} cells -> Calculated doublet rate: {rate:.4f}"
+        )
+
+    return doublet_rates
 
 
 def is_doublet(
-    adata: sc.AnnData,
+    adata: AnnData,
     sample_key: str = "sampleID",
-    rate: float = 0.1,
+    rate: Union[float, Dict[str, float]] = 0.1,
     n_pcs: int = 30,
-    threshold: float = 0.2,
-    over_genes: float = 0.99,
+    threshold: Optional[float] = None,
+    over_genes_q: float = 0.99,
     plot_umap: bool = True,
     save_dir: Optional[str] = None,
     show: bool = True,
-) -> sc.AnnData:
+) -> AnnData:
     """
-    Identify and plot potential doublet cells using the scrublet package.
+    Identify and plot potential doublet cells using the Scrublet package.
 
     Args:
-        adata (AnnData): AnnData object containing single-cell data.
-        sample_key (str, optional): The key in adata.obs to identify different samples. Defaults to "sampleID".
-        rate (float, optional): Expected doublet rate. Defaults to 0.1.
-        n_pcs (int, optional): Number of principal components to use. Defaults to 30.
-        threshold (float, optional): Threshold for calling doublets. Defaults to 0.2.
-        over_genes (float, optional): Quantile threshold for overexpressed genes. Defaults to 0.99.
-        plot_umap (bool, optional): Whether to plot UMAP embedding with doublet scores. Defaults to True.
-        save_dir (str, optional): Directory to save plots. If None, plots are not saved to disk. Defaults to None.
+        adata: AnnData object containing single-cell data.
+        sample_key: The key in adata.obs to identify different samples.
+        rate: Expected doublet rate. Can be a single float for all samples,
+              or a dictionary mapping sample IDs to specific rates.
+        n_pcs: Number of principal components to use.
+        threshold: Scrublet threshold for calling doublets. If None, scrublet auto-detects it.
+        over_genes_q: Quantile threshold for identifying cells with an excessive
+                      number of genes, as a secondary doublet indicator.
+        plot_umap: Whether to plot UMAP embedding with doublet scores.
+        save_dir: Directory to save plots. If None, plots are not saved.
+        show: Whether to display the plots.
 
     Returns:
-        adata (AnnData): AnnData object with doublet scores and predictions added.
+        AnnData object with doublet scores and predictions added to .obs.
     """
-    import gc
+    adata.obs["doublet_score"] = np.nan
+    adata.obs["predicted_doublet_scrublet"] = False
+    adata.obs["predicted_doublet_custom"] = False
 
-    adata.obs["doublet_scores"] = 0.0
-    adata.obs["predicted_doublets"] = False
-    adata.obs["predicted_doublets_final"] = False
-    adata.obs["overexpressed_doublets"] = False
-
-    # Get total number of samples for progress reporting
     samples = adata.obs[sample_key].unique()
     total_samples = len(samples)
 
     for i, sample in enumerate(samples):
-        print(f"Processing sample {i + 1}/{total_samples}: {sample}")
-        data = adata[adata.obs[sample_key] == sample, :]
+        log.info(f"Processing sample {i + 1}/{total_samples}: {sample}")
+        data_view = adata[adata.obs[sample_key] == sample]
 
-        # Get the current sample's cell count and feature count
-        n_cells, n_features = data.shape
-        # Dynamically set n_pcs parameter
-        actual_n_pcs = min(n_pcs, n_cells - 1, n_features - 1)
-
-        # Initialize arrays for doublet scores and predictions
-        doublet_scores = np.full(data.shape[0], np.nan)
-        predicted_doublets = np.full(data.shape[0], False)
-        final_doublets = np.full(data.shape[0], False)
-
-        # Check if the sample has enough cells for doublet detection
+        n_cells, n_features = data_view.shape
         if n_cells < 10:
-            print(
-                f"  Warning: Sample {sample} has fewer than 10 cells ({n_cells}). Skipping doublet detection."
+            log.warning(
+                f"Skipping doublet detection for sample {sample}: has fewer than 10 cells ({n_cells})."
             )
-            adata.obs.loc[data.obs.index, "doublet_scores"] = doublet_scores
-            adata.obs.loc[data.obs.index, "predicted_doublets"] = predicted_doublets
-            adata.obs.loc[data.obs.index, "predicted_doublets_final"] = final_doublets
             continue
 
-        try:
-            print(f"  Running Scrublet with {actual_n_pcs} PCs...")
-            scrub = scr.Scrublet(data.X, expected_doublet_rate=rate)
-            doublet_scores, predicted_doublets = scrub.scrub_doublets(
-                verbose=False, n_prin_comps=actual_n_pcs
-            )
-            final_doublets = scrub.call_doublets(threshold=threshold)
+        if isinstance(rate, dict):
+            current_rate = rate.get(sample, 0.1)
+        else:
+            current_rate = rate
 
-            print(
-                f"  Doublet detection complete. Found {sum(final_doublets)} potential doublets."
+        actual_n_pcs = min(n_pcs, n_cells - 1, n_features - 1)
+
+        try:
+            log.info(
+                f"  Running Scrublet with n_pcs={actual_n_pcs} and expected_doublet_rate={current_rate:.3f}"
+            )
+            scrub = scr.Scrublet(data_view.X, expected_doublet_rate=current_rate)
+            doublet_scores, predicted_doublets = scrub.scrub_doublets(
+                n_prin_comps=actual_n_pcs, verbose=False
+            )
+
+            if threshold is None:
+                final_doublets = scrub.call_doublets(verbose=False)
+                log.info(f"  Auto-detected Scrublet threshold: {scrub.threshold_:.3f}")
+            else:
+                final_doublets = scrub.call_doublets(threshold=threshold, verbose=False)
+                log.info(
+                    f"  User-provided threshold: {threshold:.3f} (Scrublet auto-detected: {scrub.threshold_:.3f})"
+                )
+
+            log.info(f"  Found {sum(final_doublets)} potential doublets via Scrublet.")
+
+            adata.obs.loc[data_view.obs.index, "doublet_score"] = doublet_scores
+            adata.obs.loc[data_view.obs.index, "predicted_doublet_scrublet"] = (
+                final_doublets
             )
 
             if plot_umap:
@@ -111,51 +169,33 @@ def is_doublet(
                     print(f"  Warning: Could not generate UMAP for doublets: {e}")
 
         except Exception as e:
-            print(f"  Error: Scrublet failed for sample {sample}: {e}")
-            predicted_doublets = np.full(data.shape[0], False)
-            final_doublets = np.full(data.shape[0], False)
-            doublet_scores = np.full(data.shape[0], np.nan)
+            log.error(f"  Scrublet failed for sample {sample}: {e}")
+            adata.obs.loc[data_view.obs.index, "doublet_score"] = np.nan
+            adata.obs.loc[data_view.obs.index, "predicted_doublet_scrublet"] = False
+        finally:
+            gc.collect()
 
-        adata.obs.loc[data.obs.index, "doublet_scores"] = doublet_scores
-        adata.obs.loc[data.obs.index, "predicted_doublets"] = predicted_doublets
-        adata.obs.loc[data.obs.index, "predicted_doublets_final"] = final_doublets
+    top_genes_threshold = adata.obs.n_genes_by_counts.quantile(over_genes_q)
+    adata.obs["predicted_doublet_custom"] = (
+        adata.obs["n_genes_by_counts"] > top_genes_threshold
+    )
 
-        # Force garbage collection
-        gc.collect()
-
-        # Print progress
-        print(
-            f"  Completed {i + 1}/{total_samples} samples ({(i + 1) / total_samples * 100:.1f}%)"
-        )
-
-    # Identify cells with overexpressed genes as potential doublets
-    top_genes = np.quantile(adata.obs.n_genes_by_counts, over_genes)
-    adata.obs["overexpressed_doublets"] = adata.obs["n_genes_by_counts"] > top_genes
-
-    # Print the overall statistics for the entire adata object
+    log.info("\n--- Overall Doublet Detection Statistics ---")
     total_cells = adata.n_obs
-    print("\nOverall statistics for the entire adata object:")
-    print(f"Total number of cells: {total_cells}")
-
-    potential_doublets = adata.obs["predicted_doublets"].sum()
-    print(
-        f"Potential doublet cells (based on doublet scores): {potential_doublets} ({potential_doublets / total_cells * 100:.2f}%)"
+    scrublet_count = adata.obs["predicted_doublet_scrublet"].sum()
+    log.info(
+        f"Scrublet-predicted doublets: {scrublet_count} ({scrublet_count / total_cells:.2%})"
     )
-
-    final_doublets = adata.obs["predicted_doublets_final"].sum()
-    print(
-        f"Potential doublet cells (based on threshold {threshold}): {final_doublets} ({final_doublets / total_cells * 100:.2f}%)"
+    custom_count = adata.obs["predicted_doublet_custom"].sum()
+    log.info(
+        f"Custom high-gene doublets (>{over_genes_q:.2f} quantile): {custom_count} ({custom_count / total_cells:.2%})"
     )
-
-    overexpressed = adata.obs["overexpressed_doublets"].sum()
-    print(
-        f"Potential doublet cells (based on detected genes > {top_genes:.1f}): {overexpressed} ({overexpressed / total_cells * 100:.2f}%)"
+    combined = (
+        adata.obs["predicted_doublet_scrublet"] | adata.obs["predicted_doublet_custom"]
     )
-
-    combined_doublets = adata.obs.filter(regex="doublets").sum(axis=1).value_counts()
-    for n_doublets, count in sorted(combined_doublets.items()):
-        print(
-            f"{n_doublets} types of doublets: {count} ({count / total_cells * 100:.2f}%)"
-        )
+    combined_count = combined.sum()
+    log.info(
+        f"Total unique cells marked as potential doublets: {combined_count} ({combined_count / total_cells:.2%})"
+    )
 
     return adata
