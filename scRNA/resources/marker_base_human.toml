@@ -1,3 +1,13 @@
+
+# =============================================================================
+# Human Base Cell Type Markers (v1.0)
+# =============================================================================
+# Last updated: 2023-10-15
+# 
+# This file contains marker genes for common human cell types across tissues.
+# =============================================================================
+
+
 # ===============================================
 #          Immune cells
 # ===============================================
@@ -122,6 +132,20 @@ minor = [
 name = "Epithelial"
 color = "#f19cbb"
 markers = ["EPCAM", "KRT19", "KRT18", "KRT8", "CDH1"]
+minor = [
+    { name = "Basal Epithelial", color = "#e75480", markers = ["KRT5", "KRT14", "TP63"] },
+    { name = "Luminal Epithelial", color = "#ff69b4", markers = ["KRT8", "KRT18", "KRT19"] },
+    { name = "Secretory Epithelial", color = "#db7093", markers = ["MUC1", "PIGR", "LTF"] }
+]
+
+[["Stem Cells"]]
+name = "Stem Cell"
+color = "#9400D3"
+markers = ["POU5F1", "NANOG", "SOX2", "PROM1", "ALDH1A1"]
+minor = [
+    { name = "Hematopoietic Stem Cell", color = "#800080", markers = ["CD34", "KIT", "SPN", "THY1"] },
+    { name = "Mesenchymal Stem Cell", color = "#9932CC", markers = ["THY1", "ENG", "NT5E", "PDGFRA"] }
+]
 
 [["Melanocytes"]]
 name = "Melanocyte"

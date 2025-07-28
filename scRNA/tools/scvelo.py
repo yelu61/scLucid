@@ -1,138 +1,130 @@
-import infercnvpy as cnv
-import anndata as ad
-import matplotlib.pyplot as plt
-import numpy as np
-from typing import Optional, Union
+"""
+RNA Velocity analysis using scVelo.
+
+This module provides a streamlined workflow for running and visualizing RNA
+velocity, which predicts the future state of cells based on spliced and
+unspliced mRNA counts.
+"""
+
+import logging
 import os
+from typing import Optional
 
-def find_tumor(
-    adata: ad.AnnData,
-    alpha: int = 2,
-    key_added: str = "tumor",
+import anndata
+import scvelo as scv
+
+log = logging.getLogger(__name__)
+
+
+def run_velocity_analysis(
+    adata: anndata.AnnData,
+    mode: str = "stochastic",
+    min_shared_counts: int = 20,
+    n_pcs: int = 30,
+    n_neighbors: int = 30,
     copy: bool = False,
-) -> ad.AnnData:
+) -> anndata.AnnData:
     """
-    Identify tumor cells based on the "cnv_score" column in adata.obs.
+    Perform core RNA velocity analysis computations.
+
+    This function runs the main steps of a scVelo analysis, including preprocessing,
+    moment calculation, velocity estimation, and graph construction.
 
     Args:
-        adata (AnnData): AnnData object with a "cnv_score" column in adata.obs.
-        alpha (float, optional): Number of standard deviations to use for identifying tumor cells. Defaults to 2.0.
-        key_added (str, optional): Name of the column to be added to adata.obs indicating tumor cells. Defaults to "tumor".
-        copy (bool, optional): Whether to return a copy of adata or modify the original object. Defaults to False.
+        adata: AnnData object with 'spliced' and 'unspliced' layers.
+        mode: Velocity model to use ('stochastic', 'deterministic', or 'dynamical').
+        min_shared_counts: Minimum shared counts for gene filtering.
+        n_pcs: Number of principal components for neighbor calculations.
+        n_neighbors: Number of neighbors for velocity graph construction.
+        copy: Whether to return a copy of adata.
 
     Returns:
-        adata (AnnData): AnnData object with an added column indicating tumor cells.
-
-    Raises:
-        ValueError: If "cnv_score" is not present in adata.obs_keys().
+        AnnData object with velocity results computed.
     """
-    if "cnv_score" not in adata.obs_keys(): 
-        raise ValueError("cnv_score not in adata.obs_names, please run infercnvpy first")
-    
-    cnv_score = np.sort(adata.obs["cnv_score"].unique())
-    tumor_threshold_index = np.diff(cnv_score).argmax() + 1
-    tumor_cnv_scores = cnv_score[tumor_threshold_index:]
-    
-    if len(tumor_cnv_scores) == 1:
-        min_tumor_cnv_score = tumor_cnv_scores[0]
-    else:
-        lower_tumor_cnv_score_threshold = tumor_cnv_scores.mean() - alpha * tumor_cnv_scores.std()
-        min_tumor_cnv_score = tumor_cnv_scores[tumor_cnv_scores >= lower_tumor_cnv_score_threshold].min()
-    
-    adata.obs[key_added] = adata.obs["cnv_score"].map(lambda x: 1 if x >= min_tumor_cnv_score else 0)
-    
-    return adata if copy else adata
+    if copy:
+        adata = adata.copy()
 
-def run_cnv_analysis(
-    adata: ad.AnnData,
-    sample_key: str = "sampleID",
-    ref_obs: str = "Main_celltype",
-    ref_keys: Union[str, list] = "Immune",
-    wins: int = 250,
-    step: int = 1,
-    plot_heatmap: bool = True,
-    heatmap_groupby: str = "celltype", 
-    plot_umap: bool = True,
-    plot_tumor: bool = True,
-    figsize: tuple = (12, 3),
-    #save_dir: Optional[str] = None,
-) -> ad.AnnData:
-    """
-    Perform copy number variation (CNV) analysis on single-cell data using infercnvpy.
-
-    Args:
-        adata (AnnData): AnnData object containing single-cell data.
-        sample_key (str, optional): The key in adata.obs to identify different samples. Defaults to "sampleID".
-        ref_obs (str, optional): Reference column for CNV analysis. Defaults to "Main_celltype".
-        ref_keys (Union[str, list], optional): Cell type(s) to use as reference. Defaults to "Immune".
-        wins (int, optional): Window size for CNV analysis. Defaults to 250.
-        step (int, optional): Step size for CNV analysis. Defaults to 1.
-        plot_heatmap (bool, optional): Whether to plot chromosome heatmap. Defaults to True.
-        heatmap_groupby (str, optional): Column name in adata.obs to use for grouping cells. Defaults to "celltype".
-        plot_umap (bool, optional): Whether to plot UMAP embedding with CNV scores and clusters. Defaults to True.
-        plot_tumor (bool, optional): Whether to plot UMAP embedding with predicted tumor cells. Defaults to True.
-        figsize (tuple, optional): Figure size for UMAP plots. Defaults to (12, 3).
-        save_dir (str, optional): Directory path to save the generated plots. If None, plots will be shown but not saved. Defaults to None.
-
-    Returns:
-        adata (AnnData): AnnData object with CNV analysis results added.
-    """    
-    adata.obs["cnv_score"] = 0.0
-    adata.obs["is_tumor"] = 0
-
-    if isinstance(ref_keys, str):
-        ref_keys = [ref_keys]
-        
-    for sample in adata.obs[sample_key].unique():
-        print(f"Begin of CNV analysis for sample: {sample}")
-        data = adata[adata.obs[sample_key] == sample, :]
-
-        cnv.tl.infercnv(
-            data,
-            reference_key=ref_obs,
-            reference_cat=ref_keys,
-            window_size=wins,
-            key_added="cnv",
-            step=step,
+    log.info(f"Starting RNA velocity analysis using '{mode}' mode")
+    if "spliced" not in adata.layers or "unspliced" not in adata.layers:
+        raise ValueError(
+            "AnnData object must contain 'spliced' and 'unspliced' layers."
         )
 
-        if plot_heatmap:
-            cnv.pl.chromosome_heatmap(data, groupby=heatmap_groupby, save=f"cnv_heatmap_{sample}.png")
-            cnv.tl.pca(data)
-            cnv.pp.neighbors(data)
-            cnv.tl.leiden(data)
-            cnv.pl.chromosome_heatmap(data, groupby="cnv_leiden", dendrogram=True,
-                                      save=f"cnv_heatmap_leiden_{sample}.png")
-            cnv.tl.umap(data)
-            cnv.tl.cnv_score(data)
+    # scVelo Preprocessing
+    scv.pp.filter_and_normalize(adata, min_shared_counts=min_shared_counts)
+    scv.pp.moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
 
-        if plot_umap:
-            fig, axes = plt.subplots(nrows=1, ncols=3, figsize=figsize)
-            cnv.pl.umap(
-                data,
-                color="cnv_leiden",
-                legend_loc="on data",
-                legend_fontoutline=2,
-                ax=axes[0],
-                show=False,
-            )
-            axes[0].set_title("UMAP (Leiden Clusters)")
-            cnv.pl.umap(data, color="cnv_score", ax=axes[1], show=False)
-            axes[1].set_title("UMAP (CNV Score)")
-            cnv.pl.umap(data, color=heatmap_groupby, ax=axes[2], show=False)
-            axes[2].set_title(f"UMAP ({heatmap_groupby})")
-            plt.tight_layout()
-            plt.savefig(f"umap_cnv_{sample}.png", bbox_inches="tight")
+    # Velocity Estimation
+    log.info("Estimating RNA velocity...")
+    scv.tl.velocity(adata, mode=mode)
+    if mode == "dynamical":
+        log.info("Running dynamical model...")
+        scv.tl.recover_dynamics(adata)
+        scv.tl.latent_time(adata)
 
-        data = find_tumor(data, key_added="is_tumor")
-        
-        if plot_tumor:
-            cnv.pl.umap(data, color="is_tumor", save=f"umap_tumor_{sample}.png")
+    # Velocity Graph and Embedding Projection
+    log.info("Constructing velocity graph...")
+    scv.tl.velocity_graph(adata)
 
-        adata.obs.loc[data.obs.index, "cnv_score"] = data.obs["cnv_score"]
-        adata.obs.loc[data.obs.index, "is_tumor"] = data.obs["is_tumor"]
-
+    log.info("RNA velocity analysis complete.")
     return adata
 
-# Example usage:
-# adata = run_cnv_analysis(adata, ref_keys=["Immune", "Stromal"])
+
+def plot_velocity_results(
+    adata: anndata.AnnData,
+    basis: str = "umap",
+    color: Optional[str] = None,
+    stream: bool = True,
+    plot_genes: bool = True,
+    n_top_genes: int = 6,
+    save_dir: Optional[str] = None,
+):
+    """
+    Visualize RNA velocity results.
+
+    This function generates key plots for interpreting RNA velocity, including
+    the velocity stream on an embedding and phase portraits of top driver genes.
+
+    Args:
+        adata: AnnData object after running `run_velocity_analysis`.
+        basis: Embedding to use for visualization (e.g., 'umap', 'tsne').
+        color: Key in adata.obs to color cells by.
+        stream: If True, plot velocity stream; otherwise, plot grid/arrows.
+        plot_genes: Whether to plot phase portraits for top velocity genes.
+        n_top_genes: Number of top velocity genes to plot.
+        save_dir: Directory to save plots.
+    """
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        log.info(f"Saving velocity plots to {save_dir}")
+
+    # Plot velocity stream
+    log.info(f"Plotting velocity on '{basis}' embedding, colored by '{color}'")
+    plot_func = (
+        scv.pl.velocity_embedding_stream if stream else scv.pl.velocity_embedding_grid
+    )
+
+    save_path = (
+        os.path.join(save_dir, f"velocity_stream_{basis}.png") if save_dir else None
+    )
+    plot_func(
+        adata, basis=basis, color=color, save=save_path, show=not save_dir, dpi=300
+    )
+
+    # Plot top velocity genes
+    if plot_genes:
+        log.info(f"Plotting phase portraits for top {n_top_genes} velocity genes")
+        scv.tl.rank_velocity_genes(adata, n_genes=n_top_genes)
+        top_genes = adata.var["velocity_genes"].index[:n_top_genes]
+
+        save_path = (
+            os.path.join(save_dir, "top_velocity_genes.png") if save_dir else None
+        )
+        scv.pl.velocity(
+            adata,
+            top_genes,
+            ncols=min(3, n_top_genes),
+            save=save_path,
+            show=not save_dir,
+            dpi=300,
+        )

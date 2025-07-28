@@ -6,27 +6,47 @@ differential expression analysis, and cell type annotation.
 """
 
 # Import and expose key functions from submodules
-from .annotation import annotate_clusters, score_cell_types
-from .cluster import find_resolution, merge_clusters, optimize_neighbors_pcs
+from .annotation import (
+    annotate_clusters,
+    evaluate_annotation,
+    score_cell_types,
+    transfer_labels,
+)
+from .cluster import (
+    cluster_cells,
+    find_resolution,
+    merge_clusters,
+    optimize_neighbors_pcs,
+)
 from .differential import (
+    compare_groups,
     filter_markers,
     find_markers,
     get_conserved_markers,
     run_enrichment,
+    visualize_markers,
 )
-from .manager import (Manager, get_marker_manager)
+from .manager import Manager, get_marker_manager
 
 # Define what should be accessible when importing from this module
 __all__ = [
+    # Clustering and dimensionality reduction
+    "optimize_neighbors_pcs",
+    "find_resolution",
+    "cluster_cells",
+    "merge_clusters",
+    # Annotation
     "Manager",
     "get_marker_manager",
-    "optimize_neighbors_pcs",
     "annotate_clusters",
     "score_cell_types",
-    "find_resolution",
-    "merge_clusters",
+    "transfer_labels",
+    "evaluate_annotation",
+    # Differential expression
     "find_markers",
     "filter_markers",
     "get_conserved_markers",
     "run_enrichment",
+    "compare_groups",
+    "visualize_markers",
 ]

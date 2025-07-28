@@ -81,3 +81,15 @@ markers = ["IL6", "IL8", "CXCL1", "MMP1", "MMP3", "SERPINE1"]
 name = "Progenitor"
 color = "#00CED1"
 markers = ["SOX2", "NESTIN", "PROM1", "PAX6", "ASCL1"]
+
+# --- Autophagy (自噬) ---
+[["Cell States"]]
+name = "Autophagy"
+color = "#008080" # Teal
+markers = ["BECN1", "MAP1LC3B", "ATG5", "ATG7", "SQSTM1", "LAMP1", "DRAM1"]
+
+# --- Oxidative Stress (氧化应激) ---
+[["Cell States"]]
+name = "Oxidative Stress"
+color = "#FF4500" # OrangeRed
+markers = ["NFE2L2", "HMOX1", "NQO1", "SOD1", "SOD2", "GPX1", "CAT", "TXN"]

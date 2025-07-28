@@ -147,3 +147,15 @@ minor = [
     { name = "Sebaceous Gland Cell", color = "#FFFFE0", markers = ["KRT7", "SOX9", "PPARG"] },
     { name = "Sweat Gland Cell", color = "#AFEEEE", markers = ["KRT7", "DCD", "AQP5"] }
 ]
+
+# --- Bone/Cartilage (骨/软骨) ---
+[["Bone"]]
+name = "Bone Tissue"
+color = "#C0C0C0"
+markers = []
+minor = [
+    { name = "Osteoblast", color = "#B0C4DE", markers = ["BGLAP", "ALPL", "COL1A1", "RUNX2"] },
+    { name = "Osteocyte", color = "#ADD8E6", markers = ["DMP1", "SOST", "MEPE", "PHEX"] },
+    { name = "Osteoclast", color = "#20B2AA", markers = ["ACP5", "CTSK", "CALCR", "ATP6V0D2"] },
+    { name = "Chondrocyte", color = "#FFA07A", markers = ["ACAN", "COL2A1", "SOX9", "COMP"] }
+]

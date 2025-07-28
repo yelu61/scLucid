@@ -1,138 +1,417 @@
+"""
+Copy number variation (CNV) analysis for single-cell RNA-seq data.
+
+This module provides functions for inferring copy number variations from
+scRNA-seq data, which is particularly useful for identifying tumor cells and
+analyzing genomic aberrations in cancer samples.
+"""
+
 import infercnvpy as cnv
 import anndata as ad
 import matplotlib.pyplot as plt
 import numpy as np
-from typing import Optional, Union
+import pandas as pd
 import os
+import logging
+from typing import Optional, Union, List, Tuple, Dict
+
+# Configure logging
+log = logging.getLogger(__name__)
 
 def find_tumor(
     adata: ad.AnnData,
-    alpha: int = 2,
+    cnv_score_key: str = "cnv_score",
+    alpha: float = 2.0,
     key_added: str = "tumor",
+    percentile_threshold: Optional[float] = None, 
+    min_tumor_fraction: float = 0.05,
+    max_tumor_fraction: float = 0.8,
+    plot: bool = False,
     copy: bool = False,
 ) -> ad.AnnData:
     """
-    Identify tumor cells based on the "cnv_score" column in adata.obs.
-
+    Identify tumor cells based on CNV scores.
+    
+    This function classifies cells as tumor or non-tumor based on their copy number
+    variation scores. It uses either a data-driven threshold based on the distribution
+    of CNV scores or a user-specified percentile threshold.
+    
     Args:
-        adata (AnnData): AnnData object with a "cnv_score" column in adata.obs.
-        alpha (float, optional): Number of standard deviations to use for identifying tumor cells. Defaults to 2.0.
-        key_added (str, optional): Name of the column to be added to adata.obs indicating tumor cells. Defaults to "tumor".
-        copy (bool, optional): Whether to return a copy of adata or modify the original object. Defaults to False.
-
+        adata: AnnData object with CNV scores in obs
+        cnv_score_key: Column name in adata.obs containing CNV scores
+        alpha: Number of standard deviations for identifying tumor threshold
+        key_added: Name of the column to add with tumor classification (0/1)
+        percentile_threshold: Optional percentile to use as threshold (e.g., 0.75)
+        min_tumor_fraction: Minimum fraction of cells that should be classified as tumor
+        max_tumor_fraction: Maximum fraction of cells that should be classified as tumor
+        plot: Whether to plot the CNV score distribution with threshold
+        copy: Whether to return a copy of adata or modify in place
+        
     Returns:
-        adata (AnnData): AnnData object with an added column indicating tumor cells.
-
+        AnnData object with added tumor classification column
+        
     Raises:
-        ValueError: If "cnv_score" is not present in adata.obs_keys().
+        ValueError: If CNV score column is not found in adata.obs
     """
-    if "cnv_score" not in adata.obs_keys(): 
-        raise ValueError("cnv_score not in adata.obs_names, please run infercnvpy first")
+    if copy:
+        adata = adata.copy()
     
-    cnv_score = np.sort(adata.obs["cnv_score"].unique())
-    tumor_threshold_index = np.diff(cnv_score).argmax() + 1
-    tumor_cnv_scores = cnv_score[tumor_threshold_index:]
+    # Check if CNV score exists
+    if cnv_score_key not in adata.obs_keys(): 
+        log.error(f"'{cnv_score_key}' not found in adata.obs")
+        raise ValueError(f"'{cnv_score_key}' not found in adata.obs, please run infercnvpy first")
     
-    if len(tumor_cnv_scores) == 1:
-        min_tumor_cnv_score = tumor_cnv_scores[0]
+    log.info(f"Identifying tumor cells based on '{cnv_score_key}'")
+    
+    # Get CNV scores
+    cnv_scores = adata.obs[cnv_score_key].values
+    
+    # Determine threshold
+    if percentile_threshold is not None:
+        # Use percentile-based threshold
+        threshold = np.percentile(cnv_scores, percentile_threshold * 100)
+        log.info(f"Using {percentile_threshold:.2f} percentile as threshold: {threshold:.4f}")
     else:
-        lower_tumor_cnv_score_threshold = tumor_cnv_scores.mean() - alpha * tumor_cnv_scores.std()
-        min_tumor_cnv_score = tumor_cnv_scores[tumor_cnv_scores >= lower_tumor_cnv_score_threshold].min()
+        # Use distribution-based threshold
+        # First, find the largest gap in sorted CNV scores
+        sorted_scores = np.sort(cnv_scores)
+        gaps = np.diff(sorted_scores)
+        
+        if len(gaps) > 0:
+            # Find the index of the largest gap
+            gap_idx = np.argmax(gaps)
+            candidate_threshold = sorted_scores[gap_idx + 1]
+            
+            # Now check if this threshold results in a reasonable tumor fraction
+            tumor_fraction = np.mean(cnv_scores >= candidate_threshold)
+            
+            if tumor_fraction < min_tumor_fraction:
+                # Too few tumor cells, use a lower threshold
+                log.warning(f"Gap-based threshold would classify only {tumor_fraction:.2%} of cells as tumor")
+                threshold = np.percentile(cnv_scores, 100 - min_tumor_fraction * 100)
+                log.info(f"Using lower threshold to ensure {min_tumor_fraction:.2%} tumor cells: {threshold:.4f}")
+            elif tumor_fraction > max_tumor_fraction:
+                # Too many tumor cells, use a higher threshold
+                log.warning(f"Gap-based threshold would classify {tumor_fraction:.2%} of cells as tumor")
+                threshold = np.percentile(cnv_scores, 100 - max_tumor_fraction * 100)
+                log.info(f"Using higher threshold to limit to {max_tumor_fraction:.2%} tumor cells: {threshold:.4f}")
+            else:
+                # Gap-based threshold is reasonable
+                threshold = candidate_threshold
+                log.info(f"Using gap-based threshold: {threshold:.4f} ({tumor_fraction:.2%} tumor cells)")
+        else:
+            # Fall back to a simple statistical threshold
+            mean_score = np.mean(cnv_scores)
+            std_score = np.std(cnv_scores)
+            threshold = mean_score + alpha * std_score
+            log.info(f"Using statistical threshold (mean + {alpha} SD): {threshold:.4f}")
     
-    adata.obs[key_added] = adata.obs["cnv_score"].map(lambda x: 1 if x >= min_tumor_cnv_score else 0)
+    # Classify cells
+    adata.obs[key_added] = (adata.obs[cnv_score_key] >= threshold).astype(int)
+    tumor_fraction = adata.obs[key_added].mean()
+    log.info(f"Classified {tumor_fraction:.2%} of cells ({np.sum(adata.obs[key_added])}/{len(adata)}) as tumor cells")
     
-    return adata if copy else adata
+    # Plot if requested
+    if plot:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # Plot histogram of CNV scores
+        ax.hist(cnv_scores, bins=50, alpha=0.7, color='lightblue', edgecolor='black')
+        
+        # Add vertical line for threshold
+        ax.axvline(x=threshold, color='red', linestyle='--', linewidth=2)
+        
+        # Add text annotation
+        ax.text(
+            x=threshold + 0.05 * (max(cnv_scores) - min(cnv_scores)),
+            y=0.9 * ax.get_ylim()[1],
+            s=f'Threshold: {threshold:.4f}\nTumor cells: {tumor_fraction:.2%}',
+            color='red',
+            bbox=dict(facecolor='white', alpha=0.8)
+        )
+        
+        # Set labels
+        ax.set_xlabel('CNV Score', fontsize=12)
+        ax.set_ylabel('Number of Cells', fontsize=12)
+        ax.set_title('Distribution of CNV Scores', fontsize=14)
+        
+        # Show grid
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+    
+    return adata
+
 
 def run_cnv_analysis(
     adata: ad.AnnData,
-    sample_key: str = "sampleID",
-    ref_obs: str = "Main_celltype",
-    ref_keys: Union[str, list] = "Immune",
-    wins: int = 250,
+    sample_key: Optional[str] = None,
+    ref_obs: str = "cell_type",
+    ref_keys: Union[str, List[str]] = "Immune",
+    window_size: int = 250,
     step: int = 1,
     plot_heatmap: bool = True,
-    heatmap_groupby: str = "celltype", 
+    heatmap_groupby: Optional[str] = None, 
     plot_umap: bool = True,
     plot_tumor: bool = True,
-    figsize: tuple = (12, 3),
-    #save_dir: Optional[str] = None,
+    figsize: Tuple[float, float] = (15, 4),
+    alpha: float = 2.0,
+    percentile_threshold: Optional[float] = None,
+    save_dir: Optional[str] = None,
+    key_added: str = "cnv",
+    copy: bool = False,
 ) -> ad.AnnData:
     """
-    Perform copy number variation (CNV) analysis on single-cell data using infercnvpy.
-
+    Perform copy number variation (CNV) analysis on single-cell data.
+    
+    This function runs CNV inference, tumor cell identification, and generates
+    visualizations to explore copy number variations in the dataset.
+    
     Args:
-        adata (AnnData): AnnData object containing single-cell data.
-        sample_key (str, optional): The key in adata.obs to identify different samples. Defaults to "sampleID".
-        ref_obs (str, optional): Reference column for CNV analysis. Defaults to "Main_celltype".
-        ref_keys (Union[str, list], optional): Cell type(s) to use as reference. Defaults to "Immune".
-        wins (int, optional): Window size for CNV analysis. Defaults to 250.
-        step (int, optional): Step size for CNV analysis. Defaults to 1.
-        plot_heatmap (bool, optional): Whether to plot chromosome heatmap. Defaults to True.
-        heatmap_groupby (str, optional): Column name in adata.obs to use for grouping cells. Defaults to "celltype".
-        plot_umap (bool, optional): Whether to plot UMAP embedding with CNV scores and clusters. Defaults to True.
-        plot_tumor (bool, optional): Whether to plot UMAP embedding with predicted tumor cells. Defaults to True.
-        figsize (tuple, optional): Figure size for UMAP plots. Defaults to (12, 3).
-        save_dir (str, optional): Directory path to save the generated plots. If None, plots will be shown but not saved. Defaults to None.
-
+        adata: AnnData object containing single-cell data
+        sample_key: Optional key in adata.obs for sample stratification
+        ref_obs: Column name in adata.obs containing cell type annotations
+        ref_keys: Cell type(s) to use as reference (normal cells)
+        window_size: Window size for CNV analysis (number of genes)
+        step: Step size for CNV analysis
+        plot_heatmap: Whether to plot chromosome heatmap
+        heatmap_groupby: Column name for grouping cells in heatmap
+        plot_umap: Whether to plot UMAP embedding with CNV scores and clusters
+        plot_tumor: Whether to plot UMAP embedding with predicted tumor cells
+        figsize: Figure size for UMAP plots
+        alpha: Number of standard deviations for identifying tumor threshold
+        percentile_threshold: Optional percentile to use as threshold
+        save_dir: Directory to save plots (None for no saving)
+        key_added: Prefix for CNV analysis results
+        copy: Whether to return a copy of adata
+        
     Returns:
-        adata (AnnData): AnnData object with CNV analysis results added.
-    """    
-    adata.obs["cnv_score"] = 0.0
-    adata.obs["is_tumor"] = 0
-
+        AnnData object with CNV analysis results
+        
+    Notes:
+        This function uses infercnvpy for CNV inference. For each sample (if sample_key
+        is provided) or for the entire dataset, it:
+        1. Infers CNVs using reference cell types
+        2. Calculates CNV scores
+        3. Identifies tumor cells
+        4. Generates visualizations
+    """
+    if copy:
+        adata = adata.copy()
+    
+    log.info("Starting CNV analysis")
+    
+    # Create save directory if needed
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True)
+        log.info(f"Created save directory: {save_dir}")
+    
+    # Set up heatmap groupby if not specified
+    if heatmap_groupby is None:
+        heatmap_groupby = ref_obs
+    
+    # Initialize columns for results
+    adata.obs[f"{key_added}_score"] = 0.0
+    adata.obs[f"{key_added}_tumor"] = 0
+    
+    # Convert ref_keys to list if it's a string
     if isinstance(ref_keys, str):
         ref_keys = [ref_keys]
+    
+    log.info(f"Using {', '.join(ref_keys)} from column '{ref_obs}' as reference cells")
+    
+    # Determine samples to process
+    if sample_key is not None and sample_key in adata.obs:
+        samples = adata.obs[sample_key].unique()
+        log.info(f"Processing {len(samples)} samples from '{sample_key}'")
+    else:
+        samples = [None]
+        log.info("Processing entire dataset as one sample")
+    
+    # Process each sample
+    for sample in samples:
+        # Select data for this sample
+        if sample is not None:
+            log.info(f"Processing sample: {sample}")
+            data = adata[adata.obs[sample_key] == sample].copy()
+            sample_name = str(sample)
+        else:
+            log.info("Processing entire dataset")
+            data = adata.copy()
+            sample_name = "all"
         
-    for sample in adata.obs[sample_key].unique():
-        print(f"Begin of CNV analysis for sample: {sample}")
-        data = adata[adata.obs[sample_key] == sample, :]
-
-        cnv.tl.infercnv(
-            data,
-            reference_key=ref_obs,
-            reference_cat=ref_keys,
-            window_size=wins,
-            key_added="cnv",
-            step=step,
-        )
-
-        if plot_heatmap:
-            cnv.pl.chromosome_heatmap(data, groupby=heatmap_groupby, save=f"cnv_heatmap_{sample}.png")
-            cnv.tl.pca(data)
-            cnv.pp.neighbors(data)
-            cnv.tl.leiden(data)
-            cnv.pl.chromosome_heatmap(data, groupby="cnv_leiden", dendrogram=True,
-                                      save=f"cnv_heatmap_leiden_{sample}.png")
-            cnv.tl.umap(data)
-            cnv.tl.cnv_score(data)
-
-        if plot_umap:
-            fig, axes = plt.subplots(nrows=1, ncols=3, figsize=figsize)
-            cnv.pl.umap(
+        # Run CNV inference
+        try:
+            log.info(f"Running infercnv with window_size={window_size}, step={step}")
+            cnv.tl.infercnv(
                 data,
-                color="cnv_leiden",
-                legend_loc="on data",
-                legend_fontoutline=2,
-                ax=axes[0],
-                show=False,
+                reference_key=ref_obs,
+                reference_cat=ref_keys,
+                window_size=window_size,
+                key_added=key_added,
+                step=step,
             )
-            axes[0].set_title("UMAP (Leiden Clusters)")
-            cnv.pl.umap(data, color="cnv_score", ax=axes[1], show=False)
-            axes[1].set_title("UMAP (CNV Score)")
-            cnv.pl.umap(data, color=heatmap_groupby, ax=axes[2], show=False)
-            axes[2].set_title(f"UMAP ({heatmap_groupby})")
-            plt.tight_layout()
-            plt.savefig(f"umap_cnv_{sample}.png", bbox_inches="tight")
-
-        data = find_tumor(data, key_added="is_tumor")
-        
-        if plot_tumor:
-            cnv.pl.umap(data, color="is_tumor", save=f"umap_tumor_{sample}.png")
-
-        adata.obs.loc[data.obs.index, "cnv_score"] = data.obs["cnv_score"]
-        adata.obs.loc[data.obs.index, "is_tumor"] = data.obs["is_tumor"]
-
+            
+            # Calculate CNV scores
+            cnv.tl.cnv_score(data, key_added=key_added)
+            log.info("CNV scores calculated")
+            
+            # Generate visualizations
+            if plot_heatmap or plot_umap or plot_tumor:
+                # Run dimensionality reduction if needed
+                if not all(x in data.obsm for x in [f"X_{key_added}_pca", f"X_{key_added}_umap"]):
+                    log.info("Running dimensionality reduction for visualizations")
+                    cnv.tl.pca(data, key_added=key_added)
+                    cnv.pp.neighbors(data, key_added=key_added)
+                    cnv.tl.umap(data, key_added=key_added)
+                    cnv.tl.leiden(data, key_added=key_added)
+            
+            # Plot chromosome heatmap
+            if plot_heatmap:
+                log.info(f"Plotting chromosome heatmap grouped by {heatmap_groupby}")
+                
+                # Save path for heatmap
+                if save_dir is not None:
+                    heatmap_path = os.path.join(save_dir, f"cnv_heatmap_{sample_name}.png")
+                else:
+                    heatmap_path = None
+                
+                # Plot heatmap by cell type
+                cnv.pl.chromosome_heatmap(
+                    data, 
+                    groupby=heatmap_groupby,
+                    key_added=key_added,
+                    save=heatmap_path
+                )
+                
+                # Plot heatmap by CNV clusters
+                if save_dir is not None:
+                    leiden_heatmap_path = os.path.join(save_dir, f"cnv_heatmap_leiden_{sample_name}.png")
+                else:
+                    leiden_heatmap_path = None
+                    
+                cnv.pl.chromosome_heatmap(
+                    data, 
+                    groupby=f"{key_added}_leiden", 
+                    dendrogram=True,
+                    key_added=key_added,
+                    save=leiden_heatmap_path
+                )
+            
+            # Plot UMAP visualization
+            if plot_umap:
+                log.info("Creating UMAP visualization of CNV analysis")
+                
+                fig, axes = plt.subplots(nrows=1, ncols=3, figsize=figsize)
+                
+                # Plot Leiden clusters
+                cnv.pl.umap(
+                    data,
+                    color=f"{key_added}_leiden",
+                    legend_loc="on data",
+                    legend_fontoutline=2,
+                    key_added=key_added,
+                    ax=axes[0],
+                    show=False,
+                )
+                axes[0].set_title("UMAP (Leiden Clusters)")
+                
+                # Plot CNV scores
+                cnv.pl.umap(
+                    data, 
+                    color=f"{key_added}_score", 
+                    key_added=key_added,
+                    ax=axes[1], 
+                    show=False
+                )
+                axes[1].set_title("UMAP (CNV Score)")
+                
+                # Plot cell types
+                cnv.pl.umap(
+                    data, 
+                    color=heatmap_groupby, 
+                    key_added=key_added,
+                    ax=axes[2], 
+                    show=False
+                )
+                axes[2].set_title(f"UMAP ({heatmap_groupby})")
+                
+                plt.tight_layout()
+                
+                if save_dir is not None:
+                    umap_path = os.path.join(save_dir, f"umap_cnv_{sample_name}.png")
+                    plt.savefig(umap_path, bbox_inches="tight", dpi=300)
+                    log.info(f"Saved UMAP plot to {umap_path}")
+                else:
+                    plt.show()
+            
+            # Identify tumor cells
+            log.info("Identifying tumor cells")
+            data = find_tumor(
+                data, 
+                cnv_score_key=f"{key_added}_score",
+                key_added=f"{key_added}_tumor",
+                alpha=alpha,
+                percentile_threshold=percentile_threshold,
+                plot=False
+            )
+            
+            # Plot tumor cells
+            if plot_tumor:
+                log.info("Creating UMAP visualization of tumor cells")
+                
+                if save_dir is not None:
+                    tumor_path = os.path.join(save_dir, f"umap_tumor_{sample_name}.png")
+                else:
+                    tumor_path = None
+                    
+                cnv.pl.umap(
+                    data, 
+                    color=f"{key_added}_tumor", 
+                    key_added=key_added,
+                    save=tumor_path
+                )
+            
+            # Copy results back to main AnnData object
+            if sample is not None:
+                adata.obs.loc[data.obs.index, f"{key_added}_score"] = data.obs[f"{key_added}_score"]
+                adata.obs.loc[data.obs.index, f"{key_added}_tumor"] = data.obs[f"{key_added}_tumor"]
+            else:
+                adata.obs[f"{key_added}_score"] = data.obs[f"{key_added}_score"]
+                adata.obs[f"{key_added}_tumor"] = data.obs[f"{key_added}_tumor"]
+            
+            # Save the CNV matrix if available
+            if f"X_{key_added}" in data.layers:
+                if f"X_{key_added}" not in adata.layers:
+                    adata.layers[f"X_{key_added}"] = np.zeros((adata.n_obs, adata.n_vars))
+                
+                if sample is not None:
+                    # We need to align the genes
+                    mask = adata.obs[sample_key] == sample
+                    adata.layers[f"X_{key_added}"][mask] = data.layers[f"X_{key_added}"]
+                else:
+                    adata.layers[f"X_{key_added}"] = data.layers[f"X_{key_added}"]
+            
+            log.info(f"Completed CNV analysis for sample: {sample_name}")
+            
+        except Exception as e:
+            log.error(f"Error in CNV analysis for sample {sample_name}: {str(e)}")
+            raise
+    
+    # Add summary statistics to uns
+    adata.uns[f"{key_added}_stats"] = {
+        "window_size": window_size,
+        "step": step,
+        "reference_cell_types": ref_keys,
+        "tumor_cell_count": int(adata.obs[f"{key_added}_tumor"].sum()),
+        "tumor_cell_fraction": float(adata.obs[f"{key_added}_tumor"].mean()),
+        "mean_cnv_score": float(adata.obs[f"{key_added}_score"].mean()),
+        "min_cnv_score": float(adata.obs[f"{key_added}_score"].min()),
+        "max_cnv_score": float(adata.obs[f"{key_added}_score"].max()),
+    }
+    
+    log.info(f"CNV analysis completed. Found {adata.uns[f'{key_added}_stats']['tumor_cell_count']} tumor cells "
+             f"({adata.uns[f'{key_added}_stats']['tumor_cell_fraction']:.2%} of total)")
+    
     return adata
-
-# Example usage:
-# adata = run_cnv_analysis(adata, ref_keys=["Immune", "Stromal"])

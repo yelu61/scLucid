@@ -6,21 +6,33 @@ data input/output, and statistical calculations.
 """
 
 # Import and expose key functions from submodules
-# from .plotting import plot_qc, plot_clusters, plot_gene_expression
-# from .io import read_data, write_data, merge_datasets
-# from .stats import calculate_statistics, perform_test
-from .anndata_helpers import use_layer_as_X
+from .utils import identify_outliers, use_layer_as_X
 from .plotting import (
     plot_composition,
     plot_embedding,
-    plot_marker_heatmap,
     plot_enrichment,
+    plot_marker_expression,
+    plot_marker_heatmap,
+    plot_feature_correlation,
+    plot_multi_modality,
+    plot_pseudotime,
+    plot_spatial,
+    plot_volcano
 )
+
+
 # Define what should be accessible when importing from this module
 __all__ = [
     "use_layer_as_X",
+    "identify_outliers",
     "plot_composition",
     "plot_embedding",
     "plot_marker_heatmap",
     "plot_enrichment",
-    ]
+    "plot_marker_expression",
+    "plot_feature_correlation",
+    "plot_multi_modality",
+    "plot_pseudotime",
+    "plot_spatial",
+    "plot_volcano"
+]

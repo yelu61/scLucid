@@ -7,82 +7,20 @@ cells based on various quality metrics.
 
 import logging
 import os
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from anndata import AnnData
-from scipy.stats import median_abs_deviation
+
+from ..utils.utils import identify_outliers
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     "is_low_quality_cell",
     "filter_cells",
-    "_identify_outliers",
 ]
-
-
-def _identify_outliers(
-    adata: AnnData,
-    metric: str,
-    nmads: float,
-    direction: Literal["both", "upper", "lower"] = "both",
-) -> pd.Series:
-    """
-    Identify outliers based on the median absolute deviation (MAD).
-
-    Args:
-        adata: AnnData object to check for outliers.
-        metric: The metric in adata.obs to use for outlier detection.
-        nmads: Number of median absolute deviations for outlier detection.
-        direction: Direction for outlier detection ('both', 'upper', or 'lower').
-
-    Returns:
-        Boolean pd.Series indicating if a cell is an outlier.
-    """
-    if metric not in adata.obs.columns:
-        raise ValueError(f"Metric '{metric}' not found in adata.obs.")
-        
-    if nmads <= 0:
-        raise ValueError(f"nmads must be positive, got {nmads}")
-
-    if direction not in ["both", "upper", "lower"]:
-        raise ValueError(f"direction must be one of 'both', 'upper', or 'lower', got {direction}")
-
-    values = adata.obs[metric]
-    
-    # Report NaN values
-    nan_count = values.isna().sum()
-    if nan_count > 0:
-        log.warning(f"{nan_count} NaN values in '{metric}' will be excluded from outlier detection")
-    
-    median = np.nanmedian(values)
-    mad = median_abs_deviation(values, nan_policy="omit")
-
-    # Report distribution information
-    log.info(f"Distribution info for '{metric}': median={median:.2f}, MAD={mad:.2f}")
-
-    if mad == 0:
-        log.warning(f"MAD is zero for '{metric}'. No outliers will be detected.")
-        return pd.Series(False, index=adata.obs_names)
-
-    upper_bound = median + nmads * mad
-    lower_bound = median - nmads * mad
-
-    if direction == "upper":
-        outliers = values > upper_bound
-    elif direction == "lower":
-        outliers = values < lower_bound
-    else:  # 'both'
-        outliers = (values > upper_bound) | (values < lower_bound)
-
-    log.info(
-        f"Identified {outliers.sum()} outliers ({outliers.sum() / len(outliers):.2%}) for '{metric}' "
-        f"(direction: {direction}, nmads: {nmads})"
-    )
-    return outliers
 
 
 def is_low_quality_cell(
@@ -92,14 +30,18 @@ def is_low_quality_cell(
     nmads: float = 5.0,
     pc_mt: float = 20.0,
     pc_hb: float = 20.0,
+    pc_top20_genes: Optional[float] = None,
+    use_fixed_top20_threshold: bool = False,
     plot_outliers: bool = False,
     save_dir: Optional[str] = None,
     show: bool = True,
-    outlier_metrics: Optional[List[Tuple[str, str]]] = None,
+    qc_metrics: Optional[List[Tuple[str, str]]] = None,
     cols_to_plot: Optional[List[str]] = None,
 ) -> AnnData:
     """
     Identify and mark low-quality cells based on various QC criteria.
+    This function focuses on technical artifacts and low-quality cells,
+    not doublet detection (which is handled separately in the doublet module).
 
     Args:
         adata: AnnData object with QC metrics calculated.
@@ -108,10 +50,12 @@ def is_low_quality_cell(
         nmads: Number of MADs for outlier detection.
         pc_mt: Maximum percentage of mitochondrial counts.
         pc_hb: Maximum percentage of hemoglobin counts.
+        pc_top20_genes: Fixed threshold for pct_counts_in_top_20_genes if use_fixed_top20_threshold=True.
+        use_fixed_top20_threshold: Whether to use fixed threshold for pct_counts_in_top_20_genes instead of MAD.
         plot_outliers: Whether to generate scatter plots highlighting outliers.
         save_dir: Directory to save plots.
         show: Whether to display plots.
-        outlier_metrics: List of (metric, direction) tuples for outlier detection.
+        qc_metrics: List of (metric, direction) tuples for QC-based outlier detection.
         cols_to_plot: List of .obs columns to plot as scatter plots if plot_outliers is True.
 
     Returns:
@@ -123,85 +67,102 @@ def is_low_quality_cell(
             "Missing required QC columns. Run calculate_qc_metric() first."
         )
 
-    if outlier_metrics is None:
-        outlier_metrics = [
+    if qc_metrics is None:
+        qc_metrics = [
             ("log1p_total_counts", "both"),
             ("log1p_n_genes_by_counts", "both"),
-            ("pct_counts_in_top_20_genes", "upper"),
         ]
+        if use_fixed_top20_threshold and pc_top20_genes is not None:
+            log.info(
+                f"Using fixed threshold {pc_top20_genes}% for pct_counts_in_top_20_genes in QC"
+            )
+        elif not use_fixed_top20_threshold:
+            qc_metrics.append(("pct_counts_in_top_20_genes", "upper"))
+            log.info("Using MAD-based threshold for pct_counts_in_top_20_genes in QC")
+
+    formatted_metrics = [(metric, direction, None) for metric, direction in qc_metrics]
 
     # Precompute sample indices to improve performance
-    sample_indices = {sample: adata.obs[sample_key] == sample 
-                     for sample in adata.obs[sample_key].unique()}
+    sample_indices = {
+        sample: adata.obs[sample_key] == sample
+        for sample in adata.obs[sample_key].unique()
+    }
 
     # --- Mark cells based on individual criteria ---
     adata.obs["outlier_low_genes"] = adata.obs["n_genes_by_counts"] < min_genes
-    log.info(f"Cells with low gene counts (< {min_genes}): {adata.obs['outlier_low_genes'].sum()} "
-             f"({adata.obs['outlier_low_genes'].sum() / adata.n_obs:.2%})")
-    
+    log.info(
+        f"Cells with low gene counts (< {min_genes}): {adata.obs['outlier_low_genes'].sum()} "
+        f"({adata.obs['outlier_low_genes'].sum() / adata.n_obs:.2%})"
+    )
+
     adata.obs["outlier_mt"] = adata.obs["pct_counts_mt"] > pc_mt
-    log.info(f"Cells with high mitochondrial percentage (> {pc_mt}%): {adata.obs['outlier_mt'].sum()} "
-             f"({adata.obs['outlier_mt'].sum() / adata.n_obs:.2%})")
-    
+    log.info(
+        f"Cells with high mitochondrial percentage (> {pc_mt}%): {adata.obs['outlier_mt'].sum()} "
+        f"({adata.obs['outlier_mt'].sum() / adata.n_obs:.2%})"
+    )
+
     if "pct_counts_hb" in adata.obs:
         adata.obs["outlier_hb"] = adata.obs["pct_counts_hb"] > pc_hb
-        log.info(f"Cells with high hemoglobin percentage (> {pc_hb}%): {adata.obs['outlier_hb'].sum()} "
-                 f"({adata.obs['outlier_hb'].sum() / adata.n_obs:.2%})")
+        log.info(
+            f"Cells with high hemoglobin percentage (> {pc_hb}%): {adata.obs['outlier_hb'].sum()} "
+            f"({adata.obs['outlier_hb'].sum() / adata.n_obs:.2%})"
+        )
 
-    # Check for overexpression if available
-    if check_overexpression and "pct_counts_in_top_20_genes" in adata.obs:
-        over_genes_q = 0.99
-        top_genes_threshold = adata.obs.pct_counts_in_top_20_genes.quantile(over_genes_q)
-        adata.obs["outlier_overexpression"] = adata.obs["pct_counts_in_top_20_genes"] > top_genes_threshold
-        log.info(f"Cells with high gene overexpression (>{over_genes_q:.2f} quantile): "
-                 f"{adata.obs['outlier_overexpression'].sum()} "
-                 f"({adata.obs['outlier_overexpression'].sum() / adata.n_obs:.2%})")
-    
     # --- Mark cells based on MAD outliers (per sample) ---
-    adata.obs["outlier_mad"] = False
-    for sample, sample_mask in sample_indices.items():
-        log.info(f"Identifying MAD outliers for sample: {sample}")
-        sample_adata = adata[sample_mask]
+    adata.obs["outlier_qc_metrics"] = identify_outliers(
+        adata, metrics=formatted_metrics, sample_key=sample_key, nmads=nmads
+    )
 
-        sample_outlier_mask = pd.Series(False, index=sample_adata.obs_names)
-        for metric, direction in outlier_metrics:
-            if metric in sample_adata.obs:
-                metric_outliers = _identify_outliers(
-                    sample_adata, metric=metric, nmads=nmads, direction=direction
-                )
-                sample_outlier_mask |= metric_outliers
-                log.info(f"  - After adding {metric} ({direction}): {sample_outlier_mask.sum()} outliers "
-                         f"({sample_outlier_mask.sum() / len(sample_outlier_mask):.2%})")
+    if use_fixed_top20_threshold and pc_top20_genes is not None:
+        adata.obs["outlier_top20_genes"] = (
+            adata.obs["pct_counts_in_top_20_genes"] > pc_top20_genes
+        )
+        log.info(
+            f"Cells with high top 20 genes percentage (> {pc_top20_genes}%): {adata.obs['outlier_top20_genes'].sum()} "
+            f"({adata.obs['outlier_top20_genes'].sum() / adata.n_obs:.2%})"
+        )
+        adata.obs["outlier_qc_metrics"] = (
+            adata.obs["outlier_qc_metrics"] | adata.obs["outlier_top20_genes"]
+        )
 
-        adata.obs.loc[sample_mask, "outlier_mad"] = sample_outlier_mask
+    qc_count = adata.obs["outlier_qc_metrics"].sum()
+    log.info(
+        f"Cells marked as QC matric outliers: {qc_count} ({qc_count / adata.n_obs:.2%})"
+    )
 
     # --- Final Statistics ---
     log.info("\n--- Overall Low-Quality Cell Statistics ---")
     total_cells = adata.n_obs
-    
+
     # Count cells with multiple issues
     outlier_cols = [col for col in adata.obs.columns if col.startswith("outlier_")]
     adata.obs["outlier_count"] = adata.obs[outlier_cols].sum(axis=1)
-    
+
     # Report counts per outlier type
     for col in outlier_cols:
         count = adata.obs[col].sum()
         log.info(f"Cells marked as '{col}': {count} ({count / total_cells:.2%})")
-    
+
     # Report cells with multiple issues
     for n_outliers in range(1, len(outlier_cols) + 1):
         count = (adata.obs["outlier_count"] == n_outliers).sum()
         if count > 0:
-            log.info(f"Cells with exactly {n_outliers} types of issues: {count} ({count / total_cells:.2%})")
-    
+            log.info(
+                f"Cells with exactly {n_outliers} types of issues: {count} ({count / total_cells:.2%})"
+            )
+
     # Include doublet statistics if available
     if "predicted_doublet_scrublet" in adata.obs:
         count = adata.obs["predicted_doublet_scrublet"].sum()
-        log.info(f"Cells marked as 'predicted_doublet_scrublet': {count} ({count / total_cells:.2%})")
-    
-    if "predicted_doublet_custom" in adata.obs:
-        count = adata.obs["predicted_doublet_custom"].sum()
-        log.info(f"Cells marked as 'predicted_doublet_custom': {count} ({count / total_cells:.2%})")
+        log.info(
+            f"Cells marked as 'predicted_doublet_scrublet': {count} ({count / total_cells:.2%})"
+        )
+
+    if "doublet_expression_pattern" in adata.obs:
+        count = adata.obs["doublet_expression_pattern"].sum()
+        log.info(
+            f"Cells marked as 'doublet_expression_pattern': {count} ({count / total_cells:.2%})"
+        )
 
     # --- Plotting ---
     if plot_outliers:
@@ -211,17 +172,16 @@ def is_low_quality_cell(
                 "outlier_low_genes",
                 "outlier_mt",
                 "outlier_hb",
-                "outlier_mad",
-                "outlier_overexpression",
+                "outlier_qc_metrics",
                 "predicted_doublet_scrublet",
-                "predicted_doublet_custom",
+                "doublet_expression_pattern",
             ]
             cols_to_plot = [col for col in default_cols if col in adata.obs.columns]
 
         for sample, sample_mask in sample_indices.items():
             log.info(f"Plotting outlier QC for sample: {sample}")
             data_view = adata[sample_mask]
-            
+
             if data_view.n_obs == 0:
                 log.warning(f"No cells found for sample {sample}, skipping plot")
                 continue
@@ -236,12 +196,21 @@ def is_low_quality_cell(
                 ax = axs[i]
                 if col in data_view.obs:
                     # Determine coloring based on data type
-                    if data_view.obs[col].dtype == "bool" or set(data_view.obs[col].unique()).issubset({0, 1, True, False}):
-                        colors = data_view.obs[col].map({False: "#655a5a", True: "#e53639", 0: "#655a5a", 1: "#e53639"})
+                    if data_view.obs[col].dtype == "bool" or set(
+                        data_view.obs[col].unique()
+                    ).issubset({0, 1, True, False}):
+                        colors = data_view.obs[col].map(
+                            {
+                                False: "#655a5a",
+                                True: "#e53639",
+                                0: "#655a5a",
+                                1: "#e53639",
+                            }
+                        )
                     else:
                         # Default color for non-boolean data
                         colors = "#655a5a"
-                        
+
                     ax.scatter(
                         data_view.obs["total_counts"],
                         data_view.obs["n_genes_by_counts"],
@@ -253,11 +222,15 @@ def is_low_quality_cell(
                     ax.set_title(col.replace("_", " ").title())
                     ax.set_xlabel("Total Counts")
                     ax.set_ylabel("n_genes_by_counts")
-                    
+
                     # Add count and percentage to title
-                    if data_view.obs[col].dtype == "bool" or set(data_view.obs[col].unique()).issubset({0, 1, True, False}):
+                    if data_view.obs[col].dtype == "bool" or set(
+                        data_view.obs[col].unique()
+                    ).issubset({0, 1, True, False}):
                         count = data_view.obs[col].sum()
-                        ax.set_title(f"{col.replace('_', ' ').title()}\n{count} cells ({count/data_view.n_obs:.1%})")
+                        ax.set_title(
+                            f"{col.replace('_', ' ').title()}\n{count} cells ({count / data_view.n_obs:.1%})"
+                        )
                 else:
                     ax.set_visible(False)
 
@@ -269,9 +242,9 @@ def is_low_quality_cell(
             if save_dir:
                 os.makedirs(save_dir, exist_ok=True)
                 plt.savefig(
-                    os.path.join(save_dir, f"{sample}_qc_outliers.png"), 
+                    os.path.join(save_dir, f"{sample}_qc_outliers.png"),
                     dpi=300,
-                    facecolor="white"
+                    facecolor="white",
                 )
             if show:
                 plt.show()
@@ -287,10 +260,9 @@ def filter_cells(
     filter_by_outlier_low_genes: bool = True,
     filter_by_outlier_mt: bool = True,
     filter_by_outlier_hb: bool = True,
-    filter_by_outlier_mad: bool = True, 
-    filter_by_outlier_overexpression: bool = True,
-    filter_by_doublet_scrublet: bool = True,
-    filter_by_doublet_custom: bool = True,
+    filter_by_outlier_qc_metrics: bool = True,
+    filter_by_predicted_doublet_scrublet: bool = True,
+    filter_by_doublet_expression_pattern: bool = True,
 ) -> Optional[AnnData]:
     """
     Filter cells based on previously calculated QC and doublet boolean flags.
@@ -311,23 +283,22 @@ def filter_cells(
     # If criteria is None, build it from filter_by_* parameters
     if criteria is None:
         criteria = []
-        
+
         # Map parameters to potential column names
         filter_map = {
             filter_by_outlier_low_genes: "outlier_low_genes",
             filter_by_outlier_mt: "outlier_mt",
             filter_by_outlier_hb: "outlier_hb",
-            filter_by_outlier_mad: "outlier_mad",
-            filter_by_outlier_overexpression: "outlier_overexpression",
-            filter_by_doublet_scrublet: "predicted_doublet_scrublet",
-            filter_by_doublet_custom: "predicted_doublet_custom"
+            filter_by_outlier_qc_metrics: "outlier_qc_metrics",
+            filter_by_predicted_doublet_scrublet: "predicted_doublet_scrublet",
+            filter_by_doublet_expression_pattern: "doublet_expression_pattern",
         }
-        
+
         # Add columns that exist and are enabled
         for flag, col in filter_map.items():
             if flag and col in adata.obs.columns:
                 criteria.append(col)
-    
+
     # Filter out criteria that don't exist in the object
     valid_criteria = [c for c in criteria if c in adata.obs.columns]
     missing_criteria = set(criteria) - set(valid_criteria)
@@ -344,7 +315,7 @@ def filter_cells(
 
     # Create a combined mask. A cell is kept if it's False for all criteria.
     combined_mask = pd.Series(False, index=adata.obs_names)
-    
+
     # Track individual contributions
     criteria_counts = {}
     for col in valid_criteria:
@@ -356,10 +327,10 @@ def filter_cells(
     keep_mask = ~combined_mask
 
     log.info(f"Filtering cells based on: {', '.join(valid_criteria)}")
-    
+
     # Report individual criteria counts
     for col, count in criteria_counts.items():
-        log.info(f"  - {col}: {count} cells ({count/initial_cells:.2%})")
+        log.info(f"  - {col}: {count} cells ({count / initial_cells:.2%})")
 
     adata_to_return = adata[keep_mask, :].copy() if copy else None
 
@@ -374,13 +345,15 @@ def filter_cells(
     log.info(
         f"  Cells removed:      {initial_cells - final_cells} ({(initial_cells - final_cells) / initial_cells:.2%})"
     )
-    
+
     # Calculate cells removed by multiple criteria
     if len(valid_criteria) > 1:
         outlier_counts = adata.obs[valid_criteria].sum(axis=1)
         for i in range(1, len(valid_criteria) + 1):
             count = (outlier_counts == i).sum()
             if count > 0:
-                log.info(f"  Cells with exactly {i} types of issues: {count} ({count/initial_cells:.2%})")
+                log.info(
+                    f"  Cells with exactly {i} types of issues: {count} ({count / initial_cells:.2%})"
+                )
 
     return adata_to_return
