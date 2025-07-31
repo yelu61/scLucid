@@ -51,8 +51,7 @@ def _plot_normalization_global(
         matplotlib Figure object
     """
     # Set up the plotting style
-    plt.rcParams.update(
-        {
+    rc_params = {
             "figure.facecolor": "white",
             "axes.facecolor": "white",
             "savefig.facecolor": "white",
@@ -62,73 +61,73 @@ def _plot_normalization_global(
             "xtick.color": "black",
             "ytick.color": "black",
         }
-    )
 
     # Create figure
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(14, 5))
-    fig.suptitle(
-        f"Data Distributions Before and After {method.capitalize()} Normalization",
-        fontsize=16,
-        color="black",
-    )
-
-    # Get cell sums for before and after
-    if scipy.sparse.issparse(input_data):
-        before_sums = input_data.sum(axis=1).A1
-    else:
-        before_sums = input_data.sum(axis=1)
-
-    if scipy.sparse.issparse(output_data):
-        after_sums = output_data.sum(axis=1).A1
-    else:
-        after_sums = output_data.sum(axis=1)
-
-    # Plot before normalization
-    sns.histplot(
-        before_sums,
-        bins=100,
-        kde=True,
-        ax=axes[0],
-        color="navy",
-    )
-    axes[0].set_title("Before Normalization")
-    axes[0].set_xlabel("Total Counts per Cell")
-    axes[0].set_ylabel("Frequency")
-    axes[0].text(
-        0.05,
-        0.95,
-        f"Mean: {before_sums.mean():.1f}\nMedian: {np.median(before_sums):.1f}",
-        transform=axes[0].transAxes,
-        va="top",
-    )
-
-    # Plot after normalization
-    sns.histplot(
-        after_sums,
-        bins=100,
-        kde=True,
-        ax=axes[1],
-        color="crimson",
-    )
-    title_suffix = " (Log-Transformed)" if log_transformed else ""
-    axes[1].set_title(f"After {method.capitalize()} Normalization{title_suffix}")
-    axes[1].set_xlabel("Sum of Normalized Values per Cell")
-    axes[1].set_ylabel("Frequency")
-    axes[1].text(
-        0.05,
-        0.95,
-        f"Mean: {after_sums.mean():.1f}\nMedian: {np.median(after_sums):.1f}",
-        transform=axes[1].transAxes,
-        va="top",
-    )
-
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-
-    if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(
-            os.path.join(save_dir, f"normalization_{method}_global.png"), dpi=300
+    with plt.rc_context(rc_params):
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(14, 5))
+        fig.suptitle(
+            f"Data Distributions Before and After {method.capitalize()} Normalization",
+            fontsize=16,
+            color="black",
         )
+
+        # Get cell sums for before and after
+        if scipy.sparse.issparse(input_data):
+            before_sums = input_data.sum(axis=1).A1
+        else:
+            before_sums = input_data.sum(axis=1)
+
+        if scipy.sparse.issparse(output_data):
+            after_sums = output_data.sum(axis=1).A1
+        else:
+            after_sums = output_data.sum(axis=1)
+
+        # Plot before normalization
+        sns.histplot(
+            before_sums,
+            bins=100,
+            kde=True,
+            ax=axes[0],
+            color="navy",
+        )
+        axes[0].set_title("Before Normalization")
+        axes[0].set_xlabel("Total Counts per Cell")
+        axes[0].set_ylabel("Frequency")
+        axes[0].text(
+            0.05,
+            0.95,
+            f"Mean: {before_sums.mean():.1f}\nMedian: {np.median(before_sums):.1f}",
+            transform=axes[0].transAxes,
+            va="top",
+        )
+
+        # Plot after normalization
+        sns.histplot(
+            after_sums,
+            bins=100,
+            kde=True,
+            ax=axes[1],
+            color="crimson",
+        )
+        title_suffix = " (Log-Transformed)" if log_transformed else ""
+        axes[1].set_title(f"After {method.capitalize()} Normalization{title_suffix}")
+        axes[1].set_xlabel("Sum of Normalized Values per Cell")
+        axes[1].set_ylabel("Frequency")
+        axes[1].text(
+            0.05,
+            0.95,
+            f"Mean: {after_sums.mean():.1f}\nMedian: {np.median(after_sums):.1f}",
+            transform=axes[1].transAxes,
+            va="top",
+        )
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+            plt.savefig(
+                os.path.join(save_dir, f"normalization_{method}_global.png"), dpi=300
+            )
 
     return fig
 
@@ -227,9 +226,7 @@ def normalize_data(
         )
 
     # Calculate basic statistics for logging and validation
-    total_counts = input_data_source.sum(axis=1)
-    if scipy.sparse.issparse(total_counts):
-        total_counts = total_counts.A1
+    total_counts = np.array(input_data_source.sum(axis=1)).flatten()
 
     log.info(
         f"Input data summary: median counts per cell = {np.median(total_counts):.1f}, "
@@ -463,9 +460,7 @@ def normalize_data(
 
     # Calculate and log post-normalization statistics
     final_data = adata.layers[output_layer]
-    final_sum = final_data.sum(axis=1)
-    if scipy.sparse.issparse(final_sum):
-        final_sum = final_sum.A1
+    final_sum = np.array(final_data.sum(axis=1)).flatten()
 
     log.info(f"Normalization complete. Final data in adata.layers['{output_layer}']")
     log.info(
@@ -589,7 +584,7 @@ def plot_normalization_comparison(
 
     # Define helper function to safely get data
     def get_data(layer, gene):
-        gene_idx = np.where(adata.var_names == gene)[0][0]
+        gene_idx = adata.var.index.get_loc(gene) 
         data = adata.layers[layer][:, gene_idx]
         if scipy.sparse.issparse(data):
             return data.toarray().flatten()
@@ -650,6 +645,7 @@ def regress_out(
     n_jobs: Optional[int] = None,
     output_layer: str = "regressed_out",
     force: bool = False,
+    calculate_variance_explained: bool = False,
 ) -> AnnData:
     """
     Regress out unwanted sources of variation from a specified layer.
@@ -705,7 +701,8 @@ def regress_out(
         with use_layer_as_X(adata, layer):
             # Optionally calculate variance explained by each factor
             # (This is computationally expensive, so consider adding a flag to control it)
-            if False:  # Set to True to enable variance analysis
+            if calculate_variance_explained:  # Set to True to enable variance analysis
+                log.info("Calculating variance explained by each factor (this may be slow)...")
                 from sklearn.linear_model import LinearRegression
 
                 # Convert sparse matrix to dense if needed

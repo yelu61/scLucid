@@ -118,7 +118,7 @@ def scale_data(
 
     # Log the operation
     log.info(
-        f"Scaling data from {'adata.X' if layer is None else f"layer '{layer}'"} "
+        f"Scaling data from {'adata.X' if layer is None else f'layer {layer}'} "
         f"using {scale_method} scaling"
     )
     log.info(
@@ -141,7 +141,6 @@ def scale_data(
     else:
         gene_mask = None
 
-    # Check the input data for potential issues
     try:
         with use_layer_as_X(adata, layer):
             # Get a small sample to check statistics
@@ -158,59 +157,125 @@ def scale_data(
                 f"Input data statistics: min={min_val:.3f}, max={max_val:.3f}, sparsity={sparsity:.2%}"
             )
 
-            # Heuristic check: Warn user if data looks like raw counts
             if max_val > 100:
                 log.warning(
                     f"Max value in layer '{layer}' is > 100. "
                     "Scaling is typically performed on log-normalized data, not raw counts."
                 )
 
-            # Additional warning for non-logged data
             if min_val >= 0 and max_val > 30 and sparsity > 0.5:
                 log.warning(
                     "Data appears to be raw counts rather than log-normalized values. "
                     "Consider running normalize_data with log_transform=True first."
                 )
 
-            # Store original data for plotting if needed
             if plot:
                 if scipy.sparse.issparse(adata.X):
                     original_data = adata.X.copy()
                 else:
                     original_data = adata.X.copy()
 
-            # Perform scaling based on the method
+            # 回归和标准化分开处理
+            if vars_to_regress:
+                # 回归前建议只对 dense 数据做
+                if scipy.sparse.issparse(adata.X):
+                    adata.X = adata.X.toarray()
+                sc.pp.regress_out(adata, keys=vars_to_regress)
+
             if scale_method == "zscore":
-                # Standard z-score scaling (scanpy default)
-                sc.pp.scale(
-                    adata,
-                    max_value=max_value,
-                    zero_center=zero_center,
-                    vars_to_regress=vars_to_regress,
-                    mask_genes=gene_mask,
-                )
+                if subset_highly_variable:
+                    # 只对 HVG 做 scaling
+                    hvg_mask = (
+                        gene_mask.values if hasattr(gene_mask, "values") else gene_mask
+                    )
+                    if np.sum(hvg_mask) == 0:
+                        raise ValueError("No highly variable genes found for scaling.")
+                    # 提取 HVG 子集
+                    adata_hvg = adata[:, hvg_mask].copy()
+                    sc.pp.scale(
+                        adata_hvg,
+                        max_value=max_value,
+                        zero_center=zero_center,
+                    )
+                    # 结果合并回主 AnnData，非 HVG 基因保持原样
+                    X_scaled = adata.X.copy()
+                    if scipy.sparse.issparse(X_scaled):
+                        X_scaled = X_scaled.toarray()
+                    X_scaled[:, hvg_mask] = (
+                        adata_hvg.X.toarray()
+                        if scipy.sparse.issparse(adata_hvg.X)
+                        else adata_hvg.X
+                    )
+                    if scipy.sparse.issparse(adata.X):
+                        adata.layers[output_layer] = scipy.sparse.csr_matrix(X_scaled)
+                    else:
+                        adata.layers[output_layer] = X_scaled
+                else:
+                    sc.pp.scale(
+                        adata,
+                        max_value=max_value,
+                        zero_center=zero_center,
+                    )
+                    adata.layers[output_layer] = adata.X.copy()
 
             elif scale_method == "robust":
-                # Robust scaling using median and MAD
-                _robust_scale(
-                    adata,
-                    max_value=max_value,
-                    zero_center=zero_center,
-                    mask_genes=gene_mask,
-                )
+                if subset_highly_variable:
+                    hvg_mask = (
+                        gene_mask.values if hasattr(gene_mask, "values") else gene_mask
+                    )
+                    adata_hvg = adata[:, hvg_mask].copy()
+                    _robust_scale(
+                        adata_hvg,
+                        max_value=max_value,
+                        zero_center=zero_center,
+                    )
+                    X_scaled = adata.X.copy()
+                    if scipy.sparse.issparse(X_scaled):
+                        X_scaled = X_scaled.toarray()
+                    X_scaled[:, hvg_mask] = (
+                        adata_hvg.X.toarray()
+                        if scipy.sparse.issparse(adata_hvg.X)
+                        else adata_hvg.X
+                    )
+                    if scipy.sparse.issparse(adata.X):
+                        adata.layers[output_layer] = scipy.sparse.csr_matrix(X_scaled)
+                    else:
+                        adata.layers[output_layer] = X_scaled
+                else:
+                    _robust_scale(
+                        adata,
+                        max_value=max_value,
+                        zero_center=zero_center,
+                    )
+                    adata.layers[output_layer] = adata.X.copy()
 
             elif scale_method == "minmax":
-                # Min-max scaling to [0,1]
-                _minmax_scale(adata, feature_range=(0, 1), mask_genes=gene_mask)
-
+                if subset_highly_variable:
+                    hvg_mask = (
+                        gene_mask.values if hasattr(gene_mask, "values") else gene_mask
+                    )
+                    adata_hvg = adata[:, hvg_mask].copy()
+                    _minmax_scale(adata_hvg, feature_range=(0, 1))
+                    X_scaled = adata.X.copy()
+                    if scipy.sparse.issparse(X_scaled):
+                        X_scaled = X_scaled.toarray()
+                    X_scaled[:, hvg_mask] = (
+                        adata_hvg.X.toarray()
+                        if scipy.sparse.issparse(adata_hvg.X)
+                        else adata_hvg.X
+                    )
+                    if scipy.sparse.issparse(adata.X):
+                        adata.layers[output_layer] = scipy.sparse.csr_matrix(X_scaled)
+                    else:
+                        adata.layers[output_layer] = X_scaled
+                else:
+                    _minmax_scale(adata, feature_range=(0, 1))
+                    adata.layers[output_layer] = adata.X.copy()
             else:
                 raise ValueError(
                     f"Unknown scale_method '{scale_method}'. "
                     f"Valid options: 'zscore', 'robust', 'minmax'"
                 )
-
-            # Store the result from the modified adata.X into the output layer
-            adata.layers[output_layer] = adata.X.copy()
 
             # Restore original .X if using a layer
             if layer is not None:
@@ -296,64 +361,34 @@ def _robust_scale(
 
     # Convert to dense if sparse
     if scipy.sparse.issparse(X):
-        # For sparse matrices, we operate only on the genes we need to scale
         if len(genes_to_scale) < adata.n_vars:
-            # Only convert the necessary genes to dense
             for gene_idx in genes_to_scale:
                 gene_vector = X[:, gene_idx].toarray().flatten()
-
-                # Compute median and MAD
                 med = np.median(gene_vector)
                 mad = np.median(np.abs(gene_vector - med))
-
-                # Handle zero MAD
                 if mad == 0:
                     mad = 1.0
-
-                # Center if requested
                 if zero_center:
                     gene_vector = gene_vector - med
-
-                # Scale by MAD
                 gene_vector = gene_vector / mad
-
-                # Clip if requested
                 if max_value is not None:
                     gene_vector = np.clip(gene_vector, -max_value, max_value)
-
-                # Put back in the matrix
                 X[:, gene_idx] = scipy.sparse.csr_matrix(gene_vector).T
         else:
-            # Convert the whole matrix
             X_dense = X.toarray()
-
-            # Compute median and MAD for each gene
             gene_medians = np.median(X_dense, axis=0)
             gene_mads = np.median(np.abs(X_dense - gene_medians), axis=0)
-
-            # Replace zero MADs with 1
             gene_mads[gene_mads == 0] = 1.0
-
-            # Center if requested
             if zero_center:
                 X_dense = X_dense - gene_medians
-
-            # Scale by MAD
             X_dense = X_dense / gene_mads
-
-            # Clip if requested
             if max_value is not None:
                 X_dense = np.clip(X_dense, -max_value, max_value)
-
-            # Convert back to sparse
             adata.X = scipy.sparse.csr_matrix(X_dense)
     else:
-        # For dense matrices
         if len(genes_to_scale) < adata.n_vars:
-            # Only scale selected genes
             gene_medians = np.zeros(adata.n_vars)
             gene_mads = np.ones(adata.n_vars)
-
             for gene_idx in genes_to_scale:
                 gene_vector = X[:, gene_idx]
                 gene_medians[gene_idx] = np.median(gene_vector)
@@ -362,38 +397,21 @@ def _robust_scale(
                 )
                 if gene_mads[gene_idx] == 0:
                     gene_mads[gene_idx] = 1.0
-
-            # Center if requested
             if zero_center:
                 X = X - gene_medians
-
-            # Scale by MAD
             X = X / gene_mads
-
-            # Clip if requested
             if max_value is not None:
                 X = np.clip(X, -max_value, max_value)
-
             adata.X = X
         else:
-            # Scale all genes
             gene_medians = np.median(X, axis=0)
             gene_mads = np.median(np.abs(X - gene_medians), axis=0)
-
-            # Replace zero MADs with 1
             gene_mads[gene_mads == 0] = 1.0
-
-            # Center if requested
             if zero_center:
                 X = X - gene_medians
-
-            # Scale by MAD
             X = X / gene_mads
-
-            # Clip if requested
             if max_value is not None:
                 X = np.clip(X, -max_value, max_value)
-
             adata.X = X
 
 
@@ -413,119 +431,66 @@ def _minmax_scale(
     Note:
         This function modifies adata.X in place.
     """
-    # Handle gene mask
     if mask_genes is not None:
         genes_to_scale = np.where(mask_genes)[0]
     else:
         genes_to_scale = np.arange(adata.n_vars)
 
-    # Get the data matrix
     X = adata.X
-
-    # Extract range parameters
     min_val, max_val = feature_range
 
-    # Convert to dense if sparse
     if scipy.sparse.issparse(X):
-        # For sparse matrices, we operate only on the genes we need to scale
         if len(genes_to_scale) < adata.n_vars:
-            # Only convert the necessary genes to dense
             for gene_idx in genes_to_scale:
                 gene_vector = X[:, gene_idx].toarray().flatten()
-
-                # Compute min and max
                 x_min = np.min(gene_vector)
                 x_max = np.max(gene_vector)
-
-                # Handle case when all values are the same
                 if x_max == x_min:
                     gene_vector[:] = (min_val + max_val) / 2
                 else:
-                    # Scale to [0, 1]
                     gene_vector = (gene_vector - x_min) / (x_max - x_min)
-
-                    # Scale to target range
                     gene_vector = gene_vector * (max_val - min_val) + min_val
-
-                # Put back in the matrix
                 X[:, gene_idx] = scipy.sparse.csr_matrix(gene_vector).T
         else:
-            # Convert the whole matrix
             X_dense = X.toarray()
-
-            # Compute min and max for each gene
             gene_mins = np.min(X_dense, axis=0)
             gene_maxs = np.max(X_dense, axis=0)
-
-            # Handle case when all values are the same for a gene
             equal_genes = gene_maxs == gene_mins
             gene_range = gene_maxs - gene_mins
-            gene_range[equal_genes] = 1.0  # Avoid division by zero
-
-            # Scale to [0, 1]
+            gene_range[equal_genes] = 1.0
             X_dense = (X_dense - gene_mins) / gene_range
-
-            # Set constant genes to mid-range
             for gene_idx in np.where(equal_genes)[0]:
                 X_dense[:, gene_idx] = 0.5
-
-            # Scale to target range
             X_dense = X_dense * (max_val - min_val) + min_val
-
-            # Convert back to sparse
             adata.X = scipy.sparse.csr_matrix(X_dense)
     else:
-        # For dense matrices
         if len(genes_to_scale) < adata.n_vars:
-            # Only scale selected genes
             gene_mins = np.zeros(adata.n_vars)
             gene_maxs = np.zeros(adata.n_vars)
-
             for gene_idx in genes_to_scale:
                 gene_vector = X[:, gene_idx]
                 gene_mins[gene_idx] = np.min(gene_vector)
                 gene_maxs[gene_idx] = np.max(gene_vector)
-
-            # Handle case when all values are the same for a gene
             equal_genes = gene_maxs == gene_mins
             gene_range = gene_maxs - gene_mins
-            gene_range[equal_genes] = 1.0  # Avoid division by zero
-
-            # Scale to [0, 1]
+            gene_range[equal_genes] = 1.0
             X_scaled = np.zeros_like(X)
             X_scaled = (X - gene_mins) / gene_range
-
-            # Set constant genes to mid-range
             for gene_idx in np.where(equal_genes)[0]:
                 if gene_idx in genes_to_scale:
                     X_scaled[:, gene_idx] = 0.5
-
-            # Scale to target range
             X_scaled = X_scaled * (max_val - min_val) + min_val
-
-            # Only replace the scaled genes
             X = X_scaled
-
         else:
-            # Scale all genes
             gene_mins = np.min(X, axis=0)
             gene_maxs = np.max(X, axis=0)
-
-            # Handle case when all values are the same for a gene
             equal_genes = gene_maxs == gene_mins
             gene_range = gene_maxs - gene_mins
-            gene_range[equal_genes] = 1.0  # Avoid division by zero
-
-            # Scale to [0, 1]
+            gene_range[equal_genes] = 1.0
             X = (X - gene_mins) / gene_range
-
-            # Set constant genes to mid-range
             for gene_idx in np.where(equal_genes)[0]:
                 X[:, gene_idx] = 0.5
-
-            # Scale to target range
             X = X * (max_val - min_val) + min_val
-
         adata.X = X
 
 
@@ -568,38 +533,27 @@ def plot_scaling_effect(
             gene_vars = np.var(original_data.toarray(), axis=0)
         else:
             gene_vars = np.var(original_data, axis=0)
-
         top_idx = np.argsort(-gene_vars)[:n_genes]
         genes_to_plot = adata.var_names[top_idx].tolist()
 
-    # Create the plot
     fig, axes = plt.subplots(
         len(genes_to_plot), 2, figsize=(12, 3 * len(genes_to_plot))
     )
     fig.suptitle("Effect of Scaling on Gene Expression Distributions", fontsize=16)
-
-    # Ensure axes is 2D even with a single gene
     if len(genes_to_plot) == 1:
         axes = np.array([axes])
 
-    # Plot each gene
     for i, gene in enumerate(genes_to_plot):
         gene_idx = np.where(adata.var_names == gene)[0][0]
-
-        # Get original data for this gene
         if scipy.sparse.issparse(original_data):
             orig_data = original_data[:, gene_idx].toarray().flatten()
         else:
             orig_data = original_data[:, gene_idx].flatten()
-
-        # Get scaled data for this gene
         scaled_data = adata.layers[scaled_layer][:, gene_idx]
         if scipy.sparse.issparse(scaled_data):
             scaled_data = scaled_data.toarray().flatten()
         else:
             scaled_data = scaled_data.flatten()
-
-        # Plot original distribution
         sns.histplot(orig_data, bins=30, kde=True, ax=axes[i, 0])
         axes[i, 0].set_title(f"{gene} - Before Scaling")
         axes[i, 0].text(
@@ -609,8 +563,6 @@ def plot_scaling_effect(
             transform=axes[i, 0].transAxes,
             va="top",
         )
-
-        # Plot scaled distribution
         sns.histplot(scaled_data, bins=30, kde=True, ax=axes[i, 1])
         axes[i, 1].set_title(f"{gene} - After Scaling")
         axes[i, 1].text(

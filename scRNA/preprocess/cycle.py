@@ -264,7 +264,7 @@ def _plot_cell_cycle(
     Returns:
         The matplotlib Figure object.
     """
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), facecolor="white")
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5.5), facecolor="white")
     fig.suptitle(
         f"Cell Cycle Analysis ({species.capitalize()})", fontsize=16, fontweight="bold"
     )
@@ -278,7 +278,6 @@ def _plot_cell_cycle(
         title="Cell Cycle Scores",
         ax=axes[0],
         show=False,
-        palette={"G1": "#1f77b4", "S": "#ff7f0e", "G2M": "#2ca02c"},
     )
 
     # Add decision boundaries as dashed lines
@@ -287,10 +286,11 @@ def _plot_cell_cycle(
 
     # Bar plot of phase distribution
     phase_counts = adata.obs["phase"].value_counts().sort_index()
-    colors = {"G1": "#1f77b4", "S": "#ff7f0e", "G2M": "#2ca02c"}
-    bar_colors = [colors.get(phase, "#999999") for phase in phase_counts.index]
-
-    axes[1].bar(phase_counts.index, phase_counts.values, color=bar_colors)
+    axes[1].bar(
+        phase_counts.index, 
+        phase_counts.values, 
+        color=["#1f77b4", "#ff7f0e", "#2ca02c"]
+        )
 
     # Add counts as text on bars
     for i, (phase, count) in enumerate(phase_counts.items()):

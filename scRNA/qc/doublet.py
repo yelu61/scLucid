@@ -55,49 +55,36 @@ def _identify_doublet_expression_patterns(
             ("log1p_n_genes_by_counts", "upper", None),
         ]
 
-    final_metrics = []
-    for metric in metrics:
-        if len(metric) == 3 and metric[2] is not None:
-            metric_name, direction, threshold = metric
+    final_mask = pd.Series(False, index=adata.obs_names)
 
-            if direction == "upper":
-                adata.obs[f"outlier_{metric_name}"] = adata.obs[metric_name] > threshold
-                log.info(f"Using fixed threshold {threshold} for {metric_name}")
-            elif direction == "lower":
-                adata.obs[f"outlier_{metric_name}"] = adata.obs[metric_name] < threshold
-                log.info(f"Using fixed threshold {threshold} for {metric_name}")
-            else:  # "both"
-                raise ValueError("Fixed threshold not supported for direction 'both'")
+    mad_metrics = []
+    fixed_threshold_metrics = []
+
+    for metric_tuple in metrics:
+        if len(metric_tuple) == 3 and metric_tuple[2] is not None:
+            fixed_threshold_metrics.append(metric_tuple)
         else:
-            if len(metric) == 2:
-                final_metrics.append((metric[0], metric[1], None))
-            else:
-                final_metrics.append(metric)
+            mad_metrics.append(metric_tuple)
 
-    # Pre-calculate log1p versions if needed
-    for base_metric in ["total_counts", "n_genes_by_counts"]:
-        log_metric = f"log1p_{base_metric}"
-        if log_metric not in adata.obs.columns and base_metric in adata.obs.columns:
-            adata.obs[log_metric] = np.log1p(adata.obs[base_metric])
+    for metric_name, direction, threshold in fixed_threshold_metrics:
+        log.info(f"Using fixed threshold {threshold} for {metric_name}")
+        if direction == "upper":
+            final_mask |= adata.obs[metric_name] > threshold
+        elif direction == "lower":
+            final_mask |= adata.obs[metric_name] < threshold
+        else:
+            raise ValueError("Fixed threshold not supported for direction 'both'")
 
-    # Use the unified outlier detection function from utils
-    log.info("Identifying cells with expression patterns characteristic of doublets...")
-    if final_metrics:
-        doublet_candidates_mad = identify_outliers(
-            adata, metrics=final_metrics, sample_key=sample_key, nmads=nmads
+    if mad_metrics:
+        log.info(
+            "Identifying cells with expression patterns characteristic of doublets using MAD..."
         )
-    else:
-        doublet_candidates_mad = pd.Series(False, index=adata.obs_names)
+        mad_mask = identify_outliers(
+            adata, metrics=mad_metrics, sample_key=sample_key, nmads=nmads
+        )
+        final_mask |= mad_mask
 
-    doublet_candidates = doublet_candidates_mad.copy()
-    for metric in metrics:
-        if len(metric) == 3 and metric[2] is not None:
-            metric_name = metric[0]
-            outlier_col = f"outlier_{metric_name}"
-            if outlier_col in adata.obs:
-                doublet_candidates = doublet_candidates | adata.obs[outlier_col]
-
-    return doublet_candidates
+    return final_mask
 
 
 def generate_doublet_rates(
@@ -154,12 +141,8 @@ def is_doublet(
     rate: Union[float, Dict[str, float]] = 0.1,
     n_pcs: int = 30,
     threshold: Optional[float] = None,
-    over_genes_q: float = 0.99,
-    nmads: float = 5.0,
     check_expression_patterns: bool = True,
-    doublet_expression_metrics: Optional[List[Tuple[str, str, Optional[float]]]] = None,
-    top20_genes_threshold: Optional[float] = 80.0,
-    use_fixed_top20_threshold: bool = False,
+    over_genes_q: float = 0.99,
     plot_umap: bool = True,
     save_dir: Optional[str] = None,
     show: bool = True,
@@ -177,14 +160,10 @@ def is_doublet(
               or a dictionary mapping sample IDs to specific rates.
         n_pcs: Number of principal components to use.
         threshold: Scrublet threshold for calling doublets. If None, scrublet auto-detects it.
-        over_genes_q: Quantile threshold for identifying cells with an excessive
-                      number of genes, as a secondary doublet indicator.
-        nmads: Number of median absolute deviations (MADs) for defining outliers.
         check_expression_patterns: Whether to check for expression patterns
                                    characteristic of doublets.
-        doublet_expression_metrics: List of metrics to use for identifying.
-        top20_genes_threshold: Fixed threshold for pct_counts_in_top_20_genes if use_fixed_top20_threshold=True.
-        use_fixed_top20_threshold: Whether to use fixed threshold instead of MAD for pct_counts_in_top_20_genes.
+        over_genes_q: Quantile threshold for identifying cells with an excessive
+              number of genes, as a secondary doublet indicator.
         plot_umap: Whether to plot UMAP embedding with doublet scores.
         save_dir: Directory to save plots. If None, plots are not saved.
         show: Whether to display the plots.
@@ -273,44 +252,23 @@ def is_doublet(
             gc.collect()
 
     if check_expression_patterns:
-        if doublet_expression_metrics is None:
-            # Calculate quantile-based thresholds for high gene count
-            gene_count_threshold = np.quantile(
-                adata.obs["n_genes_by_counts"], over_genes_q
-            )
-            # Calculate MAD-based thresholds for other metrics
-            if use_fixed_top20_threshold:
-                doublet_expression_metrics = [
-                    ("n_genes_by_counts", "upper", gene_count_threshold),
-                    ("pct_counts_in_top_20_genes", "upper", None),
-                    ("log1p_n_genes_by_counts", "upper", None),
-                ]
-                log.info(
-                    f"Using fixed threshold {top20_genes_threshold}% for pct_counts_in_top_20_genes"
-                )
-            else:
-                doublet_expression_metrics = [
-                    ("n_genes_by_counts", "upper", gene_count_threshold),
-                    ("pct_counts_in_top_20_genes", "upper", None),
-                    ("log1p_n_genes_by_counts", "upper", None),
-                ]
-                log.info(
-                    f"Using MAD-based threshold (nmads={nmads}) for pct_counts_in_top_20_genes"
-                )
+        # Calculate quantile-based thresholds for high gene count
+        gene_count_threshold = np.quantile(adata.obs["n_genes_by_counts"], over_genes_q)
+        doublet_expression_metrics = [
+            ("n_genes_by_counts", "upper", gene_count_threshold),
+        ]
+        log.info(
+            f"Using default doublet expression metric: n_genes_by_counts > {over_genes_q} quantile"
+        )
 
-        log.info("Identifying potential doublets based on expression patterns...")
         expression_doublets = _identify_doublet_expression_patterns(
             adata,
             sample_key=sample_key,
             metrics=doublet_expression_metrics,
-            nmads=nmads,
         )
         adata.obs["doublet_expression_pattern"] = expression_doublets
 
     adata.obs["predicted_doublet"] = adata.obs["predicted_doublet_scrublet"]
-
-    if check_expression_patterns:
-        adata.obs["predicted_doublet"] |= adata.obs["doublet_expression_pattern"]
 
     log.info("\n--- Overall Doublet Detection Statistics ---")
     total_cells = adata.n_obs
@@ -318,17 +276,24 @@ def is_doublet(
     log.info(
         f"Scrublet-predicted doublets: {scrublet_count} ({scrublet_count / total_cells:.2%})"
     )
-    custom_count = adata.obs["doublet_expression_pattern"].sum()
-    log.info(
-        f"Custom high-gene doublets (>{over_genes_q:.2f} quantile): {custom_count} ({custom_count / total_cells:.2%})"
-    )
-    combined = (
-        adata.obs["predicted_doublet_scrublet"]
-        | adata.obs["doublet_expression_pattern"]
-    )
-    combined_count = combined.sum()
-    log.info(
-        f"Total unique cells marked as potential doublets: {combined_count} ({combined_count / total_cells:.2%})"
-    )
+    if check_expression_patterns:
+        adata.obs["predicted_doublet"] |= adata.obs["doublet_expression_pattern"]
+        custom_count = adata.obs["doublet_expression_pattern"].sum()
+        log.info(
+            f"Heuristic-predicted doublets: {custom_count} ({custom_count / total_cells:.2%})"
+        )
+        combined = (
+            adata.obs["predicted_doublet_scrublet"]
+            | adata.obs["doublet_expression_pattern"]
+        )
+        combined_count = combined.sum()
+        log.info(
+            f"Total cells marked as potential doublets: {combined_count} ({combined_count / total_cells:.2%})"
+        )
+    else:
+        combined_count = scrublet_count
+        log.info(
+            f"Total cells marked as potential doublets: {combined_count} ({combined_count / total_cells:.2%})"
+        )
 
     return adata

@@ -9,7 +9,7 @@ __version__ = "0.1.0"
 __author__ = "Ye Lu"
 
 # Import main functionality for easy access
-from . import analysis, preprocess, qc, tools, utils
+from . import analysis, preprocess, qc,  utils #tools,
 
 # from . import workflows
 from .config import set_figure_params, settings
@@ -23,6 +23,6 @@ __all__ = [
     "qc",
     "preprocess",
     "analysis",
-    "tools",
+    #"tools",
     "utils",
 ]

@@ -284,20 +284,29 @@ def filter_cells(
     if criteria is None:
         criteria = []
 
-        # Map parameters to potential column names
-        filter_map = {
-            filter_by_outlier_low_genes: "outlier_low_genes",
-            filter_by_outlier_mt: "outlier_mt",
-            filter_by_outlier_hb: "outlier_hb",
-            filter_by_outlier_qc_metrics: "outlier_qc_metrics",
-            filter_by_predicted_doublet_scrublet: "predicted_doublet_scrublet",
-            filter_by_doublet_expression_pattern: "doublet_expression_pattern",
-        }
+        if filter_by_outlier_low_genes and "outlier_low_genes" in adata.obs.columns:
+            criteria.append("outlier_low_genes")
 
-        # Add columns that exist and are enabled
-        for flag, col in filter_map.items():
-            if flag and col in adata.obs.columns:
-                criteria.append(col)
+        if filter_by_outlier_mt and "outlier_mt" in adata.obs.columns:
+            criteria.append("outlier_mt")
+
+        if filter_by_outlier_hb and "outlier_hb" in adata.obs.columns:
+            criteria.append("outlier_hb")
+
+        if filter_by_outlier_qc_metrics and "outlier_qc_metrics" in adata.obs.columns:
+            criteria.append("outlier_qc_metrics")
+
+        if (
+            filter_by_predicted_doublet_scrublet
+            and "predicted_doublet_scrublet" in adata.obs.columns
+        ):
+            criteria.append("predicted_doublet_scrublet")
+
+        if (
+            filter_by_doublet_expression_pattern
+            and "doublet_expression_pattern" in adata.obs.columns
+        ):
+            criteria.append("doublet_expression_pattern")
 
     # Filter out criteria that don't exist in the object
     valid_criteria = [c for c in criteria if c in adata.obs.columns]

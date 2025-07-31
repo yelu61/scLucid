@@ -33,7 +33,6 @@ def _integrate_harmony(
     batch_key: str,
     basis: str = "X_pca",
     embedding_key: str = "X_harmony",
-    n_clusters: Optional[int] = None,
     max_iter_harmony: int = 20,
     theta: float = 2.0,
     lambda_val: float = 1.0,
@@ -56,9 +55,6 @@ def _integrate_harmony(
         The embedding in adata.obsm to use as input for Harmony.
     embedding_key : str, optional (default: "X_harmony")
         Key under which to store the integrated embedding in adata.obsm.
-    n_clusters : int, optional (default: None)
-        Number of clusters for Harmony. If None, defaults to min(100, d * 20),
-        where d is the number of dimensions in the basis.
     max_iter_harmony : int, optional (default: 20)
         Maximum number of iterations for Harmony optimization.
     theta : float, optional (default: 2.0)
@@ -129,12 +125,6 @@ def _integrate_harmony(
             f"Run dimensionality reduction first."
         )
 
-    # Calculate automatic n_clusters
-    if n_clusters is None:
-        n_dims = adata.obsm[basis].shape[1]
-        n_clusters = min(100, n_dims * 20)
-        log.info(f"Automatically setting n_clusters to {n_clusters}")
-
     # Create working copy if needed
     if copy:
         adata = adata.copy()
@@ -149,9 +139,8 @@ def _integrate_harmony(
     # Build full parameter set for harmony_integrate
     full_params = {
         "theta": theta,
-        "lambda_": lambda_val,  # Note: harmony_integrate uses lambda_
+        "lamb": lambda_val, 
         "sigma": sigma,
-        "n_clusters": n_clusters,
         "max_iter_harmony": max_iter_harmony,
         "random_state": random_state,
         "plot_convergence": plot_convergence,
@@ -199,7 +188,6 @@ def _integrate_harmony(
             "theta": theta,
             "lambda": lambda_val,
             "sigma": sigma,
-            "n_clusters": n_clusters,
             "max_iter_harmony": max_iter_harmony,
             "random_state": random_state,
         },
@@ -488,7 +476,7 @@ def _integrate_scvi(
     max_epochs: int = 500,
     embedding_key: str = "X_scVI",
     gene_likelihood: str = "nb",
-    use_gpu: Optional[bool] = None,
+    #use_gpu: Optional[bool] = None,
     save_model: bool = False,
     model_path: Optional[str] = None,
     plan_kwargs: Optional[dict] = None,
@@ -558,21 +546,6 @@ def _integrate_scvi(
     if copy:
         adata = adata.copy()
 
-    # GPU detection
-    if use_gpu is None:
-        use_gpu = True
-        try:
-            import torch
-
-            use_gpu = torch.cuda.is_available()
-            if use_gpu:
-                log.info("GPU detected. Using GPU for scVI.")
-            else:
-                log.info("No GPU detected. Using CPU for scVI.")
-        except:
-            use_gpu = False
-            log.info("Could not detect GPU. Using CPU for scVI.")
-
     # Check if layer exists if specified
     if layer is not None and layer not in adata.layers:
         log.error(f"Layer '{layer}' not found in adata.layers")
@@ -605,7 +578,6 @@ def _integrate_scvi(
         max_epochs=max_epochs,
         early_stopping=True,
         plan_kwargs=plan_kwargs,
-        use_gpu=use_gpu,
         **kwargs,
     )  # pass any additional arguments to train()
 
