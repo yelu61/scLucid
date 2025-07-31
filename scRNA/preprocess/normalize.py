@@ -686,11 +686,11 @@ def regress_out(
         raise ValueError(f"Keys not found in adata.obs: {', '.join(missing_keys)}")
 
     if layer not in adata.layers and layer is not None:
-        raise ValueError(f"Layer '{layer}' not found in adata.layers.")
-
-    log.info(
-        f"Regressing out: {', '.join(keys)} from {'adata.X' if layer is None else f"layer '{layer}'"}"
-    )
+        raise ValueError(f"Layer '{layer}' not found in adata.layers.")# First, determine the name of the data source
+    
+    source_name = f"layer '{layer}'" if layer else "adata.X"
+    
+    log.info(f"Regressing out: {', '.join(keys)} from {source_name}")
     log.info(f"Using {n_jobs if n_jobs else 'all available'} processor cores.")
 
     # Calculate variance explained by each factor before regression
