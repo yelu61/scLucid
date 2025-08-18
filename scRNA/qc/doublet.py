@@ -2,7 +2,7 @@
 Doublet detection for single-cell RNA-seq data.
 
 This module provides functions for identifying potential doublet cells
-using the Scrublet algorithm and custom filtering approaches.
+using algorithmic methods like Scrublet and custom filtering approaches.
 """
 
 import gc
@@ -21,71 +21,47 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "generate_doublet_rates",
-    "is_doublet",
-    "_identify_doublet_expression_patterns",
+    "predict_doublets",
 ]
-
 
 def _identify_doublet_expression_patterns(
     adata: AnnData,
     sample_key: str = "sampleID",
-    metrics: List[Tuple[str, str, Optional[float]]] = None,
+    metrics: Optional[List[Tuple[str, str, Optional[float]]]] = None,
     nmads: float = 5.0,
 ) -> pd.Series:
     """
-    Identify cells with expression patterns characteristic of doublets.
+    Identify cells with expression patterns characteristic of doublets using heuristics.
 
-    This function uses the identify_outliers utility to detect cells with expression
-    patterns that may indicate they are doublets.
+    This function uses the identify_outliers utility to detect cells with outlier
+    expression patterns that may indicate they are doublets (e.g., unusually high
+    gene counts or expression of mutually exclusive markers).
 
     Args:
         adata: AnnData object containing single-cell data.
         sample_key: Key in adata.obs for sample identification.
-        metrics: List of tuples (metric, direction, threshold) for detecting doublet-specific patterns.
-                 If None, default metrics focused on doublet characteristics will be used.
-        nmads: Number of MADs for outlier detection.
+        metrics: List of tuples (metric, direction, threshold) for detecting patterns.
+                 If None, uses default metrics: upper outliers in gene counts and total counts.
+        nmads: Number of MADs for outlier detection when threshold is not fixed.
 
     Returns:
         Boolean pd.Series indicating potential doublets based on expression patterns.
     """
     if metrics is None:
-        # Default metrics focused on doublet detection
+        # Default metrics focus on cells with unusually high complexity, a classic doublet sign.
+        log.info("Using default heuristic metrics for doublet detection: log1p_n_genes_by_counts (upper) and log1p_total_counts (upper).")
         metrics = [
-            ("pct_counts_in_top_20_genes", "upper", None),
             ("log1p_n_genes_by_counts", "upper", None),
+            ("log1p_total_counts", "upper", None),
         ]
 
-    final_mask = pd.Series(False, index=adata.obs_names)
-
-    mad_metrics = []
-    fixed_threshold_metrics = []
-
-    for metric_tuple in metrics:
-        if len(metric_tuple) == 3 and metric_tuple[2] is not None:
-            fixed_threshold_metrics.append(metric_tuple)
-        else:
-            mad_metrics.append(metric_tuple)
-
-    for metric_name, direction, threshold in fixed_threshold_metrics:
-        log.info(f"Using fixed threshold {threshold} for {metric_name}")
-        if direction == "upper":
-            final_mask |= adata.obs[metric_name] > threshold
-        elif direction == "lower":
-            final_mask |= adata.obs[metric_name] < threshold
-        else:
-            raise ValueError("Fixed threshold not supported for direction 'both'")
-
-    if mad_metrics:
-        log.info(
-            "Identifying cells with expression patterns characteristic of doublets using MAD..."
-        )
-        mad_mask = identify_outliers(
-            adata, metrics=mad_metrics, sample_key=sample_key, nmads=nmads
-        )
-        final_mask |= mad_mask
-
-    return final_mask
-
+    log.info("Identifying potential doublets based on heuristic expression patterns...")
+    
+    heuristic_doublets = identify_outliers(
+        adata, metrics=metrics, sample_key=sample_key, nmads=nmads
+    )
+    
+    return heuristic_doublets
 
 def generate_doublet_rates(
     adata: AnnData,
@@ -135,165 +111,119 @@ def generate_doublet_rates(
     return doublet_rates
 
 
-def is_doublet(
+def predict_doublets(
     adata: AnnData,
+    method: str = "scrublet",
     sample_key: str = "sampleID",
     rate: Union[float, Dict[str, float]] = 0.1,
-    n_pcs: int = 30,
-    threshold: Optional[float] = None,
-    check_expression_patterns: bool = True,
-    over_genes_q: float = 0.99,
+    use_heuristics: bool = True,
+    heuristic_metrics: Optional[List[Tuple[str, str, Optional[float]]]] = None,
     plot_umap: bool = True,
     save_dir: Optional[str] = None,
     show: bool = True,
+    **kwargs,
 ) -> AnnData:
     """
     Identify potential doublet cells using multiple complementary methods.
 
-    This function combines algorithmic detection (Scrublet) with expression-based
-    heuristics to comprehensively identify likely doublets.
-
     Args:
-        adata: AnnData object containing single-cell data.
-        sample_key: The key in adata.obs to identify different samples.
-        rate: Expected doublet rate. Can be a single float for all samples,
-              or a dictionary mapping sample IDs to specific rates.
-        n_pcs: Number of principal components to use.
-        threshold: Scrublet threshold for calling doublets. If None, scrublet auto-detects it.
-        check_expression_patterns: Whether to check for expression patterns
-                                   characteristic of doublets.
-        over_genes_q: Quantile threshold for identifying cells with an excessive
-              number of genes, as a secondary doublet indicator.
-        plot_umap: Whether to plot UMAP embedding with doublet scores.
-        save_dir: Directory to save plots. If None, plots are not saved.
-        show: Whether to display the plots.
+        adata: AnnData object.
+        method: Algorithmic method to use. Currently supports 'scrublet'.
+        sample_key: Key in adata.obs to identify different samples.
+        rate: Expected doublet rate. Can be a single float or a dict mapping samples to rates.
+        use_heuristics: Whether to use expression-based heuristics as a complementary filter.
+        heuristic_metrics: Custom metrics for the heuristic filter.
+        plot_umap: For 'scrublet', whether to plot UMAP embedding with doublet scores.
+        save_dir: Directory to save plots.
+        show: Whether to display plots.
+        **kwargs: Additional arguments passed to the specific method (e.g., n_pcs for scrublet).
 
     Returns:
-        AnnData object with doublet scores and predictions added to .obs.
+        AnnData object with doublet scores and predictions in .obs.
     """
-    adata.obs["doublet_score"] = np.nan
-    adata.obs["predicted_doublet_scrublet"] = False
-
-    if check_expression_patterns:
-        adata.obs["doublet_expression_pattern"] = False
+    adata.obs[f"{method}_score"] = np.nan
+    adata.obs[f"{method}_predicted"] = False
 
     samples = adata.obs[sample_key].unique()
-    total_samples = len(samples)
 
-    for i, sample in enumerate(samples):
-        log.info(f"Processing sample {i + 1}/{total_samples}: {sample}")
-        data_view = adata[adata.obs[sample_key] == sample]
+    if method == "scrublet":
+        n_pcs = kwargs.get("n_pcs", 30)
+        for sample in samples:
+            log.info(f"Processing sample '{sample}' with Scrublet...")
+            data_view = adata[adata.obs[sample_key] == sample]
+            
+            if data_view.n_obs < 10:
+                log.warning(f"Skipping {sample}: fewer than 10 cells.")
+                continue
 
-        n_cells, n_features = data_view.shape
-        if n_cells < 10:
-            log.warning(
-                f"Skipping doublet detection for sample {sample}: has fewer than 10 cells ({n_cells})."
-            )
-            continue
+            current_rate = rate.get(sample, 0.1) if isinstance(rate, dict) else rate
+            actual_n_pcs = min(n_pcs, data_view.n_obs - 1, data_view.n_vars - 1)
 
-        if isinstance(rate, dict):
-            current_rate = rate.get(sample, 0.1)
-        else:
-            current_rate = rate
-
-        actual_n_pcs = min(n_pcs, n_cells - 1, n_features - 1)
-
-        try:
-            log.info(
-                f"  Running Scrublet with n_pcs={actual_n_pcs} and expected_doublet_rate={current_rate:.3f}"
-            )
-            scrub = scr.Scrublet(data_view.X, expected_doublet_rate=current_rate)
-            doublet_scores, predicted_doublets = scrub.scrub_doublets(
-                n_prin_comps=actual_n_pcs, verbose=False
-            )
-
-            if threshold is None:
+            try:
+                scrub = scr.Scrublet(data_view.X, expected_doublet_rate=current_rate)
+                scores, predicted = scrub.scrub_doublets(n_prin_comps=actual_n_pcs, verbose=False)
                 final_doublets = scrub.call_doublets(verbose=False)
-                log.info(f"  Auto-detected Scrublet threshold: {scrub.threshold_:.3f}")
-            else:
-                final_doublets = scrub.call_doublets(threshold=threshold, verbose=False)
-                log.info(
-                    f"  User-provided threshold: {threshold:.3f} (Scrublet auto-detected: {scrub.threshold_:.3f})"
-                )
 
-            log.info(f"  Found {sum(final_doublets)} potential doublets via Scrublet.")
+                adata.obs.loc[data_view.obs.index, "scrublet_score"] = scores
+                adata.obs.loc[data_view.obs.index, "scrublet_predicted"] = final_doublets
+                log.info(f"  Found {sum(final_doublets)} potential doublets via Scrublet.")
 
-            adata.obs.loc[data_view.obs.index, "doublet_score"] = doublet_scores
-            adata.obs.loc[data_view.obs.index, "predicted_doublet_scrublet"] = (
-                final_doublets
-            )
-
-            if plot_umap:
-                try:
-                    scrub.set_embedding(
-                        "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
-                    )
-                    fig = scrub.plot_embedding("UMAP", order_points=True)
-
-                    if save_dir:
-                        import os
-
-                        os.makedirs(save_dir, exist_ok=True)
-                        plt.savefig(
-                            os.path.join(save_dir, f"{sample}_doublets_umap.png"),
-                            dpi=300,
+                if plot_umap:
+                    try:
+                        scrub.set_embedding(
+                            "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
                         )
-                    if show:
-                        plt.show()
-                    plt.close()
-                except Exception as e:
-                    print(f"  Warning: Could not generate UMAP for doublets: {e}")
+                        fig = scrub.plot_embedding("UMAP", order_points=True)
 
-        except Exception as e:
-            log.error(f"  Scrublet failed for sample {sample}: {e}")
-            adata.obs.loc[data_view.obs.index, "doublet_score"] = np.nan
-            adata.obs.loc[data_view.obs.index, "predicted_doublet_scrublet"] = False
-        finally:
-            gc.collect()
+                        if save_dir:
+                            import os
 
-    if check_expression_patterns:
-        # Calculate quantile-based thresholds for high gene count
-        gene_count_threshold = np.quantile(adata.obs["n_genes_by_counts"], over_genes_q)
-        doublet_expression_metrics = [
-            ("n_genes_by_counts", "upper", gene_count_threshold),
-        ]
-        log.info(
-            f"Using default doublet expression metric: n_genes_by_counts > {over_genes_q} quantile"
-        )
-
-        expression_doublets = _identify_doublet_expression_patterns(
-            adata,
-            sample_key=sample_key,
-            metrics=doublet_expression_metrics,
-        )
-        adata.obs["doublet_expression_pattern"] = expression_doublets
-
-    adata.obs["predicted_doublet"] = adata.obs["predicted_doublet_scrublet"]
-
-    log.info("\n--- Overall Doublet Detection Statistics ---")
-    total_cells = adata.n_obs
-    scrublet_count = adata.obs["predicted_doublet_scrublet"].sum()
-    log.info(
-        f"Scrublet-predicted doublets: {scrublet_count} ({scrublet_count / total_cells:.2%})"
-    )
-    if check_expression_patterns:
-        adata.obs["predicted_doublet"] |= adata.obs["doublet_expression_pattern"]
-        custom_count = adata.obs["doublet_expression_pattern"].sum()
-        log.info(
-            f"Heuristic-predicted doublets: {custom_count} ({custom_count / total_cells:.2%})"
-        )
-        combined = (
-            adata.obs["predicted_doublet_scrublet"]
-            | adata.obs["doublet_expression_pattern"]
-        )
-        combined_count = combined.sum()
-        log.info(
-            f"Total cells marked as potential doublets: {combined_count} ({combined_count / total_cells:.2%})"
-        )
+                            os.makedirs(save_dir, exist_ok=True)
+                            plt.savefig(
+                                os.path.join(save_dir, f"{sample}_doublets_umap.png"),
+                                dpi=300,
+                            )
+                        if show:
+                            plt.show()
+                        plt.close()
+                    except Exception as e:
+                        print(f"  Warning: Could not generate UMAP for doublets: {e}")
+                    pass
+                
+            except Exception as e:
+                    log.error(f"  Scrublet failed for sample {sample}: {e}")
+            finally:
+                    gc.collect()
+    # NEW: Add elif for other methods here in the future
+    # elif method == "solo":
+    #     ...
+    
     else:
-        combined_count = scrublet_count
-        log.info(
-            f"Total cells marked as potential doublets: {combined_count} ({combined_count / total_cells:.2%})"
+        raise ValueError(f"Method '{method}' is not supported. Choose from ['scrublet'].")
+
+
+    # --- Heuristic-based Doublet Identification ---
+    if use_heuristics:
+        heuristic_doublets = _identify_doublet_expression_patterns(
+            adata, sample_key=sample_key, metrics=heuristic_metrics
         )
+        adata.obs["heuristic_predicted"] = heuristic_doublets
+        log.info(f"Found {heuristic_doublets.sum()} potential doublets via heuristics.")
+    
+    # --- Final Combination ---
+    adata.obs["predicted_doublet"] = adata.obs[f"{method}_predicted"]
+    if use_heuristics:
+        adata.obs["predicted_doublet"] |= adata.obs["heuristic_predicted"]
+
+    log.info("\n--- Overall Doublet Detection Summary ---")
+    total_cells = adata.n_obs
+    algo_count = adata.obs[f"{method}_predicted"].sum()
+    log.info(f"Algorithm ({method}) predicted doublets: {algo_count} ({algo_count/total_cells:.2%})")
+    if use_heuristics:
+        heuristic_count = adata.obs["heuristic_predicted"].sum()
+        log.info(f"Heuristic predicted doublets: {heuristic_count} ({heuristic_count/total_cells:.2%})")
+    
+    final_count = adata.obs["predicted_doublet"].sum()
+    log.info(f"Total cells marked as doublets: {final_count} ({final_count/total_cells:.2%})")
 
     return adata

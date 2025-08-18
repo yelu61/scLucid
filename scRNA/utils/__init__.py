@@ -6,7 +6,7 @@ data input/output, and statistical calculations.
 """
 
 # Import and expose key functions from submodules
-from .utils import identify_outliers, use_layer_as_X
+from .utils import load_10x_data,identify_outliers, use_layer_as_X
 from .plotting import (
     plot_composition,
     plot_embedding,
@@ -17,12 +17,15 @@ from .plotting import (
     plot_multi_modality,
     plot_pseudotime,
     plot_spatial,
-    plot_volcano
+    plot_volcano,
+    plot_ridge,
+    plot_coexpression,
 )
 
 
 # Define what should be accessible when importing from this module
 __all__ = [
+    "load_10x_data",
     "use_layer_as_X",
     "identify_outliers",
     "plot_composition",
@@ -34,5 +37,7 @@ __all__ = [
     "plot_multi_modality",
     "plot_pseudotime",
     "plot_spatial",
-    "plot_volcano"
+    "plot_volcano",
+    "plot_ridge",
+    "plot_coexpression"
 ]

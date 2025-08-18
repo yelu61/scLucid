@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import celltypist
 from anndata import AnnData
 
 from ..utils import use_layer_as_X
@@ -30,6 +31,73 @@ log = logging.getLogger(__name__)
 
 # --- Helper Annotation Functions ---
 
+def run_celltypist(
+    adata: AnnData,
+    model: str = "Immune_All_Low.pkl",
+    majority_voting: bool = True,
+    use_raw: bool = True,
+    key_added: str = "celltypist",
+) -> AnnData:
+    """
+    Run CellTypist for automated cell type annotation.
+
+    This function uses a pre-trained CellTypist model to predict cell types
+    and can perform majority voting to assign a final label to each cluster.
+
+    Args:
+        adata: AnnData object. It's recommended to use raw counts.
+        model: Name of the CellTypist model to use or path to a custom model.
+               Defaults to a broad immune model.
+        majority_voting: If True, performs majority voting to assign a single
+                         annotation per cluster identified by `celltypist_predicted_labels`.
+        use_raw: If True and adata.raw exists, uses raw counts for prediction.
+        key_added: Prefix for the columns added to adata.obs.
+
+    Returns:
+        AnnData object with annotation results in adata.obs.
+        - `adata.obs['{key_added}_predicted_labels']`: Per-cell predictions.
+        - `adata.obs['{key_added}_over_clustering']`: Cluster labels used for majority voting.
+        - `adata.obs['{key_added}_majority_voting']`: Final annotation per cluster.
+        - `adata.uns['{key_added}_results']`: The full prediction result object.
+    """
+    log.info(f"Running CellTypist with model: {model}")
+
+    # Check if raw counts should be used
+    if use_raw and adata.raw is not None:
+        input_adata = adata.raw.to_adata()
+        log.info("Using raw counts (adata.raw) for prediction.")
+    else:
+        input_adata = adata
+        log.info("Using normalized counts (adata.X) for prediction.")
+
+    # Run CellTypist
+    try:
+        predictions = celltypist.annotate(
+            input_adata, model=model, majority_voting=majority_voting
+        )
+    except Exception as e:
+        log.error(f"CellTypist annotation failed: {e}")
+        log.error("Please ensure the model is downloaded/available and 'celltypist' is installed.")
+        raise RuntimeError("CellTypist annotation failed.")
+
+    # Store results in AnnData
+    adata.obs[f"{key_added}_predicted_labels"] = predictions.predicted_labels['predicted_labels'].reindex(adata.obs.index)
+    adata.obs[f"{key_added}_conf_score"] = predictions.predicted_labels['conf_score'].reindex(adata.obs.index)
+    
+    if majority_voting:
+        adata.obs[f"{key_added}_over_clustering"] = predictions.predicted_labels['over_clustering'].reindex(adata.obs.index)
+        adata.obs[f"{key_added}_majority_voting"] = predictions.predicted_labels['majority_voting'].reindex(adata.obs.index)
+
+    # Store the full prediction result object in adata.uns
+    adata.uns[f"{key_added}_results"] = predictions
+    
+    log.info(f"CellTypist annotation complete. Results stored in adata.obs with prefix '{key_added}'.")
+    
+    if majority_voting:
+        log.info("Majority voting results:")
+        log.info("\n" + str(predictions.to_df().head()))
+
+    return adata
 
 def _annotate_by_max_score(
     adata: AnnData,

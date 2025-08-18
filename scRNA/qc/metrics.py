@@ -21,7 +21,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-__all__ = ["calculate_qc_metric", "_plot_top20_genes_distribution"]
+__all__ = [
+    "calculate_qc_metric",
+    "_plot_top20_genes_distribution",
+    "_plot_qc_violin",
+    "_plot_qc_scatter",
+]
 
 
 def calculate_qc_metric(
@@ -105,63 +110,10 @@ def calculate_qc_metric(
             data_view = adata[adata.obs[sample_key] == sample]
 
             if plot_violin:
-                fig, axs = plt.subplots(
-                    1, len(keys), figsize=(15, 4), facecolor="white"
-                )
-                if len(keys) == 1:  # Ensure axs is always iterable
-                    axs = [axs]
-
-                for ax, key in zip(axs, keys):
-                    sc.pl.violin(data_view, key, ax=ax, show=False)
-                    ax.set_title(key.replace("_", " ").title())
-                    ax.set_ylabel(key)
-                    plt.setp(ax.get_xticklabels(), visible=True)
-
-                fig.suptitle(f"QC Metrics for Sample: {sample}", fontsize=16)
-                plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-                if save_dir:
-                    plt.savefig(
-                        os.path.join(save_dir, f"{sample}_qc_violin.png"),
-                        dpi=300,
-                        bbox_inches="tight",
-                    )
-                if show:
-                    plt.show()
-                plt.close(fig)
+                _plot_qc_violin(data_view, keys, sample, save_dir=save_dir, show=show)
 
             if plot_scatter:
-                fig, ax = plt.subplots(figsize=(8, 6), facecolor="white")
-                sc.pl.scatter(
-                    data_view,
-                    x="total_counts",
-                    y="n_genes_by_counts",
-                    color="pct_counts_mt",
-                    ax=ax,
-                    show=False,
-                )
-
-                ax.set_title(f"Sample: {sample} - Basic QC")
-                ax.set_xlabel("Total Counts")
-                ax.set_ylabel("Number of Genes")
-
-                for im in ax.get_images():
-                    if im.get_cmap():
-                        cbar = fig.colorbar(im, ax=ax)
-                        cbar.set_label("% Mitochondrial")
-                        break
-
-                plt.tight_layout()
-
-                if save_dir:
-                    plt.savefig(
-                        os.path.join(save_dir, f"{sample}_qc_scatter.png"),
-                        dpi=300,
-                        bbox_inches="tight",
-                    )
-                if show:
-                    plt.show()
-                plt.close(fig)
+                _plot_qc_scatter(data_view, sample, save_dir=save_dir, show=show)
 
     return adata
 
@@ -334,3 +286,62 @@ def _plot_top20_genes_distribution(
         plt.close(fig3)
 
     return (fig1, fig2, fig3) if show else None
+
+
+def _plot_qc_violin(data, keys, sample, save_dir=None, show=False):
+    fig, axs = plt.subplots(1, len(keys), figsize=(15, 4), facecolor="white")
+    if len(keys) == 1:  # Ensure axs is always iterable
+        axs = [axs]
+
+    for ax, key in zip(axs, keys):
+        sc.pl.violin(data, key, ax=ax, show=False)
+        ax.set_title(key.replace("_", " ").title())
+        ax.set_ylabel(key)
+        plt.setp(ax.get_xticklabels(), visible=True)
+
+    fig.suptitle(f"QC Metrics for Sample: {sample}", fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if save_dir:
+        plt.savefig(
+            os.path.join(save_dir, f"{sample}_qc_violin.png"),
+            dpi=300,
+            bbox_inches="tight",
+        )
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def _plot_qc_scatter(data, sample, save_dir=None, show=False):
+    fig, ax = plt.subplots(figsize=(8, 6), facecolor="white")
+    sc.pl.scatter(
+        data,
+        x="total_counts",
+        y="n_genes_by_counts",
+        color="pct_counts_mt",
+        ax=ax,
+        show=False,
+    )
+
+    ax.set_title(f"Sample: {sample} - Basic QC")
+    ax.set_xlabel("Total Counts")
+    ax.set_ylabel("Number of Genes")
+
+    for im in ax.get_images():
+        if im.get_cmap():
+            cbar = fig.colorbar(im, ax=ax)
+            cbar.set_label("% Mitochondrial")
+            break
+
+    plt.tight_layout()
+
+    if save_dir:
+        plt.savefig(
+            os.path.join(save_dir, f"{sample}_qc_scatter.png"),
+            dpi=300,
+            bbox_inches="tight",
+        )
+    if show:
+        plt.show()
+    plt.close(fig)

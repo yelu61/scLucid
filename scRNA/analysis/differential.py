@@ -1272,3 +1272,126 @@ def visualize_markers(
     except Exception as e:
         log.error(f"Error creating visualization: {str(e)}")
         raise RuntimeError(f"Visualization failed: {str(e)}")
+
+
+def characterize_clusters(
+    adata: AnnData,
+    groupby: str,
+    de_method: str = "wilcoxon",
+    n_de_genes: int = 25,
+    enrich_organism: str = "Human",
+    enrich_gene_sets: List[str] = ["GO_Biological_Process_2023"],
+    key_added: str = "cluster_characterization",
+) -> AnnData:
+    """
+    Run DE and enrichment analysis for each cluster to gather evidence for annotation.
+
+    This function automates the process of finding top marker genes and enriched
+    pathways for each cluster, storing the results in a structured format within
+    adata.uns for easy inspection.
+
+    Args:
+        adata: AnnData object.
+        groupby: Key in adata.obs for grouping cells (e.g., 'leiden').
+        de_method: Method for differential expression.
+        n_de_genes: Number of top DE genes to store and use for enrichment.
+        enrich_organism: Organism for GSEApy ('Human' or 'Mouse').
+        enrich_gene_sets: Gene sets to use for enrichment.
+        key_added: Key in adata.uns to store the results.
+
+    Returns:
+        AnnData object with characterization results in adata.uns[key_added].
+    """
+    log.info(f"Characterizing clusters in '{groupby}'...")
+    
+    # 1. Run Differential Expression
+    sc.tl.rank_genes_groups(adata, groupby=groupby, method=de_method, use_raw=True, n_genes=n_de_genes)
+    
+    clusters = adata.obs[groupby].cat.categories
+    characterization_results = {}
+
+    for cluster in clusters:
+        log.info(f"  - Analyzing cluster: {cluster}")
+        de_df = sc.get.rank_genes_groups_df(adata, group=cluster)
+        top_genes = de_df.head(n_de_genes)['names'].tolist()
+        
+        # 2. Run Enrichment Analysis
+        try:
+            enr = gp.enrichr(
+                gene_list=top_genes,
+                gene_sets=enrich_gene_sets,
+                organism=enrich_organism,
+                outdir=None,
+            )
+            enrich_df = enr.results
+        except Exception as e:
+            log.warning(f"    Enrichment analysis failed for cluster {cluster}: {e}")
+            enrich_df = pd.DataFrame()
+            
+        characterization_results[cluster] = {
+            "top_de_genes": de_df.head(n_de_genes),
+            "enrichment": enrich_df,
+        }
+        
+    adata.uns[key_added] = characterization_results
+    log.info(f"Cluster characterization complete. Results stored in adata.uns['{key_added}']")
+    
+    return adata
+
+
+def create_pseudobulk(
+    adata: AnnData,
+    sample_key: str,
+    cluster_key: str,
+    layer: Optional[str] = None,
+    min_cells: int = 10,
+) -> AnnData:
+    """
+    Create a pseudobulk AnnData object from single-cell data.
+
+    Args:
+        adata: AnnData object.
+        sample_key: Key in adata.obs for sample information.
+        cluster_key: Key in adata.obs for cluster/cell type information.
+        layer: Layer to use for counts (e.g., 'counts'). If None, uses adata.X.
+        min_cells: Minimum number of cells to form a pseudobulk sample.
+
+    Returns:
+        A new AnnData object where each observation is a pseudobulk sample.
+    """
+    if layer:
+        count_matrix = adata.layers[layer]
+    else:
+        count_matrix = adata.X
+
+    groups = adata.obs.groupby([sample_key, cluster_key])
+    
+    pseudobulk_counts = []
+    pseudobulk_obs = []
+
+    for (sample, cluster), idx in groups.indices.items():
+        if len(idx) >= min_cells:
+            # Sum counts for all cells in the group
+            pb_counts = count_matrix[idx, :].sum(axis=0)
+            
+            # Ensure it's a 1D array
+            if not isinstance(pb_counts, np.ndarray):
+                pb_counts = pb_counts.A.flatten()
+            
+            pseudobulk_counts.append(pb_counts)
+            pseudobulk_obs.append({"sample": sample, "cluster": cluster, "n_cells": len(idx)})
+
+    if not pseudobulk_counts:
+        log.warning("No pseudobulk samples were created (check min_cells threshold).")
+        return AnnData()
+        
+    # Create the new AnnData object
+    pb_adata = AnnData(
+        X=np.vstack(pseudobulk_counts),
+        obs=pd.DataFrame(pseudobulk_obs),
+        var=adata.var.copy()
+    )
+    pb_adata.obs.set_index(pb_adata.obs['sample'] + "_" + pb_adata.obs['cluster'], inplace=True)
+    
+    log.info(f"Created pseudobulk AnnData with {pb_adata.n_obs} samples and {pb_adata.n_vars} genes.")
+    return pb_adata

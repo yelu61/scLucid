@@ -18,12 +18,12 @@ from ..utils.utils import identify_outliers
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "is_low_quality_cell",
+    "mark_low_quality_cell",
     "filter_cells",
 ]
 
 
-def is_low_quality_cell(
+def mark_low_quality_cell(
     adata: AnnData,
     sample_key: str = "sampleID",
     min_genes: int = 200,

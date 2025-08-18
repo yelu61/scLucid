@@ -43,7 +43,10 @@ __all__ = [
     "plot_volcano",
     "plot_feature_correlation",
     "plot_multi_modality",
+    "plot_ridge",
+    "plot_coexpression"
 ]
+
 
 def plot_embedding(
     adata: sc.AnnData,
@@ -2476,5 +2479,128 @@ def plot_multi_modality(
     # Show if requested
     if show:
         plt.show()
+
+    return fig
+
+
+def plot_ridge(
+    adata: sc.AnnData,
+    features: List[str],
+    groupby: str,
+    layer: Optional[str] = None,
+    use_raw: bool = False,
+    figsize: Optional[Tuple[float, float]] = None,
+    cmap: str = "viridis",
+) -> plt.Figure:
+    """
+    Create a ridge plot to visualize feature distributions across groups.
+    """
+    log.info(f"Creating ridge plot for {len(features)} features across '{groupby}'")
+
+    # Extract data
+    df_list = []
+    for feature in features:
+        if use_raw and adata.raw is not None:
+            expr = adata.raw[:, feature].X.toarray().flatten()
+        elif layer:
+            expr = adata[:, feature].layers[layer].toarray().flatten()
+        else:
+            expr = adata[:, feature].X.toarray().flatten()
+
+        temp_df = pd.DataFrame(
+            {"expression": expr, "group": adata.obs[groupby].values, "feature": feature}
+        )
+        df_list.append(temp_df)
+
+    plot_df = pd.concat(df_list)
+
+    # Create plot
+    sns.set_theme(style="white", rc={"axes.facecolor": (0, 0, 0, 0)})
+    pal = sns.cubehelix_palette(10, rot=-0.25, light=0.7)
+
+    g = sns.FacetGrid(
+        plot_df, row="group", hue="group", aspect=10, height=0.75, palette=pal
+    )
+    g.map(
+        sns.kdeplot,
+        "expression",
+        bw_adjust=0.5,
+        clip_on=False,
+        fill=True,
+        alpha=1,
+        linewidth=1.5,
+    )
+    g.map(sns.kdeplot, "expression", clip_on=False, color="w", lw=2, bw_adjust=0.5)
+    g.map(plt.axhline, y=0, lw=2, clip_on=False)
+
+    def label(x, color, label):
+        ax = plt.gca()
+        ax.text(
+            0,
+            0.2,
+            label,
+            fontweight="bold",
+            color=color,
+            ha="left",
+            va="center",
+            transform=ax.transAxes,
+        )
+
+    g.map(label, "expression")
+    g.fig.subplots_adjust(hspace=-0.25)
+    g.set_titles("")
+    g.set(yticks=[], ylabel="")
+    g.despine(bottom=True, left=True)
+
+    plt.suptitle(f"Expression distribution across {groupby}", y=0.98)
+
+    return g.fig
+
+
+def plot_coexpression(
+    adata: sc.AnnData,
+    x_gene: str,
+    y_gene: str,
+    color_by: Optional[str] = None,
+    layer: Optional[str] = None,
+    use_raw: bool = False,
+    figsize: Optional[Tuple[float, float]] = (7, 6),
+) -> plt.Figure:
+    """
+    Create a scatter plot to visualize co-expression of two genes.
+    """
+    log.info(f"Plotting co-expression of '{x_gene}' and '{y_gene}'")
+
+    # Extract data
+    if use_raw and adata.raw is not None:
+        data_source = adata.raw
+    else:
+        data_source = adata
+
+    df = sc.get.obs_df(data_source, keys=[x_gene, y_gene], layer=layer)
+
+    if color_by:
+        if color_by in adata.obs.columns:
+            df[color_by] = adata.obs[color_by].values
+        else:
+            df[color_by] = sc.get.obs_df(data_source, keys=[color_by], layer=layer)[
+                color_by
+            ].values
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.scatterplot(
+        data=df,
+        x=x_gene,
+        y=y_gene,
+        hue=color_by,
+        s=10,
+        alpha=0.7,
+        ax=ax,
+        edgecolor=None,
+    )
+
+    ax.set_title(f"Co-expression of {x_gene} and {y_gene}")
+    plt.tight_layout()
 
     return fig
