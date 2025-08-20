@@ -1,0 +1,112 @@
+# =============================================================================
+# Mouse Base Cell Type Markers (v1.0)
+# =============================================================================
+# Last updated: 2025-08-19
+# This file contains marker genes for common mouse cell types, organized
+# hierarchically to support multi-level analysis.
+# The structure is designed to be consistent with the human base marker file.
+# =============================================================================
+
+[metadata]
+version = "1.0"
+species = "mouse"
+description = "Hierarchically organized base markers for common mouse cell types."
+
+# ===============================================
+#          Immune cells
+# ===============================================
+
+[["Immune cells"]]
+name = "Immune"
+color = "#5353cc"
+markers = ["Ptprc"] # CD45, pan-immune
+negative_markers = ["Epcam", "Krt8", "Cdh1"]
+minor = [
+    # --- Level 2: Lymphoid Lineage ---
+    { name = "Lymphoid", color = "#1f77b4", markers = ["Cd3d", "Ms4a1", "Ncr1"], negative_markers = ["Lyz2", "Cd68"], minor = [
+        # Level 3: T cells
+        { name = "T cells", color = "#1ba169", markers = ["Cd3d", "Cd3e", "Cd3g", "Trac"], minor = [
+            { name = "CD4+ T", color = "#2ca02c", markers = ["Cd4", "Il7r", "Ccr7"] },
+            { name = "CD8+ T", color = "#ff7f0e", markers = ["Cd8a", "Cd8b1"] },
+            { name = "Treg", color = "#3b845e", markers = ["Foxp3", "Il2ra", "Ctla4"] },
+            { name = "Exhausted T", color = "#cc5500", markers = ["Pdcd1", "Lag3", "Havcr2", "Tox"] },
+            { name = "Memory T", color = "#ff9900", markers = ["Sell", "Cd44", "Il7r", "Ccr7"] }
+        ]},
+        # Level 3: B cells
+        { name = "B cells", color = "#7ccbc5", markers = ["Cd19", "Ms4a1", "Cd79a", "Cd79b"], minor = [
+            { name = "Plasma", color = "#27a0a8", markers = ["Jchain", "Xbp1", "Sdc1", "Prdm1"] },
+            { name = "Germinal center B", color = "#005160", markers = ["Mki67", "Mef2b", "Cxcr4"] }
+        ]},
+        # Level 3: NK cells
+        { name = "NK cells", color = "#014431", markers = ["Ncr1", "Klrb1c", "Nkg7", "Gzma"] }
+    ]},
+
+    # --- Level 2: Myeloid Lineage ---
+    { name = "Myeloid", color = "#d62728", markers = ["Lyz2", "Cd68", "Itgam", "Csf1r"], minor = [
+        { name = "Monocytes", color = "#1151b4", markers = ["Fcgr3", "Itgam", "Csf1r", "Ly6c2"] },
+        { name = "Macrophages", color = "#e377c2", markers = ["Cd68", "Adgre1", "Cd163", "Csf1r", "Mrc1"] },
+        { name = "Dendritic cells", color = "#8c564b", markers = ["Itgax", "Cd74", "H2-Ab1", "Flt3"] },
+        # Granulocytes
+        { name = "Neutrophils", color = "#a3e3ed", markers = ["S100a8", "S100a9", "Ly6g", "Mpo"] },
+        { name = "Eosinophils", color = "#ff99cc", markers = ["Siglecf", "Ccr3", "Prg2"] },
+        { name = "Basophils", color = "#cc99ff", markers = ["Mcpt8", "Il4", "Cma1"] },
+        { name = "Mast cells",  color = "#1E90FF", markers = ["Kit", "Cpa3", "Tpsb2"] }
+    ]}
+]
+
+# ===============================================
+#          Stromal Cells
+# ===============================================
+
+[["Stromal cells"]]
+name = "Stromal"
+color = "#ffbb78"
+markers = ["Dcn", "Col1a1", "Pecam1", "Pdgfra", "Acta2"]
+minor = [
+    { name = "Endothelial", color = "#fecb51", markers = ["Pecam1", "Cdh5", "Vwf", "Eng"] },
+    { name = "Fibroblasts", color = "#FF8C00", markers = ["Dcn", "Col1a1", "Col3a1", "Pdgfra", "Pdgfrb"] },
+    { name = "Smooth muscle", color = "#FFA07A", markers = ["Acta2", "Myh11", "Tagln", "Cnn1"] },
+    { name = "Pericytes", color = "#b86d29", markers = ["Rgs5", "Pdgfrb", "Kcnj8", "Notch3"] }
+]
+
+# ===============================================
+#          Epithelial Cells
+# ===============================================
+
+[["Epithelial cells"]]
+name = "Epithelial"
+color = "#f19cbb"
+markers = ["Epcam", "Krt8", "Krt18", "Krt19", "Cdh1"]
+negative_markers = ["Ptprc", "Pecam1"]
+
+# ===============================================
+#          Neural Cells
+# ===============================================
+
+[["Neural cells"]]
+name = "Neural"
+color = "#6fa8dc"
+markers = ["Rbfox3", "Gfap", "Plp1", "Cx3cr1"]
+minor = [
+    { name = "Neurons", color = "#3d85c6", markers = ["Rbfox3", "Snap25", "Syt1", "Map2"] },
+    { name = "Astrocytes", color = "#93c47d", markers = ["Gfap", "Aldh1l1", "Aqp4", "S100b"] },
+    { name = "Oligodendrocytes", color = "#45818e", markers = ["Plp1", "Mog", "Mbp", "Cnp"] },
+    { name = "Oligodendrocyte Precursors (OPC)", color = "#6aa84f", markers = ["Pdgfra", "Cspg4"] },
+    { name = "Microglia", color = "#e69138", markers = ["Cx3cr1", "P2ry12", "Tmem119"] },
+    { name = "Neural Stem Cells", color = "#a64d79", markers = ["Sox2", "Nestin", "Prom1"] }
+]
+
+# ===============================================
+#          Other Specialized Cells
+# ===============================================
+
+[["Other Specialized Cells"]]
+name = "Specialized"
+color = "#999999"
+markers = []
+minor = [
+    { name = "Hepatocytes", color = "#b45f06", markers = ["Alb", "Ttr", "Cyp2e1"] },
+    { name = "Cardiomyocytes", color = "#cc0000", markers = ["Tnnt2", "Myh6", "Actc1"] },
+    { name = "Adipocytes", color = "#f1c232", markers = ["Adipoq", "Pparg", "Plin1", "Fabp4"] },
+    { name = "Erythrocytes", color = "#990000", markers = ["Hbb-bt", "Hba-a1", "Alas2"] }
+]
