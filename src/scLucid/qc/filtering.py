@@ -9,165 +9,25 @@ reporting with visualizations.
 
 import logging
 import os
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
+import re
 import pandas as pd
 from anndata import AnnData
 
 from ..utils.utils import identify_outliers
+from .config import FilterConfig, QCThresholds
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "FilterConfig",
-    "QCThresholds",
     "mark_low_quality_cell",
     "filter_cells",
     "suggest_qc_thresholds",
     "generate_qc_report",
 ]
-
-
-@dataclass
-class QCThresholds:
-    """
-    Configuration class for QC thresholds with automatic validation.
-
-    This class encapsulates all quality control thresholds and provides
-    validation to ensure parameters are reasonable and consistent.
-    """
-
-    # Gene count thresholds
-    min_genes: Optional[int] = 200
-    max_genes: Optional[int] = None
-
-    # Total count thresholds
-    min_counts: Optional[int] = None
-    max_counts: Optional[int] = None
-
-    # Percentage thresholds
-    pc_mt: Optional[float] = 20.0
-    pc_hb: Optional[float] = 20.0
-    pc_top20_genes: Optional[float] = None
-
-    # MAD-based outlier detection
-    nmads: float = 5.0
-
-    # Custom threshold validation
-    use_fixed_top20_threshold: bool = False
-
-    def __post_init__(self):
-        """Validate threshold parameters after initialization."""
-        self.validate()
-
-    def validate(self):
-        """
-        Validate threshold parameters for consistency and reasonableness.
-
-        Raises:
-            ValueError: If any threshold values are invalid or inconsistent
-        """
-        # Validate gene count thresholds
-        if self.min_genes is not None and self.min_genes < 0:
-            raise ValueError("min_genes must be non-negative")
-
-        if self.max_genes is not None and self.max_genes < 0:
-            raise ValueError("max_genes must be non-negative")
-
-        if (
-            self.min_genes is not None
-            and self.max_genes is not None
-            and self.min_genes >= self.max_genes
-        ):
-            raise ValueError("min_genes must be less than max_genes")
-
-        # Validate count thresholds
-        if self.min_counts is not None and self.min_counts < 0:
-            raise ValueError("min_counts must be non-negative")
-
-        if self.max_counts is not None and self.max_counts < 0:
-            raise ValueError("max_counts must be non-negative")
-
-        if (
-            self.min_counts is not None
-            and self.max_counts is not None
-            and self.min_counts >= self.max_counts
-        ):
-            raise ValueError("min_counts must be less than max_counts")
-
-        # Validate percentage thresholds
-        for param_name, value in [
-            ("pc_mt", self.pc_mt),
-            ("pc_hb", self.pc_hb),
-            ("pc_top20_genes", self.pc_top20_genes),
-        ]:
-            if value is not None and not (0 <= value <= 100):
-                raise ValueError(f"{param_name} must be between 0 and 100")
-
-        # Validate MAD parameter
-        if self.nmads <= 0:
-            raise ValueError("nmads must be positive")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert thresholds to dictionary format."""
-        return {
-            "min_genes": self.min_genes,
-            "max_genes": self.max_genes,
-            "min_counts": self.min_counts,
-            "max_counts": self.max_counts,
-            "pc_mt": self.pc_mt,
-            "pc_hb": self.pc_hb,
-            "pc_top20_genes": self.pc_top20_genes,
-            "nmads": self.nmads,
-            "use_fixed_top20_threshold": self.use_fixed_top20_threshold,
-        }
-
-
-@dataclass
-class FilterConfig:
-    """
-    Configuration class for cell filtering with flexible logic combinations.
-
-    This class defines how different QC criteria should be combined and
-    which filtering operations to perform.
-    """
-
-    # Basic filtering criteria
-    filter_by_outlier_min_genes: bool = True
-    filter_by_outlier_max_genes: bool = True
-    filter_by_outlier_min_counts: bool = True
-    filter_by_outlier_max_counts: bool = True
-    filter_by_outlier_mt: bool = True
-    filter_by_outlier_hb: bool = True
-    filter_by_outlier_qc_metrics: bool = True
-    filter_by_scrublet_predicted: bool = True
-    filter_by_heuristic_predicted: bool = True
-    filter_by_predicted_doublet: bool = True
-
-    # Logical combination strategy
-    combination_logic: Literal["any", "all", "custom"] = "any"
-    custom_logic_expr: Optional[str] = (
-        None  # e.g., "(outlier_mt & outlier_qc_metrics) | predicted_doublet"
-    )
-
-    # Metadata-based filtering
-    metadata_filters: Optional[Dict[str, Any]] = None
-
-    # Minimum criteria for removal (when combination_logic="threshold")
-    min_criteria_for_removal: int = 1
-
-    def validate(self):
-        """Validate filter configuration."""
-        if self.combination_logic == "custom" and not self.custom_logic_expr:
-            raise ValueError(
-                "custom_logic_expr must be provided when combination_logic='custom'"
-            )
-
-        if self.min_criteria_for_removal < 1:
-            raise ValueError("min_criteria_for_removal must be at least 1")
 
 
 # --- Helper Functions ---
@@ -441,9 +301,8 @@ def _plot_before_after_comparison(
 # --- Main Functions ---
 def suggest_qc_thresholds(
     adata: AnnData,
-    sample_key: str = "sampleID",
     method: Literal["mad", "iqr", "percentile"] = "mad",
-    mad_multiplier: float = 3.0,
+    mad_multipliers: Union[float, List[float]] = [3.0, 4.0, 5.0],
     iqr_multiplier: float = 1.5,
     percentile_range: Tuple[float, float] = (2.5, 97.5),
     plot_distributions: bool = True,
@@ -457,9 +316,8 @@ def suggest_qc_thresholds(
 
     Args:
         adata: AnnData object with calculated QC metrics
-        sample_key: Key for sample identification
         method: Method for threshold suggestion ("mad", "iqr", "percentile")
-        mad_multiplier: Multiplier for MAD-based thresholds
+        mad_multipliers: A single multiplier or a list of multipliers for MAD-based thresholds
         iqr_multiplier: Multiplier for IQR-based thresholds
         percentile_range: Percentile range for threshold suggestion
         plot_distributions: Whether to plot distribution analysis
@@ -467,13 +325,19 @@ def suggest_qc_thresholds(
 
     Returns:
         QCThresholds object with suggested values
-    """
+    """ 
     required_cols = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
     missing_cols = [col for col in required_cols if col not in adata.obs.columns]
     if missing_cols:
         raise ValueError(f"Missing required QC columns: {missing_cols}")
 
     log.info(f"Suggesting QC thresholds using {method} method...")
+
+    if isinstance(mad_multipliers, (int, float)):
+        mad_multipliers = [mad_multipliers]
+
+    # Use the first multiplier for the final returned object
+    primary_mad_multiplier = mad_multipliers[0]
 
     # Initialize suggestions dictionary
     suggestions = {}
@@ -489,19 +353,23 @@ def suggest_qc_thresholds(
     if "pct_counts_hb" in adata.obs.columns:
         metrics["pct_counts_hb"] = "Hemoglobin percentage"
 
-    # Add top20 genes if available
-    if "pct_counts_in_top_20_genes" in adata.obs.columns:
-        metrics["pct_counts_in_top_20_genes"] = "Top 20 genes percentage"
+    # Add top genes if available
+    top_gene_cols = [col for col in adata.obs.columns if re.match(r"pct_counts_in_top_\d+_genes", col)]
+    for col in top_gene_cols:
+        match = re.search(r"pct_counts_in_top_(\d+)_genes", col)
+        if match:
+            n = match.group(1)
+            metrics[col] = f"Top {n} genes percentage"
 
     if plot_distributions:
         n_metrics = len(metrics)
-        fig, axes = plt.subplots(2, (n_metrics + 1) // 2, figsize=(15, 8))
+        fig_rows = (n_metrics + 1) // 2
+        fig, axes = plt.subplots(fig_rows, min(2, n_metrics), figsize=(15, 5 * fig_rows))
+        
+        # Handle different axis array shapes based on number of metrics
         if n_metrics == 1:
-            axes = [axes]
-        elif n_metrics <= 2:
-            axes = axes.flatten()
-        else:
-            axes = axes.flatten()
+            axes = np.array([axes])
+        axes = np.array(axes).flatten()
 
     for i, (metric, title) in enumerate(metrics.items()):
         data = adata.obs[metric].dropna()
@@ -510,21 +378,43 @@ def suggest_qc_thresholds(
             median_val = data.median()
             mad_val = np.median(np.abs(data - median_val))
 
-            if metric in ["n_genes_by_counts", "total_counts"]:
-                # For count data, suggest lower bound only
-                lower_bound = max(0, median_val - mad_multiplier * mad_val)
-                upper_bound = median_val + mad_multiplier * mad_val
-                suggestions[
-                    f"min_{metric.split('_')[0] if 'genes' in metric else 'counts'}"
-                ] = int(lower_bound)
-                if metric == "n_genes_by_counts":
-                    suggestions["max_genes"] = int(upper_bound)
+            ax = axes[i] if plot_distributions and i < len(axes) else None
+            
+            for idx, multiplier in enumerate(mad_multipliers):
+                if metric in ["n_genes_by_counts", "total_counts"]:
+                    # For count data, suggest both lower and upper bounds
+                    lower_bound = max(0, median_val - multiplier * mad_val)
+                    upper_bound = median_val + multiplier * mad_val
+                    
+                    # Only store the suggestion from the primary multiplier
+                    if idx == 0:
+                        metric_type = 'genes' if 'genes' in metric else 'counts'
+                        suggestions[f"min_{metric_type}"] = int(lower_bound)
+                        suggestions[f"max_{metric_type}"] = int(upper_bound)
+                    
+                    # Plot all lines
+                    if plot_distributions and ax is not None:
+                        ax.axvline(lower_bound, color='red', linestyle='--', alpha=0.6, 
+                                  label=f"Min (MAD x{multiplier})")
+                        ax.axvline(upper_bound, color='orange', linestyle='--', alpha=0.6, 
+                                  label=f"Max (MAD x{multiplier})")
                 else:
-                    suggestions["max_counts"] = int(upper_bound)
-            else:
-                # For percentage data, suggest upper bound only
-                upper_bound = median_val + mad_multiplier * mad_val
-                suggestions[f"pc_{metric.split('_')[-1]}"] = min(100, upper_bound)
+                    # For percentage data, suggest upper bound only
+                    upper_bound = median_val + multiplier * mad_val
+                    
+                    if idx == 0:
+                        metric_type = metric.split('_')[-1]
+                        if 'top' in metric:
+                            match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
+                            if match:
+                                n = match.group(1)
+                                suggestions[f"pc_top{n}_genes"] = min(100, upper_bound)
+                        else:
+                            suggestions[f"pc_{metric_type}"] = min(100, upper_bound)
+                    
+                    if plot_distributions and ax is not None:
+                        ax.axvline(upper_bound, color='red', linestyle='--', alpha=0.6, 
+                                  label=f"Max (MAD x{multiplier})")
 
         elif method == "iqr":
             q25, q75 = data.quantile([0.25, 0.75])
@@ -533,69 +423,69 @@ def suggest_qc_thresholds(
             if metric in ["n_genes_by_counts", "total_counts"]:
                 lower_bound = max(0, q25 - iqr_multiplier * iqr)
                 upper_bound = q75 + iqr_multiplier * iqr
-                suggestions[
-                    f"min_{metric.split('_')[0] if 'genes' in metric else 'counts'}"
-                ] = int(lower_bound)
-                if metric == "n_genes_by_counts":
-                    suggestions["max_genes"] = int(upper_bound)
-                else:
-                    suggestions["max_counts"] = int(upper_bound)
+                
+                metric_type = 'genes' if 'genes' in metric else 'counts'
+                suggestions[f"min_{metric_type}"] = int(lower_bound)
+                suggestions[f"max_{metric_type}"] = int(upper_bound)
+                
+                if plot_distributions and i < len(axes):
+                    axes[i].axvline(lower_bound, color='red', linestyle='--', 
+                                   label=f"Min: {int(lower_bound)}")
+                    axes[i].axvline(upper_bound, color='orange', linestyle='--', 
+                                   label=f"Max: {int(upper_bound)}")
             else:
                 upper_bound = q75 + iqr_multiplier * iqr
-                suggestions[f"pc_{metric.split('_')[-1]}"] = min(100, upper_bound)
+                
+                if 'top' in metric:
+                    match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
+                    if match:
+                        n = match.group(1)
+                        suggestions[f"pc_top{n}_genes"] = min(100, upper_bound)
+                else:
+                    metric_type = metric.split('_')[-1]
+                    suggestions[f"pc_{metric_type}"] = min(100, upper_bound)
+                
+                if plot_distributions and i < len(axes):
+                    axes[i].axvline(upper_bound, color='red', linestyle='--', 
+                                   label=f"Max: {upper_bound:.1f}%")
 
         elif method == "percentile":
             if metric in ["n_genes_by_counts", "total_counts"]:
                 lower_bound = data.quantile(percentile_range[0] / 100)
                 upper_bound = data.quantile(percentile_range[1] / 100)
-                suggestions[
-                    f"min_{metric.split('_')[0] if 'genes' in metric else 'counts'}"
-                ] = int(lower_bound)
-                if metric == "n_genes_by_counts":
-                    suggestions["max_genes"] = int(upper_bound)
-                else:
-                    suggestions["max_counts"] = int(upper_bound)
+                
+                metric_type = 'genes' if 'genes' in metric else 'counts'
+                suggestions[f"min_{metric_type}"] = int(lower_bound)
+                suggestions[f"max_{metric_type}"] = int(upper_bound)
+                
+                if plot_distributions and i < len(axes):
+                    axes[i].axvline(lower_bound, color='red', linestyle='--', 
+                                   label=f"Min: {int(lower_bound)}")
+                    axes[i].axvline(upper_bound, color='orange', linestyle='--', 
+                                   label=f"Max: {int(upper_bound)}")
             else:
                 upper_bound = data.quantile(percentile_range[1] / 100)
-                suggestions[f"pc_{metric.split('_')[-1]}"] = min(100, upper_bound)
+                
+                if 'top' in metric:
+                    match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
+                    if match:
+                        n = match.group(1)
+                        suggestions[f"pc_top{n}_genes"] = min(100, upper_bound)
+                else:
+                    metric_type = metric.split('_')[-1]
+                    suggestions[f"pc_{metric_type}"] = min(100, upper_bound)
+                
+                if plot_distributions and i < len(axes):
+                    axes[i].axvline(upper_bound, color='red', linestyle='--', 
+                                   label=f"Max: {upper_bound:.1f}%")
 
-        # Plot distribution with suggested thresholds
+        # Plot distribution
         if plot_distributions and i < len(axes):
             ax = axes[i]
             ax.hist(data, bins=50, alpha=0.7, edgecolor="black")
             ax.set_title(title)
             ax.set_xlabel(metric.replace("_", " ").title())
             ax.set_ylabel("Frequency")
-
-            # Add threshold lines
-            if metric in ["n_genes_by_counts", "total_counts"]:
-                param_name = "min_genes" if "genes" in metric else "min_counts"
-                if param_name in suggestions:
-                    ax.axvline(
-                        suggestions[param_name],
-                        color="red",
-                        linestyle="--",
-                        label=f"Min: {suggestions[param_name]}",
-                    )
-
-                param_name = "max_genes" if "genes" in metric else "max_counts"
-                if param_name in suggestions:
-                    ax.axvline(
-                        suggestions[param_name],
-                        color="orange",
-                        linestyle="--",
-                        label=f"Max: {suggestions[param_name]}",
-                    )
-            else:
-                param_name = f"pc_{metric.split('_')[-1]}"
-                if param_name in suggestions:
-                    ax.axvline(
-                        suggestions[param_name],
-                        color="red",
-                        linestyle="--",
-                        label=f"Max: {suggestions[param_name]:.1f}%",
-                    )
-
             ax.legend()
 
     if plot_distributions:
@@ -615,6 +505,9 @@ def suggest_qc_thresholds(
         plt.show()
 
     # Create QCThresholds object with suggestions
+    # Extract all top gene percentages
+    top_gene_thresholds = {k: v for k, v in suggestions.items() if k.startswith("pc_top")}
+    
     threshold_kwargs = {
         "min_genes": suggestions.get("min_genes"),
         "max_genes": suggestions.get("max_genes"),
@@ -622,7 +515,7 @@ def suggest_qc_thresholds(
         "max_counts": suggestions.get("max_counts"),
         "pc_mt": suggestions.get("pc_mt"),
         "pc_hb": suggestions.get("pc_hb"),
-        "pc_top20_genes": suggestions.get("pc_top20_genes"),
+        **top_gene_thresholds  # Include all top gene thresholds
     }
 
     # Remove None values
@@ -633,7 +526,7 @@ def suggest_qc_thresholds(
     log.info("Suggested QC thresholds:")
     for param, value in suggested_thresholds.to_dict().items():
         if value is not None:
-            log.info(f"  {param}: {value}")
+            log.info(f" {param}: {value}")
 
     return suggested_thresholds
 
@@ -658,8 +551,8 @@ def mark_low_quality_cell(
     nmads: Optional[float] = None,
     pc_mt: Optional[float] = None,
     pc_hb: Optional[float] = None,
-    pc_top20_genes: Optional[float] = None,
-    use_fixed_top20_threshold: Optional[bool] = None,
+    pc_top_genes: Optional[float] = None,
+    use_fixed_top_gene_threshold: Optional[bool] = None,
 ) -> AnnData:
     """
     Enhanced function to identify and mark low-quality cells with robust parameter handling.
@@ -687,8 +580,8 @@ def mark_low_quality_cell(
         nmads: Number of MADs for outlier detection
         pc_mt: Maximum percentage of mitochondrial counts
         pc_hb: Maximum percentage of hemoglobin counts
-        pc_top20_genes: Fixed threshold for pct_counts_in_top_20_genes
-        use_fixed_top20_threshold: Whether to use fixed threshold for top20 genes
+        pc_top_genes: Fixed threshold for pct_counts_in_top_20_genes
+        use_fixed_top_gene_threshold: Whether to use fixed threshold for top20 genes
 
     Returns:
         AnnData object with boolean columns in .obs marking low-quality cells
@@ -714,10 +607,10 @@ def mark_low_quality_cell(
             max_counts=max_counts,
             pc_mt=pc_mt if pc_mt is not None else 20.0,
             pc_hb=pc_hb if pc_hb is not None else 20.0,
-            pc_top20_genes=pc_top20_genes,
+            pc_top20_genes=pc_top_genes,
             nmads=nmads if nmads is not None else 5.0,
-            use_fixed_top20_threshold=use_fixed_top20_threshold
-            if use_fixed_top20_threshold is not None
+            use_fixed_top_gene_threshold=use_fixed_top_gene_threshold
+            if use_fixed_top_gene_threshold is not None
             else False,
         )
 
@@ -852,12 +745,12 @@ def mark_low_quality_cell(
                 log.error(f"Error in custom outlier function {func_name}: {e}")
 
     # === Store parameters in the unified namespace ===
-    if "scrnatk" not in adata.uns:
-        adata.uns["scrnatk"] = {}
-    if "qc" not in adata.uns["scrnatk"]:
-        adata.uns["scrnatk"]["qc"] = {}
+    if "sclucid" not in adata.uns:
+        adata.uns["sclucid"] = {}
+    if "qc" not in adata.uns["sclucid"]:
+        adata.uns["sclucid"]["qc"] = {}
 
-    adata.uns["scrnatk"]["qc"]["marking_params"] = {
+    adata.uns["sclucid"]["qc"]["marking_params"] = {
         "thresholds": thresholds.to_dict(),
         "qc_metrics_for_mad": qc_metrics,
     }
@@ -1141,10 +1034,10 @@ def filter_cells(
     log.info("=" * 40)
 
     # === Store filtering results in the unified namespace ===
-    if "scrnatk" not in adata.uns:
-        adata.uns["scrnatk"] = {}
-    if "qc" not in adata.uns["scrnatk"]:
-        adata.uns["scrnatk"]["qc"] = {}
+    if "sclucid" not in adata.uns:
+        adata.uns["sclucid"] = {}
+    if "qc" not in adata.uns["sclucid"]:
+        adata.uns["sclucid"]["qc"] = {}
 
     # Store stats in a dictionary
     stats = {
@@ -1155,6 +1048,7 @@ def filter_cells(
         "criteria_used": valid_criteria,
         "combination_logic": config.combination_logic,
         "criteria_counts": criteria_counts,
+        "config": config.to_dict() if config else {"criteria": criteria}
     }
 
     # Decide where to save the results. If this is a copy, save to the new object.
@@ -1165,12 +1059,12 @@ def filter_cells(
         adata_filtered = adata[keep_mask, :].copy()
         target_adata = adata_filtered
 
-    if "scrnatk" not in target_adata.uns:
-        target_adata.uns["scrnatk"] = {}
-    if "qc" not in target_adata.uns["scrnatk"]:
-        target_adata.uns["scrnatk"]["qc"] = {}
+    if "sclucid" not in target_adata.uns:
+        target_adata.uns["sclucid"] = {}
+    if "qc" not in target_adata.uns["sclucid"]:
+        target_adata.uns["sclucid"]["qc"] = {}
 
-    target_adata.uns["scrnatk"]["qc"]["filtering_results"] = stats
+    target_adata.uns["sclucid"]["qc"]["filtering_results"] = stats
 
     # Perform filtering
     if copy:
@@ -1214,9 +1108,9 @@ def generate_qc_report(
 
     # QC metrics to analyze
     qc_metrics = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
-    if "scrnatk" in adata.uns and "metrics" in adata.uns["scrnatk"]["qc"]:
+    if "sclucid" in adata.uns and "metrics" in adata.uns["sclucid"]["qc"]:
         # This makes the report automatically adapt to what was calculated
-        params = adata.uns["scrnatk"]["qc"]["metrics"]["params"]
+        params = adata.uns["sclucid"]["qc"]["metrics"]["params"]
         if params.get("extra_gene_sets_provided"):
             # Logic to find the pct_counts_* columns from the params
             pass  # You can add logic here to make it even smarter

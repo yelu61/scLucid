@@ -5,20 +5,11 @@ This module provides comprehensive functions for identifying potential doublet c
 using multiple algorithmic methods and flexible heuristic approaches based on
 mutually exclusive lineage marker co-expression. It integrates with a unified
 marker management system for consistent and reproducible analysis.
-
-Key Features:
-- Scrublet algorithm integration with sample-wise processing
-- Heuristic doublet detection via marker co-expression analysis
-- Flexible marker configuration system with tissue and state specificity
-- Multiple merge strategies for combining algorithmic and heuristic results
-- Comprehensive statistical reporting and visualization
-- Memory-optimized processing for large datasets
 """
 
 import gc
 import logging
 import os
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
@@ -29,116 +20,21 @@ import scanpy as sc
 import scrublet as scr
 from anndata import AnnData
 
-# Import marker manager from utils for unified marker handling
 from ..utils.marker_manager import get_marker_manager
+from .config import DoubletConfig, MarkerConfig
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "MarkerConfig",
-    "DoubletConfig",
     "generate_doublet_rates",
     "predict_doublets",
-    "load_marker_dict",
+    "export_doublet_stats",
     "create_custom_marker_dict",
     "create_doublet_marker_config_from_manager",
-    "export_doublet_stats",
 ]
 
 
-@dataclass
-class MarkerConfig:
-    """
-    Configuration for marker-based doublet detection.
-
-    This class defines how marker genes should be processed and evaluated
-    for lineage-specific expression patterns in doublet detection.
-
-    Attributes:
-        genes: Gene list or regex pattern for marker identification
-        expression_threshold: Minimum expression level to consider gene as "expressed"
-        min_genes_required: Minimum number of genes that must be expressed for lineage positivity
-        use_raw: Whether to use raw expression data (recommended for UMI counts)
-    """
-
-    genes: Union[List[str], str]  # Gene list or regex pattern
-    expression_threshold: float = 0.0
-    min_genes_required: int = 1  # Minimum genes to express for positive lineage
-    use_raw: bool = True
-
-    def __post_init__(self):
-        """Post-initialization validation and setup."""
-        if isinstance(self.genes, str):
-            self.is_regex = True
-        else:
-            self.is_regex = False
-
-        if self.expression_threshold < 0:
-            raise ValueError("Expression threshold must be non-negative")
-        if self.min_genes_required < 1:
-            raise ValueError("Minimum genes required must be at least 1")
-
-
-@dataclass
-class DoubletConfig:
-    """
-    Comprehensive configuration for doublet detection pipeline.
-
-    This class encapsulates all parameters needed for doublet detection,
-    including algorithmic parameters, marker configurations, and output options.
-    """
-
-    # Core algorithm settings
-    method: str = "scrublet"
-    merge_strategy: Literal[
-        "union", "intersection", "algorithm_priority", "heuristic_priority"
-    ] = "union"
-
-    # Scrublet-specific parameters
-    n_pcs: int = 30
-    expected_doublet_rate: Union[float, Dict[str, float]] = 0.1
-
-    # Heuristic detection parameters
-    use_heuristics: bool = True
-    marker_configs: Optional[Dict[str, MarkerConfig]] = None
-    min_lineages_for_doublet: int = 2
-
-    # Marker loading parameters
-    marker_species: str = "human"
-    marker_tissue: Optional[str] = None
-    marker_states: Optional[List[str]] = None
-    marker_level: Literal["major", "minor", "all"] = "major"
-
-    # Output and visualization options
-    plot_umap: bool = True
-    export_stats: bool = True
-    save_dir: Optional[str] = None
-    show_plots: bool = True
-
-    def validate(self):
-        """Validate configuration parameters."""
-        if self.method not in ["scrublet"]:
-            raise ValueError(f"Unsupported method: {self.method}")
-
-        if self.merge_strategy not in [
-            "union",
-            "intersection",
-            "algorithm_priority",
-            "heuristic_priority",
-        ]:
-            raise ValueError(f"Invalid merge strategy: {self.merge_strategy}")
-
-        if self.n_pcs < 1:
-            raise ValueError("Number of PCs must be positive")
-
-        if isinstance(self.expected_doublet_rate, float):
-            if not 0 < self.expected_doublet_rate < 1:
-                raise ValueError("Expected doublet rate must be between 0 and 1")
-
-
 # --- Utility Functions ---
-
-
 def _get_builtin_markers(species: str, marker_type: str) -> Dict[str, MarkerConfig]:
     """
     Fallback built-in marker definitions when marker manager is unavailable.
@@ -457,62 +353,7 @@ def _merge_doublet_predictions(
     return merged
 
 
-# --- Main Functions ---
-
-
-def generate_doublet_rates(
-    adata: AnnData,
-    sample_key: str = "sampleID",
-    rate_per_1000_cells: float = 0.008,
-    max_rate: float = 0.20,
-    min_rate: float = 0.001,
-) -> Dict[str, float]:
-    """
-    Automatically generate expected doublet rates based on cell count per sample.
-
-    This function calculates expected doublet rates using the 10x Genomics guideline:
-    for every 1000 cells, the multiplet rate increases by approximately 0.8% (0.008).
-    This accounts for the fact that higher cell loading increases collision probability.
-
-    Args:
-        adata: AnnData object containing cell count information
-        sample_key: Column name in adata.obs used to distinguish samples
-        rate_per_1000_cells: Expected doublet rate per 1000 cells
-                           - 0.008 for standard 3' v3.1 chemistry
-                           - 0.016 for high-throughput (HT) kits
-        max_rate: Maximum doublet rate cap (prevents unrealistic rates)
-        min_rate: Minimum doublet rate floor (ensures some detection sensitivity)
-
-    Returns:
-        Dictionary mapping sample IDs to calculated doublet rates
-
-    Example:
-        >>> doublet_rates = generate_doublet_rates(adata, sample_key="sampleID")
-        >>> print(doublet_rates)
-        {'sample_A': 0.04, 'sample_B': 0.08}
-    """
-    log.info(
-        "Automatically generating doublet rates based on cell counts per sample..."
-    )
-
-    # Calculate cell counts per sample
-    cell_counts = adata.obs[sample_key].value_counts()
-    doublet_rates = {}
-
-    for sample, n_cells in cell_counts.items():
-        # Apply 10x Genomics linear scaling formula
-        rate = (n_cells / 1000) * rate_per_1000_cells
-
-        # Apply rate constraints to prevent unrealistic values
-        rate = max(min_rate, min(rate, max_rate))
-
-        doublet_rates[sample] = rate
-        log.info(f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}")
-
-    return doublet_rates
-
-
-def load_marker_dict(
+def _load_marker_dict(
     species: str = "human",
     marker_type: str = "major_lineages",
     custom_path: Optional[Union[str, Path]] = None,
@@ -576,6 +417,59 @@ def load_marker_dict(
     except Exception as e:
         log.error(f"Failed to load markers: {e}")
         return _get_builtin_markers(species, marker_type)
+
+
+# --- Main Functions ---
+def generate_doublet_rates(
+    adata: AnnData,
+    sample_key: str = "sampleID",
+    rate_per_1000_cells: float = 0.008,
+    max_rate: float = 0.20,
+    min_rate: float = 0.001,
+) -> Dict[str, float]:
+    """
+    Automatically generate expected doublet rates based on cell count per sample.
+
+    This function calculates expected doublet rates using the 10x Genomics guideline:
+    for every 1000 cells, the multiplet rate increases by approximately 0.8% (0.008).
+    This accounts for the fact that higher cell loading increases collision probability.
+
+    Args:
+        adata: AnnData object containing cell count information
+        sample_key: Column name in adata.obs used to distinguish samples
+        rate_per_1000_cells: Expected doublet rate per 1000 cells
+                           - 0.008 for standard 3' v3.1 chemistry
+                           - 0.016 for high-throughput (HT) kits
+        max_rate: Maximum doublet rate cap (prevents unrealistic rates)
+        min_rate: Minimum doublet rate floor (ensures some detection sensitivity)
+
+    Returns:
+        Dictionary mapping sample IDs to calculated doublet rates
+
+    Example:
+        >>> doublet_rates = generate_doublet_rates(adata, sample_key="sampleID")
+        >>> print(doublet_rates)
+        {'sample_A': 0.04, 'sample_B': 0.08}
+    """
+    log.info(
+        "Automatically generating doublet rates based on cell counts per sample..."
+    )
+
+    # Calculate cell counts per sample
+    cell_counts = adata.obs[sample_key].value_counts()
+    doublet_rates = {}
+
+    for sample, n_cells in cell_counts.items():
+        # Apply 10x Genomics linear scaling formula
+        rate = (n_cells / 1000) * rate_per_1000_cells
+
+        # Apply rate constraints to prevent unrealistic values
+        rate = max(min_rate, min(rate, max_rate))
+
+        doublet_rates[sample] = rate
+        log.info(f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}")
+
+    return doublet_rates
 
 
 def create_doublet_marker_config_from_manager(
@@ -1032,7 +926,7 @@ def predict_doublets(
                     )
                 else:
                     # Fallback to simple marker loading
-                    config.marker_configs = load_marker_dict(
+                    config.marker_configs = _load_marker_dict(
                         species=config.marker_species, marker_type="major_lineages"
                     )
                     log.info(f"Loaded basic markers for {config.marker_species}")
@@ -1065,11 +959,11 @@ def predict_doublets(
         strategy=config.merge_strategy,
     )
 
-    if "scrnatk" not in adata.uns:
-        adata.uns["scrnatk"] = {}
-    if "qc" not in adata.uns["scrnatk"]:
-        adata.uns["scrnatk"]["qc"] = {}
-    adata.uns["scrnatk"]["qc"]["doublet_params"] = config.__dict__
+    if "sclucid" not in adata.uns:
+        adata.uns["sclucid"] = {}
+    if "qc" not in adata.uns["sclucid"]:
+        adata.uns["sclucid"]["qc"] = {}
+    adata.uns["sclucid"]["qc"]["doublet_params"] = config.__dict__
 
     # === 5. SUMMARY STATISTICS ===
     log.info("\n" + "=" * 50)

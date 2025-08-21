@@ -21,7 +21,7 @@ from anndata import AnnData
 log = logging.getLogger(__name__)
 
 # Export public functions
-__all__ = ["score_cell_cycle", "get_cell_cycle_genes"]
+__all__ = ["score_cell_cycle"]
 
 
 # --- Helper Functions ---
@@ -45,7 +45,7 @@ def _load_cell_cycle_genes() -> Dict[str, Dict[str, List[str]]]:
     """
     try:
         gene_path = pkg_resources.resource_filename(
-            "scRNA", "resources/cell_cycle_genes.json"
+            "scLucid", "resources/cell_cycle_genes.json"
         )
         log.debug(f"Loading cell cycle genes from: {gene_path}")
 
@@ -303,46 +303,6 @@ def _plot_cell_cycle(
 
 
 # --- Main Functions ---
-def get_cell_cycle_genes(
-    species: Literal["human", "mouse", "rat"] = "human",
-) -> Dict[str, List[str]]:
-    """
-    Returns the list of cell cycle marker genes for a specific species.
-
-    This function provides access to the built-in cell cycle gene lists
-    that are used for cell cycle scoring.
-
-    Args:
-        species: The species for which to return cell cycle genes.
-                 One of "human", "mouse", or "rat".
-
-    Returns:
-        Dictionary with keys "s_genes" and "g2m_genes", each containing
-        a list of gene symbols.
-
-    Raises:
-        ValueError: If the requested species is not available.
-
-    Examples:
-        >>> genes = get_cell_cycle_genes("mouse")
-        >>> print(f"S-phase genes: {len(genes['s_genes'])}")
-        >>> print(f"G2M-phase genes: {len(genes['g2m_genes'])}")
-    """
-    if not SPECIES_GENES:
-        raise RuntimeError("Could not load cell cycle gene lists. Cannot proceed.")
-
-    if species not in SPECIES_GENES:
-        available = ", ".join(SPECIES_GENES.keys())
-        raise ValueError(
-            f"Unknown species: '{species}'. Valid options are: {available}"
-        )
-
-    return {
-        "s_genes": SPECIES_GENES[species]["s_genes"],
-        "g2m_genes": SPECIES_GENES[species]["g2m_genes"],
-    }
-
-
 def score_cell_cycle(
     adata: AnnData,
     species: Literal["human", "mouse", "rat"] = "human",
@@ -495,10 +455,17 @@ def score_cell_cycle(
     adata.obs["cc_diff"] = adata.obs["S_score"] - adata.obs["G2M_score"]
 
     # Store metadata
-    adata.uns["cell_cycle"] = {
+    adata.uns.setdefault('sclucid', {}).setdefault('qc', {})
+    adata.uns['sclucid']['qc']['cell_cycle'] = {
         "species_used": current_species,
-        "s_genes_used": s_genes_found,
-        "g2m_genes_used": g2m_genes_found,
+        "s_genes_used_count": len(s_genes_found),
+        "g2m_genes_used_count": len(g2m_genes_found),
+        "params": {
+            "species_requested": species,
+            "custom_s_genes_provided": s_genes is not None,
+            "custom_g2m_genes_provided": g2m_genes is not None,
+            "layer": layer
+        },
         "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 

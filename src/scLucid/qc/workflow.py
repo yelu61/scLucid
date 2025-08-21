@@ -1,18 +1,24 @@
-# scRNA/qc/workflow.py
-
 import os
+
 from anndata import AnnData
-import scanpy as sc
-from .metrics import calculate_qc_metric
-from .filtering import mark_low_quality_cell, filter_cells, generate_qc_report, QCThresholds, FilterConfig, suggest_qc_thresholds
-from .doublet import predict_doublets, DoubletConfig
+
 from ..utils.marker_manager import get_marker_manager
+from .config import DoubletConfig, FilterConfig, QCThresholds
+from .doublet import predict_doublets
+from .filtering import (
+    filter_cells,
+    generate_qc_report,
+    mark_low_quality_cell,
+    suggest_qc_thresholds,
+)
+from .metrics import calculate_qc_metric
+
 
 def run_standard_qc(
     adata_in: AnnData,
     sample_key: str = "sampleID",
     results_dir: str = "./qc_results",
-    species: str = "human"
+    species: str = "human",
 ) -> AnnData:
     """
     Run a standard single-cell RNA-seq QC workflow with sensible defaults.
@@ -25,13 +31,13 @@ def run_standard_qc(
         sample_key=sample_key,
         save_dir=os.path.join(results_dir, "metrics"),
         calculate_cell_cycle=True,
-        cell_cycle_species=species
+        cell_cycle_species=species,
     )
     adata = predict_doublets(
         adata,
         sample_key=sample_key,
         marker_species=species,
-        save_dir=os.path.join(results_dir, "doublet")
+        save_dir=os.path.join(results_dir, "doublet"),
     )
     adata = mark_low_quality_cell(
         adata,
@@ -39,24 +45,25 @@ def run_standard_qc(
         min_genes=200,
         pc_mt=20.0,
         nmads=5.0,
-        save_dir=os.path.join(results_dir, "low_quality")
+        save_dir=os.path.join(results_dir, "low_quality"),
     )
     adata_filtered = filter_cells(adata, copy=True)
     generate_qc_report(
         adata_filtered,
         save_dir=os.path.join(results_dir, "report"),
         sample_key=sample_key,
-        adata_before=adata
+        adata_before=adata,
     )
     adata_filtered.uns.setdefault("qc", {})["workflow"] = "standard"
     return adata_filtered
+
 
 def run_advanced_qc(
     adata_in: AnnData,
     sample_key: str = "sampleID",
     results_dir: str = "./qc_results",
     species: str = "human",
-    tissue: str = "Lung"
+    tissue: str = "Lung",
 ) -> AnnData:
     """
     Run an advanced single-cell RNA-seq QC workflow with custom settings.
@@ -66,7 +73,7 @@ def run_advanced_qc(
     adata = adata_in.copy()
     custom_sets = {
         "stress": ["HSPA1A", "HSPB1", "FOS", "JUN"],
-        "hypoxia": r"^(HIF|EGLN|ADM)"
+        "hypoxia": r"^(HIF|EGLN|ADM)",
     }
     adata = calculate_qc_metric(
         adata,
@@ -74,7 +81,7 @@ def run_advanced_qc(
         extra_gene_sets=custom_sets,
         save_dir=os.path.join(results_dir, "metrics"),
         calculate_cell_cycle=True,
-        cell_cycle_species=species
+        cell_cycle_species=species,
     )
     marker_mgr = get_marker_manager(species=species, tissue=tissue)
     marker_mgr.intersect_with(adata)
@@ -84,37 +91,28 @@ def run_advanced_qc(
         use_heuristics=True,
         marker_configs=marker_mgr.get_markers_by_level("major"),
         min_lineages_for_doublet=2,
-        save_dir=os.path.join(results_dir, "doublet")
+        save_dir=os.path.join(results_dir, "doublet"),
     )
-    adata = predict_doublets(
-        adata,
-        config=doublet_cfg,
-        sample_key=sample_key
-    )
+    adata = predict_doublets(adata, config=doublet_cfg, sample_key=sample_key)
     suggested_thresholds = suggest_qc_thresholds(adata, method="mad")
-    qc_thresholds = QCThresholds(
-        min_genes=300,
-        max_genes=7000,
-        pc_mt=15.0,
-        nmads=4.0
-    )
+    qc_thresholds = QCThresholds(min_genes=300, max_genes=7000, pc_mt=15.0, nmads=4.0)
     adata = mark_low_quality_cell(
         adata,
         sample_key=sample_key,
         thresholds=qc_thresholds,
         plot_outliers=True,
-        save_dir=os.path.join(results_dir, "low_quality")
+        save_dir=os.path.join(results_dir, "low_quality"),
     )
     filter_cfg = FilterConfig(
         combination_logic="custom",
-        custom_logic_expr="predicted_doublet | outlier_mt | outlier_min_genes"
+        custom_logic_expr="predicted_doublet | outlier_mt | outlier_min_genes",
     )
     adata_filtered = filter_cells(adata, config=filter_cfg, copy=True)
     generate_qc_report(
         adata_filtered,
         save_dir=os.path.join(results_dir, "report"),
         sample_key=sample_key,
-        adata_before=adata
+        adata_before=adata,
     )
     adata_filtered.uns.setdefault("qc", {})["workflow"] = "advanced"
     return adata_filtered

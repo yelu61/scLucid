@@ -1,28 +1,55 @@
 """
-scRNA: A comprehensive toolkit for single-cell RNA sequencing data analysis.
-
-This package provides a modular framework for analyzing single-cell RNA-seq data,
-including quality control, preprocessing, analysis, specialized tools, and workflows.
+scLucid: A comprehensive and flexible system for single-cell genomics analysis.
 """
 
 __version__ = "0.1.0"
-__author__ = "Ye Lu"
+__author__ = "Ye LU"
 
-# Import main functionality for easy access
-from . import analysis, preprocess, qc,  utils #tools,
+# --- Core Modules ---
+# Import the full modules for explicit access
+from . import qc
+#from . import preprocess
+#from . import analysis
+#from . import tools
+from . import utils
+#from . import datasets
 
-# from . import workflows
-from .config import set_figure_params, settings
+# --- Import with convenient aliases for interactive use ---
+#from . import preprocess as pp
+#from . import analysis as an
+#from . import tools as tl
+from . import utils as ut
 
-# Define what should be accessible when using `from scRNA import *`
+# --- Configuration and Settings ---
+from .settings import setup_logging, set_figure_params
+
+# --- High-Level Workflows ---
+# Expose the main workflow functions at the top level for easy access
+from .qc.workflow import run_standard_qc, run_advanced_qc
+#from .preprocess.workflow import run_preprocessing
+
+# Define the public API using __all__
 __all__ = [
-    # Configuration settings
-    "settings",
-    "set_figure_params",
-    # Modules
+    # Convenient Aliases
+    #"pp",
+    #"an",
+    #"tl",
+    "ut",
+    
+    # Full Modules
     "qc",
-    "preprocess",
-    "analysis",
+    #"preprocess",
+    #"analysis",
     #"tools",
     "utils",
+    #"datasets",
+    
+    # Configuration
+    "setup_logging",
+    "set_figure_params",
+    
+    # High-Level Workflows
+    "run_standard_qc",
+    "run_advanced_qc",
+    #"run_preprocessing",
 ]
