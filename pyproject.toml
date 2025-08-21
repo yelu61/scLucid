@@ -1,0 +1,104 @@
+# ===================================================================
+# === pyproject.toml for scLucid: The Complete Configuration ===
+# ===================================================================
+
+[build-system]
+requires = ["setuptools>=64.0"]
+build-backend = "setuptools.build_meta"
+
+# ===================================================================
+# === Project Metadata ===
+# ===================================================================
+[project]
+name = "scLucid"
+version = "0.1.0"
+authors = [
+    { name = "Ye Lu", email = "foliageyelu@gmail.com" }, 
+]
+description = "An integrated, flexible, and exploratory analysis system for single-cell genomics."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+keywords = ["single-cell", "bioinformatics", "scrna-seq", "transcriptomics", "spatial"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+# ===================================================================
+# === Core Dependencies ===
+# These are essential for the toolkit to function at a basic level.
+# They cover data structures, core analysis, and plotting.
+# ===================================================================
+dependencies = [
+    "scanpy>=1.9.0",
+    "anndata",
+    "pandas",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "rich",          # For pretty printing, used by marker_manager
+    "tomli",         # For reading .toml marker files
+    "adjustText",    # For non-overlapping plot labels
+    "openpyxl",      # For writing .xlsx reports
+]
+
+# ===================================================================
+# === Optional Dependencies (Extras) ===
+# These are for specialized modules. Users can install them as needed.
+# e.g., pip install .[analysis, tools]
+# ===================================================================
+[project.optional-dependencies]
+# Dependencies for the standard `analysis` module
+analysis = [
+    "scrublet",      # For doublet detection in qc/doublet.py
+    "celltypist",    # For run_celltypist in analysis/annotation.py
+    "gseapy",        # For run_enrichment in analysis/differential.py
+    "cosg",          # For the 'cosg' method in analysis/differential.py
+    "hdbscan",       # For HDBSCAN clustering in analysis/cluster.py
+    "networkx",      # For merge_clusters in analysis/cluster.py
+]
+
+# Dependencies for the advanced `tools` module
+tools = [
+    "infercnvpy",    # For CNV analysis
+    "scvelo",        # For RNA velocity analysis
+    "rpy2",          # The bridge for all R-based tools
+    "sccoda",        # For compositional analysis
+    "pyscenic",      # For SCENIC workflow (GRN inference)
+    "loompy",        # Required for SCENIC data format
+    "cellphonedb",   # For CellPhoneDB analysis
+    "harmonypy",     # For Harmony integration
+    "scanorama",     # For Scanorama integration
+    "scvi-tools",    # For scVI integration
+    "bbknn",         # For BBKNN integration
+    "combat",        # For ComBat batch correction
+    "triku",         # For Triku HVG selection
+    "squidpy",       # For spatial analysis functions
+]
+
+# A convenience group to install everything
+all = [
+    "scLucid[analysis]",
+    "scLucid[tools]",
+]
+
+# Dependencies for developers (e.g., for running tests)
+dev = [
+    "pytest",
+    "pre-commit",
+    "black",
+]
+
+# ===================================================================
+# === Project URLs ===
+# ===================================================================
+[project.urls]
+Homepage = "https://github.com/yelu61/scLucid"
+Repository = "https://github.com/yelu61/scLucid"
+"Bug Tracker" = "https://github.com/yelu61/scLucid/issues"
