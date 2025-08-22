@@ -8,8 +8,8 @@ marker management system for consistent and reproducible analysis.
 """
 
 import gc
+import json
 import logging
-import os
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
@@ -25,6 +25,10 @@ from .config import DoubletConfig, MarkerConfig
 
 log = logging.getLogger(__name__)
 
+# --- Use constants for column names for easier maintenance ---
+HEURISTIC_PRED_COL = "heuristic_predicted"
+FINAL_PRED_COL = "predicted_doublet"
+
 __all__ = [
     "generate_doublet_rates",
     "predict_doublets",
@@ -34,7 +38,7 @@ __all__ = [
 ]
 
 
-# --- Utility Functions ---
+# --- Helper Functions ---
 def _get_builtin_markers(species: str, marker_type: str) -> Dict[str, MarkerConfig]:
     """
     Fallback built-in marker definitions when marker manager is unavailable.
@@ -128,7 +132,6 @@ def _load_custom_marker_dict(filepath: Union[str, Path]) -> Dict[str, MarkerConf
         FileNotFoundError: If the file doesn't exist
         ValueError: If the file format is unsupported
     """
-    import json
 
     filepath = Path(filepath)
     if not filepath.exists():
@@ -293,7 +296,10 @@ def _identify_coexpression_doublets(
 
 
 def _merge_doublet_predictions(
-    adata: AnnData, algorithm_col: str, heuristic_col: str, strategy: str = "union"
+    adata: AnnData,
+    algorithm_col: str,
+    heuristic_col: str = HEURISTIC_PRED_COL,
+    strategy: str = "union",
 ) -> pd.Series:
     """
     Merge algorithmic and heuristic doublet predictions using different strategies.
@@ -417,6 +423,55 @@ def _load_marker_dict(
     except Exception as e:
         log.error(f"Failed to load markers: {e}")
         return _get_builtin_markers(species, marker_type)
+
+
+def _run_scrublet(
+    adata_view: AnnData,
+    sample_name: str,
+    config: DoubletConfig,
+) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Runs the Scrublet algorithm on a single AnnData view."""
+    rate = config.expected_doublet_rate
+    current_rate = rate.get(sample_name, 0.1) if isinstance(rate, dict) else rate
+    actual_n_pcs = min(config.n_pcs, adata_view.n_obs - 1, adata_view.n_vars - 1)
+
+    try:
+        scrub = scr.Scrublet(adata_view.X, expected_doublet_rate=current_rate)
+        scores, _ = scrub.scrub_doublets(n_prin_comps=actual_n_pcs, verbose=False)
+        predicted = scrub.call_doublets(verbose=False)
+
+        doublet_count = sum(predicted)
+        doublet_rate = doublet_count / len(predicted)
+        log.info(
+            f"  Found {doublet_count} potential doublets via Scrublet ({doublet_rate:.2%})"
+        )
+
+        if config.plot_umap:
+            try:
+                scrub.set_embedding(
+                    "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
+                )
+                fig = scrub.plot_embedding("UMAP", order_points=True)
+                if config.save_dir:
+                    save_path = (
+                        Path(config.save_dir) / f"{sample_name}_doublets_umap.png"
+                    )
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    fig.savefig(save_path, dpi=300, bbox_inches="tight")
+                if config.show_plots:
+                    plt.show()
+                else:
+                    plt.close(fig)
+            except Exception as e:
+                log.warning(f"Could not generate UMAP for sample {sample_name}: {e}")
+
+        return scores, predicted
+
+    except Exception as e:
+        log.error(f"Scrublet failed for sample {sample_name}: {e}")
+        return None, None
+    finally:
+        gc.collect()
 
 
 # --- Main Functions ---
@@ -599,7 +654,7 @@ def create_custom_marker_dict(
 def export_doublet_stats(
     adata: AnnData,
     sample_key: str = "sampleID",
-    save_dir: Optional[str] = None,
+    save_dir: Optional[Union[str, Path]] = None,
     export_csv: bool = True,
     export_xlsx: bool = False,
 ) -> Dict[str, pd.DataFrame]:
@@ -693,11 +748,12 @@ def export_doublet_stats(
 
     # Export files if directory specified
     if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
 
         if export_csv:
-            sample_file = os.path.join(save_dir, "doublet_stats_per_sample.csv")
-            global_file = os.path.join(save_dir, "doublet_stats_global.csv")
+            sample_file = Path(save_dir) / "doublet_stats_per_sample.csv"
+            global_file = Path(save_dir) / "doublet_stats_global.csv"
 
             sample_df.to_csv(sample_file, index=False)
             global_df.to_csv(global_file, index=False)
@@ -705,7 +761,7 @@ def export_doublet_stats(
             log.info(f"Exported CSV files to {save_dir}")
 
         if export_xlsx:
-            excel_file = os.path.join(save_dir, "doublet_stats.xlsx")
+            excel_file = Path(save_dir) / "doublet_stats.xlsx"
             with pd.ExcelWriter(excel_file) as writer:
                 sample_df.to_excel(writer, sheet_name="per_sample", index=False)
                 global_df.to_excel(writer, sheet_name="global", index=False)
@@ -718,10 +774,7 @@ def export_doublet_stats(
 def predict_doublets(
     adata: AnnData,
     config: Optional[DoubletConfig] = None,
-    # --- Simplified parameters for basic usage ---
     sample_key: str = "sampleID",
-    use_heuristics: bool = True,
-    marker_species: str = "human",
     # --- Allow overriding config with specific params ---
     **kwargs,
 ) -> AnnData:
@@ -763,48 +816,29 @@ def predict_doublets(
         adata = predict_doublets(adata, config=config)
     """
     # === 1. CONFIGURATION SETUP ===
-    if config is None:
-        log.info("No DoubletConfig provided, creating one from function parameters.")
-        # Extract common parameters from kwargs
-        config_params = {
-            "use_heuristics": use_heuristics,
-            "marker_species": marker_species,
-        }
+    # Start with a default config
+    base_config = DoubletConfig()
 
-        # Map common kwargs to config parameters
-        param_mapping = {
-            "method": "method",
-            "merge_strategy": "merge_strategy",
-            "n_pcs": "n_pcs",
-            "rate": "expected_doublet_rate",
-            "expected_doublet_rate": "expected_doublet_rate",
-            "marker_tissue": "marker_tissue",
-            "marker_states": "marker_states",
-            "marker_level": "marker_level",
-            "min_lineages_for_doublet": "min_lineages_for_doublet",
-            "plot_umap": "plot_umap",
-            "export_stats": "export_stats",
-            "save_dir": "save_dir",
-            "show_plots": "show_plots",
-        }
+    # If a config object is provided, update the base with its values
+    if config is not None:
+        log.info("Updating defaults with provided DoubletConfig object.")
+        base_config.__dict__.update(config.__dict__)
 
-        for kwarg_name, config_attr in param_mapping.items():
-            if kwarg_name in kwargs:
-                config_params[config_attr] = kwargs.pop(kwarg_name)
+    # Override with any specific kwargs provided
+    if kwargs:
+        log.info(f"Overriding config with kwargs: {list(kwargs.keys())}")
+        for key, value in kwargs.items():
+            if hasattr(base_config, key):
+                setattr(base_config, key, value)
+            else:
+                log.warning(f"Unknown parameter '{key}' ignored.")
 
-        config = DoubletConfig(**config_params)
-    else:
-        log.info("Using provided DoubletConfig object.")
-        # Allow kwargs to override config parameters
-        if kwargs:
-            log.info(f"Overriding config with kwargs: {list(kwargs.keys())}")
-            for kwarg_name, value in kwargs.items():
-                if hasattr(config, kwarg_name):
-                    setattr(config, kwarg_name, value)
-                else:
-                    log.warning(f"Unknown parameter '{kwarg_name}' ignored")
-
-    config.validate()
+    # The final, effective config
+    cfg = base_config
+    try:
+        cfg.validate()  # Assuming this method exists in your DoubletConfig
+    except AttributeError:
+        log.warning("DoubletConfig has no validate() method. Skipping validation.")
 
     # Validate input data
     if sample_key not in adata.obs.columns:
@@ -818,129 +852,86 @@ def predict_doublets(
         f"Starting doublet prediction for {adata.n_obs} cells across {len(samples)} samples"
     )
     log.info(
-        f"Configuration: method={config.method}, merge_strategy={config.merge_strategy}, "
-        f"use_heuristics={config.use_heuristics}"
+        f"Configuration: method={cfg.method}, merge_strategy={cfg.merge_strategy}, "  # --- FIX: Use cfg consistently
+        f"use_heuristics={cfg.use_heuristics}"
     )
 
     # Initialize result columns
-    adata.obs[f"{config.method}_score"] = np.nan
-    adata.obs[f"{config.method}_predicted"] = False
+    algo_score_col = f"{cfg.method}_score"
+    algo_pred_col = f"{cfg.method}_predicted"
+    adata.obs[algo_score_col] = np.nan
+    adata.obs[algo_pred_col] = False
+    adata.obs[HEURISTIC_PRED_COL] = False
 
-    # === 2. ALGORITHMIC DETECTION ===
-    log.info(f"Running {config.method} doublet detection...")
-
-    if config.method == "scrublet":
-        n_pcs = getattr(config, "n_pcs", 30)
-        rate = config.expected_doublet_rate
-
-        for sample in samples:
-            log.info(f"Processing sample '{sample}' with Scrublet...")
-            sample_mask = adata.obs[sample_key] == sample
-            data_view = adata[sample_mask]
-
-            if data_view.n_obs < 10:
-                log.warning(f"Skipping {sample}: fewer than 10 cells.")
-                continue
-
-            # Get sample-specific doublet rate
-            current_rate = rate.get(sample, 0.1) if isinstance(rate, dict) else rate
-            actual_n_pcs = min(n_pcs, data_view.n_obs - 1, data_view.n_vars - 1)
-
-            try:
-                # Initialize and run Scrublet
-                scrub = scr.Scrublet(data_view.X, expected_doublet_rate=current_rate)
-                scores, predicted = scrub.scrub_doublets(
-                    n_prin_comps=actual_n_pcs, verbose=False
-                )
-                final_doublets = scrub.call_doublets(verbose=False)
-
-                # Store results
-                adata.obs.loc[sample_mask, "scrublet_score"] = scores
-                adata.obs.loc[sample_mask, "scrublet_predicted"] = final_doublets
-
-                doublet_count = sum(final_doublets)
-                doublet_rate = doublet_count / len(final_doublets)
-                log.info(
-                    f"  Found {doublet_count} potential doublets via Scrublet ({doublet_rate:.2%})"
-                )
-
-                # Generate UMAP visualization if requested
-                if config.plot_umap:
-                    try:
-                        scrub.set_embedding(
-                            "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
-                        )
-                        fig = scrub.plot_embedding("UMAP", order_points=True)
-
-                        if config.save_dir:
-                            os.makedirs(config.save_dir, exist_ok=True)
-                            plot_file = os.path.join(
-                                config.save_dir, f"{sample}_doublets_umap.png"
-                            )
-                            fig.savefig(plot_file, dpi=300, bbox_inches="tight")
-
-                        if config.show_plots:
-                            plt.show()
-                        else:
-                            plt.close(fig)
-
-                    except Exception as e:
-                        log.warning(f"Could not generate UMAP for sample {sample}: {e}")
-
-            except Exception as e:
-                log.error(f"Scrublet failed for sample {sample}: {e}")
-            finally:
-                # Clean up memory
-                if "scrub" in locals():
-                    del scrub
-                gc.collect()
-
-    else:
+    # Use a dispatcher for multi-algorithm support ---
+    ALGORITHM_DISPATCHER = {
+        "scrublet": _run_scrublet
+        # "doubletfinder": _run_doubletfinder # Future-ready
+    }
+    if cfg.method not in ALGORITHM_DISPATCHER:
         raise ValueError(
-            f"Method '{config.method}' is not supported. Available: ['scrublet']"
+            f"Method '{cfg.method}' is not supported. Available: {list(ALGORITHM_DISPATCHER.keys())}"
         )
 
-    # === 3. HEURISTIC DETECTION ===
-    if config.use_heuristics:
+    # === 2. ALGORITHMIC DETECTION (Per-Sample) ===
+    log.info(f"Running {cfg.method} doublet detection...")
+
+    for sample in samples:
+        log.info(f"Processing sample '{sample}' with {cfg.method}...")
+        sample_mask = adata.obs[sample_key] == sample
+        data_view = adata[sample_mask]
+
+        if data_view.n_obs < 10:
+            log.warning(f"Skipping {sample}: fewer than 10 cells.")
+            continue
+
+        scores, predicted = ALGORITHM_DISPATCHER[cfg.method](data_view, sample, cfg)
+
+        if scores is not None and predicted is not None:
+            adata.obs.loc[sample_mask, algo_score_col] = scores
+            adata.obs.loc[sample_mask, algo_pred_col] = predicted
+
+    # === 3. HEURISTIC DETECTION (Global) ===
+    if cfg.use_heuristics:
         log.info("Starting heuristic-based doublet detection...")
 
         # Load marker configurations if not provided
-        if config.marker_configs is None:
+        if cfg.marker_configs is None:
             log.info("Loading marker configurations...")
             try:
-                if config.marker_tissue or config.marker_states:
+                if cfg.marker_tissue or cfg.marker_states:
                     # Use comprehensive marker manager for enhanced detection
-                    config.marker_configs = create_doublet_marker_config_from_manager(
-                        species=config.marker_species,
-                        tissue=config.marker_tissue,
-                        states=config.marker_states,
-                        level=config.marker_level,
+                    cfg.marker_configs = create_doublet_marker_config_from_manager(
+                        species=cfg.marker_species,
+                        tissue=cfg.marker_tissue,
+                        states=cfg.marker_states,
+                        level=cfg.marker_level,
                         expression_threshold=0.5,
                         min_genes_required=1,
                         use_raw=True,
                         min_markers_per_type=1,
                     )
                     log.info(
-                        f"Loaded enhanced markers for {config.marker_species} "
-                        f"(tissue: {config.marker_tissue}, states: {config.marker_states})"
+                        f"Loaded enhanced markers for {cfg.marker_species} "
+                        f"(tissue: {cfg.marker_tissue}, states: {cfg.marker_states})"
                     )
                 else:
                     # Fallback to simple marker loading
-                    config.marker_configs = _load_marker_dict(
-                        species=config.marker_species, marker_type="major_lineages"
+                    cfg.marker_configs = _load_marker_dict(
+                        species=cfg.marker_species, marker_type="major_lineages"
                     )
-                    log.info(f"Loaded basic markers for {config.marker_species}")
+                    log.info(f"Loaded basic markers for {cfg.marker_species}")
 
             except Exception as e:
                 log.error(f"Failed to load markers: {e}")
-                config.marker_configs = {}
+                cfg.marker_configs = {}
 
         # Run heuristic detection if markers are available
-        if config.marker_configs:
+        if cfg.marker_configs:
             adata.obs["heuristic_predicted"] = _identify_coexpression_doublets(
                 adata,
-                marker_configs=config.marker_configs,
-                min_lineages_for_doublet=config.min_lineages_for_doublet,
+                marker_configs=cfg.marker_configs,
+                min_lineages_for_doublet=cfg.min_lineages_for_doublet,
             )
         else:
             log.warning(
@@ -952,18 +943,17 @@ def predict_doublets(
 
     # === 4. MERGE RESULTS ===
     log.info("Merging algorithmic and heuristic predictions...")
-    adata.obs["predicted_doublet"] = _merge_doublet_predictions(
+    adata.obs[FINAL_PRED_COL] = _merge_doublet_predictions(
         adata,
-        algorithm_col=f"{config.method}_predicted",
-        heuristic_col="heuristic_predicted",
-        strategy=config.merge_strategy,
+        algorithm_col=algo_pred_col,
+        heuristic_col=HEURISTIC_PRED_COL,
+        strategy=cfg.merge_strategy,
     )
 
-    if "sclucid" not in adata.uns:
-        adata.uns["sclucid"] = {}
-    if "qc" not in adata.uns["sclucid"]:
-        adata.uns["sclucid"]["qc"] = {}
-    adata.uns["sclucid"]["qc"]["doublet_params"] = config.__dict__
+    # STORE PARAMS
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["doublet_params"] = (
+        cfg.__dict__
+    )
 
     # === 5. SUMMARY STATISTICS ===
     log.info("\n" + "=" * 50)
@@ -973,26 +963,24 @@ def predict_doublets(
     total_cells = adata.n_obs
 
     # Algorithm results
-    algo_count = adata.obs[f"{config.method}_predicted"].sum()
+    algo_count = adata.obs[algo_pred_col].sum()
     log.info(
-        f"Algorithm ({config.method}): {algo_count} doublets ({algo_count / total_cells:.2%})"
+        f"Algorithm ({cfg.method}): {algo_count} doublets ({algo_count / total_cells:.2%})"
     )
 
     # Heuristic results
-    if config.use_heuristics:
-        heur_count = adata.obs["heuristic_predicted"].sum()
+    if cfg.use_heuristics:
+        heur_count = adata.obs[HEURISTIC_PRED_COL].sum()
         log.info(f"Heuristic: {heur_count} doublets ({heur_count / total_cells:.2%})")
 
         # Overlap analysis
-        overlap_count = (
-            adata.obs[f"{config.method}_predicted"] & adata.obs["heuristic_predicted"]
-        ).sum()
+        overlap_count = (adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL]).sum()
         log.info(
             f"Overlap: {overlap_count} doublets ({overlap_count / total_cells:.2%})"
         )
 
     # Final merged results
-    final_count = adata.obs["predicted_doublet"].sum()
+    final_count = adata.obs[FINAL_PRED_COL].sum()
     log.info(f"Final merged: {final_count} doublets ({final_count / total_cells:.2%})")
 
     # Per-sample breakdown
@@ -1000,7 +988,7 @@ def predict_doublets(
     for sample in samples:
         sample_mask = adata.obs[sample_key] == sample
         sample_total = sample_mask.sum()
-        sample_doublets = adata.obs["predicted_doublet"][sample_mask].sum()
+        sample_doublets = adata.obs[FINAL_PRED_COL][sample_mask].sum()
         sample_rate = sample_doublets / sample_total
         log.info(
             f"  {sample}: {sample_doublets}/{sample_total} doublets ({sample_rate:.2%})"
@@ -1009,15 +997,9 @@ def predict_doublets(
     log.info("=" * 50)
 
     # === 6. EXPORT STATISTICS ===
-    if config.export_stats and config.save_dir:
-        log.info("Exporting doublet statistics...")
-        export_doublet_stats(
-            adata,
-            sample_key=sample_key,
-            save_dir=config.save_dir,
-            export_csv=True,
-            export_xlsx=True,
-        )
+    if cfg.export_stats and cfg.save_dir:
+        export_doublet_stats(adata, sample_key, save_dir=cfg.save_dir)
 
     log.info("Doublet prediction workflow completed successfully.")
+
     return adata

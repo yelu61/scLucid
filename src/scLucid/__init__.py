@@ -16,7 +16,7 @@ from . import utils
 
 # --- Import with convenient aliases for interactive use ---
 #from . import preprocess as pp
-#from . import analysis as an
+#from . import analysis as al
 #from . import tools as tl
 from . import utils as ut
 

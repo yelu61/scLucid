@@ -3,7 +3,8 @@ Quality control metrics calculation for single-cell RNA-seq data.
 """
 
 import logging
-import os
+import re
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
@@ -22,7 +23,7 @@ __all__ = ["calculate_qc_metric"]
 def _export_qc_stats(
     adata: AnnData,
     sample_key: str,
-    percent_top_col: str,
+    percent_top_cols: List[str],
     outdir: Optional[str] = None,
     export_csv: bool = True,
     export_xlsx: bool = False,
@@ -34,7 +35,7 @@ def _export_qc_stats(
     Args:
         adata: AnnData object with calculated QC metrics.
         sample_key: obs key used for grouping samples.
-        percent_top_col: obs key for percent of top genes.
+        percent_top_cols: obs keys for percent of top genes.
         outdir: Directory for saving summary tables.
         export_csv: Whether to save CSV files.
         export_xlsx: Whether to save XLSX file.
@@ -49,19 +50,23 @@ def _export_qc_stats(
         "pct_counts_mt",
         "pct_counts_ribo",
         "pct_counts_hb",
-        percent_top_col,
     ]
-    metrics = [m for m in metrics if m in adata.obs.columns]
+    metrics.extend(percent_top_cols)
+
+    if not metrics:
+        log.warning("No QC metrics found to export.")
+        return {}
+
     sample_stats = adata.obs.groupby(sample_key)[metrics].describe()
     global_stats = adata.obs[metrics].describe().T
 
     if outdir:
-        os.makedirs(outdir, exist_ok=True)
+        Path(outdir).mkdir(parents=True, exist_ok=True)
         if export_csv:
-            sample_stats.to_csv(os.path.join(outdir, "qc_stats_per_sample.csv"))
-            global_stats.to_csv(os.path.join(outdir, "qc_stats_global.csv"))
+            sample_stats.to_csv(Path(outdir) / "qc_stats_per_sample.csv")
+            global_stats.to_csv(Path(outdir) / "qc_stats_global.csv")
         if export_xlsx:
-            with pd.ExcelWriter(os.path.join(outdir, "qc_stats.xlsx")) as writer:
+            with pd.ExcelWriter(Path(outdir) / "qc_stats.xlsx") as writer:
                 sample_stats.to_excel(writer, sheet_name="per_sample")
                 global_stats.to_excel(writer, sheet_name="global")
 
@@ -75,10 +80,10 @@ def _export_qc_stats(
 
 
 def _detect_qc_outliers(
-    adata: AnnData, 
-    sample_key: str, 
-    percent_top_col: str,
-    outdir: Optional[str] = None
+    adata: AnnData,
+    sample_key: str,
+    percent_top_cols: List[str],
+    outdir: Optional[str] = None,
 ):
     """
     Detect and log potential outlier samples/metrics.
@@ -86,7 +91,7 @@ def _detect_qc_outliers(
     Args:
         adata: AnnData object with QC metrics.
         sample_key: obs key for grouping.
-        percent_top_col: obs key for percent of top genes.
+        percent_top_cols: obs keys for percent of top genes.
         outdir: Directory to save tips/warnings.
 
     Returns:
@@ -101,31 +106,38 @@ def _detect_qc_outliers(
         for s, v in mt_stats.items():
             if v > 15:
                 warn(
-                    f"[QC Alert] Sample {s} mean mitochondrial content: {v:.1f}% (high). Recommended ≤15%."
+                    f"[QC Alert] Sample {s} has a high mean mitochondrial content: {v:.1f}%. Recommended is typically ≤ 15%."
                 )
-                tips.append(f"{s} mt mean {v:.1f}% > 15%")
+                tips.append(f"{s} mt_mean={v:.1f}%")
 
-    # Top X genes percentage warning
-    if percent_top_col in adata.obs.columns:
-        top_gene_stats = adata.obs.groupby(sample_key)[percent_top_col].mean()
-        for s, v in top_gene_stats.items():
-            if v > 60:
-                warn(
-                    f"[QC Alert] Sample {s} mean Top{main_top_n} gene fraction: {v:.1f}%. Possible bias or low quality."
-                )
-                tips.append(f"{s} top{main_top_n} mean {v:.1f}% > 60%")
-    
+    # --- Loop through all top gene columns for outlier detection
+    for col in percent_top_cols:
+        if col in adata.obs.columns:
+            m = re.search(r"pct_counts_in_top_(\d+)_genes", col)
+            top_n = int(m.group(1)) if m else "N"
+
+            top_gene_stats = adata.obs.groupby(sample_key)[col].mean()
+            for s, v in top_gene_stats.items():
+                # --- More nuanced warning instead of a fixed threshold
+                if v > 60:
+                    warn(
+                        f"[QC Alert] Sample {s} has a high mean Top-{top_n} gene fraction: {v:.1f}%. "
+                        "This could indicate low-complexity libraries or technical artifacts."
+                    )
+                    tips.append(f"{s} top{top_n}_mean={v:.1f}%")
+
     # Detected gene number warning
     if "n_genes_by_counts" in adata.obs.columns:
         gene_stats = adata.obs.groupby(sample_key)["n_genes_by_counts"].median()
         for s, v in gene_stats.items():
             if v < 1000:
-                warn(f"[QC Alert] Sample {s} median genes detected: {v} (low).")
-                tips.append(f"{s} median n_genes {v}<1000")
+                warn(
+                    f"[QC Alert] Sample {s} has a low median of genes detected: {int(v)}. Possible low quality."
+                )
+                tips.append(f"{s} median_n_genes={int(v)}")
 
-    # Save all tips to a text file, if requested
-    if outdir:
-        with open(os.path.join(outdir, "qc_outlier_tips.txt"), "w") as f:
+    if outdir and tips:
+        with open(Path(outdir) / "qc_outlier_tips.txt", "w") as f:
             f.write("\n".join(tips))
     return tips
 
@@ -134,7 +146,7 @@ def _sample_for_plotting(
     adata: AnnData,
     max_cells: int = 50000,
     sample_key: str = "sampleID",
-    random_state: int = 42,
+    random_state: int = 61,
 ) -> AnnData:
     """
     Sample cells for plotting when dataset is too large.
@@ -204,7 +216,7 @@ def _plot_top_genes_distribution(
     save_dir: Optional[str] = None,
     show: bool = True,
     max_cells_for_plotting: int = 50000,
-    random_state: int = 42,
+    random_state: int = 61,
 ) -> Optional[Tuple[plt.Figure, plt.Figure, plt.Figure]]:
     """
     Plot detailed distribution of pct_counts_in_top_X_genes to help determine appropriate thresholds.
@@ -226,16 +238,16 @@ def _plot_top_genes_distribution(
     """
     if percent_top_col not in adata.obs.columns:
         log.warning(
-            f"{percent_top_col} not found in adata.obs. "
-            "Please run calculate_qc_metric first."
+            f"{percent_top_col} not found in adata.obs. Skipping its distribution plot."
         )
-        return None
+        return
 
-    import re
     m = re.search(r"pct_counts_in_top_(\d+)_genes", percent_top_col)
-    main_top_n = int(m.group(1)) if m else 20
-    
-    log.info(f"Analyzing distribution of {percent_top_col}...")
+    main_top_n = int(m.group(1)) if m else "N"
+
+    log.info(
+        f"Plotting detailed distribution for 'pct_counts_in_top_{main_top_n}_genes'..."
+    )
 
     adata_plot = _sample_for_plotting(
         adata,
@@ -322,7 +334,7 @@ def _plot_top_genes_distribution(
 
     if save_dir:
         plt.savefig(
-            os.path.join(save_dir, f"pct_top_{main_top_n}_genes_distribution.png"),
+            Path(save_dir) / f"pct_top_{main_top_n}_genes_distribution.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -355,7 +367,7 @@ def _plot_top_genes_distribution(
 
     if save_dir:
         plt.savefig(
-            os.path.join(save_dir, f"pct_top_{main_top_n}_genes_boxplot.png"),
+            Path(save_dir) / f"pct_top_{main_top_n}_genes_boxplot.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -400,7 +412,7 @@ def _plot_top_genes_distribution(
 
     if save_dir:
         plt.savefig(
-            os.path.join(save_dir, f"pct_top_{main_top_n}_genes_scatter.png"),
+            Path(save_dir) / f"pct_top_{main_top_n}_genes_scatter.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -413,6 +425,10 @@ def _plot_top_genes_distribution(
         plt.close(fig1)
         plt.close(fig2)
         plt.close(fig3)
+
+    # Make sure to close figures if not showing
+    if not show:
+        plt.close("all")
 
     return (fig1, fig2, fig3) if show else None
 
@@ -466,7 +482,7 @@ def _plot_qc_violin(
 
     if save_dir:
         plt.savefig(
-            os.path.join(save_dir, f"{sample}_qc_violin.png"),
+            Path(save_dir) / f"{sample}_qc_violin.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -531,7 +547,7 @@ def _plot_qc_scatter(
 
     if save_dir:
         plt.savefig(
-            os.path.join(save_dir, f"{sample}_qc_scatter.png"),
+            Path(save_dir) / f"{sample}_qc_scatter.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -599,8 +615,8 @@ def calculate_qc_metric(
     save_dir: Optional[str] = None,
     show: bool = True,
     max_cells_for_plotting: int = 50000,
-    random_state: int = 42,
-    percent_top: Optional[List[int]] = None,
+    random_state: int = 61,
+    percent_top: Optional[Union[int, List[int]]] = None,
     export_stats: bool = True,
     export_xlsx: bool = False,
     print_stats: bool = True,
@@ -702,15 +718,17 @@ def calculate_qc_metric(
 
     # --- Dynamically determine the primary top-gene column name ---
     if percent_top is None:
-        percent_top = [20]
+        percent_top_list = [20]
     elif isinstance(percent_top, int):
-        percent_top = [percent_top]
-    elif isinstance(percent_top, float):
-        percent_top = [int(percent_top)]
-    main_top_n = percent_top[0]
-    percent_top_col = f"pct_counts_in_top_{main_top_n}_genes"
-    log.info(f"Primary top-gene metric for analysis will be: '{percent_top_col}'")
-    
+        percent_top_list = [percent_top]
+    else:
+        percent_top_list = sorted(list(set(percent_top)))  # Ensure unique and sorted
+
+    percent_top_cols = [f"pct_counts_in_top_{n}_genes" for n in percent_top_list]
+    log.info(
+        f"Will calculate and analyze top gene percentages for: Top {percent_top_list}"
+    )
+
     # --- Calculate QC metrics with scanpy ---
     qc_vars = [
         col
@@ -730,7 +748,7 @@ def calculate_qc_metric(
             adata,
             qc_vars=qc_vars,
             inplace=True,
-            percent_top=percent_top,
+            percent_top=percent_top_list,
             log1p=True,
         )
     else:
@@ -738,24 +756,19 @@ def calculate_qc_metric(
         sc.pp.calculate_qc_metrics(
             adata,
             inplace=True,
-            percent_top=percent_top,
+            percent_top=percent_top_list,
             log1p=True,
         )
 
     log.info("QC metrics calculation complete.")
 
     # --- Centralized .uns storage ---
-    # Before writing any results, ensure the structured namespace exists.
-    adata.uns.setdefault("sclucid", {})
-    adata.uns["sclucid"].setdefault("qc", {})
-    adata.uns["sclucid"]["qc"].setdefault("metrics", {})
-
-    # Store parameters in the new location
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("metrics", {})
     adata.uns["sclucid"]["qc"]["metrics"]["params"] = {
         "sample_key": sample_key,
         "include_standard_qc": include_standard_qc,
         "extra_gene_sets_provided": bool(extra_gene_sets),
-        # ... store any other relevant parameters
+        "percent_top_calculated": percent_top_list,
     }
 
     # --- Optional: Cell cycle scoring ---
@@ -777,13 +790,14 @@ def calculate_qc_metric(
             **cell_cycle_kwargs,
         )
         log.info("Cell cycle scores and phase added to .obs.")
+        pass
 
     # --- Export parameters and QC statistics ---
     if export_stats and save_dir:
         _export_qc_stats(
             adata,
             sample_key=sample_key,
-            percent_top_col=percent_top_col,
+            percent_top_col=percent_top_cols,
             outdir=save_dir,
             export_csv=True,
             export_xlsx=export_xlsx,
@@ -792,41 +806,40 @@ def calculate_qc_metric(
 
     # --- Detect and log outlier warnings ---
     _detect_qc_outliers(
-        adata, 
-        sample_key=sample_key, 
-        percent_top_col=percent_top_col,
-        outdir=save_dir if save_dir else None
+        adata,
+        sample_key=sample_key,
+        percent_top_col=percent_top_cols,
+        outdir=save_dir if save_dir else None,
     )
 
     # --- Plotting ---
     if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
 
-    if plot_top_genes and percent_top_col in adata.obs.columns:
-        _plot_top_genes_distribution(
-            adata,
-            sample_key=sample_key,
-            percent_top_col=percent_top_col,
-            save_dir=save_dir,
-            show=show,
-            max_cells_for_plotting=max_cells_for_plotting,
-            random_state=random_state,
-        )
+    if plot_top_genes:
+        for col_name in percent_top_cols:
+            _plot_top_genes_distribution(
+                adata,
+                sample_key=sample_key,
+                percent_top_col=col_name,  # Plot each column
+                save_dir=save_dir,
+                show=show,
+                max_cells_for_plotting=max_cells_for_plotting,
+                random_state=random_state,
+            )
 
     if plot_violin or plot_scatter:
         # Determine which metrics to plot
         keys_to_plot = ["total_counts", "n_genes_by_counts"]
-
-        # Add available QC metrics
-        potential_metrics = ["pct_counts_mt", "pct_counts_ribo", "pct_counts_hb"]
-        if extra_gene_sets:
-            potential_metrics.extend(
-                [f"pct_counts_{name}" for name in extra_gene_sets.keys()]
-            )
-
+        # Gather all potential pct_counts_* columns that exist in adata.obs
+        potential_metrics = [
+            c for c in adata.obs.columns if c.startswith("pct_counts_")
+        ]
         keys_to_plot.extend(
             [metric for metric in potential_metrics if metric in adata.obs.columns]
         )
+        # We don't want to plot all 50 top gene %s, so we exclude them here.
+        keys_to_plot = [k for k in keys_to_plot if "in_top" not in k]
 
         # Limit to reasonable number for plotting
         if len(keys_to_plot) > 6:
@@ -862,5 +875,6 @@ def calculate_qc_metric(
                     max_cells_for_plotting=max_cells_for_plotting
                     // len(adata.obs[sample_key].unique()),
                 )
+            pass
 
     return adata

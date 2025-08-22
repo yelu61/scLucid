@@ -8,12 +8,12 @@ gene symbols and includes automatic species detection capabilities.
 
 import json
 import logging
-import os
+from importlib import resources
+from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
-import pkg_resources
 import scanpy as sc
 from anndata import AnnData
 
@@ -44,8 +44,8 @@ def _load_cell_cycle_genes() -> Dict[str, Dict[str, List[str]]]:
         }
     """
     try:
-        gene_path = pkg_resources.resource_filename(
-            "scLucid", "resources/cell_cycle_genes.json"
+        gene_path = resources.files("scLucid").joinpath(
+            "resources/cell_cycle_genes.json"
         )
         log.debug(f"Loading cell cycle genes from: {gene_path}")
 
@@ -151,12 +151,23 @@ def _detect_species(adata: AnnData) -> str:
             f"G2M: {g2m_found}/{min(len(g2m_genes), 20)})"
         )
 
-    # Find the species with the highest score
-    best_species = max(detection_scores, key=detection_scores.get)
-    best_score = detection_scores[best_species]
+    # --- Check for ambiguity between top two species ---
+    sorted_scores = sorted(
+        detection_scores.items(), key=lambda item: item[1], reverse=True
+    )
+    best_species, best_score = sorted_scores[0]
 
-    # Only return a species if the score is reasonably high
-    if best_score >= 0.3:  # At least 30% of genes found
+    if len(sorted_scores) > 1:
+        second_best_species, second_best_score = sorted_scores[1]
+        # If the top score is high but the second is very close, warn the user.
+        if best_score > 0.3 and (best_score - second_best_score) < 0.1:
+            log.warning(
+                f"Ambiguous species detection: '{best_species}' (score: {best_score:.2f}) and "
+                f"'{second_best_species}' (score: {second_best_score:.2f}) are very close. "
+                "Please verify the species manually."
+            )
+
+    if best_score >= 0.3:
         log.info(f"Detected species: {best_species} (confidence: {best_score:.2f})")
         return best_species
     else:
@@ -294,12 +305,72 @@ def _plot_cell_cycle(
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
-        save_path = os.path.join(save_dir, f"cell_cycle_scores_{species}.png")
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        save_path = Path(save_dir) / f"cell_cycle_scores_{species}.png"
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         log.info(f"Saved cell cycle plot to {save_path}")
 
     return fig
+
+
+def _get_validated_genes(
+    adata: AnnData,
+    species: str,
+    s_genes: Optional[List[str]],
+    g2m_genes: Optional[List[str]],
+) -> Tuple[List[str], List[str], str]:
+    """
+    Selects, validates, and filters cell cycle gene lists.
+
+    This helper centralizes the logic for handling user-provided lists,
+    species-based defaults, and auto-detection.
+
+    Returns:
+        Tuple of (s_genes_found, g2m_genes_found, species_used)
+    """
+    if s_genes is not None and g2m_genes is not None:
+        log.info("Using user-provided S and G2M gene lists.")
+        species_used = "custom"
+        s_genes_list, g2m_genes_list = s_genes, g2m_genes
+    else:
+        # If species is not valid, attempt auto-detection.
+        if species not in SPECIES_GENES:
+            log.warning(f"Unknown species: '{species}'. Attempting auto-detection.")
+            detected_species = _detect_species(adata)
+            if detected_species == "unknown":
+                available = ", ".join(SPECIES_GENES.keys())
+                raise ValueError(
+                    f"Unknown species: '{species}' and auto-detection failed. Valid options: {available}"
+                )
+            species_used = detected_species
+        else:
+            species_used = species
+            # Even if a valid species is provided, check if another might fit better.
+            current_genes_found = any(
+                g in adata.var_names
+                for g in SPECIES_GENES[species_used]["s_genes"][:10]
+            )
+            if not current_genes_found:
+                log.warning(
+                    f"Very few genes for the specified species '{species_used}' were found. Auto-detecting."
+                )
+                detected_species = _detect_species(adata)
+                if detected_species != "unknown":
+                    species_used = detected_species
+
+        log.info(f"Using gene list for species: '{species_used}'")
+        s_genes_list = SPECIES_GENES[species_used]["s_genes"]
+        g2m_genes_list = SPECIES_GENES[species_used]["g2m_genes"]
+
+    # Final validation against the data
+    s_genes_found, g2m_genes_found, has_enough_genes = _validate_gene_lists(
+        adata, s_genes_list, g2m_genes_list
+    )
+
+    if not has_enough_genes:
+        raise ValueError("Insufficient cell cycle genes found to proceed with scoring.")
+
+    return s_genes_found, g2m_genes_found, species_used
 
 
 # --- Main Functions ---
@@ -359,83 +430,25 @@ def score_cell_cycle(
         adata = adata.copy()
 
     # Check if scores already exist
-    if (
-        "S_score" in adata.obs
-        and "G2M_score" in adata.obs
-        and "phase" in adata.obs
-        and not force
-    ):
+    if "phase" in adata.obs and not force:
         log.info("Cell cycle scores already exist. Use force=True to recompute.")
         if plot:
-            # Still generate plots if requested
-            _plot_cell_cycle(adata, species, save_dir)
+            species_used = (
+                adata.uns.get("sclucid", {})
+                .get("qc", {})
+                .get("cell_cycle", {})
+                .get("species_used", species)
+            )
+            _plot_cell_cycle(adata, species_used, save_dir)
         return adata
 
-    # --- Gene List Selection and Validation ---
-    log.info(f"Scoring cell cycle phases using {species} gene lists")
-
     if not SPECIES_GENES:
-        log.error("Could not load cell cycle gene lists.")
         raise RuntimeError("Failed to load cell cycle gene lists. Cannot proceed.")
 
-    # Determine which species and gene lists to use
-    if s_genes is None or g2m_genes is None:
-        # If species is unknown or invalid, attempt to auto-detect
-        if species not in SPECIES_GENES:
-            log.warning(f"Unknown species: '{species}'. Attempting auto-detection.")
-            detected_species = _detect_species(adata)
-            if detected_species == "unknown":
-                available = ", ".join(SPECIES_GENES.keys())
-                raise ValueError(
-                    f"Unknown species: '{species}' and auto-detection failed. Valid options: {available}"
-                )
-            current_species = detected_species
-        else:
-            current_species = species
-
-            # Auto-detect species if default genes aren't found
-            if species == "human" and not any(
-                g in adata.var_names for g in SPECIES_GENES["human"]["s_genes"][:10]
-            ):
-                log.info("Testing if mouse or rat genes better match the dataset...")
-                for sp in ["mouse", "rat"]:
-                    if any(
-                        g in adata.var_names for g in SPECIES_GENES[sp]["s_genes"][:10]
-                    ):
-                        log.warning(
-                            f"Default species is 'human', but '{sp}' genes were detected. "
-                            f"Switching gene list to '{sp}'."
-                        )
-                        current_species = sp
-                        break
-
-        # Use the appropriate gene lists
-        s_genes_list = (
-            s_genes
-            if s_genes is not None
-            else SPECIES_GENES[current_species]["s_genes"]
-        )
-        g2m_genes_list = (
-            g2m_genes
-            if g2m_genes is not None
-            else SPECIES_GENES[current_species]["g2m_genes"]
-        )
-    else:
-        log.info("Using user-provided S and G2M gene lists.")
-        current_species = "custom"
-        s_genes_list = s_genes
-        g2m_genes_list = g2m_genes
-
-    # Validate and filter gene lists
-    s_genes_found, g2m_genes_found, has_enough_genes = _validate_gene_lists(
-        adata, s_genes_list, g2m_genes_list
+    # --- All gene selection logic is now in the helper function ---
+    s_genes_found, g2m_genes_found, species_used = _get_validated_genes(
+        adata, species, s_genes, g2m_genes
     )
-
-    if not has_enough_genes:
-        raise ValueError(
-            "Insufficient cell cycle genes found to proceed with scoring. "
-            "Provide correct gene lists or check gene naming conventions."
-        )
 
     log.info(
         f"Scoring cell cycle using {len(s_genes_found)} S-phase and {len(g2m_genes_found)} G2M-phase genes."
@@ -455,16 +468,15 @@ def score_cell_cycle(
     adata.obs["cc_diff"] = adata.obs["S_score"] - adata.obs["G2M_score"]
 
     # Store metadata
-    adata.uns.setdefault('sclucid', {}).setdefault('qc', {})
-    adata.uns['sclucid']['qc']['cell_cycle'] = {
-        "species_used": current_species,
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["cell_cycle"] = {
+        "species_used": species_used,
         "s_genes_used_count": len(s_genes_found),
         "g2m_genes_used_count": len(g2m_genes_found),
         "params": {
             "species_requested": species,
             "custom_s_genes_provided": s_genes is not None,
             "custom_g2m_genes_provided": g2m_genes is not None,
-            "layer": layer
+            "layer": layer,
         },
         "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -480,7 +492,7 @@ def score_cell_cycle(
     # --- Plotting ---
     if plot:
         try:
-            fig = _plot_cell_cycle(adata, current_species, save_dir)
+            fig = _plot_cell_cycle(adata, species_used, save_dir)
         except Exception as e:
             log.warning(f"Failed to generate cell cycle plots: {str(e)}")
 

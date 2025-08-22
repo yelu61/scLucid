@@ -8,7 +8,7 @@ of the QC pipeline, from threshold setting to doublet detection and filtering.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Union
 
-__all__ = ["QCThresholds", "FilterConfig", "MarkerConfig", "DoubletConfig"]
+__all__ = ["QCThresholds", "MarkerConfig", "DoubletConfig", "FilterConfig"]
 
 
 @dataclass
@@ -31,17 +31,6 @@ class QCThresholds:
 
 
 @dataclass
-class FilterConfig:
-    """Configuration for cell filtering logic."""
-
-    criteria_to_filter: List[str] = field(
-        default_factory=lambda: ["outlier_min_genes", "outlier_mt", "predicted_doublet"]
-    )
-    combination_logic: Literal["any", "all", "custom"] = "any"
-    custom_logic_expr: Optional[str] = None
-
-
-@dataclass
 class MarkerConfig:
     """Configuration for a single marker set in heuristic doublet detection."""
 
@@ -59,7 +48,7 @@ class MarkerConfig:
 class DoubletConfig:
     """Comprehensive configuration for the doublet detection workflow."""
 
-    method: str = "scrublet"
+    method: Literal["scrublet", "doubletfinder"] = "scrublet"
     merge_strategy: Literal[
         "union", "intersection", "algorithm_priority", "heuristic_priority"
     ] = "union"
@@ -76,3 +65,26 @@ class DoubletConfig:
     export_stats: bool = True
     save_dir: Optional[str] = None
     show_plots: bool = True
+
+
+@dataclass
+class FilterConfig:
+    """Configuration for cell filtering logic."""
+
+    criteria_to_filter: List[str] = field(
+        default_factory=lambda: ["outlier_min_genes", "outlier_mt", "predicted_doublet"]
+    )
+    combination_logic: Literal["any", "all", "custom", "threshold"] = "any"
+    custom_logic_expr: Optional[str] = None
+    min_criteria_for_removal: int = 2  # Used when logic is 'threshold'
+
+    def validate(self):
+        """Check for logical inconsistencies in the configuration."""
+        if self.combination_logic == "custom" and not self.custom_logic_expr:
+            raise ValueError(
+                "combination_logic is 'custom', but 'custom_logic_expr' is not provided."
+            )
+        if self.combination_logic == "threshold" and self.min_criteria_for_removal < 1:
+            raise ValueError(
+                "'min_criteria_for_removal' must be >= 1 for 'threshold' logic."
+            )

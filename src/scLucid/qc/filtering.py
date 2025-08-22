@@ -8,12 +8,12 @@ reporting with visualizations.
 """
 
 import logging
-import os
+import re
+from pathlib import Path
 from typing import Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-import re
 import pandas as pd
 from anndata import AnnData
 
@@ -212,9 +212,9 @@ def _plot_qc_outliers(
         plt.tight_layout(rect=[0, 0, 1, 0.96])
 
         if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
             filename = f"{sample}_qc_outliers.png"
-            filepath = os.path.join(save_dir, filename)
+            filepath = Path(save_dir) / filename
             plt.savefig(filepath, dpi=300, facecolor="white", bbox_inches="tight")
             log.info(f"Saved QC outlier plot to {filepath}")
 
@@ -290,12 +290,12 @@ def _plot_before_after_comparison(
 
     plt.tight_layout()
     plt.savefig(
-        os.path.join(save_dir, "filtering_comparison.png"), dpi=300, bbox_inches="tight"
+        Path(save_dir) / "filtering_comparison.png", dpi=300, bbox_inches="tight"
     )
     plt.close()
 
     # Save comparison statistics
-    comparison_df.to_csv(os.path.join(save_dir, "filtering_comparison_stats.csv"))
+    comparison_df.to_csv(Path(save_dir) / "filtering_comparison_stats.csv")
 
 
 # --- Main Functions ---
@@ -309,224 +309,272 @@ def suggest_qc_thresholds(
     save_dir: Optional[str] = None,
 ) -> QCThresholds:
     """
-    Automatically suggest QC thresholds based on data distribution.
+    Automatically suggest QC thresholds based on data distribution and generate informative plots.
 
-    This function analyzes the distribution of QC metrics and suggests
-    reasonable thresholds based on statistical outlier detection methods.
+    This function analyzes the distribution of QC metrics and suggests reasonable
+    thresholds. The generated plots now include the specific threshold values in the
+    legend for clarity.
 
     Args:
-        adata: AnnData object with calculated QC metrics
-        method: Method for threshold suggestion ("mad", "iqr", "percentile")
-        mad_multipliers: A single multiplier or a list of multipliers for MAD-based thresholds
-        iqr_multiplier: Multiplier for IQR-based thresholds
-        percentile_range: Percentile range for threshold suggestion
-        plot_distributions: Whether to plot distribution analysis
-        save_dir: Directory to save plots
+        adata: AnnData object with calculated QC metrics.
+        method: Method for threshold suggestion ("mad", "iqr", "percentile").
+        mad_multipliers: A single multiplier or a list for MAD-based thresholds.
+        iqr_multiplier: Multiplier for IQR-based thresholds.
+        percentile_range: Percentile range for threshold suggestion.
+        plot_distributions: Whether to plot distribution analysis.
+        save_dir: Directory to save plots.
 
     Returns:
-        QCThresholds object with suggested values
-    """ 
+        QCThresholds object with suggested values (based on the first MAD multiplier if applicable).
+    """
     required_cols = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
     missing_cols = [col for col in required_cols if col not in adata.obs.columns]
     if missing_cols:
         raise ValueError(f"Missing required QC columns: {missing_cols}")
 
-    log.info(f"Suggesting QC thresholds using {method} method...")
+    log.info(f"Suggesting QC thresholds using '{method}' method...")
 
     if isinstance(mad_multipliers, (int, float)):
         mad_multipliers = [mad_multipliers]
 
-    # Use the first multiplier for the final returned object
-    primary_mad_multiplier = mad_multipliers[0]
-
-    # Initialize suggestions dictionary
     suggestions = {}
 
-    # Analyze each metric
+    # Define which metrics to analyze
     metrics = {
         "n_genes_by_counts": "Gene counts per cell",
         "total_counts": "Total counts per cell",
         "pct_counts_mt": "Mitochondrial percentage",
     }
-
-    # Add hemoglobin if available
     if "pct_counts_hb" in adata.obs.columns:
         metrics["pct_counts_hb"] = "Hemoglobin percentage"
 
-    # Add top genes if available
-    top_gene_cols = [col for col in adata.obs.columns if re.match(r"pct_counts_in_top_\d+_genes", col)]
+    top_gene_cols = [
+        col
+        for col in adata.obs.columns
+        if re.match(r"pct_counts_in_top_\d+_genes", col)
+    ]
     for col in top_gene_cols:
-        match = re.search(r"pct_counts_in_top_(\d+)_genes", col)
-        if match:
-            n = match.group(1)
-            metrics[col] = f"Top {n} genes percentage"
+        metrics[col] = (
+            col.replace("_", " ")
+            .replace("pct counts in ", "")
+            .replace(" genes", "")
+            .title()
+        )
 
     if plot_distributions:
         n_metrics = len(metrics)
-        fig_rows = (n_metrics + 1) // 2
-        fig, axes = plt.subplots(fig_rows, min(2, n_metrics), figsize=(15, 5 * fig_rows))
-        
-        # Handle different axis array shapes based on number of metrics
-        if n_metrics == 1:
-            axes = np.array([axes])
+        n_cols = min(2, n_metrics)
+        n_rows = (n_metrics + n_cols - 1) // n_cols
+        fig, axes = plt.subplots(
+            n_rows, n_cols, figsize=(8 * n_cols, 6 * n_rows), constrained_layout=True
+        )
         axes = np.array(axes).flatten()
 
     for i, (metric, title) in enumerate(metrics.items()):
         data = adata.obs[metric].dropna()
+        ax = axes[i] if plot_distributions and i < len(axes) else None
+
+        # --- Centralized threshold calculation logic ---
+        # This part calculates bounds for all multipliers and stores them for plotting
+        plot_lines = []
+        is_count_metric = metric in ["n_genes_by_counts", "total_counts"]
+
+        def _get_metric_key(metric):
+            if "top" in metric:
+                match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
+                if match:
+                    return f"pc_top{match.group(1)}_genes"
+                else:
+                    match = re.search(r"(\d+)", metric)
+                    return f"pc_top{match.group(1)}_genes" if match else "pc_top_genes"
+            else:
+                parts = metric.split("_")
+                if len(parts) > 0:
+                    return f"pc_{parts[-1]}"
+                else:
+                    return f"pc_{metric}"
 
         if method == "mad":
             median_val = data.median()
             mad_val = np.median(np.abs(data - median_val))
+            if mad_val == 0:
+                log.warning(
+                    f"MAD for metric '{metric}' is zero. MAD-based thresholds may be unreliable."
+                )
 
-            ax = axes[i] if plot_distributions and i < len(axes) else None
-            
             for idx, multiplier in enumerate(mad_multipliers):
-                if metric in ["n_genes_by_counts", "total_counts"]:
-                    # For count data, suggest both lower and upper bounds
+                upper_bound = median_val + multiplier * mad_val
+                if is_count_metric:
                     lower_bound = max(0, median_val - multiplier * mad_val)
-                    upper_bound = median_val + multiplier * mad_val
-                    
-                    # Only store the suggestion from the primary multiplier
+                    plot_lines.append(
+                        {
+                            "val": lower_bound,
+                            "label": f"Min (MAD x{multiplier})",
+                            "color": "red",
+                        }
+                    )
+                    plot_lines.append(
+                        {
+                            "val": upper_bound,
+                            "label": f"Max (MAD x{multiplier})",
+                            "color": "orange",
+                        }
+                    )
+                    if idx == 0:  # Store suggestion from primary multiplier
+                        suggestions[
+                            f"min_{'genes' if 'genes' in metric else 'counts'}"
+                        ] = int(lower_bound)
+                        suggestions[
+                            f"max_{'genes' if 'genes' in metric else 'counts'}"
+                        ] = int(upper_bound)
+                else:  # Percentage metric
+                    plot_lines.append(
+                        {
+                            "val": upper_bound,
+                            "label": f"Max (MAD x{multiplier})",
+                            "color": "red",
+                        }
+                    )
                     if idx == 0:
-                        metric_type = 'genes' if 'genes' in metric else 'counts'
-                        suggestions[f"min_{metric_type}"] = int(lower_bound)
-                        suggestions[f"max_{metric_type}"] = int(upper_bound)
-                    
-                    # Plot all lines
-                    if plot_distributions and ax is not None:
-                        ax.axvline(lower_bound, color='red', linestyle='--', alpha=0.6, 
-                                  label=f"Min (MAD x{multiplier})")
-                        ax.axvline(upper_bound, color='orange', linestyle='--', alpha=0.6, 
-                                  label=f"Max (MAD x{multiplier})")
-                else:
-                    # For percentage data, suggest upper bound only
-                    upper_bound = median_val + multiplier * mad_val
-                    
-                    if idx == 0:
-                        metric_type = metric.split('_')[-1]
-                        if 'top' in metric:
-                            match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
-                            if match:
-                                n = match.group(1)
-                                suggestions[f"pc_top{n}_genes"] = min(100, upper_bound)
+                        metric_key = _get_metric_key(metric)
+                        if metric_key:
+                            suggestions[metric_key] = min(100.0, upper_bound)
                         else:
-                            suggestions[f"pc_{metric_type}"] = min(100, upper_bound)
-                    
-                    if plot_distributions and ax is not None:
-                        ax.axvline(upper_bound, color='red', linestyle='--', alpha=0.6, 
-                                  label=f"Max (MAD x{multiplier})")
+                            log.warning(
+                                f"Could not generate suggestion key for metric '{metric}'"
+                            )
 
+        # ... (similar logic for iqr and percentile can be added here if needed for plotting multiple lines)
+        # For simplicity, we keep the original logic for single-line methods.
         elif method == "iqr":
             q25, q75 = data.quantile([0.25, 0.75])
             iqr = q75 - q25
-
-            if metric in ["n_genes_by_counts", "total_counts"]:
+            upper_bound = q75 + iqr_multiplier * iqr
+            if is_count_metric:
                 lower_bound = max(0, q25 - iqr_multiplier * iqr)
-                upper_bound = q75 + iqr_multiplier * iqr
-                
-                metric_type = 'genes' if 'genes' in metric else 'counts'
-                suggestions[f"min_{metric_type}"] = int(lower_bound)
-                suggestions[f"max_{metric_type}"] = int(upper_bound)
-                
-                if plot_distributions and i < len(axes):
-                    axes[i].axvline(lower_bound, color='red', linestyle='--', 
-                                   label=f"Min: {int(lower_bound)}")
-                    axes[i].axvline(upper_bound, color='orange', linestyle='--', 
-                                   label=f"Max: {int(upper_bound)}")
+                suggestions[f"min_{'genes' if 'genes' in metric else 'counts'}"] = int(
+                    lower_bound
+                )
+                suggestions[f"max_{'genes' if 'genes' in metric else 'counts'}"] = int(
+                    upper_bound
+                )
+                plot_lines.append(
+                    {"val": lower_bound, "label": "Min (IQR)", "color": "red"}
+                )
+                plot_lines.append(
+                    {"val": upper_bound, "label": "Max (IQR)", "color": "orange"}
+                )
             else:
-                upper_bound = q75 + iqr_multiplier * iqr
-                
-                if 'top' in metric:
-                    match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
-                    if match:
-                        n = match.group(1)
-                        suggestions[f"pc_top{n}_genes"] = min(100, upper_bound)
-                else:
-                    metric_type = metric.split('_')[-1]
-                    suggestions[f"pc_{metric_type}"] = min(100, upper_bound)
-                
-                if plot_distributions and i < len(axes):
-                    axes[i].axvline(upper_bound, color='red', linestyle='--', 
-                                   label=f"Max: {upper_bound:.1f}%")
+                metric_key = _get_metric_key(metric)
+                plot_lines.append(
+                    {"val": upper_bound, "label": "Max (IQR)", "color": "red"}
+                )
 
         elif method == "percentile":
-            if metric in ["n_genes_by_counts", "total_counts"]:
+            upper_bound = data.quantile(percentile_range[1] / 100)
+            if is_count_metric:
                 lower_bound = data.quantile(percentile_range[0] / 100)
-                upper_bound = data.quantile(percentile_range[1] / 100)
-                
-                metric_type = 'genes' if 'genes' in metric else 'counts'
-                suggestions[f"min_{metric_type}"] = int(lower_bound)
-                suggestions[f"max_{metric_type}"] = int(upper_bound)
-                
-                if plot_distributions and i < len(axes):
-                    axes[i].axvline(lower_bound, color='red', linestyle='--', 
-                                   label=f"Min: {int(lower_bound)}")
-                    axes[i].axvline(upper_bound, color='orange', linestyle='--', 
-                                   label=f"Max: {int(upper_bound)}")
+                suggestions[f"min_{'genes' if 'genes' in metric else 'counts'}"] = int(
+                    lower_bound
+                )
+                suggestions[f"max_{'genes' if 'genes' in metric else 'counts'}"] = int(
+                    upper_bound
+                )
+                plot_lines.append(
+                    {
+                        "val": lower_bound,
+                        "label": f"Min ({percentile_range[0]}th %ile)",
+                        "color": "red",
+                    }
+                )
+                plot_lines.append(
+                    {
+                        "val": upper_bound,
+                        "label": f"Max ({percentile_range[1]}th %ile)",
+                        "color": "orange",
+                    }
+                )
             else:
-                upper_bound = data.quantile(percentile_range[1] / 100)
-                
-                if 'top' in metric:
-                    match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
-                    if match:
-                        n = match.group(1)
-                        suggestions[f"pc_top{n}_genes"] = min(100, upper_bound)
-                else:
-                    metric_type = metric.split('_')[-1]
-                    suggestions[f"pc_{metric_type}"] = min(100, upper_bound)
-                
-                if plot_distributions and i < len(axes):
-                    axes[i].axvline(upper_bound, color='red', linestyle='--', 
-                                   label=f"Max: {upper_bound:.1f}%")
+                metric_key = _get_metric_key(metric)
+                plot_lines.append(
+                    {
+                        "val": upper_bound,
+                        "label": f"Max ({percentile_range[1]}th %ile)",
+                        "color": "red",
+                    }
+                )
 
-        # Plot distribution
-        if plot_distributions and i < len(axes):
-            ax = axes[i]
-            ax.hist(data, bins=50, alpha=0.7, edgecolor="black")
-            ax.set_title(title)
-            ax.set_xlabel(metric.replace("_", " ").title())
-            ax.set_ylabel("Frequency")
-            ax.legend()
+        # --- Plotting logic with dynamic labels ---
+        if plot_distributions and ax is not None:
+            ax.hist(data, bins=50, alpha=0.75, edgecolor="black")
+            ax.set_title(title, fontsize=14, fontweight="bold")
+            ax.set_xlabel(metric.replace("_", " ").title(), fontsize=12)
+            ax.set_ylabel("Frequency", fontsize=12)
+
+            for line in plot_lines:
+                # Format label with the calculated value
+                if is_count_metric:
+                    formatted_label = f"{line['label']}: {line['val']:.0f}"
+                else:  # Percentage
+                    formatted_label = f"{line['label']}: {line['val']:.1f}%"
+
+                ax.axvline(
+                    x=line["val"],
+                    color=line["color"],
+                    linestyle="--",
+                    alpha=0.8,
+                    linewidth=1.5,
+                    label=formatted_label,
+                )
+
+            # Create a clean legend
+            handles, labels = ax.get_legend_handles_labels()
+            by_label = dict(zip(labels, handles))  # Removes duplicate labels
+            ax.legend(by_label.values(), by_label.keys(), loc="upper right")
+            ax.grid(axis="y", linestyle="--", alpha=0.6)
 
     if plot_distributions:
-        # Hide unused subplots
         for j in range(len(metrics), len(axes)):
-            axes[j].set_visible(False)
+            axes[j].set_visible(False)  # Hide unused subplots
 
-        plt.tight_layout()
+        fig.suptitle(
+            "Suggested QC Thresholds from Data Distribution",
+            fontsize=18,
+            fontweight="bold",
+        )
+        fig.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust for suptitle
 
         if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
+            save_path = Path(save_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
             plt.savefig(
-                os.path.join(save_dir, "qc_threshold_suggestions.png"),
+                save_path / "qc_threshold_suggestions.png",
                 dpi=300,
                 bbox_inches="tight",
             )
         plt.show()
 
     # Create QCThresholds object with suggestions
-    # Extract all top gene percentages
-    top_gene_thresholds = {k: v for k, v in suggestions.items() if k.startswith("pc_top")}
-    
-    threshold_kwargs = {
+    final_kwargs = {
         "min_genes": suggestions.get("min_genes"),
         "max_genes": suggestions.get("max_genes"),
         "min_counts": suggestions.get("min_counts"),
         "max_counts": suggestions.get("max_counts"),
         "pc_mt": suggestions.get("pc_mt"),
         "pc_hb": suggestions.get("pc_hb"),
-        **top_gene_thresholds  # Include all top gene thresholds
     }
+    # Add any pc_top... suggestions
+    for k, v in suggestions.items():
+        if k.startswith("pc_top"):
+            final_kwargs[k] = v
 
-    # Remove None values
-    threshold_kwargs = {k: v for k, v in threshold_kwargs.items() if v is not None}
+    final_kwargs = {k: v for k, v in final_kwargs.items() if v is not None}
+    suggested_thresholds = QCThresholds(**final_kwargs)
 
-    suggested_thresholds = QCThresholds(**threshold_kwargs)
-
-    log.info("Suggested QC thresholds:")
+    log.info("Suggested QC thresholds (based on primary multiplier/setting):")
     for param, value in suggested_thresholds.to_dict().items():
         if value is not None:
-            log.info(f" {param}: {value}")
+            log.info(f"  {param}: {value}")
 
     return suggested_thresholds
 
@@ -1048,7 +1096,7 @@ def filter_cells(
         "criteria_used": valid_criteria,
         "combination_logic": config.combination_logic,
         "criteria_counts": criteria_counts,
-        "config": config.to_dict() if config else {"criteria": criteria}
+        "config": config.to_dict() if config else {"criteria": criteria},
     }
 
     # Decide where to save the results. If this is a copy, save to the new object.
@@ -1068,10 +1116,18 @@ def filter_cells(
 
     # Perform filtering
     if copy:
+        # Create the filtered copy ONCE.
         adata_filtered = adata[keep_mask, :].copy()
+        # Ensure the .uns structure exists and add the results.
+        adata_filtered.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+            "filtering_results"
+        ] = stats
         return adata_filtered
     else:
-        # Filter in place
+        # Filter in place.
+        adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+            "filtering_results"
+        ] = stats
         adata._inplace_subset_obs(keep_mask)
         return None
 
@@ -1097,7 +1153,7 @@ def generate_qc_report(
         include_before_after: Whether to include before/after comparison
         adata_before: AnnData object before filtering (for comparison)
     """
-    os.makedirs(save_dir, exist_ok=True)
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
     log.info(f"Generating QC report in {save_dir}")
 
     if include_before_after and adata_before is None:
@@ -1134,7 +1190,7 @@ def generate_qc_report(
         summary_stats.append(stats)
 
     summary_df = pd.DataFrame(summary_stats)
-    summary_df.to_csv(os.path.join(save_dir, "qc_summary_statistics.csv"), index=False)
+    summary_df.to_csv(Path(save_dir) / "qc_summary_statistics.csv", index=False)
 
     # 2. QC distributions plot
     n_metrics = len(qc_metrics)
@@ -1165,9 +1221,7 @@ def generate_qc_report(
             ax.tick_params(axis="x", rotation=45)
 
     plt.tight_layout()
-    plt.savefig(
-        os.path.join(save_dir, "qc_distributions.png"), dpi=300, bbox_inches="tight"
-    )
+    plt.savefig(Path(save_dir) / "qc_distributions.png", dpi=300, bbox_inches="tight")
     plt.close()
 
     # 3. Before/after comparison if requested
@@ -1196,6 +1250,6 @@ def generate_qc_report(
             outlier_summary.append(stats)
 
         outlier_df = pd.DataFrame(outlier_summary)
-        outlier_df.to_csv(os.path.join(save_dir, "outlier_summary.csv"), index=False)
+        outlier_df.to_csv(Path(save_dir) / "outlier_summary.csv", index=False)
 
     log.info("QC report generation completed")
