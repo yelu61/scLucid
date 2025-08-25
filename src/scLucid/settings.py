@@ -4,17 +4,32 @@ Handles logging and plotting defaults.
 """
 
 import logging
-from typing import Any, Dict, Optional
 from copy import deepcopy
+from typing import Any, Dict, Optional, Tuple
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import scanpy as sc
+import scanpy as _scanpy
 
 log = logging.getLogger(__name__)
 
-# --- Store original matplotlib settings for restoration ---
+# --- Backup original matplotlib settings for restoration ---
 _original_rc_params = mpl.rcParams.copy()
+
+# --- Backup original scanpy settings for restoration ---
+def _get_initial_scanpy_params():
+    # For newer scanpy versions
+    return {
+        "dpi": getattr(_scanpy.settings, 'figdir_dpi', 80),
+        "dpi_save": getattr(_scanpy.settings, 'figdir_dpi_save', 150),
+        "figsize": getattr(_scanpy.settings, 'figsize', (8, 6)),
+        "facecolor": getattr(_scanpy.settings, 'facecolor', 'white'),
+        "autoshow": getattr(_scanpy.settings, 'autoshow', True),
+        "autosave": getattr(_scanpy.settings, 'autosave', False),
+        "verbosity": getattr(_scanpy.settings, 'verbosity', 1),
+    }
+
+_original_scanpy_params = _get_initial_scanpy_params()
 
 # --- Plotting Style Definitions (Module-level constants) ---
 
@@ -95,20 +110,18 @@ _DEFAULT_STYLES = {
     "lines.markersize": 6,
 }
 
-
 __all__ = ["setup_logging", "set_figure_params", "reset_figure_params"]
-
 
 def setup_logging(
     level: str = "INFO",
     file_path: Optional[str] = None,
     log_format: str = "%(asctime)s - %(name)s - [%(levelname)s] - %(message)s",
-):
+) -> None:
     """
-    Configures the root logger for the scLucid toolkit.
+    Configure the root logger for the scLucid toolkit.
 
     Args:
-        level: The logging level (e.g., 'DEBUG', 'INFO', 'WARNING').
+        level: Logging level (e.g., 'DEBUG', 'INFO', 'WARNING').
         file_path: Optional path to a file to save logs.
         log_format: The format string for the log messages.
     """
@@ -129,14 +142,42 @@ def setup_logging(
     log.info(f"scLucid logging configured to level {level}.")
 
 
+def _configure_scanpy_directly(dpi, dpi_save, figsize, facecolor):
+    """
+    Configure scanpy settings directly without using set_figure_params method.
+    This avoids recursion issues in newer scanpy versions.
+    """
+    # Set scanpy settings directly
+    _scanpy.settings.verbosity = 3
+    _scanpy.settings.autoshow = True
+    _scanpy.settings.autosave = False
+    
+    # Set figure parameters directly
+    _scanpy.settings.figdir_dpi = dpi
+    _scanpy.settings.figdir_dpi_save = dpi_save
+    _scanpy.settings.figsize = figsize
+    
+    # Attempt to set facecolor if the attribute exists
+    if hasattr(_scanpy.settings, 'facecolor'):
+        _scanpy.settings.facecolor = facecolor
+    
+    # Handle scanpy plotting RC params directly if available
+    if hasattr(_scanpy, 'plotting') and hasattr(_scanpy.plotting, 'rcParams'):
+        _scanpy.plotting.rcParams['figure.figsize'] = figsize
+        _scanpy.plotting.rcParams['figure.dpi'] = dpi
+        _scanpy.plotting.rcParams['savefig.dpi'] = dpi_save
+        if 'figure.facecolor' in _scanpy.plotting.rcParams:
+            _scanpy.plotting.rcParams['figure.facecolor'] = facecolor
+
+
 def set_figure_params(
     dpi: int = 100,
     dpi_save: int = 300,
-    figsize: tuple = (6, 6),
-    style: str = None,
+    figsize: Tuple[float, float] = (8, 6),
+    style: Optional[str] = None,
     style_dict: Optional[Dict[str, Any]] = None,
     color_theme: str = "default",
-):
+) -> None:
     """
     Set global plotting parameters for matplotlib and scanpy.
 
@@ -148,38 +189,38 @@ def set_figure_params(
         style_dict (dict): Custom style parameters to override defaults.
         color_theme (str): Color theme to use. Options: 'default', 'dark', 'seaborn'.
     """
-    print("Applying global plotting settings...")
+    log.info("Applying global plotting settings...")
 
-    # Set scanpy settings first
-    sc.settings.verbosity = 3
-    sc.settings.autoshow = True
-    sc.settings.autosave = False
-    sc.settings.set_figure_params(
-        scanpy=True,
+    # Validate color_theme
+    if color_theme not in _THEMES:
+        log.warning(
+            f"Color theme '{color_theme}' not recognized. Using 'default' theme. "
+            f"Available: {list(_THEMES.keys())}"
+        )
+        color_theme = "default"
+
+    # Configure scanpy directly to avoid recursion issues
+    _configure_scanpy_directly(
         dpi=dpi,
         dpi_save=dpi_save,
         figsize=figsize,
-        facecolor=_THEMES.get(color_theme, _THEMES["default"]).get("axes.facecolor"),
-        # Let scanpy handle its formats, or enforce them here
-        # format="svg",
+        facecolor=_THEMES[color_theme]["axes.facecolor"]
     )
 
-    # Start with a clean copy of the base styles
+    # Prepare base matplotlib styles
     applied_styles = deepcopy(_DEFAULT_STYLES)
-
-    # Apply a base matplotlib style if specified
     if style:
         try:
             plt.style.use(style)
+            log.info(f"Applied matplotlib style: {style}")
         except Exception as e:
-            log.warning(f"Could not apply style '{style}'. Error: {e}. Falling back to default.")
+            log.warning(
+                f"Could not apply style '{style}'. Error: {e}. Falling back to default."
+            )
             plt.style.use("default")
 
-    # Update with the selected color theme
-    theme_params = _THEMES.get(color_theme, _THEMES["default"])
-    applied_styles.update(theme_params)
-    
-    # Manually set figsize and dpi as they are direct arguments
+    # Update with selected color theme
+    applied_styles.update(_THEMES[color_theme])
     applied_styles["figure.figsize"] = figsize
     applied_styles["figure.dpi"] = dpi
     applied_styles["savefig.dpi"] = dpi_save
@@ -187,29 +228,54 @@ def set_figure_params(
     # Update with any user-provided custom styles
     if style_dict:
         applied_styles.update(style_dict)
+        log.info(f"Applied custom style dict: {style_dict}")
 
-    # Apply the final settings to matplotlib
     plt.rcParams.update(applied_styles)
 
-    # Configure IPython display format
+    # Configure IPython display format if in Jupyter
     try:
         from IPython import get_ipython
 
         ipython = get_ipython()
         if ipython is not None:
             ipython.run_line_magic("matplotlib", "inline")
-            # This is a common way to set formats for inline backend
             ipython.run_line_magic("config", "InlineBackend.figure_format = 'retina'")
-
+            log.info("IPython inline backend set to retina.")
     except Exception as e:
         log.debug(f"Could not set IPython display format automatically: {e}")
 
-    print(f"Global plotting settings applied with '{color_theme}' color theme.")
+    log.info(f"Global plotting settings applied with '{color_theme}' color theme.")
 
 
-def reset_figure_params():
-    """Resets matplotlib and scanpy settings to their original default state."""
-    print("Resetting plotting settings to matplotlib defaults.")
+def reset_figure_params() -> None:
+    """
+    Reset matplotlib and scanpy settings to their original default state.
+    """
+    log.info("Resetting plotting settings to matplotlib and scanpy defaults.")
     mpl.rcParams.update(_original_rc_params)
-    # You might also want to reset scanpy settings to its default
-    # sc.settings.set_figure_params() # Re-run with defaults if needed
+    
+    # Reset scanpy settings directly
+    _configure_scanpy_directly(
+        dpi=_original_scanpy_params["dpi"],
+        dpi_save=_original_scanpy_params["dpi_save"],
+        figsize=_original_scanpy_params["figsize"],
+        facecolor=_original_scanpy_params["facecolor"]
+    )
+    
+    _scanpy.settings.autoshow = _original_scanpy_params["autoshow"]
+    _scanpy.settings.autosave = _original_scanpy_params["autosave"]
+    _scanpy.settings.verbosity = _original_scanpy_params["verbosity"]
+    log.info("Plotting settings reset.")
+
+# --- Extra: Warn user if scanpy import path is suspicious, to avoid local conflicts ---
+def _check_scanpy_path():
+    scanpy_path = getattr(_scanpy, "__file__", "UNKNOWN")
+    if "scLucid" in scanpy_path:
+        log.warning(
+            f"WARNING: Detected scanpy is imported from '{scanpy_path}', "
+            "which may indicate a package name conflict. Please check your sys.path "
+            "and avoid naming your local modules or packages as 'scanpy'."
+        )
+
+
+_check_scanpy_path()

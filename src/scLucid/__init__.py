@@ -21,7 +21,7 @@ from . import utils
 from . import utils as ut
 
 # --- Configuration and Settings ---
-from .settings import setup_logging, set_figure_params
+from .settings import setup_logging, set_figure_params, reset_figure_params
 
 # --- High-Level Workflows ---
 # Expose the main workflow functions at the top level for easy access
@@ -47,6 +47,7 @@ __all__ = [
     # Configuration
     "setup_logging",
     "set_figure_params",
+    "reset_figure_params",
     
     # High-Level Workflows
     "run_standard_qc",

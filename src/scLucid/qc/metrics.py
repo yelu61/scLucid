@@ -44,19 +44,27 @@ def _export_qc_stats(
     Returns:
         Dictionary with per-sample and global summary DataFrames.
     """
-    metrics = [
+    # Define standard metrics to look for
+    standard_metrics = [
         "total_counts",
         "n_genes_by_counts",
         "pct_counts_mt",
         "pct_counts_ribo",
         "pct_counts_hb",
     ]
-    metrics.extend(percent_top_cols)
+    
+    # Filter metrics to only include columns that actually exist in adata.obs
+    metrics = [metric for metric in standard_metrics if metric in adata.obs.columns]
+    
+    # Add percent_top_cols that exist in adata.obs
+    if percent_top_cols:
+        metrics.extend([col for col in percent_top_cols if col in adata.obs.columns])
 
     if not metrics:
         log.warning("No QC metrics found to export.")
         return {}
 
+    # Calculate per-sample and global statistics
     sample_stats = adata.obs.groupby(sample_key)[metrics].describe()
     global_stats = adata.obs[metrics].describe().T
 
@@ -797,7 +805,7 @@ def calculate_qc_metric(
         _export_qc_stats(
             adata,
             sample_key=sample_key,
-            percent_top_col=percent_top_cols,
+            percent_top_cols=percent_top_cols,
             outdir=save_dir,
             export_csv=True,
             export_xlsx=export_xlsx,
@@ -808,7 +816,7 @@ def calculate_qc_metric(
     _detect_qc_outliers(
         adata,
         sample_key=sample_key,
-        percent_top_col=percent_top_cols,
+        percent_top_cols=percent_top_cols,  
         outdir=save_dir if save_dir else None,
     )
 
