@@ -1,16 +1,15 @@
 """
-Enhanced cell filtering utilities for single-cell RNA-seq data.
+Cell filtering and quality control logic for single-cell RNA-seq data.
 
-This module provides comprehensive functions for identifying and filtering low-quality
-cells based on various quality metrics. It supports flexible filtering logic,
-automatic parameter suggestion, custom outlier detection functions, and detailed
-reporting with visualizations.
+This module provides marking, filtering, and reporting functions for low-quality
+cells, doublets, and custom outliers, with flexible logic and clear outputs.
 """
 
 import logging
 import re
+from dataclasses import asdict
 from pathlib import Path
-from typing import Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,14 +17,14 @@ import pandas as pd
 from anndata import AnnData
 
 from ..utils.utils import identify_outliers
-from .config import FilterConfig, QCThresholds
+from .config import FilterConfig, MarkingConfig, QCThresholds
 
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "suggest_qc_thresholds",
     "mark_low_quality_cell",
     "filter_cells",
-    "suggest_qc_thresholds",
     "generate_qc_report",
 ]
 
@@ -380,13 +379,15 @@ def suggest_qc_thresholds(
         is_count_metric = metric in ["n_genes_by_counts", "total_counts"]
 
         def _get_metric_key(metric):
+            """Map metrics to QCThresholds parameter names"""
             if "top" in metric:
                 match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
                 if match:
-                    return f"pc_top{match.group(1)}_genes"
+                    # Use the format pc_top_20_genes instead of pc_top20_genes
+                    return f"pc_top_{match.group(1)}_genes"
                 else:
                     match = re.search(r"(\d+)", metric)
-                    return f"pc_top{match.group(1)}_genes" if match else "pc_top_genes"
+                    return f"pc_top_{match.group(1)}_genes" if match else "pc_top_genes"
             else:
                 parts = metric.split("_")
                 if len(parts) > 0:
@@ -401,6 +402,7 @@ def suggest_qc_thresholds(
                 log.warning(
                     f"MAD for metric '{metric}' is zero. MAD-based thresholds may be unreliable."
                 )
+                mad_val = 1e-5  # Small value to avoid division by zero
 
             for idx, multiplier in enumerate(mad_multipliers):
                 upper_bound = median_val + multiplier * mad_val
@@ -444,8 +446,6 @@ def suggest_qc_thresholds(
                                 f"Could not generate suggestion key for metric '{metric}'"
                             )
 
-        # ... (similar logic for iqr and percentile can be added here if needed for plotting multiple lines)
-        # For simplicity, we keep the original logic for single-line methods.
         elif method == "iqr":
             q25, q75 = data.quantile([0.25, 0.75])
             iqr = q75 - q25
@@ -555,6 +555,16 @@ def suggest_qc_thresholds(
         plt.show()
 
     # Create QCThresholds object with suggestions
+    # Log which parameters we found and which we're passing to QCThresholds
+    log.info("Parameters extracted from metrics:")
+    pc_top_genes_dict = {}
+    for k, v in suggestions.items():
+        if k.startswith("pc_top_"):
+            pc_top_genes_dict[k] = v
+
+    # Filter out any parameters that the QCThresholds class doesn't accept
+    # This requires knowing the valid parameters for QCThresholds
+    # For now, just log what we're passing
     final_kwargs = {
         "min_genes": suggestions.get("min_genes"),
         "max_genes": suggestions.get("max_genes"),
@@ -562,18 +572,16 @@ def suggest_qc_thresholds(
         "max_counts": suggestions.get("max_counts"),
         "pc_mt": suggestions.get("pc_mt"),
         "pc_hb": suggestions.get("pc_hb"),
+        "pc_top_genes": pc_top_genes_dict,
     }
-    # Add any pc_top... suggestions
-    for k, v in suggestions.items():
-        if k.startswith("pc_top"):
-            final_kwargs[k] = v
 
     final_kwargs = {k: v for k, v in final_kwargs.items() if v is not None}
+
     suggested_thresholds = QCThresholds(**final_kwargs)
 
     log.info("Suggested QC thresholds (based on primary multiplier/setting):")
     for param, value in suggested_thresholds.to_dict().items():
-        if value is not None:
+        if value is not None and value != {}:
             log.info(f"  {param}: {value}")
 
     return suggested_thresholds
@@ -582,61 +590,52 @@ def suggest_qc_thresholds(
 def mark_low_quality_cell(
     adata: AnnData,
     sample_key: str = "sampleID",
-    thresholds: Optional[QCThresholds] = None,
-    qc_metrics: Optional[List[Tuple[str, str]]] = None,
-    custom_outlier_functions: Optional[
-        Dict[str, Callable[[AnnData], pd.Series]]
-    ] = None,
-    plot_outliers: bool = False,
-    save_dir: Optional[str] = None,
-    show: bool = True,
-    cols_to_plot: Optional[List[str]] = None,
-    # Backward compatibility parameters
-    min_genes: Optional[int] = None,
-    max_genes: Optional[int] = None,
-    min_counts: Optional[int] = None,
-    max_counts: Optional[int] = None,
-    nmads: Optional[float] = None,
-    pc_mt: Optional[float] = None,
-    pc_hb: Optional[float] = None,
-    pc_top_genes: Optional[float] = None,
-    use_fixed_top_gene_threshold: Optional[bool] = None,
+    config: Optional[MarkingConfig] = None,
+    **kwargs,
 ) -> AnnData:
     """
-    Enhanced function to identify and mark low-quality cells with robust parameter handling.
-
-    This function identifies low-quality cells based on various QC criteria including
-    gene counts, total counts, mitochondrial percentages, and custom metrics. It supports
-    both fixed thresholds and MAD-based outlier detection, with flexible parameter handling.
+    Identifies and marks low-quality cells using a configuration-driven workflow.
 
     Args:
-        adata: AnnData object with QC metrics calculated
-        sample_key: Key in adata.obs for sample identification
-        thresholds: QCThresholds object with all threshold parameters
-        qc_metrics: List of (metric, direction) tuples for MAD-based outlier detection
-        custom_outlier_functions: Dictionary of custom outlier detection functions
-        plot_outliers: Whether to generate scatter plots highlighting outliers
-        save_dir: Directory to save plots
-        show: Whether to display plots
-        cols_to_plot: List of .obs columns to plot as scatter plots
-
-        # Backward compatibility parameters (will be used if thresholds is None)
-        min_genes: Minimum number of genes to keep a cell
-        max_genes: Maximum number of genes to keep a cell
-        min_counts: Minimum total counts to keep a cell
-        max_counts: Maximum total counts to keep a cell
-        nmads: Number of MADs for outlier detection
-        pc_mt: Maximum percentage of mitochondrial counts
-        pc_hb: Maximum percentage of hemoglobin counts
-        pc_top_genes: Fixed threshold for pct_counts_in_top_20_genes
-        use_fixed_top_gene_threshold: Whether to use fixed threshold for top20 genes
+        adata: AnnData object with QC metrics calculated.
+        sample_key: Key in adata.obs for sample identification.
+        config: A MarkingConfig object with all parameters.
+        **kwargs: Additional parameters to override defaults in the config.
 
     Returns:
-        AnnData object with boolean columns in .obs marking low-quality cells
-
-    Raises:
-        ValueError: If required QC metrics are missing
+        AnnData object with boolean columns in .obs marking low-quality cells.
     """
+    # === CONFIGURATION SETUP ===
+    base_config = MarkingConfig()
+    if config is not None:
+        config_dict = asdict(config)
+        if "thresholds" in config_dict:
+            # Update the default thresholds object field by field
+            for th_key, th_value in config_dict["thresholds"].items():
+                if hasattr(base_config.thresholds, th_key):
+                    setattr(base_config.thresholds, th_key, th_value)
+            # Remove 'thresholds' so it's not processed again
+            del config_dict["thresholds"]
+
+        # Update the rest of the config fields
+        for key, value in config_dict.items():
+            if hasattr(base_config, key):
+                setattr(base_config, key, value)
+
+    if kwargs:
+        # Override with any specific kwargs
+        for key, value in kwargs.items():
+            if hasattr(base_config, key):
+                setattr(base_config, key, value)
+            # Allow nested threshold overrides like `min_genes=300`
+            elif hasattr(base_config.thresholds, key):
+                setattr(base_config.thresholds, key, value)
+            else:
+                log.warning(f"Unknown parameter '{key}' ignored.")
+
+    cfg = base_config
+    thresholds = cfg.thresholds
+
     # Check required QC columns
     required = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
     missing = [col for col in required if col not in adata.obs.columns]
@@ -645,48 +644,10 @@ def mark_low_quality_cell(
             f"Missing required QC columns: {missing}. Run calculate_qc_metric() first."
         )
 
-    # Handle thresholds - use provided object or create from individual parameters
-    if thresholds is None:
-        # Use individual parameters for backward compatibility
-        thresholds = QCThresholds(
-            min_genes=min_genes if min_genes is not None else 200,
-            max_genes=max_genes,
-            min_counts=min_counts,
-            max_counts=max_counts,
-            pc_mt=pc_mt if pc_mt is not None else 20.0,
-            pc_hb=pc_hb if pc_hb is not None else 20.0,
-            pc_top20_genes=pc_top_genes,
-            nmads=nmads if nmads is not None else 5.0,
-            use_fixed_top_gene_threshold=use_fixed_top_gene_threshold
-            if use_fixed_top_gene_threshold is not None
-            else False,
-        )
-
     log.info("Marking low-quality cells with the following thresholds:")
     for param, value in thresholds.to_dict().items():
         if value is not None:
             log.info(f"  {param}: {value}")
-
-    # Set up default QC metrics for MAD-based detection
-    if qc_metrics is None:
-        qc_metrics = [
-            ("log1p_total_counts", "both"),
-            ("log1p_n_genes_by_counts", "both"),
-        ]
-
-        if (
-            not thresholds.use_fixed_top20_threshold
-            and "pct_counts_in_top_20_genes" in adata.obs.columns
-        ):
-            qc_metrics.append(("pct_counts_in_top_20_genes", "upper"))
-            log.info("Using MAD-based threshold for pct_counts_in_top_20_genes")
-        elif (
-            thresholds.use_fixed_top20_threshold
-            and thresholds.pc_top20_genes is not None
-        ):
-            log.info(
-                f"Using fixed threshold {thresholds.pc_top20_genes}% for pct_counts_in_top_20_genes"
-            )
 
     # Precompute sample indices for efficiency
     sample_indices = {
@@ -696,7 +657,7 @@ def mark_low_quality_cell(
 
     log.info(f"Processing {len(sample_indices)} samples with {adata.n_obs} total cells")
 
-    # === FIXED THRESHOLD CHECKS ===
+    # === THRESHOLD CHECKS ===
 
     # Gene count thresholds
     adata.obs["outlier_min_genes"] = _safe_threshold_check(
@@ -733,30 +694,39 @@ def mark_low_quality_cell(
     # === MAD-BASED OUTLIER DETECTION ===
 
     # Format metrics for identify_outliers function
-    formatted_metrics = [(metric, direction, None) for metric, direction in qc_metrics]
+    formatted_metrics = [
+        (metric, direction, None) for metric, direction in cfg.qc_metrics_mad
+    ]
 
     # Run MAD-based outlier detection
     adata.obs["outlier_qc_metrics"] = identify_outliers(
         adata, metrics=formatted_metrics, sample_key=sample_key, nmads=thresholds.nmads
     )
 
-    # Handle fixed top20 genes threshold if specified
-    if thresholds.use_fixed_top20_threshold and thresholds.pc_top20_genes is not None:
-        if "pct_counts_in_top_20_genes" in adata.obs.columns:
-            adata.obs["outlier_top20_genes"] = _safe_threshold_check(
-                adata.obs["pct_counts_in_top_20_genes"],
-                thresholds.pc_top20_genes,
-                ">",
-                "top20_genes_percentage",
+    # Handle fixed top gene thresholds if specified
+    if thresholds.use_fixed_top_gene_threshold:
+        for metric_key, threshold_value in thresholds.pc_top_genes.items():
+            # Construct the column name from the key, e.g., pc_top_20_genes -> pct_counts_in_top_20_genes
+            col_name = f"pct_counts_in_{metric_key.split('pc_')[-1]}"
+            outlier_col_name = (
+                f"outlier_{metric_key.split('pc_')[-1]}"  # e.g., outlier_top_20_genes
             )
-            # Combine with other QC metrics
-            adata.obs["outlier_qc_metrics"] = (
-                adata.obs["outlier_qc_metrics"] | adata.obs["outlier_top20_genes"]
-            )
-        else:
-            log.warning(
-                "pct_counts_in_top_20_genes not found, skipping top20 genes threshold"
-            )
+
+            if col_name in adata.obs.columns:
+                adata.obs[outlier_col_name] = _safe_threshold_check(
+                    adata.obs[col_name],
+                    threshold_value,
+                    ">",
+                    f"fixed {metric_key}",
+                )
+                # Combine with other QC metrics for a unified outlier flag
+                adata.obs["outlier_qc_metrics"] = (
+                    adata.obs["outlier_qc_metrics"] | adata.obs[outlier_col_name]
+                )
+            else:
+                log.warning(
+                    f"Fixed threshold provided for '{metric_key}', but column '{col_name}' not found in data."
+                )
 
     qc_count = adata.obs["outlier_qc_metrics"].sum()
     log.info(
@@ -765,11 +735,11 @@ def mark_low_quality_cell(
 
     # === CUSTOM OUTLIER DETECTION ===
 
-    if custom_outlier_functions:
+    if cfg.custom_outlier_functions:
         log.info(
-            f"Running {len(custom_outlier_functions)} custom outlier detection functions..."
+            f"Running {len(cfg.custom_outlier_functions)} custom outlier detection functions..."
         )
-        for func_name, func in custom_outlier_functions.items():
+        for func_name, func in cfg.custom_outlier_functions.items():
             try:
                 custom_outliers = func(adata)
                 if not isinstance(custom_outliers, pd.Series):
@@ -800,7 +770,6 @@ def mark_low_quality_cell(
 
     adata.uns["sclucid"]["qc"]["marking_params"] = {
         "thresholds": thresholds.to_dict(),
-        "qc_metrics_for_mad": qc_metrics,
     }
 
     # === SUMMARY STATISTICS ===
@@ -847,8 +816,10 @@ def mark_low_quality_cell(
 
     # === VISUALIZATION ===
 
-    if plot_outliers:
-        _plot_qc_outliers(adata, sample_indices, cols_to_plot, save_dir, show)
+    if cfg.plot_outliers:
+        _plot_qc_outliers(
+            adata, sample_indices, cfg.cols_to_plot, cfg.save_dir, cfg.show
+        )
 
     return adata
 
@@ -856,16 +827,8 @@ def mark_low_quality_cell(
 def filter_cells(
     adata: AnnData,
     config: Optional[FilterConfig] = None,
-    criteria: Optional[List[str]] = None,
     copy: bool = False,
-    # Backward compatibility parameters
-    filter_by_outlier_min_genes: Optional[bool] = None,
-    filter_by_outlier_mt: Optional[bool] = None,
-    filter_by_outlier_hb: Optional[bool] = None,
-    filter_by_outlier_qc_metrics: Optional[bool] = None,
-    filter_by_scrublet_predicted: Optional[bool] = None,
-    filter_by_heuristic_predicted: Optional[bool] = None,
-    filter_by_predicted_doublet: Optional[bool] = None,
+    **kwargs,
 ) -> Optional[AnnData]:
     """
     Enhanced cell filtering with flexible logical combinations and detailed reporting.
@@ -876,11 +839,7 @@ def filter_cells(
     Args:
         adata: AnnData object with QC metrics calculated
         config: FilterConfig object with filtering parameters
-        criteria: Custom list of boolean columns for filtering (overrides config)
         copy: Whether to return a new filtered AnnData object
-
-        # Backward compatibility parameters
-        filter_by_*: Individual boolean flags for specific criteria
 
     Returns:
         Filtered AnnData object if copy=True, otherwise filters in place and returns None
@@ -903,34 +862,23 @@ def filter_cells(
         )
         filter_cells(adata, config=config)
     """
-    # Handle configuration - use provided config or create from individual parameters
-    if config is None:
-        config = FilterConfig(
-            filter_by_outlier_min_genes=filter_by_outlier_min_genes
-            if filter_by_outlier_min_genes is not None
-            else True,
-            filter_by_outlier_mt=filter_by_outlier_mt
-            if filter_by_outlier_mt is not None
-            else True,
-            filter_by_outlier_hb=filter_by_outlier_hb
-            if filter_by_outlier_hb is not None
-            else True,
-            filter_by_outlier_qc_metrics=filter_by_outlier_qc_metrics
-            if filter_by_outlier_qc_metrics is not None
-            else True,
-            filter_by_scrublet_predicted=filter_by_scrublet_predicted
-            if filter_by_scrublet_predicted is not None
-            else True,
-            filter_by_heuristic_predicted=filter_by_heuristic_predicted
-            if filter_by_heuristic_predicted is not None
-            else True,
-            filter_by_predicted_doublet=filter_by_predicted_doublet
-            if filter_by_predicted_doublet is not None
-            else True,
-        )
+    # === 1. CONFIGURATION SETUP ===
+    base_config = FilterConfig()
+    if config is not None:
+        base_config.__dict__.update(asdict(config))
+    if kwargs:
+        for key, value in kwargs.items():
+            if hasattr(base_config, key):
+                setattr(base_config, key, value)
+            else:
+                log.warning(f"Unknown parameter '{key}' ignored.")
+    cfg = base_config
+    cfg.validate()
 
-    config.validate()
+    # --- Use cfg.criteria_to_filter instead of building a new list ---
+    criteria = cfg.criteria_to_filter
 
+    # === 2. FILTERING ===
     # Build criteria list if not provided
     if criteria is None:
         criteria = []
@@ -950,7 +898,7 @@ def filter_cells(
         }
 
         for config_attr, col_name in criteria_mapping.items():
-            if getattr(config, config_attr, False) and col_name in adata.obs.columns:
+            if getattr(cfg, config_attr, False) and col_name in adata.obs.columns:
                 criteria.append(col_name)
 
     # Filter out criteria that don't exist
@@ -969,12 +917,12 @@ def filter_cells(
     initial_cells = adata.n_obs
     log.info(f"Starting cell filtering with {initial_cells} cells")
     log.info(f"Using criteria: {', '.join(valid_criteria)}")
-    log.info(f"Combination logic: {config.combination_logic}")
+    log.info(f"Combination logic: {cfg.combination_logic}")
 
     # Apply metadata filters first if specified
     metadata_mask = pd.Series(True, index=adata.obs_names)
-    if config.metadata_filters:
-        for key, value in config.metadata_filters.items():
+    if cfg.metadata_filters:
+        for key, value in cfg.metadata_filters.items():
             if key in adata.obs.columns:
                 if isinstance(value, list):
                     metadata_mask &= adata.obs[key].isin(value)
@@ -994,25 +942,25 @@ def filter_cells(
         criteria_counts[col] = col_mask.sum()
 
     # Apply combination logic
-    if config.combination_logic == "any":
+    if cfg.combination_logic == "any":
         # Remove if ANY criterion is true (default behavior)
         combined_removal_mask = pd.Series(False, index=adata.obs_names)
         for col_mask in criteria_masks.values():
             combined_removal_mask |= col_mask
 
-    elif config.combination_logic == "all":
+    elif cfg.combination_logic == "all":
         # Remove only if ALL criteria are true
         combined_removal_mask = pd.Series(True, index=adata.obs_names)
         for col_mask in criteria_masks.values():
             combined_removal_mask &= col_mask
 
-    elif config.combination_logic == "custom":
+    elif cfg.combination_logic == "custom":
         # Use custom expression
         try:
             # Create a namespace with all criteria for evaluation
             namespace = {col: criteria_masks[col] for col in valid_criteria}
             combined_removal_mask = eval(
-                config.custom_logic_expr, {"__builtins__": {}}, namespace
+                cfg.custom_logic_expr, {"__builtins__": {}}, namespace
             )
 
             if not isinstance(combined_removal_mask, pd.Series):
@@ -1023,18 +971,18 @@ def filter_cells(
         except Exception as e:
             log.error(f"Error evaluating custom logic expression: {e}")
             raise ValueError(
-                f"Invalid custom logic expression: {config.custom_logic_expr}"
+                f"Invalid custom logic expression: {cfg.custom_logic_expr}"
             )
 
-    elif config.combination_logic == "threshold":
+    elif cfg.combination_logic == "threshold":
         # Remove if at least min_criteria_for_removal criteria are true
         criteria_sum = pd.Series(0, index=adata.obs_names)
         for col_mask in criteria_masks.values():
             criteria_sum += col_mask.astype(int)
-        combined_removal_mask = criteria_sum >= config.min_criteria_for_removal
+        combined_removal_mask = criteria_sum >= cfg.min_criteria_for_removal
 
     else:
-        raise ValueError(f"Unknown combination logic: {config.combination_logic}")
+        raise ValueError(f"Unknown combination logic: {cfg.combination_logic}")
 
     # Apply metadata filter
     combined_removal_mask = combined_removal_mask & metadata_mask

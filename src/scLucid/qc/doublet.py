@@ -2,23 +2,22 @@
 Enhanced doublet detection for single-cell RNA-seq data.
 
 This module provides comprehensive functions for identifying potential doublet cells
-using multiple algorithmic methods and flexible heuristic approaches based on
-mutually exclusive lineage marker co-expression. It integrates with a unified
-marker management system for consistent and reproducible analysis.
+using an algorithmic method (Scrublet) and a flexible heuristic approach based on
+mutually exclusive lineage marker co-expression.
 """
 
 import gc
-import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import scanpy as sc
 import scrublet as scr
+import seaborn as sns
 from anndata import AnnData
+from upsetplot import plot as upset_plot
 
 from ..utils.marker_manager import get_marker_manager
 from .config import DoubletConfig, MarkerConfig
@@ -28,290 +27,140 @@ log = logging.getLogger(__name__)
 # --- Use constants for column names for easier maintenance ---
 HEURISTIC_PRED_COL = "heuristic_predicted"
 FINAL_PRED_COL = "predicted_doublet"
+LINEAGE_PRED_KEY = "lineage_predictions"
 
 __all__ = [
     "generate_doublet_rates",
-    "predict_doublets",
-    "export_doublet_stats",
     "create_custom_marker_dict",
-    "create_doublet_marker_config_from_manager",
+    "run_heuristic_analysis",
+    "analyze_lineage_coexpression",
+    "predict_doublets",
 ]
 
 
 # --- Helper Functions ---
-def _get_builtin_markers(species: str, marker_type: str) -> Dict[str, MarkerConfig]:
+def _create_doublet_marker_config_from_manager(
+    adata: AnnData, cfg: DoubletConfig
+) -> Dict[str, MarkerConfig]:
     """
-    Fallback built-in marker definitions when marker manager is unavailable.
-
-    This function provides basic marker sets as a backup when the unified
-    marker management system cannot be loaded.
+    Create MarkerConfig objects using the marker manager and the main DoubletConfig.
 
     Args:
-        species: Species name ("human" or "mouse")
-        marker_type: Type of markers ("major_lineages" or "detailed")
+        adata: The AnnData object to intersect markers with.
+        cfg: The main DoubletConfig object, providing context like species, tissue,
+             and default evaluation parameters.
 
     Returns:
-        Dictionary mapping lineage names to MarkerConfig objects
+        A dictionary mapping lineage names to MarkerConfig objects.
     """
-    if species.lower() == "human" and marker_type == "major_lineages":
-        return {
-            "T_cells": MarkerConfig(
-                genes=["CD3D", "CD3E", "CD3G", "CD8A", "CD4"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-            "B_cells": MarkerConfig(
-                genes=["CD19", "MS4A1", "CD79A", "CD79B"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-            "Myeloid": MarkerConfig(
-                genes=["CD14", "CD68", "LYZ", "S100A9", "FCGR3A"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-            "NK_cells": MarkerConfig(
-                genes=["KLRD1", "KLRF1", "NCR1", "GNLY", "NKG7"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-            "Epithelial": MarkerConfig(
-                genes=r"^(KRT|CK)[0-9]+",  # Regex pattern for keratins
-                expression_threshold=1.0,
-                min_genes_required=2,
-            ),
-            "Endothelial": MarkerConfig(
-                genes=["PECAM1", "VWF", "CDH5", "PLVAP"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-        }
+    try:
+        manager = get_marker_manager(
+            species=cfg.marker_species,
+            tissue=cfg.marker_tissue,
+            states=None,  # States can be added in future versions if needed
+            case_sensitive=False,
+        )
+        manager.intersect_with(adata)
+        markers_dict = manager.get_doublet_lineage_markers()
 
-    elif species.lower() == "mouse" and marker_type == "major_lineages":
-        return {
-            "T_cells": MarkerConfig(
-                genes=["Cd3d", "Cd3e", "Cd3g", "Cd8a", "Cd4"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-            "B_cells": MarkerConfig(
-                genes=["Cd19", "Ms4a1", "Cd79a", "Cd79b"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-            "Myeloid": MarkerConfig(
-                genes=["Cd14", "Cd68", "Lyz2", "S100a9"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-            "Endothelial": MarkerConfig(
-                genes=["Pecam1", "Vwf", "Cdh5"],
-                expression_threshold=0.5,
-                min_genes_required=1,
-            ),
-        }
+        if not markers_dict:
+            log.warning(
+                "No tissue-specific lineage markers found, falling back to base markers."
+            )
+            base_manager = get_marker_manager(
+                species=cfg.marker_species, case_sensitive=False
+            )
+            base_manager.intersect_with(adata)
+            markers_dict = base_manager.get_doublet_lineage_markers()
 
-    else:
-        log.warning(
-            f"No built-in markers for {species} {marker_type}, returning empty dict"
+    except Exception as e:
+        log.error(
+            f"Failed to load markers via marker_manager: {e}. Cannot create heuristic configs."
         )
         return {}
 
-
-def _load_custom_marker_dict(filepath: Union[str, Path]) -> Dict[str, MarkerConfig]:
-    """
-    Load markers from custom file (JSON/YAML format).
-
-    Args:
-        filepath: Path to custom marker configuration file
-
-    Returns:
-        Dictionary mapping lineage names to MarkerConfig objects
-
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-        ValueError: If the file format is unsupported
-    """
-
-    filepath = Path(filepath)
-    if not filepath.exists():
-        raise FileNotFoundError(f"Marker file not found: {filepath}")
-
-    with open(filepath, "r") as f:
-        if filepath.suffix.lower() == ".json":
-            data = json.load(f)
-        elif filepath.suffix.lower() in [".yaml", ".yml"]:
-            import yaml
-
-            data = yaml.safe_load(f)
-        else:
-            raise ValueError(f"Unsupported file format: {filepath.suffix}")
-
-    # Convert to MarkerConfig objects
-    config_dict = {}
-    for lineage, marker_def in data.items():
-        if isinstance(marker_def, dict):
-            config_dict[lineage] = MarkerConfig(**marker_def)
-        else:
-            config_dict[lineage] = MarkerConfig(genes=marker_def)
-
-    return config_dict
+    marker_configs = {}
+    for lineage, genes in markers_dict.items():
+        if genes:
+            marker_configs[lineage] = MarkerConfig(
+                genes=genes,
+                expression_threshold=cfg.default_expression_threshold,
+                min_genes_required=cfg.default_min_genes_required,
+                use_raw=cfg.default_use_raw,
+            )
+    log.info(
+        f"Auto-generated {len(marker_configs)} marker configurations for doublet detection."
+    )
+    return marker_configs
 
 
 def _evaluate_lineage_expression(
     adata: AnnData, lineage_name: str, marker_config: MarkerConfig
 ) -> pd.Series:
     """
-    Evaluate expression of markers for a specific lineage.
-
-    This function processes marker genes (either as a list or regex pattern)
-    and determines which cells are positive for the given lineage based on
-    the specified expression threshold and minimum gene requirements.
+    Evaluate expression of markers for a specific lineage based on a MarkerConfig.
 
     Args:
-        adata: AnnData object containing expression data
-        lineage_name: Name of the lineage being evaluated
-        marker_config: Configuration object defining marker evaluation parameters
+        adata: AnnData object containing expression data.
+        lineage_name: Name of the lineage being evaluated.
+        marker_config: Configuration object defining marker evaluation parameters.
 
     Returns:
-        Boolean series indicating cells positive for this lineage
+        A boolean pandas Series indicating cells positive for this lineage.
     """
     source_adata = (
         adata.raw.to_adata() if marker_config.use_raw and adata.raw else adata
     )
+    var_names_upper = {name.upper(): name for name in source_adata.var_names}
 
     if marker_config.is_regex:
-        # Handle regex pattern for gene matching
         pattern = marker_config.genes
         matching_genes = source_adata.var_names.str.contains(
-            pattern, regex=True, na=False
+            pattern, regex=True, na=False, case=False
         )
         valid_genes = source_adata.var_names[matching_genes].tolist()
-
-        if not valid_genes:
-            log.warning(
-                f"No genes found matching pattern '{pattern}' for lineage '{lineage_name}'"
-            )
-            return pd.Series(False, index=adata.obs_names)
-
-        log.info(
-            f"Found {len(valid_genes)} genes matching pattern '{pattern}' for lineage '{lineage_name}'"
-        )
-
     else:
-        # Handle explicit gene list
-        valid_genes = [g for g in marker_config.genes if g in source_adata.var_names]
-        if not valid_genes:
-            log.warning(f"No valid genes found for lineage '{lineage_name}'")
-            return pd.Series(False, index=adata.obs_names)
+        marker_genes_upper = [g.upper() for g in marker_config.genes]
+        valid_genes_upper = [g for g in marker_genes_upper if g in var_names_upper]
+        valid_genes = [var_names_upper[g] for g in valid_genes_upper]
 
-        missing_genes = set(marker_config.genes) - set(valid_genes)
-        if missing_genes:
-            log.warning(f"Missing genes for lineage '{lineage_name}': {missing_genes}")
-
-    # Extract expression data for valid genes
-    expr_data = sc.get.obs_df(source_adata[:, valid_genes], keys=valid_genes)
-
-    # Apply expression threshold to determine gene-level positivity
-    expr_binary = expr_data > marker_config.expression_threshold
-
-    # Count number of positive genes per cell
-    genes_expressed = expr_binary.sum(axis=1)
-
-    # Determine lineage positivity based on minimum gene requirement
-    lineage_positive = genes_expressed >= marker_config.min_genes_required
-
-    positive_count = lineage_positive.sum()
-    positive_percentage = positive_count / len(lineage_positive) * 100
-
-    log.info(
-        f"Lineage '{lineage_name}': {positive_count} cells positive "
-        f"({positive_percentage:.2f}%)"
-    )
-
-    return lineage_positive
-
-
-def _identify_coexpression_doublets(
-    adata: AnnData,
-    marker_configs: Dict[str, MarkerConfig],
-    min_lineages_for_doublet: int = 2,
-) -> pd.Series:
-    """
-    Enhanced co-expression doublet detection with flexible marker configurations.
-
-    This function identifies potential doublets by detecting cells that co-express
-    markers from multiple mutually exclusive lineages. This approach is based on
-    the biological principle that genuine single cells should predominantly express
-    markers from a single lineage.
-
-    Args:
-        adata: AnnData object containing expression data
-        marker_configs: Dictionary mapping lineage names to MarkerConfig objects
-        min_lineages_for_doublet: Minimum number of lineages that must be co-expressed
-
-    Returns:
-        Boolean series indicating potential doublet cells
-    """
-    log.info("Identifying potential doublets via co-expression of exclusive markers...")
-
-    if not marker_configs:
-        log.warning(
-            "No marker configurations provided. Skipping co-expression heuristic."
-        )
+    if not valid_genes:
+        log.warning(f"No valid genes found for lineage '{lineage_name}'")
         return pd.Series(False, index=adata.obs_names)
 
-    # Evaluate each lineage independently
-    lineage_results = {}
-    for lineage_name, marker_config in marker_configs.items():
-        lineage_results[lineage_name] = _evaluate_lineage_expression(
-            adata, lineage_name, marker_config
-        )
+    expr_data = source_adata[:, valid_genes].X
+    if hasattr(expr_data, "toarray"):
+        expr_data = expr_data.toarray()
 
-    # Combine lineage results into a DataFrame
-    lineage_df = pd.DataFrame(lineage_results, index=adata.obs_names)
+    expr_binary = expr_data > marker_config.expression_threshold
+    genes_expressed = expr_binary.sum(axis=1)
+    lineage_positive = genes_expressed >= marker_config.min_genes_required
+    lineage_positive_series = pd.Series(lineage_positive, index=source_adata.obs_names)
 
-    # Count number of lineages positive per cell
-    lineages_per_cell = lineage_df.sum(axis=1)
-
-    # Identify doublets based on co-expression threshold
-    coexpression_doublets = lineages_per_cell >= min_lineages_for_doublet
-
-    doublet_count = coexpression_doublets.sum()
+    positive_count = lineage_positive_series.sum()
     log.info(
-        f"Found {doublet_count} potential doublets co-expressing "
-        f"markers from >= {min_lineages_for_doublet} lineages."
+        f"Lineage '{lineage_name}': {positive_count} cells positive "
+        f"({positive_count / len(lineage_positive_series) * 100:.2f}%)"
     )
-
-    # Log detailed statistics for different co-expression levels
-    for n_lineages in range(min_lineages_for_doublet, lineage_df.shape[1] + 1):
-        count = (lineages_per_cell == n_lineages).sum()
-        if count > 0:
-            percentage = count / len(lineages_per_cell) * 100
-            log.info(
-                f"  - Cells expressing {n_lineages} lineages: {count} ({percentage:.2f}%)"
-            )
-
-    return coexpression_doublets
+    return lineage_positive_series
 
 
 def _merge_doublet_predictions(
     adata: AnnData,
     algorithm_col: str,
-    heuristic_col: str = HEURISTIC_PRED_COL,
-    strategy: str = "union",
+    heuristic_col: str,
+    strategy: str = "weighted",
+    algorithm_weight: float = 0.7,
 ) -> pd.Series:
     """
     Merge algorithmic and heuristic doublet predictions using different strategies.
-
-    This function combines predictions from algorithmic methods (e.g., Scrublet)
-    with heuristic marker-based predictions using various logical operations.
 
     Args:
         adata: AnnData object containing prediction results
         algorithm_col: Column name for algorithmic predictions
         heuristic_col: Column name for heuristic predictions
-        strategy: Merge strategy ("union", "intersection", "algorithm_priority", "heuristic_priority")
+        strategy: Merge strategy ("union", "weighted, "intersection", "algorithm_priority", "heuristic_priority")
+        algorithm_weight: Weight for algorithmic predictions (0-1)
 
     Returns:
         Boolean series with merged predictions
@@ -321,118 +170,74 @@ def _merge_doublet_predictions(
 
     if strategy == "union":
         merged = algo_pred | heur_pred
-        log.info("Using union strategy: doublets predicted by either method")
-
     elif strategy == "intersection":
         merged = algo_pred & heur_pred
-        log.info("Using intersection strategy: doublets predicted by both methods")
-
     elif strategy == "algorithm_priority":
-        merged = algo_pred.copy()
-        log.info("Using algorithm priority: only algorithmic predictions")
-
+        merged = algo_pred
     elif strategy == "heuristic_priority":
-        merged = heur_pred.copy()
-        log.info("Using heuristic priority: only heuristic predictions")
+        merged = heur_pred
+    elif strategy == "weighted":
+        agree = algo_pred == heur_pred
+        disagree = ~agree
 
+        # Start with points of agreement
+        merged = pd.Series(False, index=adata.obs_names)
+        merged[agree] = algo_pred[agree]  # Use agreement value
+
+        # For disagreements, use algorithm with probability algorithm_weight
+        if np.any(disagree):
+            n_disagree = disagree.sum()
+            n_algo = int(n_disagree * algorithm_weight)
+
+            # Sort by algorithm score to prioritize most likely doublets
+            if f"{algorithm_col.replace('_predicted', '_score')}" in adata.obs:
+                score_col = algorithm_col.replace("_predicted", "_score")
+                # Pick top n_algo cells by score for algorithm, rest for heuristic
+                disagree_cells = adata.obs_names[disagree]
+                disagree_scores = adata.obs.loc[disagree_cells, score_col]
+
+                # Use algorithm for top n_algo cells by score
+                top_cells = disagree_scores.nlargest(n_algo).index
+                merged[top_cells] = algo_pred[top_cells]
+
+                # Use heuristic for remaining cells
+                other_cells = set(disagree_cells) - set(top_cells)
+                merged[list(other_cells)] = heur_pred[list(other_cells)]
+            else:
+                # Random assignment if scores not available
+                import random
+
+                algo_cells = random.sample(list(adata.obs_names[disagree]), n_algo)
+                merged[algo_cells] = algo_pred[algo_cells]
+
+                other_cells = set(adata.obs_names[disagree]) - set(algo_cells)
+                merged[list(other_cells)] = heur_pred[list(other_cells)]
     else:
         raise ValueError(f"Unknown merge strategy: {strategy}")
 
-    # Log detailed merge statistics
-    algo_count = algo_pred.sum()
-    heur_count = heur_pred.sum()
-    merged_count = merged.sum()
-    overlap_count = (algo_pred & heur_pred).sum()
-
-    total_cells = len(algo_pred)
-
-    log.info("Merge statistics:")
     log.info(
-        f"  - Algorithm predictions: {algo_count} ({algo_count / total_cells:.2%})"
+        f"Merged predictions using '{strategy}' strategy. Final count: {merged.sum()}"
     )
-    log.info(
-        f"  - Heuristic predictions: {heur_count} ({heur_count / total_cells:.2%})"
-    )
-    log.info(f"  - Overlap: {overlap_count} ({overlap_count / total_cells:.2%})")
-    log.info(f"  - Final merged: {merged_count} ({merged_count / total_cells:.2%})")
-
     return merged
-
-
-def _load_marker_dict(
-    species: str = "human",
-    marker_type: str = "major_lineages",
-    custom_path: Optional[Union[str, Path]] = None,
-    expression_threshold: float = 0.5,
-    min_genes_required: int = 1,
-    use_raw: bool = True,
-) -> Dict[str, MarkerConfig]:
-    """
-    Load predefined marker dictionaries using the unified marker manager.
-
-    This function leverages the comprehensive marker management system to load
-    appropriate marker sets for doublet detection. It supports both simple
-    marker loading and custom configurations.
-
-    Args:
-        species: Species name ("human", "mouse")
-        marker_type: Type of markers ("major_lineages", "detailed")
-        custom_path: Path to custom marker file (overrides species/type)
-        expression_threshold: Expression threshold for all markers
-        min_genes_required: Minimum genes required for positive lineage
-        use_raw: Whether to use raw expression data
-
-    Returns:
-        Dictionary mapping lineage names to MarkerConfig objects
-    """
-    if custom_path:
-        return _load_custom_marker_dict(custom_path)
-
-    try:
-        # Load the appropriate marker set using unified manager
-        if marker_type == "major_lineages":
-            manager = get_marker_manager(species=species, case_sensitive=False)
-            # Get only major lineages suitable for doublet detection
-            markers_dict = manager.get_markers_by_level("major")
-        elif marker_type == "detailed":
-            manager = get_marker_manager(species=species, case_sensitive=False)
-            # Get all markers including subtypes for comprehensive analysis
-            markers_dict = manager.get_markers_by_level("all")
-        else:
-            raise ValueError(f"Unknown marker_type: {marker_type}")
-
-        # Convert to MarkerConfig objects with specified parameters
-        marker_configs = {}
-        for lineage, genes in markers_dict.items():
-            if genes:  # Only include lineages with actual markers
-                marker_configs[lineage] = MarkerConfig(
-                    genes=genes,
-                    expression_threshold=expression_threshold,
-                    min_genes_required=min_genes_required,
-                    use_raw=use_raw,
-                )
-
-        log.info(
-            f"Loaded {len(marker_configs)} marker configurations for {species} {marker_type}"
-        )
-        return marker_configs
-
-    except ImportError:
-        log.warning("Marker manager not found, using built-in markers")
-        return _get_builtin_markers(species, marker_type)
-    except Exception as e:
-        log.error(f"Failed to load markers: {e}")
-        return _get_builtin_markers(species, marker_type)
 
 
 def _run_scrublet(
     adata_view: AnnData,
     sample_name: str,
     config: DoubletConfig,
-) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Runs the Scrublet algorithm on a single AnnData view."""
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Run Scrublet algorithm for doublet detection on a single AnnData view.
+    Returns (scores, predicted) arrays.
+    """
     rate = config.expected_doublet_rate
     current_rate = rate.get(sample_name, 0.1) if isinstance(rate, dict) else rate
+    if current_rate is None:  # Handle case where rate is not provided for a sample
+        log.warning(
+            f"No doublet rate provided for sample '{sample_name}', using default of 0.1."
+        )
+        current_rate = 0.1
+
     actual_n_pcs = min(config.n_pcs, adata_view.n_obs - 1, adata_view.n_vars - 1)
 
     try:
@@ -451,7 +256,7 @@ def _run_scrublet(
                 scrub.set_embedding(
                     "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
                 )
-                fig = scrub.plot_embedding("UMAP", order_points=True)
+                fig, ax = scrub.plot_embedding("UMAP", order_points=True)
                 if config.save_dir:
                     save_path = (
                         Path(config.save_dir) / f"{sample_name}_doublets_umap.png"
@@ -474,184 +279,93 @@ def _run_scrublet(
         gc.collect()
 
 
-# --- Main Functions ---
-def generate_doublet_rates(
-    adata: AnnData,
-    sample_key: str = "sampleID",
-    rate_per_1000_cells: float = 0.008,
-    max_rate: float = 0.20,
-    min_rate: float = 0.001,
-) -> Dict[str, float]:
+def _run_heuristic(
+    adata: AnnData, cfg: DoubletConfig
+) -> Tuple[pd.Series, pd.DataFrame]:
     """
-    Automatically generate expected doublet rates based on cell count per sample.
+    Runs the full heuristic doublet detection workflow.
 
-    This function calculates expected doublet rates using the 10x Genomics guideline:
-    for every 1000 cells, the multiplet rate increases by approximately 0.8% (0.008).
-    This accounts for the fact that higher cell loading increases collision probability.
+    This helper function loads markers, identifies co-expressing cells,
+    and applies ignore rules. It returns both the final boolean prediction
+    and the detailed lineage-by-cell matrix.
 
     Args:
-        adata: AnnData object containing cell count information
-        sample_key: Column name in adata.obs used to distinguish samples
-        rate_per_1000_cells: Expected doublet rate per 1000 cells
-                           - 0.008 for standard 3' v3.1 chemistry
-                           - 0.016 for high-throughput (HT) kits
-        max_rate: Maximum doublet rate cap (prevents unrealistic rates)
-        min_rate: Minimum doublet rate floor (ensures some detection sensitivity)
+        adata: AnnData object.
+        cfg: The DoubletConfig object.
 
     Returns:
-        Dictionary mapping sample IDs to calculated doublet rates
-
-    Example:
-        >>> doublet_rates = generate_doublet_rates(adata, sample_key="sampleID")
-        >>> print(doublet_rates)
-        {'sample_A': 0.04, 'sample_B': 0.08}
+        A tuple containing:
+        - A boolean pd.Series of heuristic doublet predictions.
+        - A pd.DataFrame (`lineage_df`) with detailed predictions for each lineage.
     """
-    log.info(
-        "Automatically generating doublet rates based on cell counts per sample..."
-    )
+    marker_configs = cfg.marker_configs
+    if marker_configs is None:
+        marker_configs = _create_doublet_marker_config_from_manager(adata, cfg)
 
-    # Calculate cell counts per sample
-    cell_counts = adata.obs[sample_key].value_counts()
-    doublet_rates = {}
+    if not marker_configs:
+        log.warning(
+            "Heuristics enabled, but no marker configurations were found. Skipping."
+        )
+        empty_df = pd.DataFrame(index=adata.obs_names)
+        return pd.Series(False, index=adata.obs_names), empty_df
 
-    for sample, n_cells in cell_counts.items():
-        # Apply 10x Genomics linear scaling formula
-        rate = (n_cells / 1000) * rate_per_1000_cells
+    lineage_results = {}
+    for name, marker_config in marker_configs.items():
+        # If a marker_config from a manual dict is missing a parameter, it will use the default from DoubletConfig
+        final_mc = MarkerConfig(
+            genes=marker_config.genes,
+            expression_threshold=getattr(
+                marker_config, "expression_threshold", cfg.default_expression_threshold
+            ),
+            min_genes_required=getattr(
+                marker_config, "min_genes_required", cfg.default_min_genes_required
+            ),
+            use_raw=getattr(marker_config, "use_raw", cfg.default_use_raw),
+        )
+        lineage_results[name] = _evaluate_lineage_expression(adata, name, final_mc)
 
-        # Apply rate constraints to prevent unrealistic values
-        rate = max(min_rate, min(rate, max_rate))
+    lineage_df = pd.DataFrame(lineage_results, index=adata.obs_names)
 
-        doublet_rates[sample] = rate
-        log.info(f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}")
+    # Add prevalence filtering for lineages
+    # Only consider lineages that are present in a minimum percentage of cells
+    min_prevalence = cfg.min_lineage_prevalence
+    lineage_prevalence = lineage_df.mean()
+    valid_lineages = lineage_prevalence[
+        lineage_prevalence >= min_prevalence
+    ].index.tolist()
 
-    return doublet_rates
+    if len(valid_lineages) < 2:
+        log.warning(
+            "Insufficient lineages with minimum prevalence. Heuristic analysis may be unreliable."
+        )
+        # Fall back to using all lineages if needed
+        if len(lineage_df.columns) >= 2:
+            valid_lineages = lineage_df.columns.tolist()
 
+    # Focus on valid lineages only
+    lineage_df = lineage_df[valid_lineages]
 
-def create_doublet_marker_config_from_manager(
-    species: str = "human",
-    tissue: Optional[str] = None,
-    states: Optional[List[str]] = None,
-    level: Literal["major", "minor", "all"] = "major",
-    expression_threshold: float = 0.5,
-    min_genes_required: int = 1,
-    use_raw: bool = True,
-    min_markers_per_type: int = 1,
-) -> Dict[str, MarkerConfig]:
-    """
-    Create MarkerConfig objects using the comprehensive marker manager.
+    # Calculate lineages per cell with improved logic
+    lineages_per_cell = lineage_df.sum(axis=1)
+    potential_doublets = lineages_per_cell >= cfg.min_lineages_for_doublet
 
-    This function builds marker configurations by combining base, tissue-specific,
-    and cell state-specific markers for enhanced doublet detection accuracy.
-
-    Args:
-        species: Species name ("human", "mouse")
-        tissue: Specific tissue context (e.g., "Lung", "Brain")
-        states: Cell states to include (e.g., ["Proliferating", "Hypoxia"])
-        level: Cell type level to include ("major", "minor", "all")
-        expression_threshold: Expression threshold for markers
-        min_genes_required: Minimum genes required for positive lineage
-        use_raw: Whether to use raw counts
-        min_markers_per_type: Minimum markers required per cell type (filters out sparse types)
-
-    Returns:
-        Dictionary mapping lineage names to MarkerConfig objects
-    """
-    # Build comprehensive marker manager with all requested contexts
-    manager = get_marker_manager(
-        species=species, tissue=tissue, states=states, case_sensitive=False
-    )
-
-    # Filter out cell types with insufficient markers
-    if min_markers_per_type > 1:
-        removed_types = manager.filter_markers(min_genes_per_type=min_markers_per_type)
-        if removed_types:
-            log.info(
-                f"Filtered out {len(removed_types)} cell types with < {min_markers_per_type} markers"
+    if cfg.ignore_coexpression_pairs:
+        log.info(
+            f"Ignoring {len(cfg.ignore_coexpression_pairs)} specific co-expression pairs."
+        )
+        ignored_set = {tuple(sorted(pair)) for pair in cfg.ignore_coexpression_pairs}
+        doublet_indices = potential_doublets[potential_doublets].index
+        for cell_idx in doublet_indices:
+            expressed_lineages = tuple(
+                sorted(lineage_df.columns[lineage_df.loc[cell_idx]])
             )
+            if expressed_lineages in ignored_set:
+                potential_doublets.loc[cell_idx] = False
 
-    # Get markers by specified level
-    markers_dict = manager.get_markers_by_level(level)
-
-    # Convert to MarkerConfig objects
-    marker_configs = {}
-    for lineage, genes in markers_dict.items():
-        if len(genes) >= min_markers_per_type:
-            marker_configs[lineage] = MarkerConfig(
-                genes=genes,
-                expression_threshold=expression_threshold,
-                min_genes_required=min_genes_required,
-                use_raw=use_raw,
-            )
-
-    log.info(f"Created {len(marker_configs)} marker configurations from manager")
-    return marker_configs
+    return potential_doublets, lineage_df
 
 
-def create_custom_marker_dict(
-    lineage_definitions: Dict[str, Dict], save_path: Optional[Union[str, Path]] = None
-) -> Dict[str, MarkerConfig]:
-    """
-    Create custom marker dictionary from user-defined lineage specifications.
-
-    This function allows users to define their own marker sets with custom
-    parameters for specialized doublet detection scenarios.
-
-    Args:
-        lineage_definitions: Dictionary defining lineages and their parameters
-        save_path: Optional path to save the configuration for future use
-
-    Returns:
-        Dictionary mapping lineage names to MarkerConfig objects
-
-    Example:
-        lineage_defs = {
-            "T_cells": {
-                "genes": ["CD3D", "CD3E", "CD8A"],
-                "expression_threshold": 0.5,
-                "min_genes_required": 1
-            },
-            "Epithelial": {
-                "genes": r"^KRT[0-9]+",  # Regex pattern
-                "expression_threshold": 1.0,
-                "min_genes_required": 2
-            }
-        }
-        marker_configs = create_custom_marker_dict(lineage_defs)
-    """
-    config_dict = {}
-
-    for lineage, definition in lineage_definitions.items():
-        # Validate required 'genes' field
-        if "genes" not in definition:
-            raise ValueError(f"Missing 'genes' field for lineage '{lineage}'")
-
-        config_dict[lineage] = MarkerConfig(**definition)
-
-    # Save configuration if requested
-    if save_path:
-        import json
-
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Convert to serializable format
-        serializable_dict = {}
-        for lineage, config in config_dict.items():
-            serializable_dict[lineage] = {
-                "genes": config.genes,
-                "expression_threshold": config.expression_threshold,
-                "min_genes_required": config.min_genes_required,
-                "use_raw": config.use_raw,
-            }
-
-        with open(save_path, "w") as f:
-            json.dump(serializable_dict, f, indent=2)
-        log.info(f"Marker configuration saved to {save_path}")
-
-    return config_dict
-
-
-def export_doublet_stats(
+def _export_doublet_stats(
     adata: AnnData,
     sample_key: str = "sampleID",
     save_dir: Optional[Union[str, Path]] = None,
@@ -771,74 +485,447 @@ def export_doublet_stats(
     return {"sample": sample_df, "global": global_df}
 
 
+def _plot_doublet_summary(
+    adata: AnnData,
+    sample_key: str = "sampleID",
+    save_dir: Optional[Union[str, Path]] = None,
+    show: bool = True,
+) -> None:
+    """
+    Generates a comprehensive, UMAP-independent summary plot for doublet detection results.
+
+    This function creates a multi-panel figure showing:
+    1. A stacked bar plot of doublet counts and percentages per sample, broken down by prediction source.
+    2. A scatter plot of doublet scores vs. gene counts, a key diagnostic for algorithmic methods.
+    3. An UpSet plot visualizing the co-expression patterns from the heuristic analysis.
+
+    Args:
+        adata: AnnData object after running `predict_doublets`.
+        sample_key: The key in adata.obs for sample identification.
+        save_dir: Directory to save the plot.
+        show: Whether to display the plot.
+    """
+    log.info("Generating UMAP-independent doublet detection summary plot...")
+
+    # --- 0. Checking for required columns ---
+    required_cols = [FINAL_PRED_COL, "heuristic_predicted"]
+    algo_pred_col = [
+        c
+        for c in adata.obs.columns
+        if c.endswith("_predicted") and "heuristic" not in c and "predicted" in c
+    ]
+    if not algo_pred_col:
+        raise ValueError(
+            "Could not find an algorithm prediction column (e.g., 'scrublet_predicted')."
+        )
+    algo_pred_col = algo_pred_col[0]
+    algo_score_col = algo_pred_col.replace("_predicted", "_score")
+    required_cols.append(algo_pred_col)
+
+    if not all(col in adata.obs.columns for col in required_cols):
+        raise ValueError(
+            f"Required columns not found in adata.obs: {required_cols}. Please run `predict_doublets` first."
+        )
+
+    # --- 1. Creating Multi-Panel Graphs ---
+    fig = plt.figure(figsize=(22, 7), constrained_layout=True)
+    gs = fig.add_gridspec(1, 3, width_ratios=[0.8, 1, 1.2])
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1])
+    ax3 = fig.add_subplot(gs[2])
+    fig.suptitle("Doublet Detection Summary", fontsize=18, fontweight="bold")
+
+    # --- 2. Panel 1: Double cell ratio by sample (bar graph) ---
+    adata.obs["doublet_source"] = "Singleton"
+    adata.obs.loc[
+        adata.obs[algo_pred_col] & ~adata.obs[HEURISTIC_PRED_COL], "doublet_source"
+    ] = "Algorithm Only"
+    adata.obs.loc[
+        ~adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL], "doublet_source"
+    ] = "Heuristic Only"
+    adata.obs.loc[
+        adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL], "doublet_source"
+    ] = "Both Methods"
+
+    summary_df = (
+        adata.obs.groupby(sample_key)["doublet_source"]
+        .value_counts(normalize=True)
+        .unstack()
+        .fillna(0)
+    )
+    summary_df = summary_df.mul(100)  # Convert to percentage
+
+    summary_df.plot(
+        kind="bar",
+        stacked=True,
+        ax=ax1,
+        color={
+            "Singleton": "lightgray",
+            "Algorithm Only": "skyblue",
+            "Heuristic Only": "coral",
+            "Both Methods": "darkred",
+        },
+    )
+    ax1.set_title("Doublet Breakdown per Sample", fontsize=14)
+    ax1.set_ylabel("Percentage of Cells (%)")
+    ax1.set_xlabel("Sample")
+    ax1.tick_params(axis="x", rotation=45)
+    ax1.legend(title="Source", bbox_to_anchor=(1.05, 1), loc="upper left")
+
+    # --- 3. Panel 2: Algorithm score vs. Number of genes (scatter plot)---
+    if algo_score_col in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
+        sns.scatterplot(
+            data=adata.obs,
+            x="n_genes_by_counts",
+            y=algo_score_col,
+            hue=FINAL_PRED_COL,
+            s=5,
+            alpha=0.6,
+            palette={True: "red", False: "gray"},
+            ax=ax2,
+            rasterized=True,
+        )
+        ax2.set_title(
+            f"{algo_score_col.split('_')[0].capitalize()} Score vs. Gene Count",
+            fontsize=14,
+        )
+        ax2.set_xlabel("Number of Genes")
+        ax2.set_ylabel("Doublet Score")
+        ax2.legend(title="Predicted Doublet")
+    else:
+        ax2.text(
+            0.5,
+            0.5,
+            "Algorithm scores or gene counts not found.",
+            ha="center",
+            va="center",
+            transform=ax2.transAxes,
+        )
+
+    # --- 4. Panel 3: Lineage co-expression analysis (UpSet graph) ---
+    if "lineage_predictions" in adata.obsm:
+        lineage_df = adata.obsm["lineage_predictions"]
+        # Select only co-expressing cells for plotting
+        coexpressing_cells = lineage_df[lineage_df.sum(axis=1) >= 2]
+        if not coexpressing_cells.empty:
+            lineage_combinations = coexpressing_cells.groupby(
+                list(coexpressing_cells.columns)
+            ).size()
+            upset_plot(
+                lineage_combinations, fig=fig, min_subset_size=10, show_counts=True
+            )
+            # UpSet plot takes over the figure, so we don't use ax3 directly
+            plt.suptitle("Heuristic: Lineage Co-expression Patterns", fontsize=14)
+        else:
+            ax3.text(
+                0.5,
+                0.5,
+                "No co-expressing cells found by heuristics.",
+                ha="center",
+                va="center",
+                transform=ax3.transAxes,
+            )
+            ax3.set_title("Heuristic: Lineage Co-expression", fontsize=14)
+    else:
+        ax3.text(
+            0.5,
+            0.5,
+            "Heuristic analysis not performed.",
+            ha="center",
+            va="center",
+            transform=ax3.transAxes,
+        )
+        ax3.set_title("Heuristic: Lineage Co-expression", fontsize=14)
+
+    # --- 5. Save and display ---
+    if save_dir:
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        plt.savefig(
+            save_path / "doublet_summary_plot.png", dpi=300, bbox_inches="tight"
+        )
+        log.info(f"Saved doublet summary plot to {save_path}")
+
+    if show:
+        plt.show()
+
+    plt.close(fig)
+
+
+# --- Main Functions ---
+def generate_doublet_rates(
+    adata: AnnData,
+    sample_key: str = "sampleID",
+    rate_per_1000_cells: float = 0.008,
+    max_rate: float = 0.20,
+    min_rate: float = 0.001,
+    chemistry: str = "v3",
+) -> Dict[str, float]:
+    """
+    Automatically generate expected doublet rates based on cell count per sample.
+
+    This function calculates expected doublet rates using the 10x Genomics guideline:
+    for every 1000 cells, the multiplet rate increases by approximately 0.8% (0.008).
+    This accounts for the fact that higher cell loading increases collision probability.
+
+    Args:
+        adata: AnnData object containing cell count information
+        sample_key: Column name in adata.obs used to distinguish samples
+        rate_per_1000_cells: Expected doublet rate per 1000 cells
+                           - 0.008 for standard 3' v3.1 chemistry
+                           - 0.016 for high-throughput (HT) kits
+        max_rate: Maximum doublet rate cap (prevents unrealistic rates)
+        min_rate: Minimum doublet rate floor (ensures some detection sensitivity)
+        chemistry: The 10x chemistry version ('v2', 'v3', 'HT', or 'custom')
+
+    Returns:
+        Dictionary mapping sample IDs to calculated doublet rates
+
+    Example:
+        >>> doublet_rates = generate_doublet_rates(adata, sample_key="sampleID")
+        >>> print(doublet_rates)
+        {'sample_A': 0.04, 'sample_B': 0.08}
+    """
+    log.info(
+        "Automatically generating doublet rates based on cell counts per sample..."
+    )
+
+    # Define chemistry-specific rates
+    chemistry_rates = {
+        "v2": 0.007,  # 10x v2 chemistry
+        "v3": 0.008,  # 10x v3 chemistry
+        "HT": 0.016,  # 10x High-throughput chemistry
+        "custom": rate_per_1000_cells,
+    }
+
+    if chemistry not in chemistry_rates:
+        log.warning(f"Unknown chemistry '{chemistry}'. Using default v3 rate.")
+        chemistry = "v3"
+
+    actual_rate = chemistry_rates[chemistry]
+    log.info(
+        f"Using {chemistry} chemistry with base rate of {actual_rate} per 1000 cells"
+    )
+
+    # Calculate cell counts per sample
+    cell_counts = adata.obs[sample_key].value_counts()
+    doublet_rates = {}
+
+    # Add non-linear scaling for very high cell counts
+    for sample, n_cells in cell_counts.items():
+        if n_cells > 10000:
+            # Non-linear scaling for very high cell counts
+            rate = (0.8 * (n_cells / 1000) * actual_rate) + (
+                0.2 * actual_rate * (n_cells / 1000) ** 1.5
+            )
+        else:
+            # Standard linear scaling
+            rate = (n_cells / 1000) * actual_rate
+
+        # Apply rate constraints
+        rate = max(min_rate, min(rate, max_rate))
+        doublet_rates[sample] = rate
+        log.info(f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}")
+
+    return doublet_rates
+
+
+def create_custom_marker_dict(
+    lineage_definitions: Dict[str, Dict], save_path: Optional[Union[str, Path]] = None
+) -> Dict[str, MarkerConfig]:
+    """
+    Create custom marker dictionary from user-defined lineage specifications.
+
+    This function allows users to define their own marker sets with custom
+    parameters for specialized doublet detection scenarios.
+
+    Args:
+        lineage_definitions: Dictionary defining lineages and their parameters
+        save_path: Optional path to save the configuration for future use
+
+    Returns:
+        Dictionary mapping lineage names to MarkerConfig objects
+
+    Example:
+        lineage_defs = {
+            "T_cells": {
+                "genes": ["CD3D", "CD3E", "CD8A"],
+                "expression_threshold": 0.5,
+                "min_genes_required": 1
+            },
+            "Epithelial": {
+                "genes": r"^KRT[0-9]+",  # Regex pattern
+                "expression_threshold": 1.0,
+                "min_genes_required": 2
+            }
+        }
+        marker_configs = create_custom_marker_dict(lineage_defs)
+    """
+    config_dict = {}
+
+    for lineage, definition in lineage_definitions.items():
+        # Validate required 'genes' field
+        if "genes" not in definition:
+            raise ValueError(f"Missing 'genes' field for lineage '{lineage}'")
+
+        config_dict[lineage] = MarkerConfig(**definition)
+
+    # Save configuration if requested
+    if save_path:
+        import json
+
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert to serializable format
+        serializable_dict = {}
+        for lineage, config in config_dict.items():
+            serializable_dict[lineage] = {
+                "genes": config.genes,
+                "expression_threshold": config.expression_threshold,
+                "min_genes_required": config.min_genes_required,
+                "use_raw": config.use_raw,
+            }
+
+        with open(save_path, "w") as f:
+            json.dump(serializable_dict, f, indent=2)
+        log.info(f"Marker configuration saved to {save_path}")
+
+    return config_dict
+
+
+def run_heuristic_analysis(adata: AnnData, config: DoubletConfig) -> AnnData:
+    """
+    (Step 1: Calculate) Runs the heuristic analysis and stores results in the AnnData object.
+
+    This function's sole purpose is to perform the marker-based co-expression calculation.
+    Results are stored in `adata.obsm['lineage_predictions']` and `adata.obs['heuristic_predicted']`.
+
+    Args:
+        adata: The AnnData object.
+        config: A DoubletConfig object with heuristic parameters configured.
+
+    Returns:
+        The AnnData object, modified with heuristic analysis results.
+    """
+    log.info("--- Running Heuristic Analysis (Calculation Step) ---")
+    if not config.use_heuristics:
+        log.warning("`use_heuristics` is False in config. Skipping analysis.")
+        adata.obs[HEURISTIC_PRED_COL] = False
+        adata.obsm[LINEAGE_PRED_KEY] = pd.DataFrame(index=adata.obs_names)
+        return adata
+
+    heuristic_pred, lineage_df = _run_heuristic(adata, config)
+    adata.obs[HEURISTIC_PRED_COL] = heuristic_pred
+    adata.obsm[LINEAGE_PRED_KEY] = lineage_df
+
+    log.info(
+        f"Heuristic analysis complete. Found {heuristic_pred.sum()} potential doublets."
+    )
+    return adata
+
+
+def analyze_lineage_coexpression(
+    adata: AnnData, save_dir: Optional[str] = None, show: bool = True
+):
+    """
+    (Step 2: Visualize) Visualizes pre-computed lineage co-expression patterns.
+
+    This function's sole purpose is to generate an UpSet plot from results
+    already stored in `adata.obsm['lineage_predictions']`. It does NOT perform any calculations.
+    You must run `run_heuristic_analysis` first.
+
+    Args:
+        adata: AnnData object containing results from `run_heuristic_analysis`.
+        save_dir: Directory to save the plot.
+        show: Whether to display the plot interactively.
+    """
+    log.info("--- Visualizing Lineage Co-expression (Visualization Step) ---")
+    if LINEAGE_PRED_KEY not in adata.obsm or adata.obsm[LINEAGE_PRED_KEY].empty:
+        log.error(
+            "No lineage predictions found in `adata.obsm`. Please run `run_heuristic_analysis` first."
+        )
+        return
+
+    lineage_df = adata.obsm[LINEAGE_PRED_KEY]
+
+    # 1. UpSet Plot for intuitive visualization of intersections
+    try:
+        # Prepare data for UpSet plot by counting cells in each combination
+        lineage_combinations = lineage_df.groupby(list(lineage_df.columns)).size()
+
+        fig = plt.figure(figsize=(15, 7), facecolor="white")
+        upset_plot(
+            lineage_combinations,
+            fig=fig,
+            # min_subset_size=min_subset_size,
+            show_counts=True,
+        )
+        plt.suptitle("Co-expression of Cell Lineages", fontsize=16)
+
+        if save_dir:
+            save_path = Path(save_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
+            plt.savefig(save_path / "lineage_coexpression_upsetplot.png", dpi=300)
+        if show:
+            plt.show()
+        plt.close(fig)
+
+    except ImportError:
+        log.warning(
+            "`upsetplot` library not installed. Skipping UpSet plot. Please run: pip install upsetplot"
+        )
+    except Exception as e:
+        log.error(f"Failed to generate UpSet plot: {e}")
+
+    # 2. Pairwise Overlap Counts
+    lineage_pairs = []
+    for i, lineage1 in enumerate(lineage_df.columns):
+        for lineage2 in lineage_df.columns[i + 1 :]:
+            overlap_count = (lineage_df[lineage1] & lineage_df[lineage2]).sum()
+            if overlap_count > 0:
+                lineage_pairs.append(
+                    {
+                        "lineage1": lineage1,
+                        "lineage2": lineage2,
+                        "overlap_count": overlap_count,
+                        "overlap_percent": overlap_count / len(lineage_df) * 100,
+                    }
+                )
+
+    pairs_df = pd.DataFrame(lineage_pairs).sort_values("overlap_count", ascending=False)
+    log.info("Top 10 lineage co-expression pairs:")
+    log.info("\n" + pairs_df.head(10).to_string())
+
+    if save_dir:
+        pairs_df.to_csv(Path(save_dir) / "lineage_coexpression_pairs.csv", index=False)
+
+    return pairs_df
+
+
 def predict_doublets(
     adata: AnnData,
-    config: Optional[DoubletConfig] = None,
+    config: DoubletConfig,
     sample_key: str = "sampleID",
-    # --- Allow overriding config with specific params ---
-    **kwargs,
 ) -> AnnData:
     """
     Enhanced doublet prediction with a clear, config-driven workflow.
 
-    This function serves as the main entry point for doublet detection, combining
-    algorithmic and heuristic approaches for robust results. For basic use, you
-    can rely on default parameters. For advanced control and reproducibility,
-    it is highly recommended to create and pass a `DoubletConfig` object.
+    This function serves as the main entry point for doublet detection. For advanced control
+    and reproducibility, it is highly recommended to create and pass a `DoubletConfig` object.
 
     Args:
-        adata: AnnData object containing single-cell expression data
-        config: A `DoubletConfig` object. If provided, it overrides all other parameters
-        sample_key: Key for sample identification in adata.obs (used if no config)
-        use_heuristics: Whether to use marker-based heuristic detection (used if no config)
-        marker_species: Species for default markers (used if no config and no custom markers)
-        **kwargs: Additional parameters to override defaults or pass to algorithms
-                  (e.g., n_pcs=50, merge_strategy='intersection', rate=0.1)
+        adata: AnnData object containing single-cell expression data.
+        config: A `DoubletConfig` object that controls the entire workflow.
+        sample_key: Key for sample identification in adata.obs.
 
     Returns:
-        AnnData object with doublet predictions added to .obs:
-        - {method}_score: Algorithmic doublet scores
-        - {method}_predicted: Algorithmic doublet predictions
-        - heuristic_predicted: Heuristic doublet predictions (if use_heuristics=True)
-        - predicted_doublet: Final merged doublet predictions
-
-    Example:
-        # Basic usage
-        adata = predict_doublets(adata, marker_species="human")
-
-        # Advanced usage with config
-        config = DoubletConfig(
-            marker_species="human",
-            marker_tissue="Lung",
-            merge_strategy="intersection",
-            save_dir="./results"
-        )
-        adata = predict_doublets(adata, config=config)
+        AnnData object with doublet predictions added to .obs.
     """
     # === 1. CONFIGURATION SETUP ===
-    # Start with a default config
-    base_config = DoubletConfig()
-
-    # If a config object is provided, update the base with its values
-    if config is not None:
-        log.info("Updating defaults with provided DoubletConfig object.")
-        base_config.__dict__.update(config.__dict__)
-
-    # Override with any specific kwargs provided
-    if kwargs:
-        log.info(f"Overriding config with kwargs: {list(kwargs.keys())}")
-        for key, value in kwargs.items():
-            if hasattr(base_config, key):
-                setattr(base_config, key, value)
-            else:
-                log.warning(f"Unknown parameter '{key}' ignored.")
-
-    # The final, effective config
-    cfg = base_config
-    try:
-        cfg.validate()  # Assuming this method exists in your DoubletConfig
-    except AttributeError:
-        log.warning("DoubletConfig has no validate() method. Skipping validation.")
+    cfg = config
+    cfg.validate()
+    log.info("--- Running Final Doublet Prediction Workflow ---")
 
     # Validate input data
     if sample_key not in adata.obs.columns:
@@ -881,8 +968,10 @@ def predict_doublets(
         sample_mask = adata.obs[sample_key] == sample
         data_view = adata[sample_mask]
 
-        if data_view.n_obs < 10:
-            log.warning(f"Skipping {sample}: fewer than 10 cells.")
+        if data_view.n_obs < 50:
+            log.warning(
+                f"Skipping {sample}: fewer than 50 cells (insufficient for reliable doublet detection)."
+            )
             continue
 
         scores, predicted = ALGORITHM_DISPATCHER[cfg.method](data_view, sample, cfg)
@@ -893,53 +982,34 @@ def predict_doublets(
 
     # === 3. HEURISTIC DETECTION (Global) ===
     if cfg.use_heuristics:
-        log.info("Starting heuristic-based doublet detection...")
-
-        # Load marker configurations if not provided
-        if cfg.marker_configs is None:
-            log.info("Loading marker configurations...")
-            try:
-                if cfg.marker_tissue or cfg.marker_states:
-                    # Use comprehensive marker manager for enhanced detection
-                    cfg.marker_configs = create_doublet_marker_config_from_manager(
-                        species=cfg.marker_species,
-                        tissue=cfg.marker_tissue,
-                        states=cfg.marker_states,
-                        level=cfg.marker_level,
-                        expression_threshold=0.5,
-                        min_genes_required=1,
-                        use_raw=True,
-                        min_markers_per_type=1,
-                    )
-                    log.info(
-                        f"Loaded enhanced markers for {cfg.marker_species} "
-                        f"(tissue: {cfg.marker_tissue}, states: {cfg.marker_states})"
-                    )
-                else:
-                    # Fallback to simple marker loading
-                    cfg.marker_configs = _load_marker_dict(
-                        species=cfg.marker_species, marker_type="major_lineages"
-                    )
-                    log.info(f"Loaded basic markers for {cfg.marker_species}")
-
-            except Exception as e:
-                log.error(f"Failed to load markers: {e}")
-                cfg.marker_configs = {}
-
-        # Run heuristic detection if markers are available
-        if cfg.marker_configs:
-            adata.obs["heuristic_predicted"] = _identify_coexpression_doublets(
-                adata,
-                marker_configs=cfg.marker_configs,
-                min_lineages_for_doublet=cfg.min_lineages_for_doublet,
+        # Check if heuristic results already exist
+        if "lineage_predictions" in adata.obsm:
+            log.info(
+                "Found existing lineage predictions in adata.obsm. Re-evaluating with current config."
             )
+            lineage_df = adata.obsm["lineage_predictions"]
+            lineages_per_cell = lineage_df.sum(axis=1)
+            heuristic_pred = lineages_per_cell >= cfg.min_lineages_for_doublet
+
+            # --- Re-apply the ignore logic here as well ---
+            if cfg.ignore_coexpression_pairs:
+                log.info("Applying ignore rules to existing lineage predictions.")
+                ignored_set = {
+                    tuple(sorted(pair)) for pair in cfg.ignore_coexpression_pairs
+                }
+                doublet_indices = heuristic_pred[heuristic_pred].index
+                for cell_idx in doublet_indices:
+                    expressed_lineages = tuple(
+                        sorted(lineage_df.columns[lineage_df.loc[cell_idx]])
+                    )
+                    if expressed_lineages in ignored_set:
+                        heuristic_pred.loc[cell_idx] = False
         else:
-            log.warning(
-                "Heuristics enabled, but no valid marker configurations were loaded."
-            )
-            adata.obs["heuristic_predicted"] = False
-    else:
-        adata.obs["heuristic_predicted"] = False
+            # If no results exist, run the heuristic from scratch
+            heuristic_pred, lineage_df = _run_heuristic(adata, cfg)
+            adata.obsm["lineage_predictions"] = lineage_df
+
+        adata.obs[HEURISTIC_PRED_COL] = heuristic_pred
 
     # === 4. MERGE RESULTS ===
     log.info("Merging algorithmic and heuristic predictions...")
@@ -996,10 +1066,14 @@ def predict_doublets(
 
     log.info("=" * 50)
 
-    # === 6. EXPORT STATISTICS ===
-    if cfg.export_stats and cfg.save_dir:
-        export_doublet_stats(adata, sample_key, save_dir=cfg.save_dir)
+    # === 6. Reporting & Visualization ===
+    if cfg.plot_summary:
+        save_path = Path(cfg.save_dir) if cfg.save_dir else None
+        _plot_doublet_summary(adata, sample_key, save_path, cfg.show_plots)
 
-    log.info("Doublet prediction workflow completed successfully.")
+    if cfg.export_stats and cfg.save_dir:
+        _export_doublet_stats(adata, sample_key, Path(cfg.save_dir))
+
+    log.info("Doublet prediction workflow completed.")
 
     return adata

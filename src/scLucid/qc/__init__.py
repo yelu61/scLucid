@@ -7,49 +7,50 @@ from metric calculation to filtering and reporting.
 
 # --- Import Configuration Classes ---
 # Make the config objects directly accessible to the user, e.g., sclucid.qc.QCThresholds
-from .config import QCThresholds, FilterConfig, MarkerConfig, DoubletConfig
+from .config import MetricsReportingConfig, QCThresholds, MarkerConfig, DoubletConfig, MarkingConfig, FilterConfig, QCWorkflowConfig
 
 # --- Import Core Functions ---
 from .metrics import calculate_qc_metric
 from .cycle import score_cell_cycle
 from .doublet import (
-    generate_doublet_rates, 
-    predict_doublets, 
-    export_doublet_stats,
+    generate_doublet_rates,
     create_custom_marker_dict,
-    create_doublet_marker_config_from_manager,
+    run_heuristic_analysis,
+    analyze_lineage_coexpression,
+    predict_doublets,
 )
 from .filtering import (
-    mark_low_quality_cell,
-    filter_cells,
     suggest_qc_thresholds,
     generate_qc_report,
+    mark_low_quality_cell,
+    filter_cells,
 )
 
 # --- Import High-Level Workflow Functions ---
-from .workflow import run_standard_qc, run_advanced_qc
+from .workflow import run_advanced_qc, run_standard_qc
 
 # --- Define Public API for the Module ---
 __all__ = [
     # Configuration Classes
+    "MetricsReportingConfig",
     "QCThresholds",
-    "FilterConfig",
     "MarkerConfig",
     "DoubletConfig",
-    
+    "MarkingConfig",
+    "FilterConfig",
+    "QCWorkflowConfig",
     # Core Functions
     "calculate_qc_metric",
     "score_cell_cycle",
     "generate_doublet_rates",
-    "predict_doublets",
-    "export_doublet_stats",
     "create_custom_marker_dict",
-    "create_doublet_marker_config_from_manager",
-    "mark_low_quality_cell",
+    "run_heuristic_analysis",
+    "analyze_lineage_coexpression",
+    "predict_doublets",
     "suggest_qc_thresholds",
+    "mark_low_quality_cell",
     "filter_cells",
     "generate_qc_report",
-
     # Workflow Functions
     "run_standard_qc",
     "run_advanced_qc",

@@ -60,7 +60,7 @@ def _get_marker_path(name_or_path: str) -> Path:
     log.debug(f"Looking for built-in resource: {full_resource_name}")
 
     try:
-        resource_path = resources.files("scRNA").joinpath(
+        resource_path = resources.files("scLucid").joinpath(
             f"resources/{full_resource_name}"
         )
         if resource_path.is_file():
@@ -74,7 +74,7 @@ def _get_marker_path(name_or_path: str) -> Path:
     log.debug(f"Looking for built-in resource: {full_resource_name}")
 
     try:
-        resource_path = resources.files("scRNA").joinpath(
+        resource_path = resources.files("scLucid").joinpath(
             f"resources/{full_resource_name}"
         )
         if resource_path.is_file():
@@ -433,9 +433,7 @@ class Manager:
             f"Intersecting markers with AnnData object containing {adata.n_vars} genes"
         )
 
-        genes_in_data = set(adata.var_names)
-        if not self.case_sensitive:
-            genes_in_data = {g.upper() for g in genes_in_data}
+        genes_in_data = {g.upper() for g in adata.var_names}
 
         total_before = 0
         total_after = 0
@@ -444,7 +442,8 @@ class Manager:
             n_before = len(cell.markers)
             total_before += n_before
 
-            cell.markers = [m for m in cell.markers if m in genes_in_data]
+            cell.markers = [m for m in cell.markers if m.upper() in genes_in_data]
+            
             n_after = len(cell.markers)
             total_after += n_after
 
@@ -757,6 +756,25 @@ class Manager:
 
         log.info(f"Added new cell type: {name} with {len(markers)} markers")
         return cell_obj
+
+    def get_doublet_lineage_markers(self) -> Dict[str, List[str]]:
+        """
+        Gets a clean set of mutually exclusive lineages for doublet detection.
+
+        This method scans the entire hierarchy and selects only the cell types
+        explicitly tagged with `metadata = { doublet_lineage = true }`.
+
+        Returns:
+            Dictionary mapping cell type names to their marker lists.
+        """
+        lineage_markers = {}
+        for name, cell in self.CELLS.items():
+            if cell.metadata.get("doublet_lineage") is True:
+                if cell.markers:  # Only include if it has markers
+                    lineage_markers[name] = cell.markers
+        
+        log.info(f"Extracted {len(lineage_markers)} dedicated lineages for doublet detection.")
+        return lineage_markers
 
 
 def get_marker_manager(

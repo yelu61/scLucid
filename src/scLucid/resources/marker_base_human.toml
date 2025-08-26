@@ -2,7 +2,7 @@
 # =============================================================================
 # Human Base Cell Type Markers (v1.0)
 # =============================================================================
-# Last updated: 2023-10-15
+# Last updated: 2024-10-15
 # 
 # This file contains marker genes for common human cell types across tissues.
 # =============================================================================
@@ -20,7 +20,7 @@ minor = [
     # --- Level 2: Lymphoid Lineage ---
     { name = "Lymphoid", color = "#1f77b4", markers = ["CD3D", "MS4A1", "NCAM1", "CD3E", "CD3G"], minor = [
         # Level 3: T cells
-        { name = "T cells", color = "#1ba169", markers = ["CD3D", "CD3E", "CD3G", "TRAC", "CD8A"], minor = [
+        { name = "T cells", color = "#1ba169", markers = ["CD3D", "CD3E", "CD3G", "TRAC", "CD8A"], metadata = { doublet_lineage = true }, minor = [
             # CD4+ T
             { name = "CD4+ T", color = "#2ca02c", markers = ["CD4", "CD40LG", "FOXP3", "IL7R", "CCR7"], minor = [
                 { name = "CD4+ Tn",    color = "#11aa00", markers = ["TCF7", "SELL", "CCR7", "LEF1", "MAL"] },
@@ -45,7 +45,7 @@ minor = [
             { name = "MAIT", color = "#9467bd", markers = ["SLC4A10", "KLRB1", "ZBTB16"] }
         ]},
         # Level 3: B cells
-        { name = "B cells", color = "#7ccbc5", markers = ["MS4A1", "CD19", "CD79A", "CD79B", "IGHM"], minor = [
+        { name = "B cells", color = "#7ccbc5", markers = ["MS4A1", "CD19", "CD79A", "CD79B", "IGHM"], metadata = { doublet_lineage = true }, minor = [
             { name = "Naive B",     color = "#00e8d8", markers = ["TCL1A", "FCER2", "IGHD", "YBX3"] },
             { name = "Memory B",    color = "#00b3aa", markers = ["CD27", "IGHG1", "AIM2", "ITGB1"] },
             { name = "GC B",        color = "#005160", markers = ["LMO2", "CXCR4", "MKI67", "MEF2B"] },
@@ -53,7 +53,7 @@ minor = [
             { name = "Plasma",      color = "#27a0a8", markers = ["JCHAIN", "XBP1", "SDC1", "MZB1"] }
         ]},
         # Level 3: NK cells
-        { name = "NK cells", color = "#014431", markers = ["NCAM1", "NKG7", "KLRF1", "KLRD1"], minor = [
+        { name = "NK cells", color = "#014431", markers = ["NCAM1", "NKG7", "KLRF1", "KLRD1"], metadata = { doublet_lineage = true }, minor = [
             { name = "CD56+CD16- NK", color = "#0c5d3d", markers = ["NCAM1", "KLRK1", "KIT", "GZMK"] },
             { name = "CD56-CD16+ NK", color = "#093d29", markers = ["FCGR3A", "NCR3", "GZMB", "PRF1"] }
         ]},
@@ -64,13 +64,13 @@ minor = [
     # --- Level 2: Myeloid Lineage ---
     { name = "Myeloid", color = "#d62728", markers = ["LYZ", "CD68", "ITGAM", "VCAN"], minor = [
         # Level 3: Monocytes
-        { name = "Monocytes", color = "#1151b4", markers = ["FCN1", "S100A8", "S100A9", "CD14"], minor = [
+        { name = "Monocytes", color = "#1151b4", markers = ["FCN1", "S100A8", "S100A9", "CD14"], metadata = { doublet_lineage = true }, minor = [
             { name = "CD14+ Mono", color = "#1560bd", markers = ["FCN1", "HLA-DQB1", "S100A9", "CSF3R", "S100A8"] },
             { name = "CD16+ Mono", color = "#66ddff", markers = ["FCGR3A", "LST1", "LILRB2", "HK3"] },
             { name = "CD14+CD16+ Mono", color = "#003a6c", markers = ["NFKBIA", "NFKB1", "NLRP3", "HLA-DQA1"] }
         ]},
         # Level 3: Macrophages
-        { name = "Macrophages", color = "#e377c2", markers = ["CD68", "CD163", "APOE", "C1QA", "MSR1"], minor = [
+        { name = "Macrophages", color = "#e377c2", markers = ["CD68", "CD163", "APOE", "C1QA", "MSR1"], metadata = { doublet_lineage = true }, minor = [
             { name = "Reg TAM",    color = "#6a5bb1", markers = ["ARG1", "MRC1", "CD274", "CX3CR1"] },
             { name = "Inflam TAM", color = "#333399", markers = ["IL1B", "CCL3", "CXCL1", "CXCL2"] },
             { name = "IFN TAM",    color = "#5729ce", markers = ["IDO1", "ISG15", "CXCL10", "STAT1"] },
@@ -103,7 +103,7 @@ name = "Stromal"
 color = "#ffbb78"
 markers = ["COL1A1", "PECAM1", "PDGFRA", "PDGFRB", "ACTA2"]
 minor = [
-    { name = "Endothelial cells", color = "#fecb51", markers = ["PECAM1", "VWF", "CDH5", "RAMP2", "ENG"], minor = [
+    { name = "Endothelial cells", color = "#fecb51", markers = ["PECAM1", "VWF", "CDH5", "RAMP2", "ENG"], metadata = { doublet_lineage = true }, minor = [
         { name = "Arterial EC",   color = "#ffae42", markers = ["SEMA3G", "GJA5", "BMX"] },
         { name = "Venous EC",     color = "#ff9e2c", markers = ["ACKR1", "SELP", "NRG1"] },
         { name = "Capillary EC",  color = "#ffb347", markers = ["RGCC", "CA4", "CD36"] },
@@ -111,7 +111,7 @@ minor = [
         { name = "TipEC",         color = "#ffcc66", markers = ["COL4A1","KDR","ESM1"] },
         { name = "EndoMT",        color = "#ffa700", markers = ["PDGFRB"] }
     ]},
-    { name = "Fibroblasts", color = "#FF8C00", markers = ["ACTA2", "COL1A1", "COL3A1", "COL1A2", "DCN"], minor = [
+    { name = "Fibroblasts", color = "#FF8C00", markers = ["ACTA2", "COL1A1", "COL3A1", "COL1A2", "DCN"], metadata = { doublet_lineage = true }, minor = [
         { name = "iCAF",    color = "#ee6600", markers = ["CFD", "APOD", "IGF1", "CXCL12", "MGP", "FAP"] },
         { name = "mCAF",    color = "#e68750", markers = ["POSTN", "FN1", "VCAN", "CTHRC1", "COL1A2"] },
         { name = "pCAF",    color = "#f08f00", markers = ["SCG2", "IGFBP2", "HIST1H4C", "PLAU"] },
@@ -121,23 +121,41 @@ minor = [
         { name = "apCAF",   color = "#fcb001", markers = ["HLA-DRA", "LYZ", "TYROBP"] }
     ]},
     { name = "Pericytes", color = "#b86d29", markers = ["RGS5", "MYH11", "PDGFRB", "MCAM"] },
-    { name = "Smooth muscle cells", color = "#FFA07A", markers = ["TAGLN", "MYH11", "DES", "CNN1", "ACTA2"] }
+    { name = "Smooth muscle cells", color = "#FFA07A", markers = ["TAGLN", "MYH11", "DES", "CNN1", "ACTA2"]}
 ]
 
 # ===============================================
-#          Epithelial & other Cells
+#          Epithelial Cells
 # ===============================================
 
 [["Epithelial cells"]]
 name = "Epithelial"
 color = "#f19cbb"
 markers = ["EPCAM", "KRT19", "KRT18", "KRT8", "CDH1"]
+metadata = { doublet_lineage = true }
 minor = [
     { name = "Basal Epithelial", color = "#e75480", markers = ["KRT5", "KRT14", "TP63"] },
     { name = "Luminal Epithelial", color = "#ff69b4", markers = ["KRT8", "KRT18", "KRT19"] },
     { name = "Secretory Epithelial", color = "#db7093", markers = ["MUC1", "PIGR", "LTF"] }
 ]
 
+# ===============================================
+#          Neural & other Cells
+# ===============================================
+
+[["Neural cells"]]
+name = "Neural"
+color = "#6fa8dc"
+markers = ["RBFOX3", "GFAP", "PLP1", "CX3CR1"]
+metadata = { doublet_lineage = true }
+minor = [
+    { name = "Neurons", color = "#3d85c6", markers = ["RBFOX3", "SNAP25", "SYT1", "MAP2"] },
+    { name = "Astrocytes", color = "#93c47d", markers = ["GFAP", "ALDH1L1", "AQP4", "S100B"] },
+    { name = "Oligodendrocytes", color = "#45818e", markers = ["PLP1", "MOG", "MBP", "CNP"] },
+    { name = "Oligodendrocyte Precursors (OPC)", color = "#6aa84f", markers = ["PDGFRA", "CSPG4", "SOX10"] },
+    { name = "Microglia", color = "#e69138", markers = ["CX3CR1", "P2RY12", "TMEM119", "AIF1"] },
+    { name = "Neural Stem Cells", color = "#a64d79", markers = ["SOX2", "NES", "PROM1"] }
+]
 [["Stem Cells"]]
 name = "Stem Cell"
 color = "#9400D3"
