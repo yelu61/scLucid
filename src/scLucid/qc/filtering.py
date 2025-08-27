@@ -782,7 +782,7 @@ def mark_low_quality_cell(
 
     # Count cells with different types of issues
     outlier_cols = [col for col in adata.obs.columns if col.startswith("outlier_")]
-    adata.obs["outlier_count"] = adata.obs[outlier_cols].sum(axis=1)
+    adata.obs["outlier_count"] = adata.obs[outlier_cols].sum(axis=1).astype(int)
 
     # Report counts per outlier type
     for col in outlier_cols:
@@ -821,6 +821,15 @@ def mark_low_quality_cell(
             adata, sample_indices, cfg.cols_to_plot, cfg.save_dir, cfg.show_plots
         )
 
+    
+    # === Final Type Casting for Robustness ===
+    log.info("Finalizing data types for all 'outlier_' columns to ensure save compatibility.")
+    outlier_cols_to_cast = [col for col in adata.obs.columns if col.startswith("outlier_")]
+    
+    for col in outlier_cols_to_cast:
+        if col in adata.obs:
+            adata.obs[col] = adata.obs[col].fillna(False).astype(bool)
+            
     return adata
 
 
