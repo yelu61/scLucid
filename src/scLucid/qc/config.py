@@ -159,6 +159,7 @@ class DoubletConfig:
     merge_strategy: Literal["union", "intersection", "algorithm_priority", 
                            "heuristic_priority", "weighted"] = "weighted"
     algorithm_weight: float = 0.7
+    random_state: int = 61 #: Random seed for reproducibility.
     plot_summary: bool = True #: Whether to generate a summary plot at the end of the run.
     export_stats: bool = True #: Whether to export summary statistics to CSV files.
     save_dir: Optional[str] = None #: Directory to save plots and statistics.

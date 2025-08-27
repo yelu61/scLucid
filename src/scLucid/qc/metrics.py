@@ -8,6 +8,7 @@ auto-detection of sample keys, and user-friendly logging.
 
 import logging
 import re
+from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -641,6 +642,7 @@ def calculate_qc_metric(
     cell_cycle_species: str = "human",
     cell_cycle_kwargs: Optional[dict] = None,
     reporting_config: Optional[MetricsReportingConfig] = None,
+    **kwargs,
 ) -> AnnData:
     """
     Calculate and plot QC metrics for each sample in the AnnData object.
@@ -666,8 +668,22 @@ def calculate_qc_metric(
     Returns:
         AnnData object with QC metrics added to .obs and .var.
     """
-    if reporting_config is None:
-        reporting_config = MetricsReportingConfig()
+    report_config = MetricsReportingConfig()
+
+    if reporting_config is not None:
+        config_dict = asdict(reporting_config)
+        for key, value in config_dict.items():
+            if hasattr(report_config, key):
+                setattr(report_config, key, value)
+
+    if kwargs:
+        for key, value in kwargs.items():
+            if hasattr(report_config, key):
+                setattr(report_config, key, value)
+            else:
+                log.warning(f"Unknown parameter '{key}' ignored.")
+
+    cfg = report_config
 
     # --- Basic sanity checks ---
     sample_key = _find_sample_key(adata, sample_key)
@@ -686,7 +702,7 @@ def calculate_qc_metric(
     gene_patterns: Dict[str, str] = {}
 
     # Add standard gene patterns if requested
-    if reporting_config.include_standard_qc:
+    if cfg.include_standard_qc:
         gene_patterns.update(_get_default_gene_patterns())
         log.info(
             "Including standard QC gene sets: mitochondrial, ribosomal, hemoglobin"
@@ -775,7 +791,7 @@ def calculate_qc_metric(
     adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("metrics", {})
     adata.uns["sclucid"]["qc"]["metrics"]["params"] = {
         "sample_key": sample_key,
-        "include_standard_qc": reporting_config.include_standard_qc,
+        "include_standard_qc": cfg.include_standard_qc,
         "extra_gene_sets_provided": bool(extra_gene_sets),
         "percent_top_calculated": percent_top_list,
     }
@@ -795,21 +811,21 @@ def calculate_qc_metric(
             adata,
             species=cell_cycle_species,
             plot=True,
-            save_dir=reporting_config.save_dir,
+            save_dir=cfg.save_dir,
             **cell_cycle_kwargs,
         )
         log.info("Cell cycle scores and phase added to .obs.")
 
     # --- Export parameters and QC statistics ---
-    if reporting_config.export_stats and reporting_config.save_dir:
+    if cfg.export_stats and cfg.save_dir:
         _export_qc_stats(
             adata,
             sample_key=sample_key,
             percent_top_cols=percent_top_cols,
-            outdir=reporting_config.save_dir,
+            outdir=cfg.save_dir,
             export_csv=True,
-            export_xlsx=reporting_config.export_xlsx,
-            print_summary=reporting_config.print_stats,
+            export_xlsx=cfg.export_xlsx,
+            print_summary=cfg.print_stats,
         )
 
     # --- Detect and log outlier warnings ---
@@ -817,26 +833,26 @@ def calculate_qc_metric(
         adata,
         sample_key=sample_key,
         percent_top_cols=percent_top_cols,
-        outdir=reporting_config.save_dir if reporting_config.save_dir else None,
+        outdir=cfg.save_dir if cfg.save_dir else None,
     )
 
     # --- Plotting ---
-    if reporting_config.save_dir:
-        Path(reporting_config.save_dir).mkdir(parents=True, exist_ok=True)
+    if cfg.save_dir:
+        Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
-    if reporting_config.plot_top_genes:
+    if cfg.plot_top_genes:
         for col_name in percent_top_cols:
             _plot_top_genes_distribution(
                 adata,
                 sample_key=sample_key,
                 percent_top_col=col_name,
-                save_dir=reporting_config.save_dir,
-                show=reporting_config.show_plots,
+                save_dir=cfg.save_dir,
+                show=cfg.show_plots,
                 max_cells_for_plotting=max_cells_for_plotting,
                 random_state=random_state,
             )
 
-    if reporting_config.plot_violin or reporting_config.plot_scatter:
+    if cfg.plot_violin or cfg.plot_scatter:
         # Determine which metrics to plot
         keys_to_plot = ["total_counts", "n_genes_by_counts"]
         # Gather all potential pct_counts_* columns that exist in adata.obs
@@ -864,22 +880,22 @@ def calculate_qc_metric(
                 log.warning(f"No cells found for sample {sample}, skipping plots")
                 continue
 
-            if reporting_config.plot_violin:
+            if cfg.plot_violin:
                 _plot_qc_violin(
                     adata_view,
                     keys_to_plot,
                     sample,
-                    save_dir=reporting_config.save_dir,
-                    show=reporting_config.show_plots,
+                    save_dir=cfg.save_dir,
+                    show=cfg.show_plots,
                     max_cells_for_plotting=max_cells_for_plotting
                     // max(1, len(adata.obs[sample_key].unique())),
                 )
-            if reporting_config.plot_scatter:
+            if cfg.plot_scatter:
                 _plot_qc_scatter(
                     adata_view,
                     sample,
-                    save_dir=reporting_config.save_dir,
-                    show=reporting_config.show_plots,
+                    save_dir=cfg.save_dir,
+                    show=cfg.show_plots,
                     max_cells_for_plotting=max_cells_for_plotting
                     // max(1, len(adata.obs[sample_key].unique())),
                 )

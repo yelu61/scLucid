@@ -8,6 +8,8 @@ mutually exclusive lineage marker co-expression.
 
 import gc
 import logging
+import random
+from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
@@ -151,6 +153,7 @@ def _merge_doublet_predictions(
     heuristic_col: str,
     strategy: str = "weighted",
     algorithm_weight: float = 0.7,
+    random_state: int = 61,
 ) -> pd.Series:
     """
     Merge algorithmic and heuristic doublet predictions using different strategies.
@@ -177,6 +180,8 @@ def _merge_doublet_predictions(
     elif strategy == "heuristic_priority":
         merged = heur_pred
     elif strategy == "weighted":
+        # Set random seed for reproducible results
+        random.seed(random_state)
         agree = algo_pred == heur_pred
         disagree = ~agree
 
@@ -186,32 +191,34 @@ def _merge_doublet_predictions(
 
         # For disagreements, use algorithm with probability algorithm_weight
         if np.any(disagree):
-            n_disagree = disagree.sum()
-            n_algo = int(n_disagree * algorithm_weight)
+            disagree_cells_indices = np.where(disagree)[0]
+            disagree_cells_obs_names = adata.obs_names[disagree_cells_indices]
 
-            # Sort by algorithm score to prioritize most likely doublets
-            if f"{algorithm_col.replace('_predicted', '_score')}" in adata.obs:
-                score_col = algorithm_col.replace("_predicted", "_score")
-                # Pick top n_algo cells by score for algorithm, rest for heuristic
-                disagree_cells = adata.obs_names[disagree]
-                disagree_scores = adata.obs.loc[disagree_cells, score_col]
+            score_col = algorithm_col.replace("_predicted", "_score")
+            if score_col in adata.obs:
+                disagree_scores = adata.obs.loc[disagree_cells_obs_names, score_col]
 
-                # Use algorithm for top n_algo cells by score
+                n_disagree = len(disagree_cells_obs_names)
+                n_algo = int(n_disagree * algorithm_weight)
+
                 top_cells = disagree_scores.nlargest(n_algo).index
+                other_cells = disagree_cells_obs_names.difference(top_cells)
+
                 merged[top_cells] = algo_pred[top_cells]
-
-                # Use heuristic for remaining cells
-                other_cells = set(disagree_cells) - set(top_cells)
-                merged[list(other_cells)] = heur_pred[list(other_cells)]
+                merged[other_cells] = heur_pred[other_cells]
             else:
-                # Random assignment if scores not available
-                import random
+                log.warning(
+                    f"Doublet score column '{score_col}' not found. Using random assignment for 'weighted' strategy."
+                )
+                n_disagree = disagree.sum()
+                n_algo = int(n_disagree * algorithm_weight)
 
-                algo_cells = random.sample(list(adata.obs_names[disagree]), n_algo)
-                merged[algo_cells] = algo_pred[algo_cells]
+                disagree_obs_names_list = list(adata.obs_names[disagree])
+                algo_cells = random.sample(disagree_obs_names_list, n_algo)
+                other_cells = set(disagree_obs_names_list) - set(algo_cells)
 
-                other_cells = set(adata.obs_names[disagree]) - set(algo_cells)
-                merged[list(other_cells)] = heur_pred[list(other_cells)]
+                merged.loc[algo_cells] = algo_pred.loc[algo_cells]
+                merged.loc[list(other_cells)] = heur_pred.loc[list(other_cells)]
     else:
         raise ValueError(f"Unknown merge strategy: {strategy}")
 
@@ -405,82 +412,78 @@ def _export_doublet_stats(
 
     # Calculate per-sample statistics
     sample_stats = []
-    for sample in adata.obs[sample_key].unique():
+    unique_samples = adata.obs[sample_key].unique()
+    if not pd.api.types.is_categorical_dtype(adata.obs[sample_key]):
+        unique_samples = sorted(unique_samples)
+
+    for sample in unique_samples:
         sample_mask = adata.obs[sample_key] == sample
-        sample_data = adata.obs[sample_mask]
+        sample_data = adata.obs.loc[sample_mask]
 
         stats = {
             "sample": sample,
             "total_cells": len(sample_data),
         }
 
-        # Process each doublet-related column
         for col in doublet_cols:
             if col in sample_data.columns:
                 col_data = sample_data[col].dropna()
-
-                if col_data.dtype == "bool" or set(col_data.unique()).issubset(
-                    {0, 1, True, False}
+                if (
+                    pd.api.types.is_numeric_dtype(col_data)
+                    and not pd.api.types.is_bool_dtype(col_data)
+                    and col_data.nunique() > 2
                 ):
-                    # Boolean/binary column (predictions)
-                    positive_count = col_data.sum()
-                    stats[f"{col}_count"] = positive_count
-                    stats[f"{col}_percentage"] = positive_count / len(sample_data) * 100
-                else:
                     # Continuous column (scores)
                     stats[f"{col}_mean"] = col_data.mean()
                     stats[f"{col}_median"] = col_data.median()
                     stats[f"{col}_std"] = col_data.std()
-                    stats[f"{col}_q25"] = col_data.quantile(0.25)
-                    stats[f"{col}_q75"] = col_data.quantile(0.75)
+                elif pd.api.types.is_bool_dtype(col_data) or col_data.nunique() <= 2:
+                    # Boolean/binary column (predictions)
+                    positive_count = col_data.astype(bool).sum()
+                    stats[f"{col}_count"] = positive_count
+                    stats[f"{col}_percentage"] = (
+                        (positive_count / len(sample_data) * 100)
+                        if len(sample_data) > 0
+                        else 0
+                    )
 
         sample_stats.append(stats)
 
-    sample_df = pd.DataFrame(sample_stats)
+    sample_df = pd.DataFrame(sample_stats).set_index("sample")
 
-    # Calculate global statistics
     global_stats = {"metric": "global", "total_cells": adata.n_obs}
-
     for col in doublet_cols:
         if col in adata.obs.columns:
             col_data = adata.obs[col].dropna()
-
-            if col_data.dtype == "bool" or set(col_data.unique()).issubset(
-                {0, 1, True, False}
+            if (
+                pd.api.types.is_numeric_dtype(col_data)
+                and not pd.api.types.is_bool_dtype(col_data)
+                and col_data.nunique() > 2
             ):
-                positive_count = col_data.sum()
-                global_stats[f"{col}_count"] = positive_count
-                global_stats[f"{col}_percentage"] = positive_count / adata.n_obs * 100
-            else:
                 global_stats[f"{col}_mean"] = col_data.mean()
                 global_stats[f"{col}_median"] = col_data.median()
                 global_stats[f"{col}_std"] = col_data.std()
-                global_stats[f"{col}_q25"] = col_data.quantile(0.25)
-                global_stats[f"{col}_q75"] = col_data.quantile(0.75)
+            elif pd.api.types.is_bool_dtype(col_data) or col_data.nunique() <= 2:
+                positive_count = col_data.astype(bool).sum()
+                global_stats[f"{col}_count"] = positive_count
+                global_stats[f"{col}_percentage"] = (
+                    (positive_count / adata.n_obs * 100) if adata.n_obs > 0 else 0
+                )
 
     global_df = pd.DataFrame([global_stats])
 
-    # Export files if directory specified
     if save_dir:
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
-
         if export_csv:
-            sample_file = Path(save_dir) / "doublet_stats_per_sample.csv"
-            global_file = Path(save_dir) / "doublet_stats_global.csv"
-
-            sample_df.to_csv(sample_file, index=False)
-            global_df.to_csv(global_file, index=False)
-
+            sample_df.to_csv(save_dir / "doublet_stats_per_sample.csv")
+            global_df.to_csv(save_dir / "doublet_stats_global.csv", index=False)
             log.info(f"Exported CSV files to {save_dir}")
-
         if export_xlsx:
-            excel_file = Path(save_dir) / "doublet_stats.xlsx"
-            with pd.ExcelWriter(excel_file) as writer:
-                sample_df.to_excel(writer, sheet_name="per_sample", index=False)
+            with pd.ExcelWriter(save_dir / "doublet_stats.xlsx") as writer:
+                sample_df.to_excel(writer, sheet_name="per_sample")
                 global_df.to_excel(writer, sheet_name="global", index=False)
-
-            log.info(f"Exported Excel file to {excel_file}")
+            log.info(f"Exported Excel file to {save_dir / 'doublet_stats.xlsx'}")
 
     return {"sample": sample_df, "global": global_df}
 
@@ -507,72 +510,76 @@ def _plot_doublet_summary(
     """
     log.info("Generating UMAP-independent doublet detection summary plot...")
 
-    # --- 0. Checking for required columns ---
-    required_cols = [FINAL_PRED_COL, "heuristic_predicted"]
-    algo_pred_col = [
+    # --- 0. Check for required columns ---
+    required_cols = [FINAL_PRED_COL]
+    algo_pred_col_list = [
         c
         for c in adata.obs.columns
-        if c.endswith("_predicted") and "heuristic" not in c and "predicted" in c
+        if c.endswith("_predicted") and "heuristic" not in c
     ]
-    if not algo_pred_col:
-        raise ValueError(
-            "Could not find an algorithm prediction column (e.g., 'scrublet_predicted')."
-        )
-    algo_pred_col = algo_pred_col[0]
+    if not algo_pred_col_list:
+        log.warning("No algorithm prediction column found. Skipping summary plot.")
+        return
+    algo_pred_col = algo_pred_col_list[0]
     algo_score_col = algo_pred_col.replace("_predicted", "_score")
     required_cols.append(algo_pred_col)
 
+    # Heuristic column is optional if use_heuristics is False
+    if HEURISTIC_PRED_COL not in adata.obs.columns:
+        adata.obs[HEURISTIC_PRED_COL] = False
+
     if not all(col in adata.obs.columns for col in required_cols):
-        raise ValueError(
-            f"Required columns not found in adata.obs: {required_cols}. Please run `predict_doublets` first."
-        )
+        raise ValueError("Required columns not found. Run `predict_doublets` first.")
 
-    # --- 1. Creating Multi-Panel Graphs ---
-    fig = plt.figure(figsize=(22, 7), constrained_layout=True)
-    gs = fig.add_gridspec(1, 3, width_ratios=[0.8, 1, 1.2])
-    ax1 = fig.add_subplot(gs[0])
-    ax2 = fig.add_subplot(gs[1])
-    ax3 = fig.add_subplot(gs[2])
-    fig.suptitle("Doublet Detection Summary", fontsize=18, fontweight="bold")
+    # Prepare doublet source column for plotting
+    source_categories = [
+        "Heuristic Only",
+        "Algorithm Only",
+        "Both Methods",
+        "Singleton",
+    ]
+    conditions = [
+        adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL],
+        adata.obs[algo_pred_col] & ~adata.obs[HEURISTIC_PRED_COL],
+        ~adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL],
+    ]
+    choices = ["Both Methods", "Algorithm Only", "Heuristic Only"]
+    adata.obs["doublet_source"] = np.select(conditions, choices, default="Singleton")
+    adata.obs["doublet_source"] = pd.Categorical(
+        adata.obs["doublet_source"], categories=source_categories, ordered=True
+    )
 
-    # --- 2. Panel 1: Double cell ratio by sample (bar graph) ---
-    adata.obs["doublet_source"] = "Singleton"
-    adata.obs.loc[
-        adata.obs[algo_pred_col] & ~adata.obs[HEURISTIC_PRED_COL], "doublet_source"
-    ] = "Algorithm Only"
-    adata.obs.loc[
-        ~adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL], "doublet_source"
-    ] = "Heuristic Only"
-    adata.obs.loc[
-        adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL], "doublet_source"
-    ] = "Both Methods"
+    # --- Figure 1: Overview (Bar Plot + Scatter Plot) ---
+    fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.5), facecolor="white")
+    fig1.suptitle("Doublet Detection Summary", fontsize=18, fontweight="bold")
 
+    # Panel 1: Doublet Breakdown Bar Plot
     summary_df = (
         adata.obs.groupby(sample_key)["doublet_source"]
-        .value_counts(normalize=True)
-        .unstack()
-        .fillna(0)
+        .value_counts(normalize=True, sort=False)
+        .unstack(fill_value=0)
+        * 100
     )
-    summary_df = summary_df.mul(100)  # Convert to percentage
-
-    summary_df.plot(
+    summary_df[source_categories].plot(
         kind="bar",
         stacked=True,
         ax=ax1,
         color={
             "Singleton": "lightgray",
-            "Algorithm Only": "skyblue",
             "Heuristic Only": "coral",
+            "Algorithm Only": "skyblue",
             "Both Methods": "darkred",
         },
+        width=0.8,
     )
     ax1.set_title("Doublet Breakdown per Sample", fontsize=14)
     ax1.set_ylabel("Percentage of Cells (%)")
     ax1.set_xlabel("Sample")
-    ax1.tick_params(axis="x", rotation=45)
+    plt.setp(ax1.get_xticklabels(), rotation=45, ha="right")
     ax1.legend(title="Source", bbox_to_anchor=(1.05, 1), loc="upper left")
+    ax1.grid(axis="y", linestyle="--", alpha=0.7)
 
-    # --- 3. Panel 2: Algorithm score vs. Number of genes (scatter plot)---
+    # Panel 2: Doublet Score vs. Gene Count Scatter Plot
     if algo_score_col in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
         sns.scatterplot(
             data=adata.obs,
@@ -586,70 +593,70 @@ def _plot_doublet_summary(
             rasterized=True,
         )
         ax2.set_title(
-            f"{algo_score_col.split('_')[0].capitalize()} Score vs. Gene Count",
-            fontsize=14,
+            f"{algo_score_col.replace('_', ' ').title()} vs. Gene Count", fontsize=14
         )
         ax2.set_xlabel("Number of Genes")
         ax2.set_ylabel("Doublet Score")
-        ax2.legend(title="Predicted Doublet")
+        ax2.legend(title="Final Prediction")
     else:
         ax2.text(
             0.5,
             0.5,
-            "Algorithm scores or gene counts not found.",
+            "Score or gene count data not available.",
             ha="center",
             va="center",
             transform=ax2.transAxes,
         )
 
-    # --- 4. Panel 3: Lineage co-expression analysis (UpSet graph) ---
-    if "lineage_predictions" in adata.obsm:
-        lineage_df = adata.obsm["lineage_predictions"]
-        # Select only co-expressing cells for plotting
+    fig1.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if save_dir:
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        overview_save_path = save_path / "doublet_summary_overview.png"
+        fig1.savefig(overview_save_path, dpi=300, bbox_inches="tight")
+        log.info(f"Saved doublet overview plot to {overview_save_path}")
+
+    # --- Figure 2: Standalone UpSet Plot for Heuristics ---
+    if LINEAGE_PRED_KEY in adata.obsm and not adata.obsm[LINEAGE_PRED_KEY].empty:
+        lineage_df = adata.obsm[LINEAGE_PRED_KEY]
         coexpressing_cells = lineage_df[lineage_df.sum(axis=1) >= 2]
+
         if not coexpressing_cells.empty:
             lineage_combinations = coexpressing_cells.groupby(
                 list(coexpressing_cells.columns)
             ).size()
-            upset_plot(
-                lineage_combinations, fig=fig, min_subset_size=10, show_counts=True
-            )
-            # UpSet plot takes over the figure, so we don't use ax3 directly
-            plt.suptitle("Heuristic: Lineage Co-expression Patterns", fontsize=14)
-        else:
-            ax3.text(
-                0.5,
-                0.5,
-                "No co-expressing cells found by heuristics.",
-                ha="center",
-                va="center",
-                transform=ax3.transAxes,
-            )
-            ax3.set_title("Heuristic: Lineage Co-expression", fontsize=14)
-    else:
-        ax3.text(
-            0.5,
-            0.5,
-            "Heuristic analysis not performed.",
-            ha="center",
-            va="center",
-            transform=ax3.transAxes,
-        )
-        ax3.set_title("Heuristic: Lineage Co-expression", fontsize=14)
+            lineage_combinations = lineage_combinations[lineage_combinations > 0]
 
-    # --- 5. Save and display ---
-    if save_dir:
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
-        plt.savefig(
-            save_path / "doublet_summary_plot.png", dpi=300, bbox_inches="tight"
-        )
-        log.info(f"Saved doublet summary plot to {save_path}")
+            if not lineage_combinations.empty:
+                fig2 = plt.figure(figsize=(12, 7), facecolor="white")
+                upset_plot(lineage_combinations, fig=fig2, element_size=32)
+                fig2.suptitle("Heuristic: Lineage Co-expression Summary", fontsize=16)
+
+                if save_dir:
+                    upset_save_path = Path(save_dir) / "doublet_summary_upsetplot.png"
+                    fig2.savefig(upset_save_path, dpi=300, bbox_inches="tight")
+                    log.info(f"Saved doublet UpSet plot to {upset_save_path}")
+
+                if show:
+                    plt.show()  # Show after saving this figure
+                plt.close(fig2)
+
+            else:
+                log.info(
+                    "No co-expressing cells found by heuristics to generate an UpSet plot."
+                )
+        else:
+            log.info(
+                "No co-expressing cells found by heuristics to generate an UpSet plot."
+            )
+    else:
+        log.info("Heuristic analysis not performed, skipping UpSet plot.")
 
     if show:
         plt.show()
 
-    plt.close(fig)
+    plt.close(fig1)
 
 
 # --- Main Functions ---
@@ -662,70 +669,77 @@ def generate_doublet_rates(
     chemistry: str = "v3",
 ) -> Dict[str, float]:
     """
-    Automatically generate expected doublet rates based on cell count per sample.
+    Automatically generate expected doublet rates based on cell count per sample or platform.
 
-    This function calculates expected doublet rates using the 10x Genomics guideline:
-    for every 1000 cells, the multiplet rate increases by approximately 0.8% (0.008).
-    This accounts for the fact that higher cell loading increases collision probability.
+    For 10x Genomics data ('v2', 'v3', 'HT'), this function calculates rates based on the
+    guideline that multiplet rate increases with cell load.
+
+    For BD Rhapsody data ('BD'), it applies a fixed, empirically-derived doublet rate, as the
+    microwell technology's multiplet rate is largely independent of recovered cell count.
 
     Args:
-        adata: AnnData object containing cell count information
-        sample_key: Column name in adata.obs used to distinguish samples
-        rate_per_1000_cells: Expected doublet rate per 1000 cells
-                           - 0.008 for standard 3' v3.1 chemistry
-                           - 0.016 for high-throughput (HT) kits
-        max_rate: Maximum doublet rate cap (prevents unrealistic rates)
-        min_rate: Minimum doublet rate floor (ensures some detection sensitivity)
-        chemistry: The 10x chemistry version ('v2', 'v3', 'HT', or 'custom')
+        adata: AnnData object containing cell count information.
+        sample_key: Column name in adata.obs used to distinguish samples.
+        rate_per_1000_cells: (For 10x) Expected doublet rate per 1000 cells.
+        max_rate: (For 10x) Maximum doublet rate cap.
+        min_rate: (For 10x) Minimum doublet rate floor.
+        chemistry: The technology platform ('v2', 'v3', 'HT', 'BD', or 'custom').
 
     Returns:
-        Dictionary mapping sample IDs to calculated doublet rates
-
-    Example:
-        >>> doublet_rates = generate_doublet_rates(adata, sample_key="sampleID")
-        >>> print(doublet_rates)
-        {'sample_A': 0.04, 'sample_B': 0.08}
+        Dictionary mapping sample IDs to calculated doublet rates.
     """
     log.info(
-        "Automatically generating doublet rates based on cell counts per sample..."
+        "Automatically generating doublet rates based on sample chemistry and cell counts..."
     )
 
-    # Define chemistry-specific rates
+    # Define platform-specific rates
+    # The value for 'BD' is a fixed rate, not a scaling factor.
     chemistry_rates = {
-        "v2": 0.007,  # 10x v2 chemistry
-        "v3": 0.008,  # 10x v3 chemistry
-        "HT": 0.016,  # 10x High-throughput chemistry
+        "v2": 0.007,  # 10x v2 chemistry (rate per 1000 cells)
+        "v3": 0.008,  # 10x v3 chemistry (rate per 1000 cells)
+        "HT": 0.016,  # 10x High-throughput (rate per 1000 cells)
+        "BD": 0.025,  # BD Rhapsody (fixed rate of 2.5%)
         "custom": rate_per_1000_cells,
     }
 
     if chemistry not in chemistry_rates:
-        log.warning(f"Unknown chemistry '{chemistry}'. Using default v3 rate.")
+        log.warning(f"Unknown chemistry '{chemistry}'. Using default 'v3' rate model.")
         chemistry = "v3"
 
     actual_rate = chemistry_rates[chemistry]
-    log.info(
-        f"Using {chemistry} chemistry with base rate of {actual_rate} per 1000 cells"
-    )
-
-    # Calculate cell counts per sample
     cell_counts = adata.obs[sample_key].value_counts()
     doublet_rates = {}
 
-    # Add non-linear scaling for very high cell counts
-    for sample, n_cells in cell_counts.items():
-        if n_cells > 10000:
-            # Non-linear scaling for very high cell counts
-            rate = (0.8 * (n_cells / 1000) * actual_rate) + (
-                0.2 * actual_rate * (n_cells / 1000) ** 1.5
+    if chemistry == "BD":
+        log.info(
+            f"Using fixed doublet rate of {actual_rate:.4f} for BD Rhapsody platform."
+        )
+        for sample, n_cells in cell_counts.items():
+            doublet_rates[sample] = actual_rate
+            log.info(
+                f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {actual_rate:.4f}"
             )
-        else:
-            # Standard linear scaling
-            rate = (n_cells / 1000) * actual_rate
+    else:
+        # Handle 10x-like linear scaling models
+        log.info(
+            f"Using {chemistry} chemistry with base rate of {actual_rate} per 1000 cells."
+        )
+        for sample, n_cells in cell_counts.items():
+            if n_cells > 10000 and chemistry in ["v2", "v3"]:
+                # Non-linear scaling for very high cell counts in standard 10x kits
+                rate = (0.8 * (n_cells / 1000) * actual_rate) + (
+                    0.2 * actual_rate * (n_cells / 1000) ** 1.5
+                )
+            else:
+                # Standard linear scaling
+                rate = (n_cells / 1000) * actual_rate
 
-        # Apply rate constraints
-        rate = max(min_rate, min(rate, max_rate))
-        doublet_rates[sample] = rate
-        log.info(f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}")
+            # Apply rate constraints
+            rate = max(min_rate, min(rate, max_rate))
+            doublet_rates[sample] = rate
+            log.info(
+                f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}"
+            )
 
     return doublet_rates
 
@@ -904,9 +918,7 @@ def analyze_lineage_coexpression(
 
 
 def predict_doublets(
-    adata: AnnData,
-    config: DoubletConfig,
-    sample_key: str = "sampleID",
+    adata: AnnData, config: DoubletConfig, sample_key: str = "sampleID", **kwargs
 ) -> AnnData:
     """
     Enhanced doublet prediction with a clear, config-driven workflow.
@@ -923,7 +935,22 @@ def predict_doublets(
         AnnData object with doublet predictions added to .obs.
     """
     # === 1. CONFIGURATION SETUP ===
-    cfg = config
+    base_config = DoubletConfig()
+
+    if config is not None:
+        config_dict = asdict(config)
+        for key, value in config_dict.items():
+            if hasattr(base_config, key):
+                setattr(base_config, key, value)
+
+    if kwargs:
+        for key, value in kwargs.items():
+            if hasattr(base_config, key):
+                setattr(base_config, key, value)
+            else:
+                log.warning(f"Unknown parameter '{key}' ignored.")
+
+    cfg = base_config 
     cfg.validate()
     log.info("--- Running Final Doublet Prediction Workflow ---")
 

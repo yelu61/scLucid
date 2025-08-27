@@ -818,7 +818,7 @@ def mark_low_quality_cell(
 
     if cfg.plot_outliers:
         _plot_qc_outliers(
-            adata, sample_indices, cfg.cols_to_plot, cfg.save_dir, cfg.show
+            adata, sample_indices, cfg.cols_to_plot, cfg.save_dir, cfg.show_plots
         )
 
     return adata
@@ -1064,15 +1064,12 @@ def filter_cells(
 
     # Perform filtering
     if copy:
-        # Create the filtered copy ONCE.
         adata_filtered = adata[keep_mask, :].copy()
-        # Ensure the .uns structure exists and add the results.
         adata_filtered.uns.setdefault("sclucid", {}).setdefault("qc", {})[
             "filtering_results"
         ] = stats
         return adata_filtered
     else:
-        # Filter in place.
         adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
             "filtering_results"
         ] = stats
