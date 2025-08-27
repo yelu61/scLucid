@@ -225,7 +225,7 @@ def _merge_doublet_predictions(
     log.info(
         f"Merged predictions using '{strategy}' strategy. Final count: {merged.sum()}"
     )
-    return merged
+    return merged.astype(bool)
 
 
 def _run_scrublet(

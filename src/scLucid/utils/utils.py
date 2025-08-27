@@ -8,15 +8,16 @@ across different parts of the analysis pipeline.
 import gc
 import logging
 import os
+import time
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anndata
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import time
 from anndata import AnnData
+from scipy import io
 from scipy.stats import median_abs_deviation
 
 log = logging.getLogger(__name__)
@@ -83,6 +84,71 @@ def _find_sample_paths(
     return found_paths
 
 
+def _read_10x_manually(sample_path: str) -> AnnData:
+    """
+    Manually reads 10x data files as a robust fallback method.
+
+    Args:
+        sample_path: Path to the directory containing matrix.mtx.gz, features.tsv.gz, etc.
+
+    Returns:
+        An AnnData object.
+    """
+    log.info(f"Attempting robust manual read from: {sample_path}")
+
+    # --- Find Files (with fallback for different names/compressions) ---
+    matrix_file = os.path.join(sample_path, "matrix.mtx.gz")
+    if not os.path.exists(matrix_file):
+        matrix_file = os.path.join(sample_path, "matrix.mtx")
+
+    features_file = os.path.join(sample_path, "features.tsv.gz")
+    if not os.path.exists(features_file):
+        features_file = os.path.join(sample_path, "genes.tsv.gz")
+    if not os.path.exists(features_file):
+        features_file = os.path.join(sample_path, "features.tsv")
+    if not os.path.exists(features_file):
+        features_file = os.path.join(sample_path, "genes.tsv")
+
+    barcodes_file = os.path.join(sample_path, "barcodes.tsv.gz")
+    if not os.path.exists(barcodes_file):
+        barcodes_file = os.path.join(sample_path, "barcodes.tsv")
+
+    if not all(os.path.exists(f) for f in [matrix_file, features_file, barcodes_file]):
+        raise FileNotFoundError(
+            f"Could not find all required 10x files in {sample_path}"
+        )
+
+    # --- Read Files with Explicit Type Control ---
+    X = io.mmread(matrix_file).T.tocsr()
+
+    features_df = pd.read_csv(
+        features_file,
+        sep="\t",
+        header=None,
+        compression="gzip" if features_file.endswith(".gz") else None,
+        dtype=str,  # Crucial: ensure all columns are read as strings
+    )
+    gene_names = features_df[1] if features_df.shape[1] >= 2 else features_df[0]
+
+    barcodes_df = pd.read_csv(
+        barcodes_file,
+        sep="\t",
+        header=None,
+        compression="gzip" if barcodes_file.endswith(".gz") else None,
+        dtype=str,  # Crucial: ensure barcodes are strings
+    )
+    barcodes = barcodes_df[0]
+
+    # --- Create and Sanitize AnnData Object ---
+    adata = anndata.AnnData(X=X, 
+                        obs=pd.DataFrame(index=barcodes.values), 
+                        var=pd.DataFrame(index=gene_names.values))
+
+    adata.var_names_make_unique()  # Ensure gene names are unique
+
+    return adata
+
+
 def load_10x_data(
     samples: List[str],
     base_dir: Optional[str] = None,
@@ -90,39 +156,21 @@ def load_10x_data(
     metadata_dicts: Optional[Dict[str, Dict[str, str]]] = None,
     possible_subpaths: Optional[List[str]] = None,
     output_file: Optional[str] = None,
-    compression: Optional[str] = 'gzip',
-    backup_existing: bool = True
+    compression: Optional[str] = "gzip",
+    backup_existing: bool = True,
 ) -> AnnData:
     """
-    Load multiple 10x Genomics samples and combine them into a single AnnData object.
-
-    Args:
-        samples: A list of sample IDs to load.
-        base_dir: The base directory containing all sample folders. If provided without path_dict,
-                 the function will automatically search for valid paths.
-        path_dict: Dictionary mapping sample IDs to their directory paths. 
-                  If provided, this overrides base_dir.
-        metadata_dicts: Dictionary of dictionaries with metadata fields.
-        possible_subpaths: List of possible subdirectory structures to check when using base_dir.
-        output_file: Path to save the combined AnnData object (h5ad format).
-                     If None, the data will not be saved to disk.
-        compression: Compression level for h5ad file (options: 'gzip', 'lzf', None).
-        backup_existing: If True, rename existing output file instead of overwriting.
-
-    Returns:
-        A combined AnnData object.
+    Load multiple 10x Genomics samples with a robust fallback mechanism.
+    First tries the standard scanpy reader, then falls back to a manual method.
     """
     adata_list = []
-    
-    # Determine sample paths
+
     if path_dict is None:
         if base_dir is None:
             raise ValueError("Either base_dir or path_dict must be provided")
-        
         log.info(f"Searching for sample paths in {base_dir}")
         path_dict = _find_sample_paths(base_dir, samples, possible_subpaths)
-    
-    # Prepare metadata
+
     sample_metadata = {}
     if metadata_dicts:
         for sample in samples:
@@ -131,50 +179,63 @@ def load_10x_data(
                 if sample in metadata_dict:
                     sample_metadata[sample][metadata_name] = metadata_dict[sample]
 
-    # Process samples with valid paths
     valid_samples = [s for s in samples if s in path_dict]
     if len(valid_samples) < len(samples):
-        log.warning(f"Found valid paths for {len(valid_samples)}/{len(samples)} samples")
-    
+        log.warning(
+            f"Found valid paths for {len(valid_samples)}/{len(samples)} samples"
+        )
+
     for sample in valid_samples:
         sample_path = path_dict[sample]
-        
-        try:
-            log.info(f"Loading {sample} from {sample_path}")
-            adata = sc.read_10x_mtx(sample_path, var_names="gene_symbols", cache=True)
-            adata.obs["sampleID"] = sample
+        adata = None
 
-            # Add metadata
+        # --- Main method with fallback ---
+        try:
+            log.info(f"Loading {sample} with standard method from {sample_path}")
+            adata = sc.read_10x_mtx(
+                sample_path, var_names="gene_symbols", cache=True, make_unique=True
+            )
+        except Exception as e:
+            log.warning(f"Standard method failed for {sample}: {e}")
+            log.info(f"Attempting robust fallback method for {sample}...")
+            try:
+                adata = _read_10x_manually(sample_path)
+            except Exception as e2:
+                log.error(f"Robust fallback method also failed for {sample}: {e2}")
+                continue  # Skip to the next sample
+
+        # --- Post-loading processing (common for both methods) ---
+        if adata is not None:
+            adata.obs["sampleID"] = sample
             if sample in sample_metadata:
                 for meta_key, meta_value in sample_metadata[sample].items():
                     adata.obs[meta_key] = meta_value
 
-            adata.obs_names = [f"{sample}_{bc}" for bc in adata.obs_names]
-            log.info(f"Loaded {sample}: {adata.n_obs} cells, {adata.n_vars} genes")
+            log.info(
+                f"Successfully loaded {sample}: {adata.n_obs} cells, {adata.n_vars} genes"
+            )
             adata_list.append(adata)
             gc.collect()
-
-        except Exception as e:
-            log.error(f"Error processing {sample}: {e}")
 
     if not adata_list:
         log.error("No samples were loaded successfully.")
         return AnnData()
 
     log.info(f"Merging {len(adata_list)} samples...")
-    combined_adata = anndata.concat(adata_list, join="outer", label="sample_source")
+    combined_adata = anndata.concat(
+        adata_list, join="outer", keys=valid_samples, label="batch", index_unique="_"
+    )
+
     log.info(
         f"Combined dataset: {combined_adata.n_obs} cells, {combined_adata.n_vars} genes"
     )
-    
-    # Save the combined data if output_file is specified
+
     if output_file:
-        # Handle existing file if backup_existing is True
         if os.path.exists(output_file) and backup_existing:
             backup_file = f"{output_file}.bak.{int(time.time())}"
             log.info(f"File {output_file} exists, creating backup: {backup_file}")
             os.rename(output_file, backup_file)
-            
+
         log.info(f"Saving combined data to {output_file}")
         combined_adata.write(output_file, compression=compression)
         log.info(f"Data successfully saved to {output_file}")
@@ -366,23 +427,27 @@ def subset_adata(
 
     for key, value in filters.items():
         if key not in adata.obs.columns:
-            log.warning(f"Metadata column '{key}' not found in adata.obs. Skipping filter.")
+            log.warning(
+                f"Metadata column '{key}' not found in adata.obs. Skipping filter."
+            )
             continue
 
         if isinstance(value, list):
             mask = adata.obs[key].isin(value)
         else:
             mask = adata.obs[key] == value
-        
+
         combined_mask &= mask
 
     final_cells = combined_mask.sum()
-    log.info(f"Subsetting data based on provided filters:")
+    log.info("Subsetting data based on provided filters:")
     log.info(f"  - Initial cells: {initial_cells}")
     log.info(f"  - Final cells after filtering: {final_cells}")
 
     if final_cells == 0:
-        log.warning("No cells remaining after applying filters. Returning an empty AnnData object.")
+        log.warning(
+            "No cells remaining after applying filters. Returning an empty AnnData object."
+        )
         return AnnData()
 
     # The core slicing operation
@@ -393,6 +458,8 @@ def subset_adata(
     if keep_raw_genes and adata.raw is not None:
         # Create a new raw object from the original raw data, but with subsetted cells
         adata_subset.raw = adata.raw[adata_subset.obs_names, :].copy()
-        log.info(f"Subset .raw created, retaining all {adata.raw.n_vars} original genes.")
+        log.info(
+            f"Subset .raw created, retaining all {adata.raw.n_vars} original genes."
+        )
 
     return adata_subset
