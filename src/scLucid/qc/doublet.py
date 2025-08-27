@@ -630,7 +630,7 @@ def _plot_doublet_summary(
 
             if not lineage_combinations.empty:
                 fig2 = plt.figure(figsize=(12, 7), facecolor="white")
-                upset_plot(lineage_combinations, fig=fig2, element_size=32)
+                upset_plot(lineage_combinations, fig=fig2, element_size=32, show_counts=True)
                 fig2.suptitle("Heuristic: Lineage Co-expression Summary", fontsize=16)
 
                 if save_dir:
