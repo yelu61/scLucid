@@ -6,14 +6,18 @@ methods: Harmony, Scanorama, scVI, BBKNN, ComBat. It ensures consistent API,
 robust logging, and complete traceability for reproducible single-cell workflows.
 """
 
+import dataclasses
 import logging
-import os
-from typing import Dict, List, Literal, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
+
+from .config import IntegrationConfig
 
 # Logging config
 log = logging.getLogger(__name__)
@@ -412,51 +416,59 @@ def _integrate_combat(
 
 def batch_correction(
     adata: AnnData,
-    batch_key: str,
-    method: Literal["harmony", "scanorama", "scvi", "bbknn", "combat"] = "harmony",
-    use_rep: str = "X_pca",
-    hvg_key: Optional[str] = "highly_variable",
-    layer: Optional[str] = "counts",
-    plot: bool = True,
-    save_dir: Optional[str] = None,
-    output_key: Optional[str] = None,
-    copy: bool = False,
-    force: bool = False,
+    config: Optional[IntegrationConfig] = None,
     **kwargs,
 ) -> AnnData:
     """
-    High-level wrapper for batch correction/integration.
-    Adds embedding to .obsm[output_key] or method-specific default.
-    Plots before/after if plot=True.
+    High-level, config-driven wrapper for batch correction/integration.
 
     Args:
         adata: AnnData object.
-        batch_key: obs column for batch.
-        method: Integration method.
-        use_rep: Embedding to use as input (typically "X_pca").
-        hvg_key: Use adata.var[hvg_key] for Scanorama integration.
-        layer: Raw count layer for scVI.
-        plot: Plot UMAP before/after.
-        save_dir: Save plots here.
-        output_key: Name for integrated embedding in .obsm (default: "X_{method}").
-        copy: If True, operate on a copy.
-        force: If True, rerun even if already applied.
+        config: An IntegrationConfig object. If None, a default config is used.
+        **kwargs: Keyword arguments to override parameters in the config object
+                  (e.g., `method='scanorama'`, `use_rep='X_pca'`).
 
     Returns:
-        AnnData with integration result in .obsm[output_key].
+        AnnData with integration result in .obsm.
     """
-    if batch_key not in adata.obs:
-        raise ValueError(f"batch_key '{batch_key}' not found in adata.obs")
-    if copy:
-        adata = adata.copy()
-    if output_key is None:
-        output_key = f"X_{method}"
-    # Already integrated?
-    if output_key in adata.obsm and not force:
-        log.info(f"Batch correction '{method}' already done. Use force=True to rerun.")
+    # --- 1. Establish the final configuration ---
+    if config is None:
+        active_config = IntegrationConfig()
+    else:
+        active_config = dataclasses.replace(config)
+
+    for key, value in kwargs.items():
+        if hasattr(active_config, key):
+            setattr(active_config, key, value)
+        else:
+            log.warning(f"Ignoring unknown integration parameter: '{key}'")
+
+    # --- 2. Extract parameters from the final config ---
+    method = active_config.method
+    batch_key = active_config.batch_key
+    use_rep = active_config.use_rep
+    output_key = active_config.output_key or f"X_{method}"
+    force = kwargs.get("force", False)
+    plot = active_config.plot
+    save_dir = Path(active_config.save_dir) if active_config.save_dir else None
+
+    # --- 3. Input validation ---
+    if not method or not batch_key:
+        log.info(
+            "`method` or `batch_key` not specified in config. Skipping batch correction."
+        )
         return adata
 
-    # Plot before
+    if batch_key not in adata.obs:
+        raise ValueError(f"batch_key '{batch_key}' not found in adata.obs")
+
+    if output_key in adata.obsm and not force:
+        log.info(
+            f"Integration result '{output_key}' already exists. Use force=True to rerun."
+        )
+        return adata
+
+    # --- 4. Plot before state (if requested) ---
     if plot:
         adata_before = adata.copy()
         if "neighbors" not in adata_before.uns and use_rep in adata_before.obsm:
@@ -464,59 +476,64 @@ def batch_correction(
         if "X_umap" not in adata_before.obsm:
             sc.tl.umap(adata_before)
 
-    # Main integration
+    # --- 5. Main integration logic ---
+    #  Prepare method-specific arguments from the config
+    method_kwargs = {}
     if method == "harmony":
-        _integrate_harmony(
-            adata, batch_key, basis=use_rep, embedding_key=output_key, **kwargs
+        method_kwargs = active_config.harmony_params
+    elif method == "scvi":
+        method_kwargs = active_config.scvi_params
+    elif method == "scanorama" and active_config.hvg_key:
+        if active_config.hvg_key in adata.var:
+            method_kwargs["hvg"] = adata.var_names[
+                adata.var[active_config.hvg_key]
+            ].tolist()
+        else:
+            log.warning(
+                f"hvg_key '{active_config.hvg_key}' not found in .var. Running on all genes."
+            )
+
+    log.info(f"Running batch correction with method: '{method}'")
+
+    # Dispatch to the appropriate low-level wrapper
+    if method == "harmony":
+        adata = _integrate_harmony(
+            adata, batch_key, basis=use_rep, embedding_key=output_key, **method_kwargs
         )
     elif method == "scanorama":
-        hvg_list = None
-        if hvg_key and hvg_key in adata.var:
-            hvg_list = adata.var_names[adata.var[hvg_key]].tolist()
-        _integrate_scanorama(
-            adata,
-            batch_key,
-            hvg=hvg_list,
-            dims=adata.obsm[use_rep].shape[1] if use_rep in adata.obsm else 50,
-            embedding_key=output_key,
-            **kwargs,
+        adata = _integrate_scanorama(
+            adata, batch_key, embedding_key=output_key, **method_kwargs
         )
     elif method == "scvi":
-        _integrate_scvi(
-            adata,
-            batch_key,
-            layer=layer,
-            n_latent=adata.obsm[use_rep].shape[1] if use_rep in adata.obsm else 30,
-            embedding_key=output_key,
-            **kwargs,
+        adata = _integrate_scvi(
+            adata, batch_key, embedding_key=output_key, **method_kwargs
         )
     elif method == "bbknn":
-        _integrate_bbknn(adata, batch_key, use_rep=use_rep, **kwargs)
-        if "X_pca" in adata.obsm:
-            adata.obsm[output_key] = adata.obsm["X_pca"].copy()
-    elif method == "combat":
-        _integrate_combat(
-            adata, batch_key, layer=layer, output_layer="combat_corrected", **kwargs
+        adata = _integrate_bbknn(
+            adata, batch_key, use_rep=use_rep, embedding_key=output_key, **method_kwargs
         )
-        # Recompute PCA
-        X_orig = adata.X.copy()
-        if "combat_corrected" in adata.layers:
-            adata.X = adata.layers["combat_corrected"].copy()
-        sc.pp.pca(adata, n_comps=min(50, adata.n_obs - 1, adata.n_vars - 1))
-        adata.obsm[output_key] = adata.obsm["X_pca"].copy()
-        adata.X = X_orig
+    elif method == "combat":
+        adata = _integrate_combat(
+            adata, batch_key, embedding_key=output_key, **method_kwargs
+        )
     else:
         raise ValueError(
             f"Unknown method '{method}'. Choose from: harmony, scanorama, scvi, bbknn, combat."
         )
 
-    log.info(f"Integration complete. Output: adata.obsm['{output_key}']")
+    # --- 6. Store metadata and plot after state ---
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["integration"] = {
+        "params": dataclasses.asdict(active_config),
+        "output_key": output_key,
+    }
+
+    log.info(f"Integration complete. Result stored in: adata.obsm['{output_key}']")
+
     # Plot after
     if plot:
         if method != "bbknn":
             sc.pp.neighbors(adata, use_rep=output_key)
         sc.tl.umap(adata)
-        import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(1, 2, figsize=(16, 7))
         fig.suptitle("Batch Correction Comparison", fontsize=16)
@@ -534,14 +551,18 @@ def batch_correction(
             show=False,
             title=f"After {method.capitalize()}",
         )
+
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
         if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
-            save_path = os.path.join(save_dir, f"batch_correction_{method}.png")
-            plt.savefig(save_path, dpi=300)
-            log.info(f"Saved correction plot: {save_path}")
+            save_dir.mkdir(parents=True, exist_ok=True)
+            figure_path = save_dir / f"batch_correction_{method}.png"
+            plt.savefig(figure_path, dpi=300)
+            log.info(f"Saved correction plot to: {figure_path}")
+
         plt.show()
         plt.close(fig)
+
     return adata
 
 
@@ -861,8 +882,10 @@ def evaluate_integration(
             )
             plt.tight_layout(rect=[0, 0.05, 1, 0.95])
             if save_path:
-                os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-                plt.savefig(save_path, dpi=300, bbox_inches="tight")
-                log.info(f"Saved evaluation plot to {save_path}")
+                figure_path = Path(save_path)
+                figure_path.parent.mkdir(parents=True, exist_ok=True)
+                plt.savefig(figure_path, dpi=300, bbox_inches="tight")
+                log.info(f"Saved evaluation plot to {figure_path}")
+
             plt.show()
     return results

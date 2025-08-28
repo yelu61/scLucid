@@ -25,8 +25,6 @@ try:
 except ImportError:
     HAS_VENN = False
 
-log = logging.getLogger(__name__)
-
 from ..utils.utils import use_layer_as_X
 from .config import HVGConfig
 
@@ -34,8 +32,8 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "find_hvgs",
-    "select_hvg_sets",
     "suggest_hvg_choice",
+    "select_hvg_sets",
     "evaluate_hvg_stability",
     "plot_hvg_metrics",
 ]
@@ -345,12 +343,87 @@ def find_hvgs(
     return adata
 
 
+def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str) -> None:
+    """
+    Provides data-driven guidance for HVG set selection by analyzing overlap.
+    """
+    if len(hvg_keys) < 2:
+        log.info("Guidance is most useful when comparing 2 or more HVG sets.")
+        return
+
+    sets = [set(adata.var_names[adata.var[key]]) for key in hvg_keys]
+
+    # --- Quantitative Analysis ---
+    intersection_set = set.intersection(*sets)
+    union_set = set.union(*sets)
+    jaccard_index = len(intersection_set) / len(union_set) if len(union_set) > 0 else 0
+
+    # --- Build Report ---
+    msg = ["=" * 50, "==== HVG Selection Guidance ====", "=" * 50]
+    msg.append(f"Comparing {len(hvg_keys)} HVG sets: {', '.join(hvg_keys)}")
+    for i, key in enumerate(hvg_keys):
+        msg.append(f"- Set '{key}': {len(sets[i])} genes")
+
+    msg.append("\n--- Overlap Analysis ---")
+    msg.append(f"- Intersection (genes in all sets): {len(intersection_set)} genes")
+    msg.append(f"- Union (genes in any set): {len(union_set)} genes")
+    msg.append(
+        f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)"
+    )
+
+    msg.append(f"\n--- Recommendation for your chosen mode ('{mode}') ---")
+
+    # --- Generate Tailored Advice ---
+    if jaccard_index > 0.7:
+        msg.append("Data-driven verdict: **High Overlap**.")
+        msg.append("Both methods identify a very similar core set of variable genes.")
+        if mode == "intersection":
+            msg.append(
+                "Your choice of 'intersection' is a safe and robust strategy. You will get a high-confidence set of HVGs."
+            )
+        elif mode == "union":
+            msg.append(
+                "Your choice of 'union' is also reasonable. It will add a few extra genes without a high risk of introducing noise."
+            )
+
+    elif 0.4 <= jaccard_index <= 0.7:
+        msg.append("Data-driven verdict: **Moderate Overlap**.")
+        msg.append(
+            "The methods agree on a core set of genes but also identify unique ones."
+        )
+        if mode == "intersection":
+            msg.append(
+                "Your choice of 'intersection' is the most conservative and reproducible option. You will get a high-confidence set but may miss some subtle biological signals."
+            )
+        elif mode == "union":
+            msg.append(
+                "Your choice of 'union' is more inclusive and better for discovery, but may introduce noise. Be sure to check for over-clustering in downstream analysis."
+            )
+
+    else:  # Low overlap
+        msg.append("Data-driven verdict: **Low Overlap**.")
+        msg.append(
+            "⚠️ **Warning:** The selected methods are identifying very different sets of genes. This could be due to strong batch effects or fundamental differences in the algorithms."
+        )
+        if mode == "intersection":
+            msg.append(
+                f"Your choice of 'intersection' will result in a very small set of {len(intersection_set)} genes. This may not be enough for stable downstream analysis. Please verify."
+            )
+        elif mode == "union":
+            msg.append(
+                "Your choice of 'union' will combine two very different gene lists, which could be risky. It is highly recommended to first visualize the UMAPs from each HVG set individually to understand why they differ so much."
+            )
+        msg.append(
+            "\n**Suggestion:** The 'custom' method is often more robust for multi-sample datasets than the standard 'scanpy' method. Consider trusting the 'custom' set or investigating potential batch effects further."
+        )
+
+    print("\n".join(msg))
+
+
 def select_hvg_sets(
     adata: AnnData,
     hvg_keys: Union[str, List[str]],
     mode: Literal["direct", "intersection", "union", "difference"] = "direct",
-    n_top_genes: Optional[int] = None,
-    sort_by: Optional[str] = None,
     subset: bool = True,
     keep_raw: bool = True,
     copy: bool = False,
@@ -363,40 +436,18 @@ def select_hvg_sets(
 ) -> AnnData:
     """
     Select HVG genes using one or more masks, with set operations, summary and visualization.
-
-    Args:
-        adata: AnnData object.
-        hvg_keys: str or list of str. One or more boolean columns in adata.var.
-        mode: How to use the keys:
-            - 'direct': Use a single key directly (default, backward compatible).
-            - 'intersection': Genes present in all masks.
-            - 'union': Genes present in any mask.
-            - 'difference': Genes in the first mask but not in the others.
-        n_top_genes: Restrict to top N genes ranked by sort_by (optional).
-        sort_by: Column to sort by (e.g. 'dispersions_norm'), only applies after mask.
-        subset: Whether to subset AnnData to the selected genes.
-        keep_raw: If subsetting, whether to store full object in .raw.
-        copy: Whether to return a copy.
-        output_key: Where to store the new mask in adata.var.
-        plot_venn: Whether to plot Venn diagram for 2-3 sets.
-        show_stats: Whether to print stats for each set and combinations.
-        show_suggestion: Whether to print guidance for HVG set choice.
-        save_dir: Optional path to save Venn diagram and stats.
-        **kwargs: Reserved for future extension.
-
-    Returns:
-        AnnData: Subsetted object or original with new mask in .var[output_key].
     """
-    # --- Prepare input and check keys ---
     if isinstance(hvg_keys, str):
         hvg_keys = [hvg_keys]
     for k in hvg_keys:
         if k not in adata.var:
             raise KeyError(f"HVG key '{k}' not found in adata.var.")
-        if not np.issubdtype(adata.var[k].dtype, np.bool_):
-            raise ValueError(f"HVG key '{k}' must be boolean mask.")
 
-    # --- Collect sets ---
+    # --- Suggestion for HVG set choice ---
+    if show_suggestion:
+        # Call the new, data-driven guidance function
+        suggest_hvg_choice(adata, hvg_keys, mode)
+
     hvg_sets = [set(adata.var_names[adata.var[k]]) for k in hvg_keys]
     set_names = hvg_keys
 
@@ -447,14 +498,6 @@ def select_hvg_sets(
             with open(f"{save_dir}/hvg_set_stats.txt", "w") as f:
                 f.write(stats_msg)
 
-    # --- Suggestion for HVG set choice ---
-    if show_suggestion:
-        suggestion = suggest_hvg_choice(len(hvg_sets), mode)
-        print(suggestion)
-        if save_dir:
-            with open(f"{save_dir}/hvg_suggestion.txt", "w") as f:
-                f.write(suggestion)
-
     # --- Plot Venn diagram if needed ---
     if plot_venn and HAS_VENN and (2 <= len(hvg_sets) <= 3):
         plt.figure(figsize=(6, 5))
@@ -469,124 +512,32 @@ def select_hvg_sets(
     elif plot_venn and not HAS_VENN and (2 <= len(hvg_sets) <= 3):
         log.warning("matplotlib_venn is not installed. Skipping Venn plot.")
 
-    # --- Apply sort_by and n_top_genes ---
     mask_combined = adata.var_names.isin(list(combined_set))
-    if n_top_genes is not None:
-        if sort_by is None:
-            top_genes = np.random.choice(
-                list(combined_set),
-                size=min(n_top_genes, len(combined_set)),
-                replace=False,
-            )
-        else:
-            if sort_by not in adata.var:
-                raise KeyError(f"sort_by column '{sort_by}' not found in adata.var.")
-            sub_df = adata.var.loc[mask_combined, sort_by]
-            ascending = not any(x in sort_by for x in ["disp", "var", "score"])
-            top_genes = sub_df.sort_values(ascending=ascending).index[:n_top_genes]
-        mask_combined = adata.var_names.isin(top_genes)
-
-    # --- Store mask in adata.var ---
     adata.var[output_key] = mask_combined
 
-    # --- Subset AnnData if needed ---
+    log.info(
+        f"Created final HVG mask in '.var['{output_key}']' with {mask_combined.sum()} genes."
+    )
+
     if subset:
         if keep_raw and adata.raw is None:
             adata.raw = adata.copy()
-        adata_subset = (
-            adata[:, mask_combined].copy() if copy else adata[:, mask_combined]
-        )
-        log.info(
-            f"[select_hvg_sets] Subsetted AnnData to {mask_combined.sum()} genes (output_key={output_key})"
-        )
-        # Traceability
-        adata_subset.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
-            "select_hvg_sets"
-        ] = {
-            "hvg_keys": hvg_keys,
-            "mode": mode,
-            "n_top_genes": n_top_genes,
-            "sort_by": sort_by,
-            "output_key": output_key,
-            "final_n_hvg": int(mask_combined.sum()),
-        }
-        return adata_subset
-    else:
-        adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
-            "select_hvg_sets"
-        ] = {
-            "hvg_keys": hvg_keys,
-            "mode": mode,
-            "n_top_genes": n_top_genes,
-            "sort_by": sort_by,
-            "output_key": output_key,
-            "final_n_hvg": int(mask_combined.sum()),
-        }
-        log.info(
-            f"[select_hvg_sets] Added mask '{output_key}' with {mask_combined.sum()} genes."
-        )
-        return adata
 
+        if copy:
+            adata_subset = adata[:, mask_combined].copy()
+            log.info(
+                f"Created a new subsetted AnnData object with {mask_combined.sum()} final HVGs."
+            )
+            return adata_subset
+        else:
+            adata._inplace_subset_var(mask_combined)
+            log.info(
+                f"Subsetted AnnData object in-place to {mask_combined.sum()} final HVGs."
+            )
+            return adata
 
-def suggest_hvg_choice(
-    adata: AnnData, 
-    hvg_keys: List[str], 
-    mode: str
-) -> None:
-    """
-    Provides data-driven guidance for HVG set selection by analyzing overlap.
-    """
-    if len(hvg_keys) < 2:
-        log.info("Guidance is most useful when comparing 2 or more HVG sets.")
-        return
+    return adata
 
-    sets = [set(adata.var_names[adata.var[key]]) for key in hvg_keys]
-    
-    # --- Quantitative Analysis ---
-    intersection_set = set.intersection(*sets)
-    union_set = set.union(*sets)
-    jaccard_index = len(intersection_set) / len(union_set) if len(union_set) > 0 else 0
-
-    # --- Build Report ---
-    msg = ["="*50, "==== HVG Selection Guidance ====", "="*50]
-    msg.append(f"Comparing {len(hvg_keys)} HVG sets: {', '.join(hvg_keys)}")
-    for i, key in enumerate(hvg_keys):
-        msg.append(f"- Set '{key}': {len(sets[i])} genes")
-    
-    msg.append("\n--- Overlap Analysis ---")
-    msg.append(f"- Intersection (genes in all sets): {len(intersection_set)} genes")
-    msg.append(f"- Union (genes in any set): {len(union_set)} genes")
-    msg.append(f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)")
-
-    msg.append(f"\n--- Recommendation for your chosen mode ('{mode}') ---")
-
-    # --- Generate Tailored Advice ---
-    if jaccard_index > 0.7:
-        msg.append("Data-driven verdict: **High Overlap**.")
-        msg.append("Both methods identify a very similar core set of variable genes.")
-        if mode == 'intersection':
-            msg.append("Your choice of 'intersection' is a safe and robust strategy. You will get a high-confidence set of HVGs.")
-        elif mode == 'union':
-            msg.append("Your choice of 'union' is also reasonable. It will add a few extra genes without a high risk of introducing noise.")
-    
-    elif 0.4 <= jaccard_index <= 0.7:
-        msg.append("Data-driven verdict: **Moderate Overlap**.")
-        msg.append("The methods agree on a core set of genes but also identify unique ones.")
-        if mode == 'intersection':
-            msg.append("Your choice of 'intersection' is the most conservative and reproducible option. You will get a high-confidence set but may miss some subtle biological signals.")
-        elif mode == 'union':
-            msg.append("Your choice of 'union' is more inclusive and better for discovery, but may introduce noise. Be sure to check for over-clustering in downstream analysis.")
-    
-    else: # Low overlap
-        msg.append("Data-driven verdict: **Low Overlap**.")
-        msg.append("⚠️ **Warning:** The selected methods are identifying very different sets of genes. This could be due to strong batch effects or fundamental differences in the algorithms.")
-        if mode == 'intersection':
-            msg.append(f"Your choice of 'intersection' will result in a very small set of {len(intersection_set)} genes. This may not be enough for stable downstream analysis. Please verify.")
-        elif mode == 'union':
-            msg.append("Your choice of 'union' will combine two very different gene lists, which could be risky. It is highly recommended to first visualize the UMAPs from each HVG set individually to understand why they differ so much.")
-        msg.append("\n**Suggestion:** The 'custom' method is often more robust for multi-sample datasets than the standard 'scanpy' method. Consider trusting the 'custom' set or investigating potential batch effects further.")
-
-    print("\n".join(msg))
 
 def evaluate_hvg_stability(
     adata: AnnData,

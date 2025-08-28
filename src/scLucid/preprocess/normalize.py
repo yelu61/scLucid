@@ -5,6 +5,7 @@ This module provides methods for normalizing raw count data and regressing out
 unwanted sources of variation, preparing the data for downstream analysis.
 """
 
+import dataclasses
 import logging
 from pathlib import Path
 from typing import List, Optional, Union
@@ -188,38 +189,48 @@ def _write_normalization_report(
 # --- Main Functions ---
 def normalize_data(
     adata: AnnData,
-    input_layer: Optional[str] = "counts",
-    output_layer: Optional[str] = "normalized",
     config: Optional[NormalizationConfig] = None,
-    force: bool = False,
-    update_X: bool = True,
-    report: bool = False,
-    max_cells_plot: int = 40000,
+    **kwargs,
 ) -> AnnData:
     """
-    Normalize raw count data to account for differences in sequencing depth.
+    Normalize raw count data using a flexible, config-driven workflow.
+
+    This function supports both a full config object for reproducibility and
+    keyword arguments (`**kwargs`) for interactive overrides.
 
     Args:
         adata: The AnnData object to be normalized. Modified in place.
-        config: A NormalizationConfig object specifying the method and parameters.
-        input_layer: Name of the layer in `adata.layers` containing raw count data.
-        output_layer: Name of the layer to store the normalized and log-transformed data.
-        force: If True, overwrite the `output_layer` if it already exists.
-        update_X: If True, also update adata.X to the newly normalized layer.
-        report: Whether to write a markdown report with normalization statistics.
-        max_cells_plot: Max cells to use when plotting (for large data).
+        config: A NormalizationConfig object. If None, a default config is created.
+        **kwargs: Keyword arguments to override parameters in the config object
+                  (e.g., `method='scran'`, `target_sum=1e5`, `input_layer='raw'`).
 
     Returns:
         The modified AnnData object with the new normalized layer.
-
-    Raises:
-        ValueError: If the specified input layer does not exist or method is unknown.
-        RuntimeError: If the normalization process fails for any reason.
     """
+    # --- 1. Establish the final configuration ---
     if config is None:
-        config = NormalizationConfig()
+        active_config = NormalizationConfig()
+    else:
+        active_config = dataclasses.replace(config)  # Use a copy
 
-    # Input layer check: allow 'X' for adata.X
+    # Apply overrides from kwargs, making the function highly interactive
+    for key, value in kwargs.items():
+        if hasattr(active_config, key):
+            setattr(active_config, key, value)
+        else:
+            log.warning(f"Ignoring unknown normalization parameter: '{key}'")
+
+    # --- 2. Extract parameters from the final config ---
+    input_layer = active_config.input_layer
+    output_layer = active_config.output_layer
+    force = kwargs.get(
+        "force", False
+    )  # `force` is a runtime decision, best kept as a kwarg
+    report = active_config.report
+    plot = active_config.plot
+    save_dir = Path(active_config.save_dir) if active_config.save_dir else None
+
+    # --- 3. Input validation and data diagnosis ---
     if input_layer == "X":
         source_data = adata.X
         source_name = "adata.X"
@@ -227,19 +238,15 @@ def normalize_data(
         source_data = adata.layers[input_layer]
         source_name = f"adata.layers['{input_layer}']"
     else:
-        raise ValueError(
-            f"Input layer '{input_layer}' not found in adata.layers nor is it 'X' (adata.X)."
-        )
+        raise ValueError(f"Input layer '{input_layer}' not found.")
 
     if output_layer in adata.layers and not force:
         log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
         return adata
 
-    # --- Step 1: Input Data Diagnosis ---
     log.info(f"Diagnosing input data for normalization from '{source_name}' ...")
     stats_before = _diagnose_matrix(source_data, name="input")
     n_cells, n_genes = source_data.shape
-
     if np.issubdtype(source_data.dtype, np.floating):
         if scipy.sparse.issparse(source_data):
             arr = source_data.data
@@ -256,12 +263,12 @@ def normalize_data(
 
     log.info(f"Normalizing data from '{source_name}' using method '{config.method}'.")
 
-    # Step 2: Prepare scanpy normalization arguments from config
+    # --- 4. Core Normalization Logic ---
+    # Prepare scanpy arguments from the active_config
     norm_kwargs = {}
-    # These parameters exist in config, pass if present
     for param in ["target_sum", "exclude_highly_expressed", "max_fraction"]:
-        if hasattr(config, param):
-            norm_kwargs[param] = getattr(config, param)
+        if hasattr(active_config, param):
+            norm_kwargs[param] = getattr(active_config, param)
 
     temp_adata = AnnData(
         X=source_data.copy(), obs=adata.obs.copy(), var=adata.var.copy()
@@ -313,65 +320,51 @@ def normalize_data(
             "Failed to normalize data. Check dependencies and data format."
         )
 
-    # Step 3: Final log1p transformation if needed
+    # --- 5. Log transform and store results ---
     final_log_transformed = method_is_log_transformed
     if not method_is_log_transformed:
         log.info("Applying log1p transformation.")
         sc.pp.log1p(temp_adata)
         final_log_transformed = True
-    else:
-        log.info(
-            f"Method '{config.method}' includes a log-like transformation; skipping explicit log1p."
-        )
 
-    # Step 4: Store results
     adata.layers[output_layer] = temp_adata.X.copy()
-    if update_X:
+    if active_config.update_X:
         adata.X = adata.layers[output_layer].copy()
 
     stats_after = _diagnose_matrix(adata.layers[output_layer], name="normalized")
-    # Step 5: Store metadata in .uns for reproducibility
+
+    # --- 6. Store metadata in .uns ---
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
         "normalization"
     ] = {
-        "method": config.method,
-        "input_layer": input_layer,
-        "output_layer": output_layer,
-        "log_transformed": final_log_transformed,
-        "params": config.__dict__,
+        "params": dataclasses.asdict(active_config),
         "input_stats": stats_before,
         "output_stats": stats_after,
-        "n_cells": n_cells,
-        "n_genes": n_genes,
     }
 
-    # Step 6: Diagnostic plotting
-    plot_flag = getattr(config, "plot_global_distribution", False)
-    save_dir = getattr(config, "save_dir", None)
-    if plot_flag:
+    # --- 7. Reporting and Plotting ---
+    if plot:
         log.info("Generating diagnostic plots for normalization...")
         try:
-            _plot_normalization_global(
+            fig = _plot_normalization_global(
                 source_data,
                 adata.layers[output_layer],
-                method=config.method,
+                method=active_config.method,
                 log_transformed=final_log_transformed,
                 save_dir=save_dir,
-                max_cells=max_cells_plot,
             )
             plt.show()
         except Exception as e:
             log.warning(f"Failed to generate normalization plots: {e}")
 
-    # Step 7: Optionally write a markdown report
     if report and save_dir:
         try:
-            report_path = Path(save_dir) / "normalization_report.md"
+            report_path = save_dir / "normalization_report.md"
             _write_normalization_report(
                 report_path=report_path,
                 stats_before=stats_before,
                 stats_after=stats_after,
-                config=config,
+                config=active_config,
                 n_cells=n_cells,
                 n_genes=n_genes,
             )

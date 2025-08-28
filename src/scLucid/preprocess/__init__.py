@@ -5,29 +5,30 @@ This module provides functions for normalization, feature selection,
 scaling, batch correction, and other essential preprocessing steps.
 """
 
-__version__ = "0.1.0"
-
 # --- Configuration Objects ---
 from .config import (
-    NormalizationConfig,
+    GraphConfig,
     HVGConfig,
     IntegrationConfig,
-    GraphConfig,
-    PreprocessingConfig,
+    NeighborsConfig,
+    NormalizationConfig,
+    ScalingConfig,
+    WorkflowConfig,
 )
-
-# --- Core Functions ---
-from .normalize import normalize_data
-from .hvg import find_hvgs, select_hvg_sets, suggest_hvg_choice
-from .scale import scale_data, regress_out
-from .integrate import batch_correction
+from .hvg import (
+    evaluate_hvg_stability,
+    find_hvgs,
+    plot_hvg_metrics,
+    select_hvg_sets,
+    suggest_hvg_choice,
+)
+from .integrate import batch_correction, evaluate_integration
 from .neighbors import optimize_neighbors_pcs
 
+# --- Core Functions ---
 # --- Plotting & Evaluation Functions ---
-from .normalize import plot_normalization_effect
-from .hvg import plot_hvg_metrics, evaluate_hvg_stability
-from .scale import plot_scaling_effect
-from .integrate import evaluate_integration
+from .normalize import normalize_data, plot_normalization_effect
+from .scale import plot_scaling_effect, regress_out, scale_data
 
 # --- High-Level Workflow ---
 from .workflow import run_preprocessing
@@ -35,23 +36,22 @@ from .workflow import run_preprocessing
 # --- Public API Definition ---
 __all__ = [
     # Configuration
-    "PreprocessingConfig",
+    "WorkflowConfig",
     "NormalizationConfig",
     "HVGConfig",
+    "ScalingConfig",
     "IntegrationConfig",
+    "NeighborsConfig",
     "GraphConfig",
-    
     # Workflow
     "run_preprocessing",
-    
     # Core Functions
     "normalize_data",
     "regress_out",
     "find_hvgs",
-    "select_hvg_sets", 
+    "select_hvg_sets",
     "scale_data",
     "batch_correction",
-    
     # Plotting & Evaluation
     "plot_normalization_effect",
     "plot_hvg_metrics",
