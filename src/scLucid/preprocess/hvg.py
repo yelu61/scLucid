@@ -336,6 +336,8 @@ def find_hvgs(
         plt.show()
 
     if report and save_dir:
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
         report_path = Path(save_dir) / "hvg_report.md"
         _write_hvg_report(report_path, stats, n_hvg, active_config, gene_type_counts)
         log.info(f"[HVG] Report written to {report_path}")
@@ -495,6 +497,8 @@ def select_hvg_sets(
         stats_msg = "\n".join(stats_msg)
         print(stats_msg)
         if save_dir:
+            save_path = Path(save_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
             with open(f"{save_dir}/hvg_set_stats.txt", "w") as f:
                 f.write(stats_msg)
 
@@ -507,6 +511,8 @@ def select_hvg_sets(
             venn3(subsets=hvg_sets, set_labels=set_names)
         plt.title(f"HVG Sets Venn Diagram ({mode})")
         if save_dir:
+            save_path = Path(save_dir)
+            #save_path.mkdir(parents=True, exist_ok=True)
             plt.savefig(f"{save_dir}/hvg_venn_{mode}.png", dpi=150, bbox_inches="tight")
         plt.show()
     elif plot_venn and not HAS_VENN and (2 <= len(hvg_sets) <= 3):

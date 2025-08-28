@@ -224,8 +224,8 @@ def _integrate_scvi(
     layer: Optional[str] = "counts",
     n_layers: int = 2,
     n_latent: int = 30,
-    batch_size: int = 256,
-    max_epochs: int = 500,
+    batch_size: int = 2560,
+    max_epochs: int = 1000,
     embedding_key: str = "X_scVI",
     gene_likelihood: str = "nb",
     save_model: bool = False,
@@ -268,9 +268,14 @@ def _integrate_scvi(
     adata.obsm[embedding_key] = model.get_latent_representation()
     if save_model:
         if not model_path:
-            raise ValueError("model_path required when save_model=True")
-        os.makedirs(os.path.dirname(os.path.abspath(model_path)), exist_ok=True)
-        model.save(model_path)
+            raise ValueError("model_path must be provided when save_model=True")
+        # Convert string path to a Path object
+        save_path = Path(model_path)
+        # Create the parent directory if it doesn't exist
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        # Save the model
+        model.save(str(save_path), overwrite=True)
+        log.info(f"scVI model saved to: {save_path}")
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
         "integration", {}
     )["scvi"] = {
