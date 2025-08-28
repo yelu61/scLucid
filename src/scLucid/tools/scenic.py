@@ -6,10 +6,12 @@ This module provides a workflow to run pySCENIC for inferring regulons
 regulon activity scores.
 """
 
+
 import logging
 import os
 import subprocess
-from typing import Optional
+import datetime
+from typing import Optional, List, Dict, Union
 
 import anndata
 import matplotlib.pyplot as plt
@@ -18,7 +20,6 @@ import pandas as pd
 import scanpy as sc
 
 log = logging.getLogger(__name__)
-
 
 def run_scenic(
     adata: anndata.AnnData,
@@ -29,28 +30,16 @@ def run_scenic(
 ) -> anndata.AnnData:
     """
     Run the core pySCENIC workflow (GRN -> motifs -> AUCell).
-
-    This function is a wrapper around the pySCENIC command-line interface,
-    automating the three main steps of the analysis.
-
-    Args:
-        adata: AnnData object with raw counts in .X.
-        species: Species for database selection ('hgnc' for human, 'mgi' for mouse).
-        out_dir: Directory for all SCENIC output files.
-        scenic_db_dir: Directory containing SCENIC databases (motif and TF files).
-        n_cpu: Number of CPUs to use.
-
-    Returns:
-        AnnData object with SCENIC AUC matrix in .obsm['SCENIC_AUC'].
+    Results are saved to adata.uns['scrnatk']['scenic'].
     """
     os.makedirs(out_dir, exist_ok=True)
-    log.info(f"Starting pySCENIC workflow. Output will be in '{out_dir}'")
+    log.info(f"Starting pySCENIC workflow. Output: {out_dir}")
 
     # --- Step 0: Prepare input files ---
     raw_counts_file = os.path.join(out_dir, "raw_counts.loom")
     adata.write_loom(raw_counts_file)
 
-    # Define database paths based on species
+    # Define database paths by species
     if species == "hgnc":
         tf_names_file = os.path.join(scenic_db_dir, "allTFs_hgnc.txt")
         motif_db_file = os.path.join(
@@ -67,34 +56,33 @@ def run_scenic(
     # --- Step 1: GRN inference (arboreto) ---
     log.info("Step 1: Running arboreto for GRN inference...")
     adj_file = os.path.join(out_dir, "adj.tsv")
-    cmd = (
+    cmd1 = (
         f"pyscenic grn {raw_counts_file} {tf_names_file} -o {adj_file} "
         f"--num_workers {n_cpu}"
     )
-    subprocess.run(cmd, shell=True, check=True)
+    subprocess.run(cmd1, shell=True, check=True)
 
     # --- Step 2: Motif enrichment (cisTarget) ---
     log.info("Step 2: Running cisTarget for motif enrichment...")
     regulons_file = os.path.join(out_dir, "regulons.csv")
-    cmd = (
+    cmd2 = (
         f"pyscenic ctx {adj_file} {motif_db_file} --annotations_fname {tf_names_file} "
         f"-o {regulons_file} --num_workers {n_cpu}"
     )
-    subprocess.run(cmd, shell=True, check=True)
+    subprocess.run(cmd2, shell=True, check=True)
 
     # --- Step 3: AUCell scoring ---
     log.info("Step 3: Running AUCell to score regulon activity...")
     auc_matrix_file = os.path.join(out_dir, "auc_matrix.loom")
-    cmd = (
+    cmd3 = (
         f"pyscenic aucell {raw_counts_file} {regulons_file} "
         f"-o {auc_matrix_file} --num_workers {n_cpu}"
     )
-    subprocess.run(cmd, shell=True, check=True)
+    subprocess.run(cmd3, shell=True, check=True)
 
     # --- Step 4: Load results back into AnnData ---
-    log.info("Loading results back into AnnData object")
+    log.info("Loading SCENIC results into AnnData")
     import loompy
-
     with loompy.connect(auc_matrix_file) as ds:
         auc_matrix = ds.ca.RegulonsAUC.T
         regulon_names = [r.split("(")[0] for r in ds.ra.Regulons]
@@ -102,10 +90,81 @@ def run_scenic(
     adata.obsm["SCENIC_AUC"] = auc_matrix
     adata.uns["SCENIC_regulons"] = pd.read_csv(regulons_file)
     adata.uns["SCENIC_regulon_names"] = regulon_names
-    log.info("pySCENIC workflow complete.")
 
+    # --- Step 5: Structured results for downstream use ---
+    adata.uns.setdefault("scrnatk", {}).setdefault("scenic", {})
+    adata.uns["scrnatk"]["scenic"]["params"] = {
+        "species": species,
+        "scenic_db_dir": scenic_db_dir,
+        "n_cpu": n_cpu,
+        "out_dir": out_dir,
+        "run_time": datetime.datetime.now().isoformat(),
+    }
+    adata.uns["scrnatk"]["scenic"]["regulons"] = adata.uns["SCENIC_regulons"]
+    adata.uns["scrnatk"]["scenic"]["regulon_names"] = regulon_names
+    adata.uns["scrnatk"]["scenic"]["auc_matrix"] = auc_matrix
+
+    log.info("pySCENIC workflow complete.")
     return adata
 
+def run_scenic_batch(
+    adatas: List[anndata.AnnData],
+    species: str,
+    out_dir: str,
+    scenic_db_dir: str,
+    n_cpu: int = 8,
+    sample_ids: Optional[List[str]] = None,
+) -> Dict[str, Optional[anndata.AnnData]]:
+    """
+    Batch run SCENIC for a list of AnnData objects.
+    Returns dict[sample_id] = AnnData with SCENIC results or None if failed.
+    """
+    results = {}
+    if sample_ids is None:
+        sample_ids = [f"sample{i+1}" for i in range(len(adatas))]
+    for adata, sid in zip(adatas, sample_ids):
+        sample_dir = os.path.join(out_dir, sid)
+        try:
+            results[sid] = run_scenic(
+                adata, species=species, out_dir=sample_dir,
+                scenic_db_dir=scenic_db_dir, n_cpu=n_cpu
+            )
+            log.info(f"SCENIC completed for {sid}")
+        except Exception as e:
+            log.error(f"SCENIC failed for {sid}: {e}")
+            results[sid] = None
+    return results
+
+def run_scenic_by_group(
+    adata: anndata.AnnData,
+    groupby: str,
+    species: str,
+    out_dir: str,
+    scenic_db_dir: str,
+    n_cpu: int = 8,
+    min_cells: int = 100,
+) -> Dict[str, Optional[anndata.AnnData]]:
+    """
+    Run SCENIC for each group (e.g., cluster/celltype) in AnnData.
+    Returns dict[group] = AnnData with SCENIC results.
+    """
+    results = {}
+    groups = adata.obs[groupby].unique()
+    for group in groups:
+        adata_sub = adata[adata.obs[groupby] == group].copy()
+        if adata_sub.n_obs < min_cells:
+            log.warning(f"Group {group} skipped (too few cells: {adata_sub.n_obs})")
+            continue
+        group_dir = os.path.join(out_dir, f"{group}")
+        try:
+            results[group] = run_scenic(
+                adata_sub, species, group_dir, scenic_db_dir, n_cpu=n_cpu
+            )
+            log.info(f"SCENIC completed for group {group}")
+        except Exception as e:
+            log.error(f"SCENIC failed for group {group}: {e}")
+            results[group] = None
+    return results
 
 def analyze_scenic_results(
     adata: anndata.AnnData,
@@ -114,10 +173,7 @@ def analyze_scenic_results(
     save_dir: Optional[str] = None,
 ):
     """
-    Analyze and visualize results from a SCENIC run.
-
-    This function computes a SCENIC-based UMAP, performs clustering on the
-    AUC matrix, and generates plots to visualize top regulon activities.
+    Analyze and visualize SCENIC results. UMAP, clusters, top regulons.
     """
     if "SCENIC_AUC" not in adata.obsm:
         raise ValueError("SCENIC results not found. Please run `run_scenic` first.")
@@ -170,3 +226,35 @@ def analyze_scenic_results(
         cmap="viridis",
         ncols=4,
     )
+
+def export_scenic_report(
+    adata: anndata.AnnData,
+    out_dir: str,
+    top_n: int = 10,
+    groupby: Optional[str] = None,
+):
+    """
+    Auto-generate SCENIC analysis report: parameter summary, main figures, top regulons.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    params = adata.uns.get("scrnatk", {}).get("scenic", {}).get("params", {})
+    with open(os.path.join(out_dir, "scenic_params.txt"), "w") as f:
+        for k, v in params.items():
+            f.write(f"{k}: {v}\n")
+    regulons = adata.uns.get("scrnatk", {}).get("scenic", {}).get("regulon_names", [])
+    pd.Series(regulons[:top_n]).to_csv(os.path.join(out_dir, "top_regulons.csv"))
+    # Optionally, export main figures if available
+    # ... call analyze_scenic_results() with save_dir=out_dir ...
+    log.info(f"SCENIC report exported to: {out_dir}")
+
+# 可选：AI辅助调控因子功能注释（需有AI接口/LLM支持）
+def ai_annotate_regulons(regulon_names, ai_model):
+    """
+    Use AI (e.g., GPT API) to annotate regulons.
+    """
+    comments = []
+    for reg in regulon_names:
+        prompt = f"What is the main biological function of the transcription factor '{reg}' in mammals?"
+        result = ai_model.ask(prompt)
+        comments.append({"regulon": reg, "annotation": result})
+    return pd.DataFrame(comments)

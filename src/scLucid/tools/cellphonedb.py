@@ -8,13 +8,12 @@ ligand-receptor interactions between cell populations.
 import logging
 import os
 import subprocess
-from typing import Optional
+from typing import Optional, List, Dict, Union
 
 import anndata
 import pandas as pd
 
 log = logging.getLogger(__name__)
-
 
 def run_cellphonedb(
     adata: anndata.AnnData,
@@ -26,24 +25,7 @@ def run_cellphonedb(
 ) -> anndata.AnnData:
     """
     Run CellPhoneDB analysis for cell-cell communication.
-
-    This function prepares the required input files, runs the CellPhoneDB command-line tool,
-    and loads the significant results back into the AnnData object.
-
-    Args:
-        adata: AnnData object with raw counts in .raw and annotations in .obs.
-        groupby: Column in adata.obs for cell type annotation.
-        out_dir: Directory for all CellPhoneDB output files.
-        iterations: Number of iterations for the statistical test.
-        threads: Number of threads to use for computation.
-        copy: Whether to return a copy of the AnnData object.
-
-    Returns:
-        AnnData object with CellPhoneDB results in adata.uns['cellphonedb'].
-    
-    Note:
-        Requires CellPhoneDB to be installed in the Python environment.
-        It is recommended to use raw, non-log-transformed counts from `adata.raw`.
+    Results are saved to adata.uns['scrnatk']['cellphonedb']
     """
     if copy:
         adata = adata.copy()
@@ -73,8 +55,6 @@ def run_cellphonedb(
         counts_adata = anndata.AnnData(X=adata.raw.X, var=adata.raw.var, obs=adata.obs)
     else:
         counts_adata = adata
-    
-    # CellPhoneDB v3+ prefers h5ad format with raw counts
     counts_adata.write_h5ad(counts_file)
     log.info(f"Counts file written to: {counts_file}")
     
@@ -88,9 +68,7 @@ def run_cellphonedb(
         "--iterations", str(iterations),
         "--threads", str(threads)
     ]
-    
     try:
-        # Using subprocess.run for better error handling
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         log.info("CellPhoneDB analysis completed successfully.")
         log.debug(f"CellPhoneDB stdout:\n{result.stdout}")
@@ -111,12 +89,119 @@ def run_cellphonedb(
             key_name = f.replace(".txt", "")
             results[key_name] = pd.read_csv(path, sep='\t')
     
-    adata.uns["cellphonedb"] = {
+    adata.uns.setdefault("scrnatk", {})["cellphonedb"] = {
         "results": results,
-        "params": {"groupby": groupby, "iterations": iterations}
+        "params": {
+            "groupby": groupby,
+            "iterations": iterations,
+            "threads": threads,
+            "out_dir": out_dir
+        }
     }
-    
     if "significant_means" in results:
         log.info(f"Found {len(results['significant_means'])} significant interactions.")
-    
     return adata
+
+def run_cellphonedb_batch(
+    adatas: List[anndata.AnnData],
+    groupby: str,
+    out_dir: str,
+    iterations: int = 1000,
+    threads: int = 4,
+    sample_ids: Optional[List[str]] = None,
+) -> Dict[str, Optional[anndata.AnnData]]:
+    """
+    Batch run CellPhoneDB for a list of AnnData objects.
+    Returns dict[sample_id] = AnnData with CellPhoneDB results or None if failed.
+    """
+    results = {}
+    if sample_ids is None:
+        sample_ids = [f"sample{i+1}" for i in range(len(adatas))]
+    for adata, sid in zip(adatas, sample_ids):
+        sample_dir = os.path.join(out_dir, sid)
+        try:
+            results[sid] = run_cellphonedb(
+                adata=adata,
+                groupby=groupby,
+                out_dir=sample_dir,
+                iterations=iterations,
+                threads=threads
+            )
+            log.info(f"CellPhoneDB completed for {sid}")
+        except Exception as e:
+            log.error(f"CellPhoneDB failed for {sid}: {e}")
+            results[sid] = None
+    return results
+
+def run_cellphonedb_by_group(
+    adata: anndata.AnnData,
+    groupby: str,
+    split_by: str,
+    out_dir: str,
+    iterations: int = 1000,
+    threads: int = 4,
+    min_cells: int = 100,
+) -> Dict[str, Optional[anndata.AnnData]]:
+    """
+    Run CellPhoneDB for each group (e.g., sample/condition) in AnnData.
+    Returns dict[group] = AnnData with CellPhoneDB results.
+    """
+    results = {}
+    groups = adata.obs[split_by].unique()
+    for group in groups:
+        adata_sub = adata[adata.obs[split_by] == group].copy()
+        if adata_sub.n_obs < min_cells:
+            log.warning(f"Group {group} skipped (too few cells: {adata_sub.n_obs})")
+            continue
+        group_dir = os.path.join(out_dir, f"{group}")
+        try:
+            results[group] = run_cellphonedb(
+                adata=adata_sub,
+                groupby=groupby,
+                out_dir=group_dir,
+                iterations=iterations,
+                threads=threads
+            )
+            log.info(f"CellPhoneDB completed for group {group}")
+        except Exception as e:
+            log.error(f"CellPhoneDB failed for group {group}: {e}")
+            results[group] = None
+    return results
+
+def summarize_cellphonedb(
+    adata: anndata.AnnData,
+    save_dir: Optional[str] = None,
+    top_n: int = 30,
+):
+    """
+    Summarize and export main CellPhoneDB result tables and top interactions.
+    """
+    db = adata.uns.get("scrnatk", {}).get("cellphonedb", {})
+    results = db.get("results", {})
+    params = db.get("params", {})
+
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+
+    # Export main tables
+    for k, df in results.items():
+        if not isinstance(df, pd.DataFrame): continue
+        out_path = os.path.join(save_dir, f"{k}.csv") if save_dir else None
+        df.to_csv(out_path or f"{k}.csv", index=False)
+
+    # Export top interactions (by mean or pvalue)
+    if "significant_means" in results:
+        top_df = results["significant_means"].sort_values(
+            "mean", ascending=False
+        ).head(top_n)
+        top_path = os.path.join(save_dir, "top_interactions.csv") if save_dir else None
+        top_df.to_csv(top_path or "top_interactions.csv", index=False)
+
+    # Export parameter summary
+    if params and save_dir:
+        with open(os.path.join(save_dir, "cellphonedb_params.txt"), "w") as f:
+            for k, v in params.items():
+                f.write(f"{k}: {v}\n")
+    log.info(f"CellPhoneDB summary exported to: {save_dir or os.getcwd()}")
+
+# 可选：自动主图/markdown分析报告等可依赖上面输出扩展

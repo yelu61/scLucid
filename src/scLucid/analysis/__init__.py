@@ -2,8 +2,10 @@
 Analysis module for single-cell RNA-seq data.
 
 This module provides functions for dimensionality reduction, clustering,
-differential expression analysis, and cell type annotation.
+differential expression analysis, cell type annotation, and cell type proportion statistics.
 """
+
+__version__ = "1.0.0"
 
 # Import and expose key functions from submodules
 from .annotation import (
@@ -39,8 +41,13 @@ from .scoring import (
     batch_compare_scores,
     batch_plot_score_comparison,
 )
+from .proportion import (
+    compute_celltype_proportion,
+    plot_celltype_proportion,
+    celltype_proportion_test,
+    celltype_proportion_analysis
+)
 
-# Define what should be accessible when importing from this module
 __all__ = [
     # Clustering and dimensionality reduction
     "find_resolution",
@@ -55,7 +62,7 @@ __all__ = [
     "summarize_annotation_evidence",
     "apply_annotation_mapping",
     "run_annotation",
-    # Differential expression
+    # Differential expression and enrichment
     "find_markers",
     "filter_markers",
     "compare_groups",
@@ -71,4 +78,9 @@ __all__ = [
     "plot_score_comparison",
     "batch_compare_scores",
     "batch_plot_score_comparison",
+    # Proportion (cell type composition analysis)
+    "compute_celltype_proportion",
+    "plot_celltype_proportion",
+    "celltype_proportion_test",
+    "celltype_proportion_analysis",
 ]

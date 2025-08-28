@@ -54,7 +54,6 @@ def run_trajectory_analysis(
     log.info(f"Trajectory analysis: method = {method}")
 
     if method == "paga":
-        # --- 自动聚类 ---
         if paga_groupby is None or paga_groupby not in adata.obs:
             log.info("No paga_groupby, running Leiden clustering...")
             sc.tl.leiden(adata, key_added="leiden")
@@ -64,7 +63,7 @@ def run_trajectory_analysis(
         sc.tl.paga(adata, groups=paga_groupby)
         traj_uns["paga"] = {"groupby": paga_groupby}
 
-        # --- 伪时间 ---
+        # --- Pseudotime ---
         if paga_root is not None:
             log.info(f"Diffusion pseudotime, root={paga_root}")
             adata.uns["iroot"] = np.flatnonzero(adata.obs[paga_groupby] == paga_root)[0]
@@ -72,7 +71,6 @@ def run_trajectory_analysis(
             if paga_pseudotime_method == "dpt":
                 sc.tl.dpt(adata)
                 adata.obs["trajectory_pseudotime"] = adata.obs["dpt_pseudotime"]
-            # 可扩展paga_path等
             traj_uns["paga"]["root"] = paga_root
 
     elif method == "velocity":
@@ -99,7 +97,7 @@ def run_trajectory_analysis(
             raise ValueError("r_tools_instance is required for 'monocle3'.")
         if monocle3_root_group_key is None or monocle3_root_group_name is None:
             raise ValueError("For 'monocle3', root_group_key and root_group_name must be given.")
-        log.info(f"Running Monocle3: root={monocle3_root_name} in {monocle3_root_group_key}")
+        log.info(f"Running Monocle3: root={monocle3_root_group_name} in {monocle3_root_group_key}")
         adata = r_tools_instance.run_monocle3(
             adata,
             root_group_key=monocle3_root_group_key,
@@ -190,7 +188,6 @@ def plot_trajectory(
             if save_dir: plt.savefig(os.path.join(save_dir, "velocity_pseudotime_umap.png"))
             else: plt.show()
             plt.close()
-        # 可扩展phase portrait等
 
     # --- Monocle3 ---
     elif method == "monocle3":
@@ -215,6 +212,5 @@ def plot_trajectory(
             if save_dir: plt.savefig(os.path.join(save_dir, "slingshot_pseudotime.png"))
             else: plt.show()
             plt.close()
-        # 若需R主图导入，可用rpy2保存主图后os.system导入
 
     log.info("Trajectory plotting complete.")

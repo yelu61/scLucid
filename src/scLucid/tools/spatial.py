@@ -1,169 +1,219 @@
 """
-Trajectory and dynamics analysis for single-cell RNA-seq data.
+Unified spatial transcriptomics analysis for single-cell and spatial data.
 
-This module provides a unified interface to popular trajectory inference and
-RNA velocity methods, including PAGA, scVelo, and Monocle3 (via rtools).
+Supports clustering, marker detection, spatial statistics, and visualization.
+Integrates with Squidpy, Scanpy, and outputs results in structured AnnData.
 """
 
 import logging
-from typing import Literal, Optional, Union
+import os
+from typing import Optional, Literal, List, Dict, Any
 
 import anndata
-import matplotlib.pyplot as plt 
 import scanpy as sc
+import pandas as pd
+import squidpy as sq
 import numpy as np
-import scvelo as scv
-import os
-
-from .rtools import RTools
+import matplotlib.pyplot as plt
 
 log = logging.getLogger(__name__)
 
-def run_trajectory_analysis(
+def run_spatial_analysis(
     adata: anndata.AnnData,
-    method: Literal["paga", "velocity", "monocle3"] = "paga",
-    # PAGA params
-    paga_groupby: Optional[str] = None,
-    paga_root: Optional[Union[str, int]] = None,
-    # Velocity params
-    velocity_mode: Literal["stochastic", "dynamical"] = "stochastic",
-    # Monocle3 params
-    monocle3_root_group_key: Optional[str] = None,
-    monocle3_root_group_name: Optional[str] = None,
-    r_tools_instance: Optional[RTools] = None,
-    # General params
+    spatial_key: str = "spatial",
+    method: Literal["squidpy", "scanpy"] = "squidpy",
+    cluster_key: str = "spatial_leiden",
+    n_clusters: Optional[int] = None,
+    spot_size: Optional[float] = None,
+    marker_n_top: int = 10,
+    spatial_neighbors: int = 6,
+    compute_moran: bool = True,
+    compute_lisi: bool = False,
     copy: bool = False,
+    save_dir: Optional[str] = None,
     **kwargs,
 ) -> anndata.AnnData:
     """
-    Run trajectory or dynamics analysis using a specified method.
-
-    This function is a high-level wrapper that performs the core computations
-    for trajectory inference or RNA velocity analysis.
-
-    Args:
-        adata: AnnData object.
-        method: The analysis method to use:
-            - 'paga': Computes cluster connectivity and pseudotime (requires clusters).
-            - 'velocity': Computes RNA velocity to predict cell dynamics (requires 'spliced'/'unspliced' layers).
-            - 'monocle3': Runs the Monocle3 workflow via R (requires RTools instance).
-        paga_groupby: For 'paga', the key in adata.obs with clustering results.
-        paga_root: For 'paga', the root cluster/cell for pseudotime calculation.
-        velocity_mode: For 'velocity', the scVelo model to use.
-        r_tools_instance: For 'monocle3', a pre-initialized RTools instance.
-        copy: Whether to return a copy of the AnnData object.
-        **kwargs: Additional arguments passed to the underlying tool (e.g., scv.tl.velocity).
-
-    Returns:
-        AnnData object with trajectory results in .obs, .uns, and .obsm.
+    Unified spatial transcriptomics analysis.
+    Results are stored in adata.uns['scrnatk']['spatial'].
     """
     if copy:
         adata = adata.copy()
+    adata.uns.setdefault('scrnatk', {}).setdefault('spatial', {})
+    spat_uns = adata.uns['scrnatk']['spatial']
 
-    log.info(f"Running trajectory analysis with method: '{method}'")
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        log.info(f"Saving spatial results to {save_dir}")
 
-    if method == "paga":
-        if paga_groupby is None or paga_groupby not in adata.obs:
-            raise ValueError("For 'paga' method, a valid 'paga_groupby' key is required.")
+    log.info("Spatial analysis: method = %s", method)
 
-        log.info(f"Computing PAGA graph based on '{paga_groupby}'")
-        sc.tl.paga(adata, groups=paga_groupby)
+    # --- Spatial neighbors graph ---
+    log.info("Calculating spatial neighbors...")
+    sq.gr.spatial_neighbors(adata, coord_type="generic", n_neigh=spatial_neighbors, key_added="spatial_neighbors")
 
-        if paga_root is not None:
-            log.info(f"Calculating diffusion pseudotime with root: {paga_root}")
-            adata.uns["iroot"] = np.flatnonzero(adata.obs[paga_groupby] == paga_root)[0]
-            sc.tl.diffmap(adata)
-            sc.tl.dpt(adata)
-            adata.obs["trajectory_pseudotime"] = adata.obs["dpt_pseudotime"]
-            log.info("Stored results in adata.obs['trajectory_pseudotime']")
-
-    elif method == "velocity":
-        if "spliced" not in adata.layers or "unspliced" not in adata.layers:
-            raise ValueError("For 'velocity' method, 'spliced' and 'unspliced' layers are required.")
-
-        log.info(f"Running RNA velocity analysis using '{velocity_mode}' model")
-        scv.pp.filter_and_normalize(adata)
-        scv.pp.moments(adata)
-        scv.tl.velocity(adata, mode=velocity_mode, **kwargs)
-        scv.tl.velocity_graph(adata)
-
-        if velocity_mode == "dynamical":
-            log.info("Running dynamical model recovery and latent time...")
-            scv.tl.recover_dynamics(adata)
-            scv.tl.latent_time(adata)
-            adata.obs["trajectory_pseudotime"] = adata.obs["latent_time"]
-
-    elif method == "monocle3":
-        if r_tools_instance is None:
-            raise ValueError("For 'monocle3' method, an initialized 'r_tools_instance' must be provided.")
-        if monocle3_root_group_key is None or monocle3_root_group_name is None:
-            raise ValueError("For 'monocle3' method, 'monocle3_root_group_key' and 'monocle3_root_group_name' must be provided to define the trajectory start.")
-        
-        log.info(f"Running Monocle3 workflow via rtools, with root defined by '{monocle3_root_group_name}' in '{monocle3_root_group_key}'")
-        adata = r_tools_instance.run_monocle3(
-            adata,
-            root_group_key=monocle3_root_group_key,
-            root_group_name=monocle3_root_group_name,
-            key_added="trajectory_pseudotime"
-        )
-
+    # --- Clustering ---
+    log.info("Running spatial clustering...")
+    if method == "squidpy":
+        # PCA, neighbors, leiden
+        sc.pp.pca(adata)
+        sc.pp.neighbors(adata)
+        sc.tl.leiden(adata, key_added=cluster_key)
+    elif method == "scanpy":
+        sc.pp.pca(adata)
+        sc.pp.neighbors(adata)
+        sc.tl.louvain(adata, key_added=cluster_key)
     else:
-        raise ValueError(f"Unknown method: '{method}'. Choose from 'paga', 'velocity', 'monocle3'.")
+        raise ValueError(f"Unknown method: {method}")
 
-    log.info("Trajectory analysis complete.")
+    spat_uns["cluster_key"] = cluster_key
+
+    # --- Marker detection ---
+    log.info("Detecting spatial marker genes...")
+    sc.tl.rank_genes_groups(adata, groupby=cluster_key, method="wilcoxon", n_genes=marker_n_top)
+    spat_uns["marker_genes"] = sc.get.rank_genes_groups_df(adata, group=None)
+    # Save marker table
+    if save_dir:
+        spat_uns["marker_genes"].to_csv(os.path.join(save_dir, "markers.csv"), index=False)
+
+    # --- Moran's I spatial autocorrelation ---
+    if compute_moran:
+        log.info("Computing Moran's I spatial autocorrelation...")
+        sq.gr.spatial_autocorr(adata, mode="moran")
+        moran_df = sq.gr.spatial_autocorr_results(adata, mode="moran")
+        spat_uns["moran_top"] = moran_df.sort_values("I", ascending=False).head(marker_n_top)
+        if save_dir:
+            spat_uns["moran_top"].to_csv(os.path.join(save_dir, "moran_top.csv"), index=False)
+
+    # --- LISI for spatial diversity (optional) ---
+    if compute_lisi:
+        log.info("Computing LISI spatial diversity...")
+        try:
+            import lisi
+            spatial_lisi = lisi.compute_lisi(adata.obsm[spatial_key], adata.obs[cluster_key])
+            spat_uns["lisi"] = spatial_lisi
+            if save_dir:
+                np.savetxt(os.path.join(save_dir, "lisi.txt"), spatial_lisi)
+        except ImportError:
+            log.warning("lisi package not installed. Skipping LISI computation.")
+
+    # --- Save cluster assignment to obs ---
+    adata.obs[cluster_key] = adata.obs[cluster_key].astype(str)
+
+    log.info("Spatial analysis complete.")
     return adata
 
-
-def plot_trajectory(
+def plot_spatial(
     adata: anndata.AnnData,
-    method: Literal["paga", "velocity", "monocle3"],
-    basis: str = "umap",
+    spatial_key: str = "spatial",
+    cluster_key: str = "spatial_leiden",
     color: Optional[str] = None,
+    markers: Optional[List[str]] = None,
     save_dir: Optional[str] = None,
+    spot_size: Optional[float] = None,
 ):
     """
-    Visualize trajectory and dynamics analysis results.
-
-    Args:
-        adata: AnnData object after running `run_trajectory_analysis`.
-        method: The analysis method that was used.
-        basis: Embedding to use for visualization (e.g., 'umap').
-        color: Key in adata.obs to color cells by.
-        save_dir: Directory to save plots.
+    Plot spatial clustering, marker expression, and spatial autocorrelation.
     """
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
-        log.info(f"Saving trajectory plots to {save_dir}")
 
-    if method == "paga":
-        log.info("Plotting PAGA graph and pseudotime")
-        plt.figure()
-        sc.pl.paga_compare(adata, basis=basis, show=False)
-        if save_dir: plt.savefig(os.path.join(save_dir, "paga_compare.png"))
-        if not save_dir: plt.show()
-        plt.close()
+    log.info("Plotting spatial cluster map...")
+    sq.pl.spatial_scatter(
+        adata,
+        color=color or cluster_key,
+        library_id=None,
+        size=spot_size or 1.5,
+        show=False,
+    )
+    if save_dir:
+        plt.savefig(os.path.join(save_dir, f"spatial_cluster.png"))
+    else:
+        plt.show()
+    plt.close()
 
-        if "trajectory_pseudotime" in adata.obs:
-            plt.figure()
-            sc.pl.embedding(adata, basis=basis, color="trajectory_pseudotime", cmap="viridis", show=False)
-            if save_dir: plt.savefig(os.path.join(save_dir, "pseudotime_umap.png"))
-            if not save_dir: plt.show()
+    # Plot marker expression
+    if markers:
+        for gene in markers:
+            log.info(f"Plotting spatial expression for {gene}")
+            sq.pl.spatial_scatter(
+                adata,
+                color=gene,
+                size=spot_size or 1.5,
+                cmap="viridis",
+                show=False,
+            )
+            if save_dir:
+                plt.savefig(os.path.join(save_dir, f"spatial_{gene}.png"))
+            else:
+                plt.show()
             plt.close()
 
-    elif method == "velocity":
-        log.info("Plotting RNA velocity stream")
-        plt.figure()
-        scv.pl.velocity_embedding_stream(adata, basis=basis, color=color, show=False)
-        if save_dir: plt.savefig(os.path.join(save_dir, "velocity_stream.png"))
-        if not save_dir: plt.show()
-        plt.close()
+    # Plot Moran's I top genes
+    if "scrnatk" in adata.uns and "spatial" in adata.uns["scrnatk"]:
+        moran_top = adata.uns["scrnatk"]["spatial"].get("moran_top")
+        if moran_top is not None:
+            for gene in moran_top["gene"].head(5):
+                log.info(f"Plotting spatial autocorr for {gene}")
+                sq.pl.spatial_scatter(
+                    adata,
+                    color=gene,
+                    size=spot_size or 1.5,
+                    cmap="coolwarm",
+                    show=False,
+                )
+                if save_dir:
+                    plt.savefig(os.path.join(save_dir, f"spatial_moran_{gene}.png"))
+                else:
+                    plt.show()
+                plt.close()
 
-    elif method == "monocle3":
-        log.info("Plotting Monocle3 pseudotime")
-        if "trajectory_pseudotime" in adata.obs:
-            plt.figure()
-            sc.pl.embedding(adata, basis=basis, color="trajectory_pseudotime", cmap="viridis", show=False,
-                            title="Monocle3 Pseudotime")
-            if save_dir: plt.savefig(os.path.join(save_dir, "monocle3_pseudotime.png"))
-            if not save_dir: plt.show()
-            plt.close()
+    log.info("Spatial plotting complete.")
+
+def run_spatial_batch(
+    adatas: List[anndata.AnnData],
+    out_dir: str,
+    cluster_key: str = "spatial_leiden",
+    method: Literal["squidpy", "scanpy"] = "squidpy",
+    **kwargs,
+) -> Dict[str, Optional[anndata.AnnData]]:
+    """
+    Batch process spatial analysis for multiple AnnData objects.
+    """
+    results = {}
+    os.makedirs(out_dir, exist_ok=True)
+    for i, adata in enumerate(adatas):
+        sample_id = getattr(adata, 'sample_id', f"sample{i+1}")
+        sample_dir = os.path.join(out_dir, sample_id)
+        try:
+            results[sample_id] = run_spatial_analysis(
+                adata, save_dir=sample_dir, cluster_key=cluster_key, method=method, **kwargs
+            )
+            plot_spatial(results[sample_id], save_dir=sample_dir, cluster_key=cluster_key)
+            log.info(f"Spatial analysis completed for {sample_id}")
+        except Exception as e:
+            log.error(f"Spatial analysis failed for {sample_id}: {e}")
+            results[sample_id] = None
+    return results
+
+def export_spatial_report(
+    adata: anndata.AnnData,
+    out_dir: str,
+    top_n: int = 10
+):
+    """
+    Export spatial analysis results and summary report.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    spatial = adata.uns.get("scrnatk", {}).get("spatial", {})
+    # Export marker genes and Moran's I results
+    if "marker_genes" in spatial:
+        spatial["marker_genes"].head(top_n).to_csv(os.path.join(out_dir, "top_markers.csv"), index=False)
+    if "moran_top" in spatial:
+        spatial["moran_top"].head(top_n).to_csv(os.path.join(out_dir, "top_moran.csv"), index=False)
+    # Export parameters
+    with open(os.path.join(out_dir, "spatial_params.txt"), "w") as f:
+        for k, v in spatial.items():
+            if not isinstance(v, (pd.DataFrame, np.ndarray)):
+                f.write(f"{k}: {v}\n")
+    log.info(f"Spatial report exported to: {out_dir}")
