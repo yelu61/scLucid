@@ -528,55 +528,65 @@ def select_hvg_sets(
         return adata
 
 
-def suggest_hvg_choice(n_sets: int, mode: str) -> str:
+def suggest_hvg_choice(
+    adata: AnnData, 
+    hvg_keys: List[str], 
+    mode: str
+) -> None:
     """
-    Suggests best practice for HVG set selection based on context.
+    Provides data-driven guidance for HVG set selection by analyzing overlap.
     """
-    msg = ["==== HVG Selection Guidance ===="]
-    if n_sets == 1 or mode == "direct":
-        msg.append("- Using a single HVG method is common in most pipelines.")
-        msg.append(
-            "- Scanpy/Seurat method (default) is robust for typical clustering and visualization."
-        )
-        msg.append(
-            "- Custom/batch-aware methods are useful for multi-sample, multi-batch, or strong batch-effect data."
-        )
-        msg.append(
-            "- If unsure, start with the default scanpy method, then compare with others."
-        )
-    elif n_sets >= 2:
-        msg.append(
-            f"- Comparing {n_sets} HVG methods can help assess robustness and batch effect."
-        )
-        if mode == "intersection":
-            msg.append(
-                "- Intersection set is more stringent, may yield more stable clusters and markers, but could miss subtle subtypes."
-            )
-            msg.append(
-                "- Recommended when seeking robust, reproducible clusters and DEGs."
-            )
-        elif mode == "union":
-            msg.append(
-                "- Union set is more permissive, may capture rare subtypes, but can introduce noise."
-            )
-            msg.append(
-                "- Use when you want to maximize sensitivity to rare/novel cell types, but check for overclustering."
-            )
-        elif mode == "difference":
-            msg.append(
-                "- Difference set is suitable for exploring method-specific biases or unique biology."
-            )
-            msg.append(
-                "- Use for method benchmarking or artifact exploration, not for routine analysis."
-            )
-        msg.append(
-            "- You can compare downstream results (clustering/UMAP/marker) using different HVG sets."
-        )
-        msg.append(
-            "- If two methods have high overlap, either is likely fine; otherwise, check downstream effects."
-        )
-    return "\n".join(msg)
+    if len(hvg_keys) < 2:
+        log.info("Guidance is most useful when comparing 2 or more HVG sets.")
+        return
 
+    sets = [set(adata.var_names[adata.var[key]]) for key in hvg_keys]
+    
+    # --- Quantitative Analysis ---
+    intersection_set = set.intersection(*sets)
+    union_set = set.union(*sets)
+    jaccard_index = len(intersection_set) / len(union_set) if len(union_set) > 0 else 0
+
+    # --- Build Report ---
+    msg = ["="*50, "==== HVG Selection Guidance ====", "="*50]
+    msg.append(f"Comparing {len(hvg_keys)} HVG sets: {', '.join(hvg_keys)}")
+    for i, key in enumerate(hvg_keys):
+        msg.append(f"- Set '{key}': {len(sets[i])} genes")
+    
+    msg.append("\n--- Overlap Analysis ---")
+    msg.append(f"- Intersection (genes in all sets): {len(intersection_set)} genes")
+    msg.append(f"- Union (genes in any set): {len(union_set)} genes")
+    msg.append(f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)")
+
+    msg.append(f"\n--- Recommendation for your chosen mode ('{mode}') ---")
+
+    # --- Generate Tailored Advice ---
+    if jaccard_index > 0.7:
+        msg.append("Data-driven verdict: **High Overlap**.")
+        msg.append("Both methods identify a very similar core set of variable genes.")
+        if mode == 'intersection':
+            msg.append("Your choice of 'intersection' is a safe and robust strategy. You will get a high-confidence set of HVGs.")
+        elif mode == 'union':
+            msg.append("Your choice of 'union' is also reasonable. It will add a few extra genes without a high risk of introducing noise.")
+    
+    elif 0.4 <= jaccard_index <= 0.7:
+        msg.append("Data-driven verdict: **Moderate Overlap**.")
+        msg.append("The methods agree on a core set of genes but also identify unique ones.")
+        if mode == 'intersection':
+            msg.append("Your choice of 'intersection' is the most conservative and reproducible option. You will get a high-confidence set but may miss some subtle biological signals.")
+        elif mode == 'union':
+            msg.append("Your choice of 'union' is more inclusive and better for discovery, but may introduce noise. Be sure to check for over-clustering in downstream analysis.")
+    
+    else: # Low overlap
+        msg.append("Data-driven verdict: **Low Overlap**.")
+        msg.append("⚠️ **Warning:** The selected methods are identifying very different sets of genes. This could be due to strong batch effects or fundamental differences in the algorithms.")
+        if mode == 'intersection':
+            msg.append(f"Your choice of 'intersection' will result in a very small set of {len(intersection_set)} genes. This may not be enough for stable downstream analysis. Please verify.")
+        elif mode == 'union':
+            msg.append("Your choice of 'union' will combine two very different gene lists, which could be risky. It is highly recommended to first visualize the UMAPs from each HVG set individually to understand why they differ so much.")
+        msg.append("\n**Suggestion:** The 'custom' method is often more robust for multi-sample datasets than the standard 'scanpy' method. Consider trusting the 'custom' set or investigating potential batch effects further.")
+
+    print("\n".join(msg))
 
 def evaluate_hvg_stability(
     adata: AnnData,
