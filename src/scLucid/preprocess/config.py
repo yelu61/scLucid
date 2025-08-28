@@ -38,6 +38,7 @@ class HVGConfig:
     method: Literal["scanpy", "custom", "triku"] = "scanpy"
     n_top_genes: int = 2000
     flavor: Literal["seurat", "seurat_v3", "cell_ranger"] = "seurat_v3"
+    span: Optional[float] = 0.3,
     batch_key: Optional[str] = None
     sample_key: str = "sampleID"
     min_n_samples: int = 2

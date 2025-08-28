@@ -181,6 +181,22 @@ def _get_sample_specific_genes(
         return []
 
 
+def _to_savable_dict(d: dict) -> dict:
+    """Recursively convert a dictionary to be h5ad-savable."""
+    savable = {}
+    for k, v in d.items():
+        if isinstance(v, tuple):
+            savable[k] = list(v)  # Convert tuples to lists
+        elif isinstance(v, dict):
+            savable[k] = _to_savable_dict(v)
+        elif isinstance(v, (str, int, float, bool, list)) or v is None:
+            savable[k] = v
+        else:
+            # For other complex objects, convert to string representation
+            savable[k] = str(v)
+    return savable
+
+
 # --- Main Functions ---#
 def find_hvgs(
     adata: AnnData,
@@ -214,6 +230,7 @@ def find_hvgs(
     batch_key = active_config.batch_key
     flavor = active_config.flavor
     exclude_gene_types = active_config.exclude_gene_types
+    span = active_config.span
 
     output_key = (
         f"highly_variable_{method}_{flavor}"
@@ -242,6 +259,7 @@ def find_hvgs(
                 flavor=flavor,
                 n_top_genes=n_top_genes,
                 batch_key=batch_key,
+                span=span,
                 inplace=True,
             )
             adata.var[output_key] = adata.var["highly_variable"].copy()
@@ -318,10 +336,13 @@ def find_hvgs(
     n_hvg = int(adata.var[output_key].sum())
     log.info(f"[HVG] Final number of highly variable genes: {n_hvg}")
 
+    # --- Store metadata in .uns ---
+    # Use a helper function to ensure the dictionary is savable
+    savable_params = _to_savable_dict(asdict(active_config))
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg"] = {
         "output_key": output_key,
         "method": method,
-        "params": asdict(active_config),
+        "params": savable_params,
         "n_hvg": n_hvg,
         "input_stats": stats,
         "excluded_gene_types": gene_type_counts,
@@ -512,7 +533,7 @@ def select_hvg_sets(
         plt.title(f"HVG Sets Venn Diagram ({mode})")
         if save_dir:
             save_path = Path(save_dir)
-            #save_path.mkdir(parents=True, exist_ok=True)
+            # save_path.mkdir(parents=True, exist_ok=True)
             plt.savefig(f"{save_dir}/hvg_venn_{mode}.png", dpi=150, bbox_inches="tight")
         plt.show()
     elif plot_venn and not HAS_VENN and (2 <= len(hvg_sets) <= 3):
