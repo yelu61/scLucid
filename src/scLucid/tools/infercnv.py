@@ -21,10 +21,11 @@ log = logging.getLogger(__name__)
 # Export public functions
 __all__ = [
     "run_cnv_analysis",
+    "find_tumor",
 ]
 
-# --- Helper Functions ---
-def _find_tumor(
+# --- Main Functions ---
+def find_tumor(
     adata: ad.AnnData,
     cnv_score_key: str = "cnv_score",
     alpha: float = 2.0,
@@ -359,7 +360,7 @@ def run_cnv_analysis(
             # Identify tumor cells
             if find_tumor_cells:
                 log.info("Identifying tumor cells within the sample...")
-                data = _find_tumor(
+                data = find_tumor(
                     data, 
                     cnv_score_key=f"{key_added}_score",
                     key_added=f"{key_added}_tumor",

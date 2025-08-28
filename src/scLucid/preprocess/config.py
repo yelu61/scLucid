@@ -38,7 +38,10 @@ class HVGConfig:
     Configuration for Highly Variable Gene (HVG) selection.
     """
     method: Literal["scanpy", "custom", "triku"] = "scanpy"
+    layer: Optional[str] = "normalized"
     n_top_genes: int = 2000
+    plot: Optional[bool] = None
+    report: bool = False
     flavor: Literal["seurat", "seurat_v3", "cell_ranger", "pearson_residuals"] = "seurat_v3"
     batch_key: Optional[str] = None
     sample_key: Optional[str] = "sampleID"
@@ -46,8 +49,9 @@ class HVGConfig:
     n_highly_expressed_genes: int = 50
     n_specific_genes: int = 20
     exclude_gene_types: Optional[List[str]] = None
-    plot_global_distribution: bool = True
+    plot: Optional[bool] = None
     save_dir: Optional[str] = None
+    report: bool = False
 
 @dataclass
 class ScalingConfig:

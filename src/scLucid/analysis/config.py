@@ -8,7 +8,7 @@ validation, and pipeline-level consistency.
 
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
-
+from ..utils.marker_manager import Manager
 __all__ = [
     "ClusteringConfig",
     "ResolutionSearchConfig",
@@ -92,30 +92,25 @@ class ResolutionSearchConfig:
 
 @dataclass
 class AnnotationConfig:
-    """Cell type annotation configuration."""
-    cluster_key: str = "leiden"
+    """
+    Configuration for cell type annotation workflow.
+    """
+    cluster_key: str
     marker_species: str = "human"
     marker_tissue: Optional[str] = None
-    run_celltypist: bool = True
+    run_celltypist: bool = False
     celltypist_model: str = "Immune_All_Low.pkl"
     run_scoring: bool = True
     final_method: Literal["max_score", "enrichment", "combined"] = "combined"
     key_added: str = "cell_type"
     min_confidence: float = 0.1
-    score_weight: float = 0.6
-    enrichment_weight: float = 0.4
-    plot: bool = True
-    save_dir: Optional[str] = None
-    extra_params: Dict[str, Any] = field(default_factory=dict)
+
     def validate(self):
-        if self.final_method not in ["max_score", "enrichment", "combined"]:
-            raise ValueError("Unknown annotation final_method")
-        if not (0 <= self.score_weight <= 1) or not (0 <= self.enrichment_weight <= 1):
-            raise ValueError("score_weight/enrichment_weight must be in [0,1]")
-    def to_dict(self): return asdict(self)
+        assert self.final_method in ["max_score", "enrichment", "combined"]
+
+    def to_dict(self): return self.__dict__
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "AnnotationConfig":
-        return AnnotationConfig(**d)
+    def from_dict(d): return AnnotationConfig(**d)
 
 # ===================== Scoring Configs =====================
 

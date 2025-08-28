@@ -1,12 +1,14 @@
 """
-A bridge for running R-based single-cell analysis tools.
+RTools: Python ↔ R bridge for single-cell advanced analysis.
 
-This module uses rpy2 to create a robust interface between Python/AnnData and
-popular R/Bioconductor packages like CopyKAT, Monocle3, and CellChat.
+Provides convenient, robust access to R-based packages such as
+Monocle3, Slingshot, CopyKAT, CellChat, BayesPrism, DWLS, DESeq2, etc.
+
+All conversions and method calls are handled automatically.
 """
 
 import logging
-from typing import Literal, Optional
+from typing import Optional, Literal
 
 import anndata
 import numpy as np
@@ -14,45 +16,44 @@ import pandas as pd
 from rpy2.robjects import numpy2ri, pandas2ri
 from rpy2.robjects.packages import importr
 
-log = logging.getLogger(__name__)
-
-# Activate R-to-Python data conversions
+# Activate automatic conversion between Python and R objects
 pandas2ri.activate()
 numpy2ri.activate()
 
+log = logging.getLogger(__name__)
 
 class RTools:
-    """A class to manage and run R-based analysis tools via rpy2."""
+    """
+    Main interface for running R-based single-cell analysis from Python.
+    """
 
-    def __init__(self):
-        """Initializes the R environment and checks for required packages."""
-        log.info("Initializing R environment via rpy2...")
+    def __init__(self, verbose: bool = True):
+        """
+        Initialize the R environment and check for required packages.
+        """
+        log.info("Initializing RTools R environment")
         try:
             self.R = importr("base")
             self.SCE = importr("SingleCellExperiment")
-            log.info("R environment successfully initialized.")
-        except ImportError as e:
-            raise ImportError(
-                f"rpy2 initialization failed. Is R installed and in your PATH? Error: {e}"
-            )
-        # Add CellChat to the list of required packages
-        self._check_r_packages(
-            ["Seurat", "SingleCellExperiment", "CopyKAT", "monocle3", "CellChat",
-             "BayesPrism", "DWLS", "DESeq2"]
-        )
+        except Exception as e:
+            raise ImportError(f"Failed to import core R packages: {e}")
 
-    def _check_r_packages(self, packages: list):
-        """Checks if a list of R packages are installed."""
-        for pkg in packages:
+        if verbose:
+            self._check_r_packages([
+                "Seurat", "SingleCellExperiment", "monocle3", "slingshot",
+                "CopyKAT", "CellChat", "BayesPrism", "DWLS", "DESeq2"
+            ])
+
+    def _check_r_packages(self, pkgs):
+        """
+        Check if a list of R packages are installed.
+        """
+        for pkg in pkgs:
             try:
                 importr(pkg)
-                log.info(f"R package '{pkg}' found.")
-            except ImportError:
-                log.warning(f"R package '{pkg}' not found.")
-                raise ImportError(
-                    f"Required R package '{pkg}' is not installed. "
-                    f"Please install it in R (e.g., using BiocManager::install('{pkg}'))."
-                )
+                log.info(f"R package '{pkg}' found")
+            except Exception:
+                log.warning(f"R package '{pkg}' not found. Please install in R.")
 
     def _anndata_to_sce(
         self,
@@ -60,167 +61,82 @@ class RTools:
         use_raw: bool = True,
         use_rep: Optional[str] = None,
     ):
-        """Converts an AnnData object to an R SingleCellExperiment object."""
-        # ... (this helper function remains the same as before) ...
-        log.info("Converting AnnData to R SingleCellExperiment...")
+        """
+        Convert AnnData (Python) to SingleCellExperiment (R).
+        Optionally, add reducedDims if available.
+        """
         from scipy.sparse import csc_matrix, issparse
 
-        # Prepare assays
+        log.info("Converting AnnData to SingleCellExperiment")
         assays = {}
+        # Use raw or X for counts
         if use_raw and adata.raw is not None:
             counts_matrix = adata.raw.X.T
             gene_names = adata.raw.var_names
-            assays["counts"] = (
-                csc_matrix(counts_matrix) if issparse(counts_matrix) else counts_matrix
-            )
-        else:  # Use adata.X as counts if no raw
+            assays["counts"] = csc_matrix(counts_matrix) if issparse(counts_matrix) else counts_matrix
+        else:
             counts_matrix = adata.X.T
             gene_names = adata.var_names
-            assays["counts"] = (
-                csc_matrix(counts_matrix) if issparse(counts_matrix) else counts_matrix
-            )
+            assays["counts"] = csc_matrix(counts_matrix) if issparse(counts_matrix) else counts_matrix
 
-        # Add logcounts if available
+        # Optionally add logcounts layer
         if "log1p_norm" in adata.layers:
             logcounts_matrix = adata.layers["log1p_norm"].T
-            assays["logcounts"] = (
-                csc_matrix(logcounts_matrix)
-                if issparse(logcounts_matrix)
-                else logcounts_matrix
-            )
+            assays["logcounts"] = csc_matrix(logcounts_matrix) if issparse(logcounts_matrix) else logcounts_matrix
 
+        # Create the SingleCellExperiment object in R
         sce = self.SCE.SingleCellExperiment(
             assays=self.R.list(**assays),
             rowData=pandas2ri.py2rpy(pd.DataFrame(index=gene_names)),
             colData=pandas2ri.py2rpy(adata.obs),
         )
 
-        # Add embeddings
+        # Optionally add reducedDims (e.g. UMAP)
         if use_rep and use_rep in adata.obsm:
-            self.R.reducedDim(sce, use_rep.upper(), adata.obsm[use_rep])
+            try:
+                self.R.reducedDim(sce, use_rep.upper(), adata.obsm[use_rep])
+            except Exception:
+                log.warning(f"Failed to add reducedDim({use_rep}). Skipped.")
 
         return sce
 
-    def _sce_to_anndata(self, sce: "rpy2.robjects.RObject") -> anndata.AnnData:
-        """Converts an R SingleCellExperiment object back to an AnnData object."""
-        log.info("Converting R SingleCellExperiment to AnnData...")
-
-        # Extract assays
+    def _sce_to_anndata(self, sce):
+        """
+        Convert SingleCellExperiment (R) back to AnnData (Python).
+        """
+        log.info("Converting SingleCellExperiment to AnnData")
         assays = self.R("assays")(sce)
         assay_dict = {}
         for name in self.R("names")(assays):
             matrix = self.R("assay")(sce, name)
-            if "dgCMatrix" in self.R("class")(matrix):  # Check for sparse matrix
-                matrix = matrix.T
             assay_dict[name] = matrix
-
-        # Extract obs and var
         obs_df = pandas2ri.rpy2py(self.R("colData")(sce))
         var_df = pandas2ri.rpy2py(self.R("rowData")(sce))
-
-        # Create AnnData object
         adata = anndata.AnnData(
             X=assay_dict.pop("counts", None), obs=obs_df, var=var_df, layers=assay_dict
         )
-
-        # Extract embeddings
-        reduced_dims = self.R("reducedDims")(sce)
-        for name in self.R("names")(reduced_dims):
-            adata.obsm[f"X_{name.lower()}"] = self.R("reducedDim")(sce, name)
-
+        # Try to convert reducedDims
+        try:
+            reduced_dims = self.R("reducedDims")(sce)
+            for name in self.R("names")(reduced_dims):
+                adata.obsm[f"X_{name.lower()}"] = self.R("reducedDim")(sce, name)
+        except Exception:
+            pass
         return adata
 
     def run_r_script(self, script: str, args: dict):
-        """Executes an R script with specified arguments."""
-        # ... (this helper function remains the same as before) ...
+        """
+        Run a raw R function using the given script and arguments.
+        Returns the result as an R object.
+        """
         try:
             r_func = self.R(script)
             result = r_func(**args)
             return result
         except Exception as e:
-            r_error_message = str(e)
-            log.error(
-                f"An error occurred while executing the R script: {r_error_message}"
-            )
-            raise RuntimeError(f"R execution failed: {r_error_message}")
-
-    def anndata_to_seurat(
-        self, adata: anndata.AnnData, use_raw: bool = True
-    ) -> "rpy2.robjects.RObject":
-        """
-        Converts an AnnData object to an R Seurat object.
-
-        This is achieved by first converting to SingleCellExperiment, then to Seurat.
-
-        Args:
-            adata: The AnnData object to convert.
-            use_raw: Whether to use adata.raw for the counts matrix.
-
-        Returns:
-            An rpy2 object representing the Seurat object in the R environment.
-        """
-        log.info("Converting AnnData to Seurat object...")
-        sce = self._anndata_to_sce(adata, use_raw=use_raw)
-
-        r_script = """
-        function(sce) {
-            library(Seurat)
-            seurat_obj <- as.Seurat(sce, counts = "counts", data = "logcounts")
-            return(seurat_obj)
-        }
-        """
-        seurat_obj = self.run_r_script(r_script, {"sce": sce})
-        log.info("Conversion to Seurat object complete.")
-        return seurat_obj
-
-    def seurat_to_anndata(self, seurat_obj: "rpy2.robjects.RObject") -> anndata.AnnData:
-        """
-        Converts an R Seurat object back to an AnnData object.
-
-        This is achieved by first converting to SingleCellExperiment, then to AnnData.
-
-        Args:
-            seurat_obj: An rpy2 object representing a Seurat object.
-
-        Returns:
-            A new AnnData object.
-        """
-        log.info("Converting Seurat object back to AnnData...")
-        r_script = """
-        function(seurat_obj) {
-            library(Seurat)
-            sce <- as.SingleCellExperiment(seurat_obj)
-            return(sce)
-        }
-        """
-        sce = self.run_r_script(r_script, {"seurat_obj": seurat_obj})
-
-        # Now convert SCE to AnnData
-        adata = self._sce_to_anndata(sce)
-        log.info("Conversion to AnnData complete.")
-        return adata
-
-    def run_copykat(
-        self, adata: anndata.AnnData, key_added: str = "copykat_prediction", **kwargs
-    ):
-        """Runs the CopyKAT algorithm to classify tumor/normal cells."""
-        # ... (this function remains the same as before) ...
-        log.info("Running CopyKAT analysis via R...")
-        sce = self._anndata_to_sce(adata, use_raw=True)
-
-        r_script = """
-        function(sce) {
-            library(CopyKAT)
-            counts <- as.matrix(assay(sce, "counts"))
-            copykat.test <- copykat(rawmat=counts, ngene.chr=5, sam.name="test")
-            pred.test <- data.frame(copykat.test$prediction)
-            return(pred.test)
-        }
-        """
-        predictions_df = self.run_r_script(r_script, {"sce": sce})
-        adata.obs[key_added] = predictions_df.loc[adata.obs_names, "copykat.pred"]
-        log.info(f"CopyKAT results added to adata.obs['{key_added}']")
-        return adata
+            msg = str(e)
+            log.error(f"Error executing R script: {msg}")
+            raise RuntimeError(f"R execution error: {msg}")
 
     def run_monocle3(
         self,
@@ -230,11 +146,20 @@ class RTools:
         key_added: str = "monocle3_pseudotime",
         **kwargs,
     ):
-        """Runs the Monocle3 workflow to calculate pseudotime."""
-        # ... (this function remains the same as before) ...
-        log.info("Running Monocle3 workflow via R...")
-        sce = self._anndata_to_sce(adata, use_raw=False, use_rep="X_umap")
+        """
+        Run Monocle3 trajectory inference in R, return pseudotime to adata.obs.
 
+        Args:
+            adata: AnnData object (must have UMAP).
+            root_group_key: Column in adata.obs for root group.
+            root_group_name: Name of group to use as origin.
+            key_added: obs column to add pseudotime.
+
+        Returns:
+            AnnData with pseudotime in obs.
+        """
+        log.info("Running Monocle3 trajectory inference in R")
+        sce = self._anndata_to_sce(adata, use_raw=False, use_rep="X_umap")
         r_script = """
         function(sce, root_group_key, root_group_name) {
             library(monocle3)
@@ -259,12 +184,81 @@ class RTools:
                 "root_group_name": root_group_name,
             },
         )
-
         pseudotime_series = pd.Series(
             np.array(pseudotime_values), index=adata.obs_names
         )
         adata.obs[key_added] = pseudotime_series
-        log.info(f"Monocle3 pseudotime added to adata.obs['{key_added}']")
+        log.info(f"Monocle3 pseudotime written to obs['{key_added}']")
+        return adata
+
+    def run_slingshot(
+        self,
+        adata: anndata.AnnData,
+        groupby: str,
+        start: Optional[str] = None,
+        key_added: str = "slingshot_pseudotime",
+    ) -> anndata.AnnData:
+        """
+        Run Slingshot trajectory inference in R, return pseudotime(s) to adata.obs.
+
+        Args:
+            adata: AnnData object (should have UMAP in obsm).
+            groupby: Column in adata.obs (clusters).
+            start: Cluster name to use as root (optional).
+            key_added: obs column prefix for pseudotime.
+
+        Returns:
+            AnnData with pseudotime(s) in obs.
+        """
+        log.info(f"Running Slingshot: groupby={groupby}, start={start}")
+        sce = self._anndata_to_sce(adata, use_raw=False, use_rep="X_umap")
+        r_script = """
+        function(sce, groupby, start) {
+            library(slingshot)
+            cluster <- as.factor(colData(sce)[[groupby]])
+            reduced <- reducedDims(sce)[["UMAP"]]
+            if (!is.null(start) && start != "") {
+                ss <- slingshot(reduced, clusterLabels=cluster, start.clus=start)
+            } else {
+                ss <- slingshot(reduced, clusterLabels=cluster)
+            }
+            pt <- as.data.frame(slingPseudotime(ss))
+            rownames(pt) <- colnames(sce)
+            return(pt)
+        }
+        """
+        pt_df = self.run_r_script(
+            r_script, {"sce": sce, "groupby": groupby, "start": start if start else ""}
+        )
+        pt_df = pandas2ri.rpy2py(pt_df)
+        # Write all lineages to obs (e.g. slingshot_pseudotime_1, _2, ...)
+        for idx, col in enumerate(pt_df.columns):
+            adata.obs[f"{key_added}_{idx+1}"] = pt_df[col].values
+        # Default: first lineage as main pseudotime
+        adata.obs[key_added] = pt_df.iloc[:, 0].values
+        log.info(f"Slingshot pseudotime(s) written to obs['{key_added}']")
+        return adata
+    
+    def run_copykat(
+        self, adata: anndata.AnnData, key_added: str = "copykat_prediction", **kwargs
+    ):
+        """Runs the CopyKAT algorithm to classify tumor/normal cells."""
+        # ... (this function remains the same as before) ...
+        log.info("Running CopyKAT analysis via R...")
+        sce = self._anndata_to_sce(adata, use_raw=True)
+
+        r_script = """
+        function(sce) {
+            library(CopyKAT)
+            counts <- as.matrix(assay(sce, "counts"))
+            copykat.test <- copykat(rawmat=counts, ngene.chr=5, sam.name="test")
+            pred.test <- data.frame(copykat.test$prediction)
+            return(pred.test)
+        }
+        """
+        predictions_df = self.run_r_script(r_script, {"sce": sce})
+        adata.obs[key_added] = predictions_df.loc[adata.obs_names, "copykat.pred"]
+        log.info(f"CopyKAT results added to adata.obs['{key_added}']")
         return adata
 
     def run_cellchat(

@@ -7,8 +7,9 @@ gene-type exclusion, automatic reporting, and large data support.
 """
 
 import logging
+from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Literal, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -32,12 +33,12 @@ from .config import HVGConfig
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "find_hvgs", 
-    "select_hvg_sets", 
+    "find_hvgs",
+    "select_hvg_sets",
     "suggest_hvg_choice",
     "evaluate_hvg_stability",
-    "plot_hvg_metrics"
-    ]
+    "plot_hvg_metrics",
+]
 
 
 # --- Helper Functions ---#
@@ -186,49 +187,50 @@ def _get_sample_specific_genes(
 def find_hvgs(
     adata: AnnData,
     config: Optional[HVGConfig] = None,
-    force: bool = False,
-    plot: Optional[bool] = None,
-    report: bool = False,
-    max_cells_plot: int = 40000,
+    input_layer: str = "normalized",
+    **kwargs,
 ) -> AnnData:
     """
     Config-driven, reproducible HVG selection with diagnostics and reporting.
     """
+    # --- 1. Establish the final configuration ---
     if config is None:
-        config = HVGConfig()
-    plot = config.plot_global_distribution if plot is None else plot
-    save_dir = config.save_dir
-    input_layer = getattr(config, "input_layer", "log1p_norm")
-    n_top_genes = config.n_top_genes
-    method = config.method
-    batch_key = config.batch_key
+        active_config = HVGConfig()
+    else:
+        active_config = replace(config)  # Use a copy
+
+    # Apply overrides from kwargs
+    for key, value in kwargs.items():
+        if hasattr(active_config, key):
+            setattr(active_config, key, value)
+        else:
+            log.warning(f"Ignoring unknown parameter: '{key}'")
+
+    # Extract parameters from the final config for use in the function
+    force = kwargs.get("force", False)
+    report = kwargs.get("report", False)
+    plot = kwargs.get("plot", active_config.plot)
+    save_dir = active_config.save_dir
+    n_top_genes = active_config.n_top_genes
+    method = active_config.method
+    batch_key = active_config.batch_key
+    flavor = active_config.flavor
+    exclude_gene_types = active_config.exclude_gene_types
+
     output_key = (
-        f"highly_variable_{method}_{config.flavor}"
+        f"highly_variable_{method}_{flavor}"
         if method == "scanpy"
         else f"highly_variable_{method}"
     )
-    flavor = config.flavor if hasattr(config, "flavor") else "seurat_v3"
-    exclude_gene_types = getattr(
-        config, "exclude_gene_types", ["mitochondrial", "ribosomal"]
-    )
 
-    log.info(
-        f"[HVG] Diagnosing input data for HVG selection from layer '{input_layer}' ..."
-    )
-    if input_layer == "X":
-        X = adata.X
-    else:
-        X = adata.layers[input_layer]
+    log.info(f"[HVG] Diagnosing input data from layer '{input_layer}' ...")
+    X = adata.layers.get(input_layer, adata.X)
     stats = _diagnose_input_for_hvg(X)
-    if stats["zero_frac"] < 0.2:
-        log.warning(
-            "[HVG] Input matrix has few zeros; it may not be log-normalized counts."
-        )
 
     if output_key in adata.var and not force:
         n_existing = adata.var[output_key].sum()
         log.info(
-            f"[HVG] Annotations already exist under '{output_key}' with {n_existing} genes. Use force=True to overwrite."
+            f"[HVG] Annotations found in '{output_key}' with {n_existing} genes. Use force=True to overwrite."
         )
         return adata
 
@@ -237,153 +239,108 @@ def find_hvgs(
             log.info(
                 f"[HVG] Selecting with scanpy ({flavor}), n_top_genes={n_top_genes}, batch_key={batch_key}"
             )
-            try:
-                sc.pp.highly_variable_genes(
-                    adata,
-                    flavor=flavor,
-                    n_top_genes=n_top_genes,
-                    batch_key=batch_key,
-                    inplace=True,
-                )
-                adata.var[output_key] = adata.var["highly_variable"].copy()
-                for metric in ["means", "dispersions", "dispersions_norm"]:
-                    if metric in adata.var:
-                        adata.var[f"{output_key}_{metric}"] = adata.var[metric].copy()
-                if output_key != "highly_variable":
-                    del adata.var["highly_variable"]
-            except Exception as e:
-                log.error(f"[HVG] Scanpy HVG selection failed: {e}")
-                raise RuntimeError(f"HVG selection failed: {e}")
-        elif method == "custom":
-            log.info(
-                f"[HVG] Custom HVG selection per sample (n_top_genes={n_top_genes})"
+            sc.pp.highly_variable_genes(
+                adata,
+                flavor=flavor,
+                n_top_genes=n_top_genes,
+                batch_key=batch_key,
+                inplace=True,
             )
-            sample_key = getattr(config, "sample_key", "sampleID")
-            min_n_samples = getattr(config, "min_n_samples", 2)
-            n_highly_expressed_genes = getattr(config, "n_highly_expressed_genes", 50)
-            n_specific_genes = getattr(config, "n_specific_genes", 20)
+            adata.var[output_key] = adata.var["highly_variable"].copy()
+            for metric in ["means", "dispersions", "dispersions_norm"]:
+                if metric in adata.var:
+                    adata.var[f"{output_key}_{metric}"] = adata.var[metric].copy()
+            if output_key != "highly_variable":
+                del adata.var["highly_variable"]
+
+        elif method == "custom":
+            log.info(f"[HVG] Custom HVG selection (n_top_genes={n_top_genes})")
+            # ... (rest of the custom method logic remains the same)
+            sample_key = active_config.sample_key
+            min_n_samples = active_config.min_n_samples
+            n_highly_expressed_genes = active_config.n_highly_expressed_genes
+            n_specific_genes = active_config.n_specific_genes
             if sample_key not in adata.obs.columns:
                 raise KeyError(f"Sample key '{sample_key}' not found in adata.obs")
             samples = adata.obs[sample_key].unique()
-            log.info(f"[HVG] Found {len(samples)} samples using key '{sample_key}'")
-            # 1. HVGs per sample
             hvg_masks = []
             for sample in samples:
                 sample_mask = adata.obs[sample_key] == sample
-                sample_size = np.sum(sample_mask)
-                if sample_size > 10:
-                    log.info(
-                        f"[HVG] Processing sample '{sample}' with {sample_size} cells"
-                    )
+                if sample_mask.sum() > 10:
                     sample_adata = adata[sample_mask].copy()
                     sc.pp.highly_variable_genes(
-                        sample_adata,
-                        n_top_genes=n_top_genes,
-                        inplace=True,
+                        sample_adata, n_top_genes=n_top_genes, inplace=True
                     )
                     hvg_masks.append(sample_adata.var["highly_variable"])
-                else:
-                    log.warning(
-                        f"[HVG] Sample '{sample}' has only {sample_size} cells, skipping."
-                    )
             if not hvg_masks:
                 raise ValueError("[HVG] No samples had enough cells to compute HVGs")
-            # 2. Combine HVGs
             combined_df = pd.concat(hvg_masks, axis=1)
             sample_counts = combined_df.sum(axis=1)
             combined_hvgs = sample_counts >= min_n_samples
             adata.var[f"{output_key}_sample_count"] = sample_counts
-            # 3. Exclude highly expressed and sample-specific genes
             gene_expr = np.array(adata.X.sum(axis=0)).flatten()
             top_expr_indices = np.argsort(-gene_expr)[:n_highly_expressed_genes]
             top_expr_genes = adata.var_names[top_expr_indices]
-            log.info(
-                f"[HVG] Identified {len(top_expr_genes)} highly expressed genes to exclude"
-            )
             specific_genes = _get_sample_specific_genes(
                 adata, sample_key, n_specific_genes, layer=input_layer
             )
-            log.info(
-                f"[HVG] Identified {len(specific_genes)} sample-specific genes to exclude"
-            )
             exclude_genes = set(top_expr_genes) | set(specific_genes)
-            exclude_mask = adata.var_names.isin(exclude_genes)
-            final_hvg_mask = combined_hvgs & ~exclude_mask
+            final_hvg_mask = combined_hvgs & ~adata.var_names.isin(exclude_genes)
             adata.var[output_key] = final_hvg_mask
-            # Store additional metrics
             adata.var[f"{output_key}_highly_expressed"] = adata.var_names.isin(
                 top_expr_genes
             )
             adata.var[f"{output_key}_sample_specific"] = adata.var_names.isin(
                 specific_genes
             )
+
         elif method == "triku":
             try:
                 import triku
             except ImportError:
-                log.error(
-                    "Triku method requires the 'triku' package. Install with 'pip install triku'"
-                )
                 raise ImportError("Please install triku: pip install triku")
-            log.info("[HVG] Running triku method for HVG selection")
-            result = triku.tl.triku(adata, n_pcs=50, n_neighbors=15, return_all=True)
+            log.info("[HVG] Running triku method")
+            result = triku.tl.triku(adata, return_all=True)
             adata.var[output_key] = result["highly_variable"]
             adata.var[f"{output_key}_score"] = result["score"]
         else:
-            raise ValueError(
-                f"[HVG] Unknown method '{method}'. Choose from: scanpy, custom, triku."
-            )
+            raise ValueError(f"Unknown method '{method}'.")
 
     # Exclude gene types
     gene_type_counts = {}
     if exclude_gene_types:
         log.info(f"[HVG] Excluding gene types: {exclude_gene_types}")
-        gene_types = _detect_gene_types(adata.var_names)
         current_mask = adata.var[output_key]
         updated_mask, excluded_counts = _exclude_genes(
-            adata, current_mask, exclude_gene_types, gene_types
+            adata, current_mask, exclude_gene_types
         )
         adata.var[output_key] = updated_mask
         gene_type_counts.update(excluded_counts)
-        for gene_type, count in excluded_counts.items():
-            log.info(f"[HVG] Excluded {count} {gene_type} genes")
 
     n_hvg = int(adata.var[output_key].sum())
     log.info(f"[HVG] Final number of highly variable genes: {n_hvg}")
 
-    # Save to .uns for traceability
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg"] = {
         "output_key": output_key,
         "method": method,
-        "params": config.__dict__,
+        "params": asdict(active_config),
         "n_hvg": n_hvg,
         "input_stats": stats,
         "excluded_gene_types": gene_type_counts,
     }
 
-    # Diagnostic plots
     if plot:
-        try:
-            fig = plot_hvg_metrics(
-                adata,
-                output_key,
-                save_path=Path(save_dir) / "hvg_metrics.png" if save_dir else None,
-            )
-            if save_dir:
-                log.info(
-                    f"[HVG] Saved metrics plot to {Path(save_dir) / 'hvg_metrics.png'}"
-                )
-            plt.show()
-        except Exception as e:
-            log.warning(f"[HVG] Failed to generate HVG plots: {e}")
+        plot_hvg_metrics(
+            adata,
+            output_key,
+            save_path=Path(save_dir) / "hvg_metrics.png" if save_dir else None,
+        )
+        plt.show()
 
     if report and save_dir:
-        try:
-            report_path = Path(save_dir) / "hvg_report.md"
-            _write_hvg_report(report_path, stats, n_hvg, config, gene_type_counts)
-            log.info(f"[HVG] HVG report written to {report_path}")
-        except Exception as e:
-            log.warning(f"[HVG] Failed to write HVG report: {e}")
+        report_path = Path(save_dir) / "hvg_report.md"
+        _write_hvg_report(report_path, stats, n_hvg, active_config, gene_type_counts)
+        log.info(f"[HVG] Report written to {report_path}")
 
     return adata
 
