@@ -16,11 +16,11 @@ import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
 
-from .config import NormalizationConfig, ScalingConfig
+from .config import NormalizationConfig
 
 log = logging.getLogger(__name__)
 
-__all__ = ["normalize_data", "regress_out", "plot_normalization_effect"]
+__all__ = ["normalize_data", "plot_normalization_effect"]
 
 
 # --- Helper Functions ---
@@ -378,83 +378,6 @@ def normalize_data(
             log.info(f"Normalization report written to {report_path}")
         except Exception as e:
             log.warning(f"Failed to write normalization report: {e}")
-
-    return adata
-
-
-def regress_out(
-    adata: AnnData,
-    config: ScalingConfig,
-    input_layer: Optional[str] = "log1p_norm",
-    output_layer: Optional[str] = "regressed_out",
-    force: bool = False,
-    update_X: bool = True,
-) -> Optional[AnnData]:
-    """
-    Regress out unwanted sources of variation from gene expression data.
-
-    Args:
-        adata: The AnnData object to process.
-        config: A ScalingConfig object containing `vars_to_regress`.
-        input_layer: Layer containing the data to be corrected (e.g., 'log1p_norm').
-        output_layer: Layer to store the regressed-out data.
-        force: If True, overwrite the `output_layer` if it already exists.
-        update_X: If True, also update adata.X to the regressed layer.
-
-    Returns:
-        The modified AnnData object.
-
-    Raises:
-        ValueError: If keys are not found in adata.obs or layers are invalid.
-    """
-    # Parameter Validation
-    if not config.vars_to_regress:
-        log.info(
-            "No variables specified in `config.vars_to_regress`. Skipping regression."
-        )
-        if input_layer != output_layer:
-            adata.layers[output_layer] = adata.layers[input_layer].copy()
-        if update_X:
-            adata.X = adata.layers[output_layer].copy()
-        return adata
-
-    if output_layer in adata.layers and not force:
-        log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
-        return adata
-
-    missing_keys = [key for key in config.vars_to_regress if key not in adata.obs]
-    if missing_keys:
-        raise ValueError(f"Keys not found in adata.obs: {', '.join(missing_keys)}")
-
-    if input_layer not in adata.layers:
-        raise ValueError(f"Input layer '{input_layer}' not found in adata.layers.")
-
-    log.info(
-        f"Regressing out: {', '.join(config.vars_to_regress)} from layer '{input_layer}'"
-    )
-
-    # Use a temporary object for the regression
-    temp_adata = AnnData(X=adata.layers[input_layer].copy(), obs=adata.obs.copy())
-
-    try:
-        sc.pp.regress_out(temp_adata, keys=config.vars_to_regress)
-    except Exception as e:
-        log.error(f"Regression failed: {e}")
-        raise RuntimeError("Failed to regress out variables.")
-
-    adata.layers[output_layer] = temp_adata.X.copy()
-    log.info(f"Regression complete. Results stored in 'adata.layers[{output_layer}]'.")
-
-    if update_X:
-        adata.X = adata.layers[output_layer].copy()
-
-    # Store info to .uns for traceability
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["regress_out"] = {
-        "vars_to_regress": config.vars_to_regress,
-        "input_layer": input_layer,
-        "output_layer": output_layer,
-        "params": config.__dict__,
-    }
 
     return adata
 

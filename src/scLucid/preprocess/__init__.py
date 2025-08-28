@@ -13,13 +13,13 @@ from .config import (
     HVGConfig,
     IntegrationConfig,
     GraphConfig,
-    PreprocessingWorkflowConfig,
+    PreprocessingConfig,
 )
 
 # --- Core Functions ---
-from .normalize import normalize_data, regress_out
+from .normalize import normalize_data
 from .hvg import find_hvgs, select_hvg_sets, suggest_hvg_choice
-from .scale import scale_data
+from .scale import scale_data, regress_out
 from .integrate import batch_correction
 from .neighbors import optimize_neighbors_pcs
 
@@ -35,7 +35,7 @@ from .workflow import run_preprocessing
 # --- Public API Definition ---
 __all__ = [
     # Configuration
-    "PreprocessingWorkflowConfig",
+    "PreprocessingConfig",
     "NormalizationConfig",
     "HVGConfig",
     "IntegrationConfig",
@@ -49,7 +49,6 @@ __all__ = [
     "regress_out",
     "find_hvgs",
     "select_hvg_sets", 
-    
     "scale_data",
     "batch_correction",
     
