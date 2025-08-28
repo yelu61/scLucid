@@ -22,7 +22,11 @@ from scipy.stats import median_abs_deviation
 
 log = logging.getLogger(__name__)
 
-__all__ = ["load_10x_data", "use_layer_as_X", "identify_outliers"]
+__all__ = ["load_10x_data", 
+           "use_layer_as_X", 
+           "identify_outliers",
+           "subset_adata",
+           "subset_from_annotations"]
 
 
 def _find_sample_paths(
@@ -145,6 +149,7 @@ def _read_10x_manually(sample_path: str) -> AnnData:
                         var=pd.DataFrame(index=gene_names.values))
 
     adata.var_names_make_unique()  # Ensure gene names are unique
+    adata.layers['counts'] = adata.X.copy()
 
     return adata
 
@@ -240,6 +245,8 @@ def load_10x_data(
         combined_adata.write(output_file, compression=compression)
         log.info(f"Data successfully saved to {output_file}")
 
+    combined_adata.layers['counts'] = combined_adata.X.copy()
+    
     return combined_adata
 
 
@@ -461,5 +468,68 @@ def subset_adata(
         log.info(
             f"Subset .raw created, retaining all {adata.raw.n_vars} original genes."
         )
+
+    return adata_subset
+
+
+def subset_from_annotations(
+    adata_target: AnnData,
+    adata_source: AnnData,
+    filters: Dict[str, Union[Any, List[Any]]],
+    columns_to_merge: Union[str, List[str]],
+) -> AnnData:
+    """
+    Subsets a target AnnData object based on annotations from a source object.
+
+    This is a convenience wrapper for the common sub-clustering workflow where
+    annotations (e.g., cell types) are generated on a processed object but the
+    subsetting needs to be done on an unprocessed object (e.g., containing
+    raw counts for all genes).
+
+    Args:
+        adata_target: The AnnData object to be subsetted (e.g., the QC'd object).
+        adata_source: The AnnData object containing the annotations in its .obs.
+                      Must share the same cell indices as adata_target.
+        filters: Dictionary of metadata filters to apply. The keys must be present
+                 in the `columns_to_merge`.
+        columns_to_merge: A column name or list of column names from `adata_source.obs`
+                          to merge into `adata_target.obs` before filtering.
+
+    Returns:
+        A new, subsetted AnnData object.
+    """
+    if isinstance(columns_to_merge, str):
+        columns_to_merge = [columns_to_merge]
+
+    # --- Step 1: Merge Annotations ---
+    log.info(f"Merging annotations for columns: {columns_to_merge} from source object.")
+    
+    # Check if columns exist in the source
+    missing_cols = [col for col in columns_to_merge if col not in adata_source.obs]
+    if missing_cols:
+        raise ValueError(f"Columns {missing_cols} not found in the source AnnData object's .obs")
+
+    annotations = adata_source.obs[columns_to_merge]
+    
+    # Use a temporary DataFrame to avoid modifying the original adata_target.obs in case of error
+    obs_merged = adata_target.obs.join(annotations)
+
+    # Validate that all cells were matched
+    if obs_merged[columns_to_merge[0]].isnull().any():
+        unmatched_count = obs_merged[columns_to_merge[0]].isnull().sum()
+        log.warning(
+            f"Found {unmatched_count} cells in the target object that were not present "
+            "in the source object's annotations. These will not be selected."
+        )
+
+    # Create a temporary AnnData object with the merged obs for filtering
+    temp_adata = adata_target.copy()
+    temp_adata.obs = obs_merged
+
+    # --- Step 2: Subset ---
+    log.info(f"Subsetting target object based on new annotations with filters: {filters}")
+    
+    # Now we can call the original, simple subset_adata function
+    adata_subset = subset_adata(temp_adata, filters=filters)
 
     return adata_subset

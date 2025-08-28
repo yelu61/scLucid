@@ -1,68 +1,98 @@
 """
 Normalization functions for single-cell RNA-seq data.
 
-This module provides methods for normalizing raw count data in single-cell RNA-seq
-analysis, including standard library size normalization, centered log-ratio (CLR),
-and advanced methods like Pearson residuals.
+This module provides methods for normalizing raw count data and regressing out
+unwanted sources of variation, preparing the data for downstream analysis.
 """
 
 import logging
-import os
-from typing import List, Literal, Optional, Union
+from pathlib import Path
+from typing import List, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import scanpy as sc
 import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
 
-from ..utils.utils import use_layer_as_X
+from .config import NormalizationConfig, ScalingConfig
 
-# Configure logging
 log = logging.getLogger(__name__)
 
-# Export public functions
-__all__ = ["normalize_data", "regress_out"]
+__all__ = ["normalize_data", "regress_out", "plot_normalization_effect"]
 
 
 # --- Helper Functions ---
+def _diagnose_matrix(data, name="input", max_n=10000):
+    """
+    Compute and log basic statistics for a matrix or AnnData .X/.layers entry.
+    """
+    if scipy.sparse.issparse(data):
+        arr = data
+        total_entries = arr.shape[0] * arr.shape[1]
+        nonzeros = arr.nnz
+        zeros = total_entries - nonzeros
+        mean = arr.mean()
+        std = np.sqrt(arr.power(2).mean() - mean**2)
+        min_val = arr.min()
+        max_val = arr.max()
+        zero_frac = zeros / total_entries
+    else:
+        arr = data
+        if arr.shape[0] > max_n or arr.shape[1] > max_n:
+            # sample to avoid OOM
+            arr = arr[:max_n, :max_n]
+        mean = np.mean(arr)
+        std = np.std(arr)
+        min_val = np.min(arr)
+        max_val = np.max(arr)
+        zero_frac = np.mean(arr == 0)
+    log.info(
+        f"[{name}] mean={mean:.2f}, std={std:.2f}, min={min_val:.2f}, max={max_val:.2f}, zero_frac={zero_frac:.2%}"
+    )
+
+    return dict(mean=mean, std=std, min=min_val, max=max_val, zero_frac=zero_frac)
+
+
 def _plot_normalization_global(
-    adata: AnnData,
     input_data: Union[np.ndarray, scipy.sparse.spmatrix],
     output_data: Union[np.ndarray, scipy.sparse.spmatrix],
     method: str = "standard",
     log_transformed: bool = True,
     save_dir: Optional[str] = None,
+    max_cells: int = 40000,
 ) -> plt.Figure:
     """
     Generate global distribution plots comparing before and after normalization.
-
-    Args:
-        adata: AnnData object
-        input_data: Original data before normalization
-        output_data: Normalized data
-        method: Normalization method used
-        log_transformed: Whether log transformation was applied
-        save_dir: Directory to save plots
-
-    Returns:
-        matplotlib Figure object
+    For large data, sample cells to avoid OOM.
     """
-    # Set up the plotting style
-    rc_params = {
-            "figure.facecolor": "white",
-            "axes.facecolor": "white",
-            "savefig.facecolor": "white",
-            "text.color": "black",
-            "axes.labelcolor": "black",
-            "axes.edgecolor": "black",
-            "xtick.color": "black",
-            "ytick.color": "black",
-        }
 
-    # Create figure
+    def _sample_rows(matrix, max_n):
+        n = matrix.shape[0]
+        if n <= max_n:
+            return matrix
+        idx = np.random.choice(n, max_n, replace=False)
+        if scipy.sparse.issparse(matrix):
+            return matrix[idx]
+        else:
+            return matrix[idx, :]
+
+    # Sample before plotting if needed
+    input_data = _sample_rows(input_data, max_cells)
+    output_data = _sample_rows(output_data, max_cells)
+
+    rc_params = {
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "savefig.facecolor": "white",
+        "text.color": "black",
+        "axes.labelcolor": "black",
+        "axes.edgecolor": "black",
+        "xtick.color": "black",
+        "ytick.color": "black",
+    }
+
     with plt.rc_context(rc_params):
         fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(14, 5))
         fig.suptitle(
@@ -70,18 +100,15 @@ def _plot_normalization_global(
             fontsize=16,
             color="black",
         )
-
-        # Get cell sums for before and after
+        # Compute cell sums
         if scipy.sparse.issparse(input_data):
             before_sums = input_data.sum(axis=1).A1
         else:
             before_sums = input_data.sum(axis=1)
-
         if scipy.sparse.issparse(output_data):
             after_sums = output_data.sum(axis=1).A1
         else:
             after_sums = output_data.sum(axis=1)
-
         # Plot before normalization
         sns.histplot(
             before_sums,
@@ -124,57 +151,343 @@ def _plot_normalization_global(
         plt.tight_layout(rect=[0, 0, 1, 0.96])
 
         if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
-            plt.savefig(
-                os.path.join(save_dir, f"normalization_{method}_global.png"), dpi=300
-            )
+            save_path = Path(save_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
+            figure_path = save_path / f"normalization_{method}_global.png"
+            plt.savefig(figure_path, dpi=300)
 
     return fig
 
 
-def _plot_normalization_comparison(
+def _write_normalization_report(
+    report_path: Path,
+    stats_before: dict,
+    stats_after: dict,
+    config: NormalizationConfig,
+    n_cells: int,
+    n_genes: int,
+) -> None:
+    """
+    Write a simple markdown report comparing normalization before and after.
+    """
+    with open(report_path, "w") as f:
+        f.write("# Normalization Report\n\n")
+        f.write(f"**Method:** {config.method}\n\n")
+        f.write(f"**Input shape:** {n_cells} cells × {n_genes} genes\n\n")
+        f.write("## Input Statistics\n")
+        for k, v in stats_before.items():
+            f.write(f"- {k}: {v:.3g}\n")
+        f.write("\n## Output Statistics\n")
+        for k, v in stats_after.items():
+            f.write(f"- {k}: {v:.3g}\n")
+        f.write("\n## Parameters\n")
+        for k, v in config.__dict__.items():
+            f.write(f"- {k}: {v}\n")
+
+
+# --- Main Functions ---
+def normalize_data(
+    adata: AnnData,
+    input_layer: Optional[str] = "counts",
+    output_layer: Optional[str] = "normalized",
+    config: Optional[NormalizationConfig] = None,
+    force: bool = False,
+    update_X: bool = True,
+    report: bool = False,
+    max_cells_plot: int = 40000,
+) -> AnnData:
+    """
+    Normalize raw count data to account for differences in sequencing depth.
+
+    Args:
+        adata: The AnnData object to be normalized. Modified in place.
+        config: A NormalizationConfig object specifying the method and parameters.
+        input_layer: Name of the layer in `adata.layers` containing raw count data.
+        output_layer: Name of the layer to store the normalized and log-transformed data.
+        force: If True, overwrite the `output_layer` if it already exists.
+        update_X: If True, also update adata.X to the newly normalized layer.
+        report: Whether to write a markdown report with normalization statistics.
+        max_cells_plot: Max cells to use when plotting (for large data).
+
+    Returns:
+        The modified AnnData object with the new normalized layer.
+
+    Raises:
+        ValueError: If the specified input layer does not exist or method is unknown.
+        RuntimeError: If the normalization process fails for any reason.
+    """
+    if config is None:
+        config = NormalizationConfig()
+
+    # Input layer check: allow 'X' for adata.X
+    if input_layer == "X":
+        source_data = adata.X
+        source_name = "adata.X"
+    elif input_layer in adata.layers:
+        source_data = adata.layers[input_layer]
+        source_name = f"adata.layers['{input_layer}']"
+    else:
+        raise ValueError(
+            f"Input layer '{input_layer}' not found in adata.layers nor is it 'X' (adata.X)."
+        )
+
+    if output_layer in adata.layers and not force:
+        log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
+        return adata
+
+    # --- Step 1: Input Data Diagnosis ---
+    log.info(f"Diagnosing input data for normalization from '{source_name}' ...")
+    stats_before = _diagnose_matrix(source_data, name="input")
+    n_cells, n_genes = source_data.shape
+
+    if np.issubdtype(source_data.dtype, np.floating):
+        if scipy.sparse.issparse(source_data):
+            arr = source_data.data
+        else:
+            arr = source_data
+        non_int = np.abs(np.modf(arr)[0]).sum()
+        if (np.min(arr) < 0) or (non_int > 1e-9):
+            log.warning(
+                f"Input data in '{source_name}' appears to be already normalized or transformed. "
+                "Normalization should be run on raw integer counts."
+            )
+        if stats_before["zero_frac"] < 0.2:
+            log.warning("Input matrix has few zeros; it may not be raw UMI counts.")
+
+    log.info(f"Normalizing data from '{source_name}' using method '{config.method}'.")
+
+    # Step 2: Prepare scanpy normalization arguments from config
+    norm_kwargs = {}
+    # These parameters exist in config, pass if present
+    for param in ["target_sum", "exclude_highly_expressed", "max_fraction"]:
+        if hasattr(config, param):
+            norm_kwargs[param] = getattr(config, param)
+
+    temp_adata = AnnData(
+        X=source_data.copy(), obs=adata.obs.copy(), var=adata.var.copy()
+    )
+    method_is_log_transformed = False
+
+    try:
+        if config.method == "standard":
+            log.info(
+                f"Applying standard library size normalization (params: {norm_kwargs})"
+            )
+            sc.pp.normalize_total(temp_adata, inplace=True, **norm_kwargs)
+        elif config.method == "scran":
+            try:
+                import scanpy.external.pp
+            except ImportError:
+                log.error(
+                    "scanpy.external.pp.scran_normalize not found. Install scanpy[external] and rpy2."
+                )
+                raise RuntimeError(
+                    "scran normalization requires scanpy[external] and rpy2. See https://scanpy.readthedocs.io/en/stable/api/scanpy.external.pp.scran_normalize.html"
+                )
+            log.warning("Method 'scran' requires a correctly configured R environment.")
+            scanpy.external.pp.scran_normalize(temp_adata, inplace=True)
+            method_is_log_transformed = True  # scran includes log-transform
+        elif config.method == "pearson_residuals":
+            log.info("Applying Pearson residuals normalization.")
+            sc.experimental.pp.normalize_pearson_residuals(temp_adata, inplace=True)
+            method_is_log_transformed = True
+        elif config.method == "clr":
+            log.info("Applying Centered Log-Ratio (CLR) normalization.")
+            sc.pp.normalize_total(temp_adata, target_sum=1, inplace=True)
+            sc.pp.log1p(temp_adata)
+            mean_logs = temp_adata.X.mean(axis=1)
+            if scipy.sparse.issparse(temp_adata.X):
+                mean_logs = np.array(mean_logs).flatten()
+                temp_adata.X = temp_adata.X - mean_logs[:, None]
+            else:
+                temp_adata.X = temp_adata.X - mean_logs[:, np.newaxis]
+            method_is_log_transformed = True
+        else:
+            valid_methods = ["standard", "scran", "pearson_residuals", "clr"]
+            raise ValueError(
+                f"Unknown normalization method: '{config.method}'. Choose from {valid_methods}."
+            )
+    except Exception as e:
+        log.error(f"Normalization failed for method '{config.method}': {e}")
+        raise RuntimeError(
+            "Failed to normalize data. Check dependencies and data format."
+        )
+
+    # Step 3: Final log1p transformation if needed
+    final_log_transformed = method_is_log_transformed
+    if not method_is_log_transformed:
+        log.info("Applying log1p transformation.")
+        sc.pp.log1p(temp_adata)
+        final_log_transformed = True
+    else:
+        log.info(
+            f"Method '{config.method}' includes a log-like transformation; skipping explicit log1p."
+        )
+
+    # Step 4: Store results
+    adata.layers[output_layer] = temp_adata.X.copy()
+    if update_X:
+        adata.X = adata.layers[output_layer].copy()
+
+    stats_after = _diagnose_matrix(adata.layers[output_layer], name="normalized")
+    # Step 5: Store metadata in .uns for reproducibility
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "normalization"
+    ] = {
+        "method": config.method,
+        "input_layer": input_layer,
+        "output_layer": output_layer,
+        "log_transformed": final_log_transformed,
+        "params": config.__dict__,
+        "input_stats": stats_before,
+        "output_stats": stats_after,
+        "n_cells": n_cells,
+        "n_genes": n_genes,
+    }
+
+    # Step 6: Diagnostic plotting
+    plot_flag = getattr(config, "plot_global_distribution", False)
+    save_dir = getattr(config, "save_dir", None)
+    if plot_flag:
+        log.info("Generating diagnostic plots for normalization...")
+        try:
+            _plot_normalization_global(
+                source_data,
+                adata.layers[output_layer],
+                method=config.method,
+                log_transformed=final_log_transformed,
+                save_dir=save_dir,
+                max_cells=max_cells_plot,
+            )
+            plt.show()
+        except Exception as e:
+            log.warning(f"Failed to generate normalization plots: {e}")
+
+    # Step 7: Optionally write a markdown report
+    if report and save_dir:
+        try:
+            report_path = Path(save_dir) / "normalization_report.md"
+            _write_normalization_report(
+                report_path=report_path,
+                stats_before=stats_before,
+                stats_after=stats_after,
+                config=config,
+                n_cells=n_cells,
+                n_genes=n_genes,
+            )
+            log.info(f"Normalization report written to {report_path}")
+        except Exception as e:
+            log.warning(f"Failed to write normalization report: {e}")
+
+    return adata
+
+
+def regress_out(
+    adata: AnnData,
+    config: ScalingConfig,
+    input_layer: Optional[str] = "log1p_norm",
+    output_layer: Optional[str] = "regressed_out",
+    force: bool = False,
+    update_X: bool = True,
+) -> Optional[AnnData]:
+    """
+    Regress out unwanted sources of variation from gene expression data.
+
+    Args:
+        adata: The AnnData object to process.
+        config: A ScalingConfig object containing `vars_to_regress`.
+        input_layer: Layer containing the data to be corrected (e.g., 'log1p_norm').
+        output_layer: Layer to store the regressed-out data.
+        force: If True, overwrite the `output_layer` if it already exists.
+        update_X: If True, also update adata.X to the regressed layer.
+
+    Returns:
+        The modified AnnData object.
+
+    Raises:
+        ValueError: If keys are not found in adata.obs or layers are invalid.
+    """
+    # Parameter Validation
+    if not config.vars_to_regress:
+        log.info(
+            "No variables specified in `config.vars_to_regress`. Skipping regression."
+        )
+        if input_layer != output_layer:
+            adata.layers[output_layer] = adata.layers[input_layer].copy()
+        if update_X:
+            adata.X = adata.layers[output_layer].copy()
+        return adata
+
+    if output_layer in adata.layers and not force:
+        log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
+        return adata
+
+    missing_keys = [key for key in config.vars_to_regress if key not in adata.obs]
+    if missing_keys:
+        raise ValueError(f"Keys not found in adata.obs: {', '.join(missing_keys)}")
+
+    if input_layer not in adata.layers:
+        raise ValueError(f"Input layer '{input_layer}' not found in adata.layers.")
+
+    log.info(
+        f"Regressing out: {', '.join(config.vars_to_regress)} from layer '{input_layer}'"
+    )
+
+    # Use a temporary object for the regression
+    temp_adata = AnnData(X=adata.layers[input_layer].copy(), obs=adata.obs.copy())
+
+    try:
+        sc.pp.regress_out(temp_adata, keys=config.vars_to_regress)
+    except Exception as e:
+        log.error(f"Regression failed: {e}")
+        raise RuntimeError("Failed to regress out variables.")
+
+    adata.layers[output_layer] = temp_adata.X.copy()
+    log.info(f"Regression complete. Results stored in 'adata.layers[{output_layer}]'.")
+
+    if update_X:
+        adata.X = adata.layers[output_layer].copy()
+
+    # Store info to .uns for traceability
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["regress_out"] = {
+        "vars_to_regress": config.vars_to_regress,
+        "input_layer": input_layer,
+        "output_layer": output_layer,
+        "params": config.__dict__,
+    }
+
+    return adata
+
+
+def plot_normalization_effect(
     adata: AnnData,
     original_layer: str,
     normalized_layer: str,
     log_transformed: bool = True,
-    n_genes: int = 10,
+    n_top_genes: int = 10,
     gene_subset: Optional[List[str]] = None,
     save_dir: Optional[str] = None,
+    max_cells_plot: int = 40000,
 ) -> plt.Figure:
     """
     Generate comparison plots showing gene expression distributions before and after normalization.
-
-    This function is useful for visualizing how normalization affects the distribution
-    of individual genes, particularly for highly expressed genes that can be most
-    affected by normalization.
 
     Args:
         adata: AnnData object with raw and normalized data
         original_layer: Layer containing original data
         normalized_layer: Layer containing normalized data
         log_transformed: Whether the normalized data is log-transformed
-        n_genes: Number of top genes to show (by mean expression)
+        n_top_genes: Number of top genes to show (by mean expression)
         gene_subset: Specific genes to show instead of top expressing genes
         save_dir: Directory to save the generated figure
+        max_cells_plot: Max cells to use when plotting (for large data)
 
     Returns:
         matplotlib Figure object with the comparison plots
 
     Raises:
         ValueError: If specified layers don't exist
-
-    Examples:
-        >>> # Compare raw counts to normalized data
-        >>> fig = plot_normalization_comparison(adata, 'counts', 'log1p_norm')
-        >>> plt.show()
-        >>>
-        >>> # Compare specific genes
-        >>> fig = plot_normalization_comparison(
-        ...     adata, 'counts', 'log1p_norm',
-        ...     gene_subset=['MALAT1', 'GAPDH', 'ACTB']
-        ... )
     """
-    # Validate inputs
     if original_layer not in adata.layers:
         raise ValueError(f"Original layer '{original_layer}' not found in adata.layers")
     if normalized_layer not in adata.layers:
@@ -182,12 +495,24 @@ def _plot_normalization_comparison(
             f"Normalized layer '{normalized_layer}' not found in adata.layers"
         )
 
-    # Import scipy here to avoid importing at the top level
     import scipy.sparse
+
+    def _sample_rows(matrix, max_n):
+        n = matrix.shape[0]
+        if n <= max_n:
+            return matrix
+        idx = np.random.choice(n, max_n, replace=False)
+        if scipy.sparse.issparse(matrix):
+            return matrix[idx]
+        else:
+            return matrix[idx, :]
+
+    # Sample for plotting if needed
+    orig_data = _sample_rows(adata.layers[original_layer], max_cells_plot)
+    norm_data = _sample_rows(adata.layers[normalized_layer], max_cells_plot)
 
     # Select genes to plot
     if gene_subset is not None:
-        # Use user-specified genes
         genes_to_plot = [g for g in gene_subset if g in adata.var_names]
         if not genes_to_plot:
             raise ValueError("None of the specified genes were found in the data")
@@ -197,34 +522,28 @@ def _plot_normalization_comparison(
             )
     else:
         # Select top expressed genes
-        mean_expr = np.array(adata.layers[original_layer].mean(axis=0)).flatten()
-        top_genes_idx = np.argsort(-mean_expr)[:n_genes]
+        mean_expr = np.array(orig_data.mean(axis=0)).flatten()
+        top_genes_idx = np.argsort(-mean_expr)[:n_top_genes]
         genes_to_plot = adata.var_names[top_genes_idx].tolist()
 
-    # Create the figure
     n_to_plot = len(genes_to_plot)
     fig, axes = plt.subplots(n_to_plot, 2, figsize=(14, 3 * n_to_plot))
 
-    # Ensure axes is 2D even with a single gene
     if n_to_plot == 1:
         axes = np.array([axes])
 
-    # Define helper function to safely get data
-    def get_data(layer, gene):
-        gene_idx = adata.var.index.get_loc(gene) 
-        data = adata.layers[layer][:, gene_idx]
+    def get_data(matrix, gene):
+        gene_idx = adata.var.index.get_loc(gene)
+        data = matrix[:, gene_idx]
         if scipy.sparse.issparse(data):
             return data.toarray().flatten()
         return data.flatten()
 
-    # Loop through genes and create plots
     for i, gene in enumerate(genes_to_plot):
         try:
-            # Get data for this gene
-            before_data = get_data(original_layer, gene)
-            after_data = get_data(normalized_layer, gene)
+            before_data = get_data(orig_data, gene)
+            after_data = get_data(norm_data, gene)
 
-            # Original data plot
             sns.histplot(before_data, bins=50, kde=True, ax=axes[i, 0])
             axes[i, 0].set_title(f"{gene} - Before")
             axes[i, 0].set_ylabel("Frequency")
@@ -237,7 +556,6 @@ def _plot_normalization_comparison(
                 va="top",
             )
 
-            # Normalized data plot
             sns.histplot(after_data, bins=50, kde=True, ax=axes[i, 1])
             suffix = " (Log-transformed)" if log_transformed else ""
             axes[i, 1].set_title(f"{gene} - After{suffix}")
@@ -257,504 +575,10 @@ def _plot_normalization_comparison(
     plt.tight_layout()
 
     if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(
-            os.path.join(save_dir, "normalization_gene_comparison.png"), dpi=300
-        )
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        figure_path = save_path / "normalization_effect_summary.png"
+        plt.savefig(figure_path, dpi=300, bbox_inches="tight")
+        log.info(f"Saved normalization effect plot to {figure_path}")
 
     return fig
-
-
-# ------ Main Functions ------
-def normalize_data(
-    adata: AnnData,
-    method: Literal[
-        "standard", "scran", "pearson_residuals", "sctransform", "clr"
-    ] = "standard",
-    layer: Optional[str] = "counts",
-    output_layer: str = "log1p_norm",
-    # Params for 'standard' method
-    target_sum: float = 1e4,
-    exclude_highly_expressed: bool = False,
-    max_fraction: float = 0.05,
-    # Common params
-    log_transform: bool = True,
-    plot: bool = True,
-    save_dir: Optional[str] = None,
-    force: bool = False,
-) -> AnnData:
-    """
-    Normalize and log-transform single-cell RNA sequencing data.
-
-    This function implements multiple normalization strategies to account for
-    differences in sequencing depth and composition biases between cells.
-
-    Args:
-        adata: AnnData object containing single-cell data.
-        method: Normalization method to use:
-            - "standard": Standard library size normalization (Scanpy default)
-            - "scran": Size factors using pooling (requires R, rpy2, and scran)
-            - "pearson_residuals": Variance stabilizing using Pearson residuals
-            - "sctransform": SCTransform method (requires R, rpy2, and Seurat)
-            - "clr": Centered log-ratio transformation for compositional data
-        layer: Name of the layer containing raw count data. If None, uses adata.X.
-        target_sum: Total count each cell will have after normalization.
-            If 1e6, this gives CPM normalization. If None, uses median total count.
-        exclude_highly_expressed: Whether to exclude highly expressed genes from
-            normalization factor calculation to avoid biases.
-        max_fraction: When exclude_highly_expressed=True, genes with more counts than
-            this fraction of the original total counts are excluded.
-        log_transform: Whether to log-transform the data after normalization.
-            Not applied for methods that already include log transformation.
-        output_layer: Name of the layer to store normalized (and log-transformed) data.
-        plot: Whether to generate distribution plots before and after normalization.
-        save_dir: Directory to save plots. If None, plots are not saved.
-        force: Whether to proceed even if the output layer already exists.
-
-    Returns:
-        AnnData object with normalized data in the specified output layer.
-
-    Raises:
-        ValueError: If parameters are invalid or required dependencies are missing.
-        RuntimeError: If normalization fails due to computational issues.
-
-    Examples:
-        >>> # Standard normalization with log transformation
-        >>> adata = normalize_data(adata, method="standard")
-        >>>
-        >>> # CLR normalization (useful for compositional data)
-        >>> adata = normalize_data(adata, method="clr")
-    """
-    if output_layer in adata.layers and not force:
-        log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
-        return adata
-    
-    # --- Input Data Validation ---
-    if layer and layer not in adata.layers:
-        raise ValueError(f"Input layer '{layer}' not found in adata.layers.")
-    if "counts" not in adata.layers and layer != "counts":
-        adata.layers["counts"] = adata.X.copy()
-        log.info("Saved current adata.X to adata.layers['counts'] for reference.")
-    source_adata = sc.AnnData(adata.layers[layer].copy()) if layer else adata.copy()
-
-    min_val = source_adata.X.min()
-    if min_val < 0: # Check for zero or negative values that might cause problems
-        log.warning("Input data contains negative values. Normalization may produce unexpected results.")
-    elif np.all(source_adata.X < 1) and np.any(source_adata.X > 0):
-        log.warning("Input data seems to be already normalized (all values < 1).")
-    
-    # Determine input data source
-    if layer is not None and layer not in adata.layers:
-        log.warning(
-            f"Layer '{layer}' not found in adata.layers. Using adata.X instead."
-        )
-        input_data_source = adata.X
-    else:
-        input_data_source = adata.layers.get(layer, adata.X)
-
-    # Calculate basic statistics for logging and validation
-    total_counts = np.array(input_data_source.sum(axis=1)).flatten()
-
-    log.info(
-        f"Input data summary: median counts per cell = {np.median(total_counts):.1f}, "
-        f"range = [{np.min(total_counts):.1f}, {np.max(total_counts):.1f}]"
-    )
-    log.info(f"Normalizing data from '{layer or 'adata.X'}' using method '{method}'.")
-
-    # --- Method-Specific Normalization ---
-    try:
-        if method == "standard":
-            log.info("Applying standard library size normalization...")
-            if target_sum is not None and target_sum <= 0:
-                raise ValueError("target_sum must be a positive number.")
-            if not 0 <= max_fraction <= 1:
-                raise ValueError("max_fraction must be between 0 and 1 (inclusive).")
-            log.info(f"Parameters: target_sum={target_sum}, log_transform={log_transform}")
-            temp_adata = sc.AnnData(input_data_source.copy())
-            sc.pp.normalize_total(
-                temp_adata,
-                target_sum=target_sum,
-                exclude_highly_expressed=exclude_highly_expressed,
-                max_fraction=max_fraction,
-                inplace=True,
-            )
-            X_norm = temp_adata.X.copy()
-
-        elif method == "scran":
-            log.warning(
-                "The 'scran' method requires R, rpy2, and Bioconductor's scran package."
-            )
-            try:
-                import rpy2
-                from rpy2.robjects import numpy2ri, pandas2ri, r
-                from rpy2.robjects.packages import importr
-
-                pandas2ri.activate()
-                numpy2ri.activate()
-
-                # Check if the required R packages are installed
-                try:
-                    scran = importr("scran")
-                    scuttle = importr("scuttle")
-                    singlecellexperiment = importr("SingleCellExperiment")
-
-                    log.info("Successfully loaded R packages for scran normalization.")
-
-                    # Convert to sparse matrix if it's not already
-                    X_mat = input_data_source.copy()
-                    if not scipy.sparse.issparse(X_mat):
-                        X_mat = scipy.sparse.csr_matrix(X_mat)
-
-                    # Convert to R sparse matrix format
-                    counts_r = pandas2ri.py2rpy(
-                        pd.DataFrame(
-                            X_mat.toarray(),
-                            columns=adata.var_names,
-                            index=adata.obs_names,
-                        )
-                    )
-
-                    # Create SingleCellExperiment object
-                    sce = r("""
-                    function(counts) {
-                        sce <- SingleCellExperiment::SingleCellExperiment(list(counts=counts))
-                        return(sce)
-                    }
-                    """)(counts_r)
-
-                    # Run scran normalization
-                    sce_norm = r("""
-                    function(sce) {
-                        set.seed(42)
-                        clusters <- scran::quickCluster(sce)
-                        sce <- scran::computeSumFactors(sce, clusters=clusters)
-                        sce <- scuttle::logNormCounts(sce)
-                        return(sce)
-                    }
-                    """)(sce)
-
-                    # Extract normalized values
-                    logcounts = r("function(sce) { return(logcounts(sce)) }")(sce_norm)
-                    X_norm = numpy2ri.rpy2py(logcounts)
-
-                    # scran already log-transforms the data
-                    log_transform = False
-
-                except Exception as r_err:
-                    log.error(f"Failed to run scran normalization: {r_err}")
-                    log.warning("Falling back to standard normalization.")
-                    temp_adata = sc.AnnData(input_data_source.copy())
-                    sc.pp.normalize_total(
-                        temp_adata, target_sum=target_sum, inplace=True
-                    )
-                    X_norm = temp_adata.X.copy()
-
-            except ImportError:
-                log.warning(
-                    "rpy2 is not installed. Falling back to standard normalization."
-                )
-                temp_adata = sc.AnnData(input_data_source.copy())
-                sc.pp.normalize_total(temp_adata, target_sum=target_sum, inplace=True)
-                X_norm = temp_adata.X.copy()
-
-        elif method == "pearson_residuals":
-            log.info(
-                "Applying Pearson residuals normalization (variance stabilizing transformation)..."
-            )
-            X_norm = sc.experimental.pp.normalize_pearson_residuals(
-                sc.AnnData(input_data_source.copy()), inplace=False
-            )["X"]
-            # Log transform is not needed for Pearson residuals
-            log_transform = False
-
-        elif method == "clr":
-            log.info("Applying centered log-ratio (CLR) transformation...")
-            # Apply pseudocount to handle zeros
-            X_data = input_data_source.copy()
-
-            # Handle sparse matrices
-            is_sparse = scipy.sparse.issparse(X_data)
-            if is_sparse:
-                X_data = X_data.toarray()
-
-            # Add pseudocount and calculate geometric mean
-            X_data = X_data + 1  # Pseudocount
-            log_X = np.log(X_data)
-            geo_means = np.exp(np.mean(log_X, axis=1, keepdims=True))
-
-            # Apply CLR transformation
-            X_norm = log_X - np.log(geo_means)
-
-            # Convert back to sparse if original was sparse
-            if is_sparse:
-                X_norm = scipy.sparse.csr_matrix(X_norm)
-
-            # CLR already applies log transformation
-            log_transform = False
-
-        elif method == "sctransform":
-            log.warning("sctransform method requires R, rpy2, and Seurat package.")
-            try:
-                import rpy2
-                from rpy2.robjects import numpy2ri, pandas2ri, r
-                from rpy2.robjects.packages import importr
-
-                pandas2ri.activate()
-                numpy2ri.activate()
-
-                try:
-                    seurat = importr("Seurat")
-                    seuratobject = importr("SeuratObject")
-
-                    log.info("Successfully loaded R packages for sctransform.")
-
-                    # Convert to dense matrix if it's sparse
-                    X_mat = input_data_source.copy()
-                    if scipy.sparse.issparse(X_mat):
-                        X_mat = X_mat.toarray()
-
-                    # Convert to R matrix format
-                    counts_r = numpy2ri.py2rpy(X_mat)
-                    gene_names = numpy2ri.py2rpy(np.array(adata.var_names))
-                    cell_names = numpy2ri.py2rpy(np.array(adata.obs_names))
-
-                    # Run SCTransform
-                    sct_result = r("""
-                    function(counts, gene_names, cell_names) {
-                        set.seed(42)
-                        # Set row and column names
-                        rownames(counts) <- gene_names
-                        colnames(counts) <- cell_names
-                        
-                        # Create Seurat object
-                        sobj <- SeuratObject::CreateSeuratObject(counts=t(counts))
-                        
-                        # Run SCTransform
-                        sobj <- Seurat::SCTransform(sobj, verbose=FALSE)
-                        
-                        # Return normalized data
-                        return(t(SeuratObject::GetAssayData(sobj, slot="scale.data")))
-                    }
-                    """)(counts_r, gene_names, cell_names)
-
-                    X_norm = numpy2ri.rpy2py(sct_result)
-
-                    # SCTransform applies its own normalization and scaling
-                    log_transform = False
-
-                except Exception as r_err:
-                    log.error(f"Failed to run sctransform: {r_err}")
-                    log.warning("Falling back to standard normalization.")
-                    temp_adata = sc.AnnData(input_data_source.copy())
-                    sc.pp.normalize_total(
-                        temp_adata, target_sum=target_sum, inplace=True
-                    )
-                    X_norm = temp_adata.X.copy()
-
-            except ImportError:
-                log.warning(
-                    "rpy2 is not installed. Falling back to standard normalization."
-                )
-                temp_adata = sc.AnnData(input_data_source.copy())
-                sc.pp.normalize_total(temp_adata, target_sum=target_sum, inplace=True)
-                X_norm = temp_adata.X.copy()
-
-        else:
-            raise ValueError(
-                f"Unknown normalization method: {method}. "
-                f"Choose from 'standard', 'scran', 'pearson_residuals', 'sctransform', 'clr'."
-            )
-
-    except Exception as e:
-        log.error(f"Normalization failed: {str(e)}")
-        raise RuntimeError(f"Failed to normalize data using {method} method: {str(e)}")
-
-    # --- Store Results and Log Transform ---
-    # Store normalized data before log transformation
-    adata.layers["normalized"] = X_norm.copy()
-    log.info("Stored pre-log normalized data in adata.layers['normalized']")
-
-    # Apply log transform if needed
-    if log_transform:
-        log.info("Applying log1p transformation.")
-        try:
-            # sc.pp.log1p is robust for both sparse and dense matrices
-            adata.layers[output_layer] = sc.pp.log1p(X_norm, copy=True)
-        except Exception as e:
-            log.error(f"Log transformation failed: {str(e)}")
-            raise RuntimeError(f"Failed to apply log1p transformation: {str(e)}")
-    else:
-        adata.layers[output_layer] = X_norm.copy()
-
-    # Calculate and log post-normalization statistics
-    final_data = adata.layers[output_layer]
-    final_sum = np.array(final_data.sum(axis=1)).flatten()
-
-    log.info(f"Normalization complete. Final data in adata.layers['{output_layer}']")
-    log.info(
-        f"Final data summary: median sum per cell = {np.median(final_sum):.2f}, "
-        f"range = [{np.min(final_sum):.2f}, {np.max(final_sum):.2f}]"
-    )
-
-    # --- Store parameters in the unified namespace ---
-    if "scrnatk" not in adata.uns:
-        adata.uns["scrnatk"] = {}
-    if "preprocess" not in adata.uns["scrnatk"]:
-        adata.uns["scrnatk"]["preprocess"] = {}
-    adata.uns["scrnatk"]["preprocess"]["normalization"] = {
-        "method": method,
-        "target_sum": target_sum,
-        "log_transform": log_transform,
-        "output_layer": output_layer,
-    }
-
-    # --- Plotting ---
-    if plot:
-        try:
-            log.info("Generating normalization comparison plots...")
-            # Plot general cell-level distribution
-            global_fig = _plot_normalization_global(
-                adata,
-                input_data_source,
-                adata.layers[output_layer],
-                method=method,
-                log_transformed=log_transform,
-                save_dir=save_dir,
-            )
-
-            # Plot gene-level distributions
-            gene_fig = _plot_normalization_comparison(
-                adata,
-                "counts" if layer is None else layer,
-                output_layer,
-                log_transformed=log_transform,
-                save_dir=save_dir,
-            )
-
-        except Exception as e:
-            log.warning(f"Failed to generate normalization plots: {str(e)}")
-
-    return adata
-
-
-
-
-def regress_out(
-    adata: AnnData,
-    keys: List[str],
-    layer: Optional[str] = "log1p_norm",
-    n_jobs: Optional[int] = None,
-    output_layer: str = "regressed_out",
-    force: bool = False,
-    calculate_variance_explained: bool = False,
-) -> AnnData:
-    """
-    Regress out unwanted sources of variation from a specified layer.
-
-    This function performs linear regression to remove the effect of specific
-    variables (like cell cycle scores, mitochondrial percentage, etc.) from
-    gene expression data.
-
-    Args:
-        adata: AnnData object
-        keys: Variables to regress out (must be in adata.obs)
-        layer: Layer to use as input for regression.
-        n_jobs: Number of parallel jobs to use
-        output_layer: Layer to store the regressed-out data.
-        force: Whether to overwrite existing output_layer if it exists
-
-    Returns:
-        AnnData with regressed out variables
-
-    Raises:
-        ValueError: If keys are not found in adata.obs or layer not in adata.layers
-
-    Examples:
-        >>> # Regress out cell cycle effects
-        >>> adata = regress_out(adata, keys=['S_score', 'G2M_score'])
-        >>>
-        >>> # Regress out multiple technical factors
-        >>> adata = regress_out(adata, keys=['pct_counts_mt', 'total_counts'])
-    """
-    # Parameter validation
-    if output_layer in adata.layers and not force:
-        log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
-        return adata
-
-    # Check if keys exist in adata.obs
-    missing_keys = [key for key in keys if key not in adata.obs]
-    if missing_keys:
-        raise ValueError(f"Keys not found in adata.obs: {', '.join(missing_keys)}")
-
-    if layer not in adata.layers and layer is not None:
-        raise ValueError(f"Layer '{layer}' not found in adata.layers.")# First, determine the name of the data source
-    
-    source_name = f"layer '{layer}'" if layer else "adata.X"
-    
-    log.info(f"Regressing out: {', '.join(keys)} from {source_name}")
-    log.info(f"Using {n_jobs if n_jobs else 'all available'} processor cores.")
-
-    # Calculate variance explained by each factor before regression
-    var_explained = {}
-
-    # Use the context manager to safely handle layers
-    try:
-        with use_layer_as_X(adata, layer):
-            # Optionally calculate variance explained by each factor
-            # (This is computationally expensive, so consider adding a flag to control it)
-            if calculate_variance_explained:  # Set to True to enable variance analysis
-                log.info("Calculating variance explained by each factor (this may be slow)...")
-                from sklearn.linear_model import LinearRegression
-
-                # Convert sparse matrix to dense if needed
-                X = adata.X.toarray() if scipy.sparse.issparse(adata.X) else adata.X
-
-                # Calculate total variance for each gene
-                gene_total_var = np.var(X, axis=0)
-
-                for key in keys:
-                    # Extract the covariate
-                    covar = adata.obs[key].values.reshape(-1, 1)
-
-                    # For each gene, calculate variance explained
-                    gene_var_explained = []
-                    for j in range(X.shape[1]):
-                        if gene_total_var[j] > 0:  # Skip genes with no variance
-                            model = LinearRegression().fit(covar, X[:, j])
-                            y_pred = model.predict(covar)
-                            explained_var = np.var(y_pred) / gene_total_var[j]
-                            gene_var_explained.append(explained_var)
-                        else:
-                            gene_var_explained.append(0)
-
-                    # Average across genes
-                    var_explained[key] = np.mean(gene_var_explained)
-
-                log.info("Variance explained by each factor:")
-                for key, val in var_explained.items():
-                    log.info(f"  - {key}: {val:.2%}")
-
-            # The regress_out function modifies adata.X in place
-            sc.pp.regress_out(adata, keys=keys, n_jobs=n_jobs)
-
-            # Store the result from the modified adata.X into the output layer
-            adata.layers[output_layer] = adata.X.copy()
-    except Exception as e:
-        log.error(f"Regression failed: {str(e)}")
-        raise RuntimeError(f"Failed to regress out variables: {str(e)}")
-
-    # Store regression information in uns
-    if "regression" not in adata.uns:
-        adata.uns["regression"] = {}
-
-    adata.uns["regression"][output_layer] = {
-        "regressed_variables": keys,
-        "input_layer": layer,
-        "variance_explained": var_explained,
-    }
-
-    log.info(
-        f"Regression complete. Regressed data stored in adata.layers['{output_layer}']"
-    )
-
-    return adata

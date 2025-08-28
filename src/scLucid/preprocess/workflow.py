@@ -1,59 +1,19 @@
-
-
 import os
 import logging
-from dataclasses import dataclass, field
-from typing import Optional, List, Literal
+from typing import Optional
 
 import scanpy as sc
 from anndata import AnnData
 
 from .normalize import normalize_data
-from .hvg import find_highly_variable_genes
+from .hvg import find_hvgs, select_hvg_sets, evaluate_hvg_stability, plot_hvg_metrics
 from .scale import scale_data
 from .integrate import batch_correction
+from .config import PreprocessingConfig
 
 log = logging.getLogger(__name__)
 
-__all__ = ["PreprocessingConfig", "run_preprocessing"]
-
-
-@dataclass
-class PreprocessingConfig:
-    """
-    Configuration for the standard preprocessing workflow.
-
-    This class encapsulates all parameters needed to run the preprocessing
-    pipeline from normalized data to a final UMAP embedding.
-    """
-    # Normalization
-    normalization_method: str = "standard"
-    
-    # Highly Variable Genes (HVG)
-    n_top_genes: int = 2000
-    hvg_flavor: str = "seurat_v3"
-    
-    # Scaling & Regression
-    vars_to_regress: Optional[List[str]] = field(default_factory=lambda: ["total_counts", "pct_counts_mt"])
-    
-    # Dimensionality Reduction
-    n_pcs: int = 50
-    
-    # Integration / Batch Correction
-    batch_key: Optional[str] = "sampleID"
-    integration_method: Optional[Literal["harmony", "scanorama", "scvi"]] = "harmony"
-    
-    # Final Graph and Embedding
-    n_neighbors: int = 15
-    
-    def __post_init__(self):
-        """Validate configuration."""
-        if self.n_top_genes <= 0:
-            raise ValueError("n_top_genes must be positive.")
-        if self.n_pcs <= 0:
-            raise ValueError("n_pcs must be positive.")
-        if self.batch_key and not self.integration_method:
-            log.warning("`batch_key` is provided, but `integration_method` is None. No batch correction will be performed.")
+__all__ = ["run_preprocessing"]
 
 def run_preprocessing(
     adata: AnnData,
@@ -62,121 +22,123 @@ def run_preprocessing(
     force: bool = False,
 ) -> AnnData:
     """
-    Execute a comprehensive preprocessing workflow.
-
-    This high-level function orchestrates the entire preprocessing pipeline,
-    from normalization to UMAP embedding, using a flexible configuration.
+    Run the full preprocessing workflow: normalization -> HVG -> scaling -> PCA -> integration -> neighbors/UMAP.
 
     Args:
         adata: AnnData object after QC.
-        config: A PreprocessingConfig object. If None, default parameters will be used.
-        results_dir: Directory to save intermediate plots and results.
-        force: Whether to force re-computation of existing steps.
+        config: PreprocessingConfig object. If None, use default.
+        results_dir: Directory to save plots/results.
+        force: Rerun steps even if already done.
 
     Returns:
-        The preprocessed AnnData object, ready for clustering and downstream analysis.
+        Preprocessed AnnData object ready for downstream analysis.
     """
     if config is None:
         log.info("No PreprocessingConfig provided, using default parameters.")
         config = PreprocessingConfig()
 
-    log.info("\n" + "="*50)
+    log.info("="*50)
     log.info("=== Starting Preprocessing Workflow ===")
     log.info("="*50)
-    
-    adata = adata.copy() # Work on a copy to avoid modifying the original object
-    
+    adata = adata.copy()
+
     # --- 1. Normalization ---
-    log.info("\n---- Step 1: Normalizing Data ----")
+    log.info("Step 1: Normalization")
+    os.makedirs(results_dir, exist_ok=True) if results_dir else None
     adata = normalize_data(
         adata,
-        method=config.normalization_method,
-        layer="counts", # Assumes raw counts are in this layer
-        output_layer="log1p_norm",
-        force=force
+        method=config.normalization.method,
+        layer=config.counts_layer,
+        output_layer=config.normalized_layer,
+        target_sum=config.normalization.target_sum,
+        exclude_highly_expressed=config.normalization.exclude_highly_expressed,
+        max_fraction=config.normalization.max_fraction,
+        plot_global_distribution=config.normalization.plot_global_distribution,
+        save_dir=results_dir,
+        force=force,
     )
 
-    # --- 2. Highly Variable Gene (HVG) Selection ---
-    log.info("\n---- Step 2: Finding Highly Variable Genes ----")
-    adata = find_highly_variable_genes(
+    # --- 2. HVG selection ---
+    log.info("Step 2: Highly Variable Gene (HVG) Selection")
+    adata = find_hvgs(
         adata,
-        layer="log1p_norm",
-        n_top_genes=config.n_top_genes,
-        flavor=config.hvg_flavor,
-        batch_key=config.batch_key, # Use batch key for more robust HVG selection
+        config=config.hvg,
+        force=force,
         plot=True,
-        save_dir=results_dir,
-        force=force
+        report=True,
+        max_cells_plot=40000,
     )
-    
-    # --- 3. Subset to HVGs and Scale Data ---
-    log.info("\n---- Step 3: Subsetting to HVGs and Scaling ----")
-    # Store the full normalized data in .raw before subsetting
-    adata.raw = adata
-    adata = adata[:, adata.var.highly_variable].copy()
-    log.info(f"Subsetted data to {adata.n_vars} highly variable genes.")
-    
-    # Scale the data, optionally regressing out covariates
+
+    # --- 3. HVG set selection and scaling ---
+    log.info("Step 3: HVG set selection and scaling")
+    # Optionally allow intersection/union of multiple HVG masks, or just use default
+    hvg_key = f"highly_variable_{config.hvg.method}_{config.hvg.flavor}" if config.hvg.method == "scanpy" else f"highly_variable_{config.hvg.method}"
+    adata = select_hvg_sets(
+        adata,
+        hvg_keys=hvg_key,
+        mode="direct",
+        subset=True,
+        output_key="highly_variable_final",
+        show_stats=True,
+    )
+    adata.raw = adata  # Store for marker/DE
+
     adata = scale_data(
         adata,
-        layer=None, # Use adata.X now, which contains log1p_norm of HVGs
-        output_layer="scaled", # Store scaled data in a new layer
-        vars_to_regress=config.vars_to_regress,
-        force=force
+        input_layer=config.normalized_layer,
+        output_layer=config.scaled_layer,
+        max_value=config.scaling.max_value,
+        vars_to_regress=config.scaling.vars_to_regress,
+        subset_highly_variable=False,  # Already subsetted
+        plot=True,
+        save_dir=results_dir,
+        force=force,
     )
-    # The scaled data is now in adata.X after scale_data finishes, ready for PCA
 
-    # --- 4. Dimensionality Reduction (PCA) ---
-    log.info("\n---- Step 4: Principal Component Analysis (PCA) ----")
-    sc.tl.pca(adata, n_comps=config.n_pcs, use_highly_variable=False) # Use all genes in the current adata
-    
+    # --- 4. PCA ---
+    log.info("Step 4: PCA")
+    sc.tl.pca(adata, n_comps=config.graph.n_pcs, use_highly_variable=False)
     if results_dir:
-        sc.pl.pca_variance_ratio(adata, log=True, save="_pca_variance.png", show=False)
-        # Move the saved plot to the correct directory
-        if os.path.exists("./figures/pca_variance_ratio_pca_variance.png"):
-             os.rename("./figures/pca_variance_ratio_pca_variance.png", os.path.join(results_dir, "pca_variance_ratio.png"))
+        sc.pl.pca_variance_ratio(adata, log=True, save=os.path.join(results_dir, "pca_variance_ratio.png"), show=False)
 
-
-    # --- 5. Batch Correction / Integration (Optional) ---
-    use_rep_downstream = "X_pca" # Default embedding for neighbor calculation
-    if config.batch_key and config.integration_method:
-        log.info(f"\n---- Step 5: Batch Correction using {config.integration_method.upper()} ----")
+    # --- 5. Integration/Batch Correction ---
+    use_rep_downstream = "X_pca"
+    if config.integration.method and config.integration.batch_key:
+        log.info(f"Step 5: Batch Correction ({config.integration.method})")
         adata = batch_correction(
             adata,
-            batch_key=config.batch_key,
-            method=config.integration_method,
+            batch_key=config.integration.batch_key,
+            method=config.integration.method,
             use_rep="X_pca",
             plot=True,
             save_dir=os.path.join(results_dir, "integration") if results_dir else None,
-            force=force
+            force=force,
+            **(config.integration.harmony_params if config.integration.method == "harmony" else {}),
+            **(config.integration.scvi_params if config.integration.method == "scvi" else {}),
         )
-        use_rep_downstream = f"X_{config.integration_method}"
+        use_rep_downstream = f"X_{config.integration.method}"
         log.info(f"Downstream analysis will use the integrated embedding: '{use_rep_downstream}'")
     else:
-        log.info("\n---- Step 5: Skipping Batch Correction ----")
+        log.info("Step 5: Skipping batch correction/integration.")
 
-    # --- 6. Neighborhood Graph and UMAP Embedding ---
-    log.info(f"\n---- Step 6: Computing Neighborhood Graph and UMAP ----")
-    log.info(f"Using '{use_rep_downstream}' for graph construction.")
-    sc.pp.neighbors(adata, n_pcs=config.n_pcs, n_neighbors=config.n_neighbors, use_rep=use_rep_downstream)
+    # --- 6. Neighbors & UMAP ---
+    log.info("Step 6: Neighbors graph and UMAP")
+    sc.pp.neighbors(
+        adata, n_pcs=config.graph.n_pcs, n_neighbors=config.graph.n_neighbors, use_rep=use_rep_downstream
+    )
     sc.tl.umap(adata)
-    
-    # Final visualization
-    if results_dir:
-        save_path = os.path.join(results_dir, "final_preprocessing_umaps.png")
-        color_vars = [v for v in [config.batch_key, 'phase'] if v in adata.obs.columns]
-        if color_vars:
-            sc.pl.umap(adata, color=color_vars, save="_umaps.png", show=False)
-            if os.path.exists("./figures/umap_umaps.png"):
-                os.rename("./figures/umap_umaps.png", save_path)
-    
-    # --- Store final configuration ---
-    adata.uns.setdefault('scrnatk', {})
-    adata.uns['scrnatk'].setdefault('preprocess', {})
-    adata.uns['scrnatk']['preprocess']['workflow_config'] = config.__dict__
 
-    log.info("\n" + "="*50)
+    # --- Save final plots ---
+    if results_dir:
+        color_vars = [v for v in [config.integration.batch_key, "phase"] if v and v in adata.obs.columns]
+        if color_vars:
+            sc.pl.umap(adata, color=color_vars, save=os.path.join(results_dir, "umap.png"), show=False, dpi=300)
+        sc.pl.pca_variance_ratio(adata, log=True, save=os.path.join(results_dir, "pca_variance_ratio.png"), show=False, dpi=300)
+
+    # --- Store config for traceability ---
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["workflow_config"] = config
+
+    log.info("="*50)
     log.info("=== Preprocessing Workflow Complete! ===")
     log.info("="*50)
-    
     return adata
