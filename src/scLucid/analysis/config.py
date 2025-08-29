@@ -48,8 +48,9 @@ class BaseConfig:
 class ClusteringConfig(BaseConfig):
     """Configuration for a single clustering run."""
 
-    method: Literal["leiden", "louvain"] = "leiden"
+    method: Literal["leiden", "louvain", "kmeans", "hdbscan"] = "leiden"
     resolution: float = 1.0
+    n_clusters: Optional[int] = None  # Specifically for methods like kmeans
     use_rep: str = "X_pca"
     key_added: Optional[str] = None
     random_state: int = 42
@@ -60,16 +61,27 @@ class ClusteringConfig(BaseConfig):
 
 @dataclass
 class ResolutionSearchConfig(BaseConfig):
-    """Configuration for optimizing clustering resolution."""
-
-    resolution_range: Tuple[float, float, int] = (0.1, 2.0, 10)
-    metric: Literal["marker_separation", "silhouette"] = "silhouette"
-    marker_config: Optional[Union[str, Manager]] = None
-    use_raw_for_markers: bool = False
+    """
+    Configuration for optimizing clustering resolution.
+    This function now acts as a guide, providing metrics but not setting a final resolution.
+    """
+    method: Literal["leiden", "louvain"] = "leiden"
     use_rep: str = "X_pca"
+    resolution_range: Tuple[float, float, int] = (0.2, 2.0, 10) # Start from a slightly higher resolution
+    
+    # Metrics to compute for guidance
+    compute_silhouette: bool = True
+    compute_marker_abundance: bool = True
+    compute_stability: bool = True
+    
+    # Parameters for marker abundance metric
+    de_method_for_markers: str = "wilcoxon"
+    min_log2fc_for_markers: float = 0.5
+    min_pct_for_markers: float = 0.25
+    
     plot: bool = True
     save_dir: Optional[str] = None
-
+    
 
 @dataclass
 class MergeClustersConfig(BaseConfig):
