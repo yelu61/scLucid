@@ -29,7 +29,7 @@ def score_by_gene_sets(
     """
     Scores cells for multiple gene sets (e.g., pathways, cell types).
     Adds columns to adata.obs.
-    Stores scoring info in adata.uns['scrnatk']['analysis']['scoring'].
+    Stores scoring info in adata.uns['sclucid']['analysis']['scoring'].
     """
     log.info(f"Scoring cells for {len(gene_sets)} gene sets...")
     source_adata = adata.raw if use_raw else adata
@@ -49,8 +49,8 @@ def score_by_gene_sets(
         )
         scored_count += 1
     # Store parameters
-    adata.uns.setdefault('scrnatk', {}).setdefault('analysis', {}).setdefault('scoring', {})
-    adata.uns['scrnatk']['analysis']['scoring']['gene_set_scoring'] = {
+    adata.uns.setdefault('sclucid', {}).setdefault('analysis', {}).setdefault('scoring', {})
+    adata.uns['sclucid']['analysis']['scoring']['gene_set_scoring'] = {
         'n_sets_scored': scored_count,
         'params': {'use_raw': use_raw, 'layer': layer, 'ctrl_size': ctrl_size}
     }
@@ -67,7 +67,7 @@ def compare_scores(
 ) -> pd.DataFrame:
     """
     Performs differential analysis on a continuous score in adata.obs.
-    Returns a DataFrame with results; stores in adata.uns['scrnatk']['analysis']['scoring'].
+    Returns a DataFrame with results; stores in adata.uns['sclucid']['analysis']['scoring'].
     """
     log.info(f"Comparing score '{score_key}' for '{group1}' vs '{group2}' in '{groupby}'")
     if score_key not in adata.obs:
@@ -104,8 +104,8 @@ def compare_scores(
         "n_cells_group2": [n2]
     })
     # Store result
-    adata.uns.setdefault('scrnatk', {}).setdefault('analysis', {}).setdefault('scoring', {})
-    adata.uns['scrnatk']['analysis']['scoring'][f"compare_{score_key}_{group1}_vs_{group2}"] = results
+    adata.uns.setdefault('sclucid', {}).setdefault('analysis', {}).setdefault('scoring', {})
+    adata.uns['sclucid']['analysis']['scoring'][f"compare_{score_key}_{group1}_vs_{group2}"] = results
     return results
 
 def plot_score_comparison(
@@ -136,8 +136,8 @@ def plot_score_comparison(
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
     # Store plotting info
-    adata.uns.setdefault('scrnatk', {}).setdefault('analysis', {}).setdefault('scoring', {})
-    adata.uns['scrnatk']['analysis']['scoring'][f"{score_key}_{groupby}_{plot_type}_plot"] = {
+    adata.uns.setdefault('sclucid', {}).setdefault('analysis', {}).setdefault('scoring', {})
+    adata.uns['sclucid']['analysis']['scoring'][f"{score_key}_{groupby}_{plot_type}_plot"] = {
         "groups": groups_to_compare, "plot_type": plot_type
     }
     plt.show()
@@ -165,7 +165,7 @@ def batch_compare_scores(
                 results.append(df)
     if results:
         all_results = pd.concat(results, ignore_index=True)
-        adata.uns['scrnatk']['analysis']['scoring']['batch_compare_results'] = all_results
+        adata.uns['sclucid']['analysis']['scoring']['batch_compare_results'] = all_results
         return all_results
     else:
         return pd.DataFrame()

@@ -38,7 +38,7 @@ def score_cell_types(
     adata: AnnData,
     marker_config: Union[str, Manager],
     layer: Optional[str] = "log1p_norm",
-    use_raw: bool = False,
+    use_raw: bool = True,
     min_genes: int = 3,
     ctrl_size: int = 50,
     score_name_suffix: str = "_score",
@@ -85,10 +85,10 @@ def score_cell_types(
                 else:
                     n_skipped += 1
     log.info(f"Scored {n_scored} cell types ({n_skipped} skipped).")
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["scrnatk"]["analysis"]["annotation"]["scoring_params"] = {
+    adata.uns["sclucid"]["analysis"]["annotation"]["scoring_params"] = {
         "use_raw": use_raw,
         "layer": layer,
         "min_genes": min_genes,
@@ -226,10 +226,10 @@ def annotate_clusters(
         raise ValueError(f"Unknown annotation method: {method}")
     adata.obs[key_added] = adata.obs[cluster_key].map(mapping).astype("category")
     # Save and plot
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["scrnatk"]["analysis"]["annotation"][f"{key_added}_params"] = {
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = {
         "method": method,
         "min_score": min_score,
         "score_weight": score_weight,
@@ -272,10 +272,10 @@ def run_celltypist(
         adata.obs[f"{key_added}_majority_voting"] = pred.predicted_labels[
             "majority_voting"
         ].reindex(adata.obs.index)
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["scrnatk"]["analysis"]["annotation"][f"{key_added}_results"] = pred
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_results"] = pred
     return adata
 
 
@@ -322,10 +322,10 @@ def transfer_labels(
         confidences.append(confidence)
     adata.obs[key_added] = pd.Categorical(result)
     adata.obs[f"{key_added}_confidence"] = confidences
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["scrnatk"]["analysis"]["annotation"][f"{key_added}_params"] = {
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = {
         "method": "knn_transfer",
         "n_neighbors": n_neighbors,
         "use_rep": use_rep,
@@ -380,25 +380,58 @@ def apply_annotation_mapping(
     cluster_key: str,
     mapping: Union[Dict[str, str], str],
     key_added: str = "cell_type",
-) -> None:
+) -> AnnData:
     """
     Apply AI/manual cluster-to-celltype mapping from dict or csv/json file.
+    This robust version handles data type mismatches between clusters and mapping keys.
     """
+    # 1. --- 如果 mapping 是文件路径，则读取文件并转换为字典 ---
     if isinstance(mapping, str):
         if mapping.endswith(".csv"):
-            mapping = pd.read_csv(mapping, index_col=0).to_dict()["cell_type"]
+            # 更稳健地读取CSV，假设第一列是cluster，第二列是cell_type
+            df = pd.read_csv(mapping)
+            if len(df.columns) < 2:
+                raise ValueError("Mapping CSV must have at least two columns (cluster, cell_type)")
+            # 使用第一列作为键，第二列作为值创建字典
+            mapping_dict = pd.Series(df.iloc[:, 1].values, index=df.iloc[:, 0]).to_dict()
+
         elif mapping.endswith(".json"):
             import json
-
             with open(mapping) as f:
-                mapping = json.load(f)
+                mapping_dict = json.load(f)
         else:
-            raise ValueError("Unsupported mapping file format")
-    adata.obs[key_added] = adata.obs[cluster_key].map(mapping).astype("category")
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+            raise ValueError("Unsupported mapping file format. Use .csv or .json")
+    elif isinstance(mapping, dict):
+        mapping_dict = mapping
+    else:
+        raise TypeError("mapping must be a dictionary or a file path string.")
+
+    # 2. --- 【关键修复】强制转换数据类型为字符串以确保匹配 ---
+    # 将 adata 中的 cluster ID 转换为字符串
+    source_clusters = adata.obs[cluster_key].astype(str)
+    # 将 mapping 字典中的键也转换为字符串
+    mapping_dict = {str(k): v for k, v in mapping_dict.items()}
+
+    # 3. --- 应用 mapping ---
+    adata.obs[key_added] = source_clusters.map(mapping_dict).astype("category")
+
+    # 4. --- 检查是否有未匹配上的 cluster (结果为 NaN) ---
+    unmapped_clusters = adata.obs[key_added].isnull().sum()
+    if unmapped_clusters > 0:
+        missing_ids = adata.obs[source_clusters.isin(mapping_dict.keys()) == False][cluster_key].unique().tolist()
+        log.warning(
+            f"{unmapped_clusters} cells could not be mapped. "
+            f"This is likely because the following cluster IDs were not found in your mapping file: {missing_ids}"
+        )
+
+    # 5. --- 保存结果并返回 adata ---
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["scrnatk"]["analysis"]["annotation"][f"{key_added}_mapping"] = mapping
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_mapping"] = mapping_dict
+    
+    return adata
+
 
 
 # --------------------- Evaluation & Main Function --------------------------
@@ -481,10 +514,10 @@ def evaluate_annotation(
         if save_path:
             plt.savefig(f"{save_path}_confidence.png", dpi=300)
         plt.show()
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["scrnatk"]["analysis"]["annotation"][f"{annotation_key}_evaluation"] = (
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{annotation_key}_evaluation"] = (
         results_df
     )
     return results_df
@@ -497,7 +530,7 @@ def run_annotation(
     """
     Full annotation workflow: scoring → auto annotation → results in .obs/.uns.
     """
-    config.validate()
+    
     mgr = get_marker_manager(species=config.marker_species, tissue=config.marker_tissue)
     mgr.intersect_with(adata.raw if adata.raw is not None else adata)
     if config.run_celltypist:
@@ -513,8 +546,8 @@ def run_annotation(
         min_score=config.min_confidence,
         use_raw=True,
     )
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["scrnatk"]["analysis"]["annotation"]["workflow_config"] = config.to_dict()
+    adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = config.to_dict()
     return adata

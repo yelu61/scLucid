@@ -2,25 +2,28 @@
 Clustering functions for single-cell RNA-seq analysis.
 
 This module provides:
-- Marker-guided and unsupervised clustering (Leiden, Louvain, K-means, HDBSCAN)
+- Unsupervised clustering (Leiden, Louvain, K-means, HDBSCAN)
 - Resolution optimization with marker-separation or silhouette metrics
 - Cluster merging based on marker overlap or expression correlation
 - Standardized config dataclasses, logging, and results traceability
 """
 
+import dataclasses
 import logging
-from typing import Dict, List, Literal, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
+import entropy
 import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import scipy
-from scipy.stats import entropy
 from sklearn import metrics
 
 from ..utils.marker_manager import Manager
-from .config import ClusteringConfig, ResolutionSearchConfig
+from .config import ClusteringConfig, MergeClustersConfig, ResolutionSearchConfig
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ __all__ = [
     "cluster_cells",
     "merge_clusters",
 ]
+
 
 # ====================== Clustering Evaluation ======================
 def _evaluate_marker_separation(
@@ -123,54 +127,59 @@ def find_resolution(
 ) -> sc.AnnData:
     """
     Grid search clustering resolution and select optimal by marker separation or silhouette.
-    Stores evaluation results and final clusters in adata.uns['scrnatk']['analysis']['clustering'].
+    Stores evaluation results and final clusters in adata.uns['sclucid']['analysis']['clustering'].
     """
     if config is None:
-        config = ResolutionSearchConfig(**kwargs)
-    config.validate()
+        active_config = ResolutionSearchConfig()
+    else:
+        active_config = dataclasses.replace(config)
+    for key, value in kwargs.items():
+        if hasattr(active_config, key):
+            setattr(active_config, key, value)
 
     # Parse parameters
-    start, end, steps = config.resolution_range
+    start, end, steps = active_config.resolution_range
     resolutions = np.linspace(start, end, steps)
     method = "leiden"  # Only leiden/louvain supported here
-    metric = config.metric
-    use_rep = config.use_rep
-    plot = config.plot
 
     # Prepare marker_manager if needed
     marker_genes = {}
-    if metric == "marker_separation":
+    if active_config.metric == "marker_separation":
         marker_mgr = None
-        if isinstance(config.marker_config, Manager):
-            marker_mgr = config.marker_config
-        elif isinstance(config.marker_config, str):
-            marker_mgr = Manager(config.marker_config)
+        if isinstance(active_config.marker_config, Manager):
+            marker_mgr = active_config.marker_config
+        elif isinstance(active_config.marker_config, str):
+            marker_mgr = Manager(active_config.marker_config)
         else:
             raise ValueError(
                 "marker_config must be str or Manager for marker_separation"
             )
-        marker_mgr.intersect_with(adata.raw if config.use_raw_for_markers else adata)
+        marker_mgr.intersect_with(
+            adata.raw if active_config.use_raw_for_markers else adata
+        )
         marker_genes = {cell.name: cell.markers for cell in marker_mgr.CELLS.values()}
 
     eval_results = []
     for res in resolutions:
         key = f"{method}_res_{res:.2f}"
-        sc.pp.neighbors(adata, use_rep=use_rep)
+        sc.pp.neighbors(adata, use_rep=active_config.use_rep)
         if method == "leiden":
             sc.tl.leiden(adata, resolution=res, key_added=key)
         else:
             sc.tl.louvain(adata, resolution=res, key_added=key)
-        if metric == "marker_separation":
+        if active_config.metric == "marker_separation":
             score = _evaluate_marker_separation(
-                adata, key, marker_genes, use_raw=config.use_raw_for_markers
+                adata, key, marker_genes, use_raw=active_config.use_raw_for_markers
             )
         else:
-            score = _evaluate_silhouette(adata, key, use_rep)
+            score = _evaluate_silhouette(adata, key, active_config.use_rep)
         n_clusters = adata.obs[key].nunique()
         eval_results.append(
             {"resolution": res, "n_clusters": n_clusters, "score": score}
         )
-        log.info(f"Res={res:.2f}  clusters={n_clusters}  {metric}={score:.4f}")
+        log.info(
+            f"Res={res:.2f}  clusters={n_clusters}  {active_config.metric}={score:.4f}"
+        )
 
     eval_df = pd.DataFrame(eval_results)
     if eval_df.empty:
@@ -181,34 +190,39 @@ def find_resolution(
     best_clusters = eval_df.loc[best_idx, "n_clusters"]
     best_score = eval_df.loc[best_idx, "score"]
     log.info(
-        f"Optimal resolution: {best_res:.2f} clusters={best_clusters}, {metric}={best_score:.4f}"
+        f"Optimal resolution: {best_res:.2f} clusters={best_clusters}, {active_config.metric}={best_score:.4f}"
     )
 
     # Final clustering
     key_added = f"{method}_optimal"
-    sc.pp.neighbors(adata, use_rep=use_rep)
+    sc.pp.neighbors(adata, use_rep=active_config.use_rep)
     if method == "leiden":
         sc.tl.leiden(adata, resolution=best_res, key_added=key_added)
     else:
         sc.tl.louvain(adata, resolution=best_res, key_added=key_added)
 
     # Save results
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "clustering", {}
     )
-    adata.uns["scrnatk"]["analysis"]["clustering"][f"{key_added}_evaluation"] = {
-        "metric": metric,
+    adata.uns["sclucid"]["analysis"]["clustering"][f"{key_added}_evaluation"] = {
+        "metric": active_config.metric,
         "optimal_resolution": float(best_res),
         "optimal_score": float(best_score),
         "resolutions": eval_df["resolution"].tolist(),
         "scores": eval_df["score"].tolist(),
         "n_clusters": eval_df["n_clusters"].tolist(),
-        "parameters": config.to_dict(),
+        "parameters": active_config.to_dict(),
     }
 
-    if plot:
+    if active_config.plot:
         plt.figure(figsize=(8, 6))
-        plt.plot(eval_df["resolution"], eval_df["score"], "o-", label=f"{metric} score")
+        plt.plot(
+            eval_df["resolution"],
+            eval_df["score"],
+            "o-",
+            label=f"{active_config.metric} score",
+        )
         plt.plot(
             eval_df["resolution"],
             eval_df["n_clusters"],
@@ -223,8 +237,15 @@ def find_resolution(
         plt.title("Clustering Resolution Optimization")
         plt.legend()
         plt.tight_layout()
-        if config.save_dir:
-            plt.savefig(f"{config.save_dir}/resolution_search.png", dpi=300)
+        if active_config.save_dir:
+            save_path = Path(active_config.save_dir)
+            # This line creates the directory if it doesn't exist
+            save_path.mkdir(parents=True, exist_ok=True)
+            # Now, save the file to the guaranteed-to-exist directory
+            figure_path = save_path / "resolution_search.png"
+            plt.savefig(figure_path, dpi=300)
+            log.info(f"Saved resolution search plot to {figure_path}")
+
         plt.show()
     return adata
 
@@ -237,33 +258,40 @@ def cluster_cells(
     """
     Perform clustering using Leiden, Louvain, KMeans, or HDBSCAN.
 
-    Results and parameters are saved to adata.uns['scrnatk']['analysis']['clustering'].
+    Results and parameters are saved to adata.uns['sclucid']['analysis']['clustering'].
     """
     if config is None:
-        config = ClusteringConfig(**kwargs)
-    config.validate()
-    method = config.method
-    use_rep = config.use_rep
-    key_added = config.key_added or f"{method}_cluster"
+        active_config = ClusteringConfig()
+    else:
+        active_config = dataclasses.replace(config)
+    for key, value in kwargs.items():
+        if hasattr(active_config, key):
+            setattr(active_config, key, value)
 
+    method = active_config.method
+    use_rep = active_config.use_rep
+    if use_rep not in adata.obsm:
+        raise ValueError(f"Representation '{use_rep}' not found in adata.obsm. Please run PCA or another dimensionality reduction first.")
+    key_added = active_config.key_added or f"{method}_cluster"
+    
     # Compute neighbors if needed
     if method in ["leiden", "louvain"] and "neighbors" not in adata.uns:
-        sc.pp.neighbors(adata, use_rep=use_rep, random_state=config.random_state)
+        sc.pp.neighbors(adata, use_rep=use_rep, random_state=active_config.random_state)
 
     # Run clustering
     if method == "leiden":
         sc.tl.leiden(
             adata,
-            resolution=config.resolution,
+            resolution=active_config.resolution,
             key_added=key_added,
-            random_state=config.random_state,
+            random_state=active_config.random_state,
         )
     elif method == "louvain":
         sc.tl.louvain(
             adata,
-            resolution=config.resolution,
+            resolution=active_config.resolution,
             key_added=key_added,
-            random_state=config.random_state,
+            random_state=active_config.random_state,
         )
     elif method == "kmeans":
         from sklearn.cluster import KMeans
@@ -271,8 +299,8 @@ def cluster_cells(
         X = adata.obsm[use_rep]
         kmeans_params = dict(n_init=10, max_iter=300, **config.extra_params)
         kmeans = KMeans(
-            n_clusters=config.n_clusters,
-            random_state=config.random_state,
+            n_clusters=active_config.n_clusters,
+            random_state=active_config.random_state,
             **kmeans_params,
         )
         labels = kmeans.fit_predict(X)
@@ -296,11 +324,11 @@ def cluster_cells(
     log.info(
         f"Clustering ({method}) finished: {n_clusters} clusters in obs['{key_added}']"
     )
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "clustering", {}
     )
-    adata.uns["scrnatk"]["analysis"]["clustering"][key_added] = {
-        "config": config.to_dict(),
+    adata.uns["sclucid"]["analysis"]["clustering"][key_added] = {
+        "config": active_config.to_dict(),
         "n_clusters": n_clusters,
     }
 
@@ -317,37 +345,48 @@ def cluster_cells(
             show=False,
         )
         if config.save_dir:
-            plt.savefig(f"{config.save_dir}/{key_added}_umap.png", dpi=300)
+            save_path = Path(config.save_dir)
+            # This line creates the directory if it doesn't exist
+            save_path.mkdir(parents=True, exist_ok=True)
+            # Now, save the file to the guaranteed-to-exist directory
+            figure_path = save_path / f"{key_added}_umap.png"
+            plt.savefig(figure_path, dpi=300)
+            log.info(f"Saved UMAP to {figure_path}")
+
         plt.show()
+
     return adata
 
 
 def merge_clusters(
     adata: sc.AnnData,
-    cluster_key: str,
-    similarity_threshold: float = 0.8,
-    method: Literal["marker_overlap", "expression_correlation"] = "marker_overlap",
-    key_added: Optional[str] = None,
-    copy: bool = False,
+    config: Optional[MergeClustersConfig] = None,
+    **kwargs,
 ) -> sc.AnnData:
     """
     Merge similar clusters based on marker overlap or expression correlation.
 
     Stores merged cluster assignments in adata.obs[key_added] and parameters in .uns.
     """
-    import networkx as nx
+    if config is None:
+        active_config = MergeClustersConfig()
+    else:
+        active_config = dataclasses.replace(config)
+    for key, value in kwargs.items():
+        if hasattr(active_config, key):
+            setattr(active_config, key, value)
 
-    if copy:
-        adata = adata.copy()
+    # Extract parameters from the final config
+    cluster_key = active_config.cluster_key
+    similarity_threshold = active_config.similarity_threshold
+    method = active_config.method
+    key_added = active_config.key_added or f"{cluster_key}_merged"
+
     if cluster_key not in adata.obs:
-        raise ValueError(f"cluster_key '{cluster_key}' not in adata.obs")
+        raise ValueError(f"cluster_key '{cluster_key}' not found in adata.obs")
 
     clusters = adata.obs[cluster_key].cat.categories
     n_clusters = len(clusters)
-    if not 0 <= similarity_threshold <= 1:
-        raise ValueError("similarity_threshold must be between 0 and 1")
-
-    key_added = key_added or f"{cluster_key}_merged"
 
     # Compute similarity matrix
     if method == "marker_overlap":
@@ -392,27 +431,33 @@ def merge_clusters(
     else:
         raise ValueError(f"Unknown merge method: {method}")
 
-    # Build graph
+    # Build graph and find connected components
     G = nx.from_numpy_array(sim_matrix > similarity_threshold)
     components = list(nx.connected_components(G))
+
+    # Create the mapping from old cluster to new merged cluster
     mapping = {}
     for i, comp in enumerate(components):
-        for node in comp:
-            mapping[clusters[node]] = f"M{i + 1}"
+        new_name = f"M{i + 1}"  # Merged cluster names
+        for node_idx in comp:
+            original_cluster_name = clusters[node_idx]
+            mapping[original_cluster_name] = new_name
 
     adata.obs[key_added] = adata.obs[cluster_key].map(mapping).astype("category")
-    adata.uns.setdefault("scrnatk", {}).setdefault("analysis", {}).setdefault(
+
+    # Store results and parameters in .uns for traceability
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "clustering", {}
-    )
-    adata.uns["scrnatk"]["analysis"]["clustering"][f"{key_added}_params"] = {
+    )[f"{key_added}_params"] = {
         "source_clusters": cluster_key,
         "method": method,
         "similarity_threshold": similarity_threshold,
         "original_clusters": n_clusters,
         "merged_clusters": len(components),
         "mapping": {str(k): v for k, v in mapping.items()},
+        "config": active_config.to_dict(),
     }
     log.info(
-        f"Clusters merged: {n_clusters} → {len(components)} (method={method}, threshold={similarity_threshold})"
+        f"Clusters merged: {n_clusters} -> {len(components)} (method={method}, threshold={similarity_threshold})"
     )
     return adata

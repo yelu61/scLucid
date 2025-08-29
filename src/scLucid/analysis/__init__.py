@@ -8,6 +8,19 @@ differential expression analysis, cell type annotation, and cell type proportion
 __version__ = "1.0.0"
 
 # Import and expose key functions from submodules
+from .config import (
+    ClusteringConfig,
+    ResolutionSearchConfig,
+    AnnotationConfig,
+    #ScoringConfig,
+    DifferentialConfig,
+    FilterMarkersConfig,
+    #CompareGroupsConfig,
+    #CompareConditionsConfig,
+    EnrichmentConfig,
+    #ProportionConfig,
+    AnalysisWorkflowConfig,
+)
 from .annotation import (
     score_cell_types,
     annotate_clusters,
@@ -49,6 +62,18 @@ from .proportion import (
 )
 
 __all__ = [
+    "ClusteringConfig",
+    "ResolutionSearchConfig",
+    "MergeClustersConfig",
+    "AnnotationConfig",
+    #"ScoringConfig",
+    "DifferentialConfig",
+    "FilterMarkersConfig",
+    #"CompareGroupsConfig",
+    #"CompareConditionsConfig",
+    "EnrichmentConfig",
+    #"ProportionConfig",
+    "AnalysisWorkflowConfig",
     # Clustering and dimensionality reduction
     "find_resolution",
     "cluster_cells",

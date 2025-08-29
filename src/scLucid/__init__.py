@@ -9,15 +9,15 @@ __author__ = "Ye LU"
 # Import the full modules for explicit access
 from . import qc
 from . import preprocess
-#from . import analysis
-#from . import tools
+from . import analysis
+from . import tools
 from . import utils
 #from . import datasets
 
 # --- Import with convenient aliases for interactive use ---
 from . import preprocess as pp
-#from . import analysis as al
-#from . import tools as tl
+from . import analysis as al
+from . import tools as tl
 from . import utils as ut
 
 # --- Configuration and Settings ---
@@ -32,15 +32,15 @@ from .preprocess.workflow import run_preprocessing
 __all__ = [
     # Convenient Aliases
     "pp",
-    #"an",
-    #"tl",
+    "al",
+    "tl",
     "ut",
     
     # Full Modules
     "qc",
     "preprocess",
-    #"analysis",
-    #"tools",
+    "analysis",
+    "tools",
     "utils",
     #"datasets",
     

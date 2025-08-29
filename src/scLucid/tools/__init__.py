@@ -12,40 +12,56 @@ import logging
 log = logging.getLogger(__name__)
 
 # --- Python-native Tools (High-Level API) ---
-from .infercnv import run_cnv_analysis, find_tumor
-from .scvelo import run_velocity_analysis, plot_velocity_results
-from .trajectory import run_trajectory_analysis, plot_trajectory
-from .scenic import run_scenic, analyze_scenic_results
-from .cellphonedb import run_cellphonedb
-from .sccoda import run_sccoda
+from .cellphonedb import (
+    run_cellphonedb,
+    run_cellphonedb_batch,
+    run_cellphonedb_by_group,
+    summarize_cellphonedb,
+)
+from .infercnv import find_tumor, run_cnv_analysis
+#from .sccoda import (
+#    plot_sccoda_proportion_with_significance,
+#    run_sccoda,
+#    run_sccoda_batch,
+#    summarize_sccoda,
+#)
+from .scenic import (
+    analyze_scenic_results,
+    export_scenic_report,
+    run_scenic,
+    run_scenic_batch,
+    run_scenic_by_group,
+)
+#from .trajectory import run_trajectory_analysis, plot_trajectory
 
 # --- R Bridge (Class-based access to R tools) ---
-from .rtools import RTools
+# from .rtools import RTools
 
 # Define the public API for the 'tools' module
 __all__ = [
     # CNV Analysis
     "run_cnv_analysis",
     "find_tumor",
-    
     # Trajectory & Dynamics (Unified Interface)
-    "run_trajectory_analysis",
-    "plot_trajectory",
-    
-    # RNA Velocity (Can be called by trajectory module or directly)
-    "run_velocity_analysis",
-    "plot_velocity_results",
-    
+    #"run_trajectory_analysis",
+    #"plot_trajectory",
     # Gene Regulatory Network Analysis (pySCENIC)
     "run_scenic",
+    "run_scenic_batch",
+    "run_scenic_by_group",
     "analyze_scenic_results",
-    
+    "export_scenic_report",
     # Cell-Cell Communication (CellPhoneDB)
     "run_cellphonedb",
-    
+    "run_cellphonedb_batch",
+    "run_cellphonedb_by_group",
+    "summarize_cellphonedb",
     # Compositional Analysis
-    "run_sccoda",
+    #"run_sccoda",
+    #"run_sccoda_batch",
+    #"summarize_sccoda",
+    #"plot_sccoda_proportion_with_significance",
     
     # R Tools Bridge (Access R functions like CellChat, Monocle3 via this class)
-    "RTools",
+    # "RTools",
 ]
