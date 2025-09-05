@@ -343,6 +343,10 @@ def cluster_cells(
     if active_config.plot:
         if "X_umap" not in adata.obsm:
             sc.tl.umap(adata)
+        
+        color_key = f"{key_added}_colors"
+        if color_key in adata.uns:
+            del adata.uns[color_key]
 
         sc.pl.umap(
             adata,
