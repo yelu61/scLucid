@@ -51,7 +51,8 @@ def _get_marker_abundance(
             method=de_method,
             key_added=rank_key,
             n_genes=100,  # Only need top genes to check for existence
-            use_raw=False,  # Use normalized data for marker finding
+            pts=True,
+            use_raw=True,
         )
 
         markers_df = sc.get.rank_genes_groups_df(adata, key=rank_key, group=None)
@@ -94,6 +95,22 @@ def _get_clustering_stability(adata: AnnData, key1: str, key2: str) -> float:
 
     return metrics.normalized_mutual_info_score(
         labels1, labels2, average_method="arithmetic"
+    )
+
+
+def _print_resolution_guidance(eval_df):
+    best_silhouette = eval_df.loc[eval_df["silhouette"].idxmax()]
+    best_markers = eval_df.loc[eval_df["marker_abundance"].idxmax()]
+
+    log.info("--- Resolution Selection Guidance ---")
+    log.info(
+        f"The peak silhouette coefficient occurs at a resolution of {best_silhouette['resolution']:.2f} (yielding {best_silhouette['n_clusters']} clusters), which is beneficial for cluster separation."
+    )
+    log.info(
+        f"The peak marker abundance occurs at a resolution of {best_markers['resolution']:.2f} (yielding {best_markers['n_clusters']} clusters), which is likely to have the best biological significance."
+    )
+    log.info(
+        "Suggestion: Look for a point in the graph where a relatively reasonable number of clusters and stability are maintained despite high marker abundance. For example, look for an 'inflection point' or plateau in the marker abundance curve."
     )
 
 
@@ -189,6 +206,7 @@ def find_resolution(
         previous_key = current_key
 
     eval_df = pd.DataFrame(eval_results)
+    _print_resolution_guidance(eval_df)
 
     # Store results in .uns for traceability
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
@@ -343,7 +361,7 @@ def cluster_cells(
     if active_config.plot:
         if "X_umap" not in adata.obsm:
             sc.tl.umap(adata)
-        
+
         color_key = f"{key_added}_colors"
         if color_key in adata.uns:
             del adata.uns[color_key]

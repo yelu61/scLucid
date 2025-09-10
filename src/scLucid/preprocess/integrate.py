@@ -515,11 +515,11 @@ def batch_correction(
         )
     elif method == "bbknn":
         adata = _integrate_bbknn(
-            adata, batch_key, use_rep=use_rep, embedding_key=output_key, **method_kwargs
+            adata, batch_key, use_rep=use_rep, **method_kwargs
         )
     elif method == "combat":
         adata = _integrate_combat(
-            adata, batch_key, embedding_key=output_key, **method_kwargs
+            adata, batch_key, **method_kwargs
         )
     else:
         raise ValueError(

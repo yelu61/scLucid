@@ -138,10 +138,13 @@ class DoubletConfig:
     n_pcs: int = 30 #: Number of principal components to use for the algorithm.
     plot_umap: bool = True #: Whether to plot the UMAP of the data.
     expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = None #: Expected doublet rate. Can be a single float or a dict per sample.
+    run_algorithm: bool = True
+    """If False, skips the algorithmic detection step entirely. Useful for heuristic-only exploratory runs."""
     
     # --- Heuristic Analysis ---
     use_heuristics: bool = True #: Master switch to enable/disable marker-based heuristic analysis.
-
+    """If True, enables the heuristic (marker-based) doublet detection workflow."""
+    
     # Parameters for automatic marker loading (if use_heuristics is True)
     marker_species: str = "human" #: Species to load markers for ('human', 'mouse', etc.).
     marker_tissue: Optional[str] = None #: Tissue context for loading specific markers (e.g., 'Lung').
@@ -166,6 +169,10 @@ class DoubletConfig:
     show_plots: bool = True #: Whether to display plots interactively.
 
     def validate(self):
+        """Validate configuration parameters."""
+        allowed_methods = ["scrublet"]
+        if self.method not in allowed_methods:
+            raise ValueError(f"method must be one of {allowed_methods}")
         if self.n_pcs <= 1:
             raise ValueError("n_pcs must be greater than 1")
         if (

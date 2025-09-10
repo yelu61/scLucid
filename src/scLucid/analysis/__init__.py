@@ -9,8 +9,8 @@ __version__ = "1.0.0"
 
 # Import and expose key functions from submodules
 from .config import (
-    ClusteringConfig,
     ResolutionSearchConfig,
+    ClusteringConfig,
     AnnotationConfig,
     #ScoringConfig,
     DifferentialConfig,
@@ -21,6 +21,11 @@ from .config import (
     #ProportionConfig,
     AnalysisWorkflowConfig,
 )
+from .clustering import (
+    find_resolution,
+    cluster_cells,
+    merge_clusters,
+)
 from .annotation import (
     score_cell_types,
     annotate_clusters,
@@ -30,11 +35,6 @@ from .annotation import (
     summarize_annotation_evidence,
     apply_annotation_mapping,
     run_annotation
-)
-from .clustering import (
-    cluster_cells,
-    find_resolution,
-    merge_clusters,
 )
 from .de_enrichment import (
     find_markers,
@@ -62,8 +62,8 @@ from .proportion import (
 )
 
 __all__ = [
-    "ClusteringConfig",
     "ResolutionSearchConfig",
+    "ClusteringConfig",
     "MergeClustersConfig",
     "AnnotationConfig",
     #"ScoringConfig",

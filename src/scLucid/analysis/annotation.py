@@ -37,7 +37,7 @@ __all__ = [
 def score_cell_types(
     adata: AnnData,
     marker_config: Union[str, Manager],
-    layer: Optional[str] = "log1p_norm",
+    layer: Optional[str] = "normalized",
     use_raw: bool = True,
     min_genes: int = 3,
     ctrl_size: int = 50,
@@ -97,7 +97,7 @@ def score_cell_types(
     return adata
 
 
-# --------------------- 自动注释核心 --------------------------
+# --------------------- Core annotation function --------------------------
 
 
 def annotate_clusters(
@@ -215,7 +215,7 @@ def annotate_clusters(
             result[cluster] = best_type if best_score >= min_score else "Unknown"
         return result
 
-    # 选择方法
+    # Select annotation method
     if method == "max_score":
         mapping = annotate_by_max_score()
     elif method == "enrichment":

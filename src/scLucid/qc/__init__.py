@@ -15,8 +15,6 @@ from .cycle import score_cell_cycle
 from .doublet import (
     generate_doublet_rates,
     create_custom_marker_dict,
-    run_heuristic_analysis,
-    analyze_lineage_coexpression,
     predict_doublets,
 )
 from .filtering import (
@@ -44,8 +42,6 @@ __all__ = [
     "score_cell_cycle",
     "generate_doublet_rates",
     "create_custom_marker_dict",
-    "run_heuristic_analysis",
-    "analyze_lineage_coexpression",
     "predict_doublets",
     "suggest_qc_thresholds",
     "mark_low_quality_cell",

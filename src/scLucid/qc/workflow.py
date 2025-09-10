@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 from anndata import AnnData
 
 from .config import QCWorkflowConfig
-from .doublet import analyze_lineage_coexpression, predict_doublets
+from .doublet import predict_doublets
 from .filtering import (
     filter_cells,
     generate_qc_report,
@@ -87,15 +87,6 @@ def run_standard_qc(
         sample_key=config.sample_key,
     )
 
-    # --- 3. Lineage coexpression analysis (optional, but recommended for transparency) ---
-    if getattr(config.doublet_config, "use_heuristics", True):
-        analyze_lineage_coexpression(
-            adata,
-            config=config.doublet_config,
-            save_dir=results_path / "doublet",
-            show=getattr(config.doublet_config, "show_plots", False),
-        )
-
     # --- 4. Low-quality cell marking ---
     config.marking_config.save_dir = str(results_path / "low_quality")
     adata = mark_low_quality_cell(
@@ -156,14 +147,6 @@ def run_advanced_qc(
     # --- 2. Doublet Detection ---
     config.doublet_config.save_dir = str(results_path / "doublet")
     # First, analyze lineage coexpression to provide transparency and report
-    if getattr(config.doublet_config, "use_heuristics", True):
-        analyze_lineage_coexpression(
-            adata,
-            config=config.doublet_config,
-            save_dir=results_path / "doublet",
-            show=getattr(config.doublet_config, "show_plots", False),
-        )
-
     adata = predict_doublets(
         adata, config=config.doublet_config, sample_key=config.sample_key
     )

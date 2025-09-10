@@ -306,7 +306,7 @@ def suggest_qc_thresholds(
     percentile_range: Tuple[float, float] = (2.5, 97.5),
     plot_distributions: bool = True,
     save_dir: Optional[str] = None,
-) -> QCThresholds:
+) -> Tuple[pd.DataFrame, QCThresholds]:
     """
     Automatically suggest QC thresholds based on data distribution and generate informative plots.
 
@@ -324,7 +324,11 @@ def suggest_qc_thresholds(
         save_dir: Directory to save plots.
 
     Returns:
-        QCThresholds object with suggested values (based on the first MAD multiplier if applicable).
+        Tuple containing:
+        - pd.DataFrame: A DataFrame with QC metrics as rows and suggestion levels
+                        (e.g., 'mad_x3.0') as columns.
+        - QCThresholds: A QCThresholds object with suggested values based on the
+                        first MAD multiplier or the default setting, for convenience.
     """
     required_cols = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
     missing_cols = [col for col in required_cols if col not in adata.obs.columns]
@@ -336,7 +340,7 @@ def suggest_qc_thresholds(
     if isinstance(mad_multipliers, (int, float)):
         mad_multipliers = [mad_multipliers]
 
-    suggestions = {}
+    all_suggestions = {}
 
     # Define which metrics to analyze
     metrics = {
@@ -378,22 +382,15 @@ def suggest_qc_thresholds(
         plot_lines = []
         is_count_metric = metric in ["n_genes_by_counts", "total_counts"]
 
-        def _get_metric_key(metric):
-            """Map metrics to QCThresholds parameter names"""
-            if "top" in metric:
-                match = re.search(r"pct_counts_in_top_(\d+)_genes", metric)
-                if match:
-                    # Use the format pc_top_20_genes instead of pc_top20_genes
-                    return f"pc_top_{match.group(1)}_genes"
-                else:
-                    match = re.search(r"(\d+)", metric)
-                    return f"pc_top_{match.group(1)}_genes" if match else "pc_top_genes"
-            else:
-                parts = metric.split("_")
-                if len(parts) > 0:
-                    return f"pc_{parts[-1]}"
-                else:
-                    return f"pc_{metric}"
+        metric_map = {
+            "n_genes_by_counts": ("min_genes", "max_genes"),
+            "total_counts": ("min_counts", "max_counts"),
+            "pct_counts_mt": "pc_mt",
+            "pct_counts_hb": "pc_hb",
+        }
+        # Dynamically add top gene cols to map
+        for col in top_gene_cols:
+            metric_map[col] = f"pc_{col.split('pct_counts_in_')[-1]}"
 
         if method == "mad":
             median_val = data.median()
@@ -404,10 +401,22 @@ def suggest_qc_thresholds(
                 )
                 mad_val = 1e-5  # Small value to avoid division by zero
 
-            for idx, multiplier in enumerate(mad_multipliers):
+            for multiplier in mad_multipliers:
+                level_name = f"mad_x{multiplier}"
+                all_suggestions.setdefault(level_name, {})
+
                 upper_bound = median_val + multiplier * mad_val
                 if is_count_metric:
                     lower_bound = max(0, median_val - multiplier * mad_val)
+                    min_key, max_key = metric_map[metric]
+                    all_suggestions[level_name][min_key] = int(lower_bound)
+                    all_suggestions[level_name][max_key] = int(upper_bound)
+                else:  # Percentage metric
+                    key = metric_map.get(metric)
+                    if key:
+                        all_suggestions[level_name][key] = min(100.0, upper_bound)
+
+                if is_count_metric:
                     plot_lines.append(
                         {
                             "val": lower_bound,
@@ -415,71 +424,65 @@ def suggest_qc_thresholds(
                             "color": "red",
                         }
                     )
-                    plot_lines.append(
-                        {
-                            "val": upper_bound,
-                            "label": f"Max (MAD x{multiplier})",
-                            "color": "orange",
-                        }
-                    )
-                    if idx == 0:  # Store suggestion from primary multiplier
-                        suggestions[
-                            f"min_{'genes' if 'genes' in metric else 'counts'}"
-                        ] = int(lower_bound)
-                        suggestions[
-                            f"max_{'genes' if 'genes' in metric else 'counts'}"
-                        ] = int(upper_bound)
-                else:  # Percentage metric
-                    plot_lines.append(
-                        {
-                            "val": upper_bound,
-                            "label": f"Max (MAD x{multiplier})",
-                            "color": "red",
-                        }
-                    )
-                    if idx == 0:
-                        metric_key = _get_metric_key(metric)
-                        if metric_key:
-                            suggestions[metric_key] = min(100.0, upper_bound)
-                        else:
-                            log.warning(
-                                f"Could not generate suggestion key for metric '{metric}'"
-                            )
+                plot_lines.append(
+                    {
+                        "val": upper_bound,
+                        "label": f"Max (MAD x{multiplier})",
+                        "color": "orange" if is_count_metric else "red",
+                    }
+                )
 
         elif method == "iqr":
+            level_name = f"iqr_x{iqr_multiplier}"
+            all_suggestions.setdefault(level_name, {})
             q25, q75 = data.quantile([0.25, 0.75])
             iqr = q75 - q25
             upper_bound = q75 + iqr_multiplier * iqr
+
             if is_count_metric:
                 lower_bound = max(0, q25 - iqr_multiplier * iqr)
-                suggestions[f"min_{'genes' if 'genes' in metric else 'counts'}"] = int(
-                    lower_bound
-                )
-                suggestions[f"max_{'genes' if 'genes' in metric else 'counts'}"] = int(
-                    upper_bound
+                min_key, max_key = metric_map[metric]
+                all_suggestions[level_name][min_key] = int(lower_bound)
+                all_suggestions[level_name][max_key] = int(upper_bound)
+                # Add lines for plotting
+                plot_lines.append(
+                    {
+                        "val": lower_bound,
+                        "label": f"Min (IQR x{iqr_multiplier})",
+                        "color": "red",
+                    }
                 )
                 plot_lines.append(
-                    {"val": lower_bound, "label": "Min (IQR)", "color": "red"}
+                    {
+                        "val": upper_bound,
+                        "label": f"Max (IQR x{iqr_multiplier})",
+                        "color": "orange",
+                    }
                 )
+            else:  # Percentage metric
+                key = metric_map.get(metric)
+                if key:
+                    all_suggestions[level_name][key] = min(100.0, upper_bound)
+                # Add line for plotting
                 plot_lines.append(
-                    {"val": upper_bound, "label": "Max (IQR)", "color": "orange"}
-                )
-            else:
-                metric_key = _get_metric_key(metric)
-                plot_lines.append(
-                    {"val": upper_bound, "label": "Max (IQR)", "color": "red"}
+                    {
+                        "val": upper_bound,
+                        "label": f"Max (IQR x{iqr_multiplier})",
+                        "color": "red",
+                    }
                 )
 
         elif method == "percentile":
+            level_name = f"percentile_{percentile_range[0]}-{percentile_range[1]}"
+            all_suggestions.setdefault(level_name, {})
             upper_bound = data.quantile(percentile_range[1] / 100)
+
             if is_count_metric:
                 lower_bound = data.quantile(percentile_range[0] / 100)
-                suggestions[f"min_{'genes' if 'genes' in metric else 'counts'}"] = int(
-                    lower_bound
-                )
-                suggestions[f"max_{'genes' if 'genes' in metric else 'counts'}"] = int(
-                    upper_bound
-                )
+                min_key, max_key = metric_map[metric]
+                all_suggestions[level_name][min_key] = int(lower_bound)
+                all_suggestions[level_name][max_key] = int(upper_bound)
+                # Add lines for plotting
                 plot_lines.append(
                     {
                         "val": lower_bound,
@@ -494,8 +497,11 @@ def suggest_qc_thresholds(
                         "color": "orange",
                     }
                 )
-            else:
-                metric_key = _get_metric_key(metric)
+            else:  # Percentage metric
+                key = metric_map.get(metric)
+                if key:
+                    all_suggestions[level_name][key] = min(100.0, upper_bound)
+                # Add line for plotting
                 plot_lines.append(
                     {
                         "val": upper_bound,
@@ -555,36 +561,46 @@ def suggest_qc_thresholds(
         plt.show()
 
     # Create QCThresholds object with suggestions
-    # Log which parameters we found and which we're passing to QCThresholds
-    log.info("Parameters extracted from metrics:")
-    pc_top_genes_dict = {}
-    for k, v in suggestions.items():
-        if k.startswith("pc_top_"):
-            pc_top_genes_dict[k] = v
+    suggested_thresholds_df = pd.DataFrame.from_dict(all_suggestions, orient="index")
 
-    # Filter out any parameters that the QCThresholds class doesn't accept
-    # This requires knowing the valid parameters for QCThresholds
-    # For now, just log what we're passing
-    final_kwargs = {
-        "min_genes": suggestions.get("min_genes"),
-        "max_genes": suggestions.get("max_genes"),
-        "min_counts": suggestions.get("min_counts"),
-        "max_counts": suggestions.get("max_counts"),
-        "pc_mt": suggestions.get("pc_mt"),
-        "pc_hb": suggestions.get("pc_hb"),
-        "pc_top_genes": pc_top_genes_dict,
-    }
+    # reorder columns
+    cols_order = [
+        "min_genes",
+        "max_genes",
+        "min_counts",
+        "max_counts",
+        "pc_mt",
+        "pc_hb",
+    ]
+    top_gene_cols_sorted = sorted(
+        [c for c in suggested_thresholds_df.columns if c.startswith("pc_top_")]
+    )
+    final_cols = [
+        c for c in cols_order if c in suggested_thresholds_df.columns
+    ] + top_gene_cols_sorted
+    suggested_thresholds_df = suggested_thresholds_df[final_cols]
 
-    final_kwargs = {k: v for k, v in final_kwargs.items() if v is not None}
+    # Create default thresholds object
+    default_thresholds_obj = QCThresholds()
+    if not suggested_thresholds_df.empty:
+        default_series = suggested_thresholds_df.iloc[0]
+        pc_top_genes_dict = {
+            k: v for k, v in default_series.items() if k.startswith("pc_top_")
+        }
 
-    suggested_thresholds = QCThresholds(**final_kwargs)
+        final_kwargs = {
+            k: v
+            for k, v in default_series.items()
+            if not k.startswith("pc_top_") and pd.notna(v)
+        }
+        final_kwargs["pc_top_genes"] = pc_top_genes_dict
 
-    log.info("Suggested QC thresholds (based on primary multiplier/setting):")
-    for param, value in suggested_thresholds.to_dict().items():
-        if value is not None and value != {}:
-            log.info(f"  {param}: {value}")
+        default_thresholds_obj = QCThresholds(**final_kwargs)
 
-    return suggested_thresholds
+    log.info("Comparison of recommended QC thresholds:")
+    log.info("\n" + suggested_thresholds_df.to_string())
+
+    return suggested_thresholds_df, default_thresholds_obj
 
 
 def mark_low_quality_cell(
@@ -821,15 +837,18 @@ def mark_low_quality_cell(
             adata, sample_indices, cfg.cols_to_plot, cfg.save_dir, cfg.show_plots
         )
 
-    
     # === Final Type Casting for Robustness ===
-    log.info("Finalizing data types for all 'outlier_' columns to ensure save compatibility.")
-    outlier_cols_to_cast = [col for col in adata.obs.columns if col.startswith("outlier_")]
-    
+    log.info(
+        "Finalizing data types for all 'outlier_' columns to ensure save compatibility."
+    )
+    outlier_cols_to_cast = [
+        col for col in adata.obs.columns if col.startswith("outlier_")
+    ]
+
     for col in outlier_cols_to_cast:
         if col in adata.obs:
             adata.obs[col] = adata.obs[col].fillna(False).astype(bool)
-            
+
     return adata
 
 
