@@ -159,11 +159,13 @@ class DoubletConfig:
     ignore_coexpression_pairs: Optional[List[Tuple[str, str]]] = None #: Specific lineage pairs to ignore (e.g., [('T_cells', 'NK_cells')]).
 
     # --- Result Merging and Reporting ---
-    merge_strategy: Literal["union", "intersection", "algorithm_priority", 
-                           "heuristic_priority", "weighted"] = "weighted"
+    merge_strategy: Literal['weighted_average', 'max_score', 'heuristic_boost'] = "weighted_average"
     algorithm_weight: float = 0.7
     random_state: int = 61 #: Random seed for reproducibility.
-    plot_summary: bool = True #: Whether to generate a summary plot at the end of the run.
+    plot_summary: bool = True #: Master switch to generate a summary plot at the end of the run.
+    plot_bar: bool = True #: (If plot_summary=True) Include the bar plot.
+    plot_scatter: bool = True #: (If plot_summary=True) Include the scatter plots.
+    plot_upset: bool = True #: (If plot_summary=True) Include the UpSet plot.
     export_stats: bool = True #: Whether to export summary statistics to CSV files.
     save_dir: Optional[str] = None #: Directory to save plots and statistics.
     show_plots: bool = True #: Whether to display plots interactively.
@@ -196,17 +198,13 @@ class DoubletConfig:
         if self.method not in allowed_methods:
             raise ValueError(f"method must be one of {allowed_methods}")
         allowed_merge_strategies = [
-            "union",
-            "intersection",
-            "algorithm_priority",
-            "heuristic_priority",
-            "weighted",
+            'weighted_average', 'max_score', 'heuristic_boost'
         ]
         if self.merge_strategy not in allowed_merge_strategies:
             raise ValueError(f"merge_strategy must be one of {allowed_merge_strategies}")
         
-        if self.merge_strategy == "weighted" and not (0 <= self.algorithm_weight <= 1):
-            raise ValueError("algorithm_weight must be between 0 and 1 for 'weighted' strategy.")
+        if self.merge_strategy == "weighted_average" and not (0 <= self.algorithm_weight <= 1):
+            raise ValueError("algorithm_weight must be between 0 and 1 for 'weighted_average' strategy.")
 
         if self.use_heuristics and self.min_lineages_for_doublet < 2:
             raise ValueError("min_lineages_for_doublet must be at least 2 when using heuristics.")

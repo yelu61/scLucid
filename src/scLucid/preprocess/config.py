@@ -4,7 +4,7 @@ Configuration for the scLucid preprocessing module.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class ScalingConfig:
 class IntegrationConfig:
     """Configuration for batch correction and data integration."""
     method: Optional[Literal["harmony", "scanorama", "scvi", "bbknn", "combat"]] = "harmony"
-    batch_key: Optional[str] = "sampleID"
+    batch_key: Optional[Union[str, List[str]]] = "sampleID"
     use_rep: str = "X_pca"
     output_key: Optional[str] = None
     plot: bool = True

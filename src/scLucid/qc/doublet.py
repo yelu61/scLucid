@@ -55,24 +55,27 @@ def _create_doublet_marker_config_from_manager(
         A dictionary mapping lineage names to MarkerConfig objects.
     """
     try:
+        # --- ❗ Select the correct adata object upfront ❗ ---
+        # Ensure the intersection is performed on the same data that will be used for scoring.
+        adata_for_intersection = (
+            adata.raw.to_adata() if cfg.default_use_raw and adata.raw else adata
+        )
+        log.info(f"Performing marker intersection on {'adata.raw' if cfg.default_use_raw and adata.raw else 'adata'}.")
+        
         manager = get_marker_manager(
             species=cfg.marker_species,
             tissue=cfg.marker_tissue,
-            states=None,  # States can be added in future versions if needed
-            case_sensitive=False,
+            case_sensitive=False, # Gene symbols are typically case-insensitive in this context
         )
-        manager.intersect_with(adata)
+        # Intersect with the correctly chosen data object
+        manager.intersect_with(adata_for_intersection)
         markers_dict = manager.get_doublet_lineage_markers()
 
         if not markers_dict:
             log.warning(
-                "No tissue-specific lineage markers found, falling back to base markers."
+                "No lineage markers found. Ensure `doublet_lineage = true` is set in your TOML file for desired cell types."
             )
-            base_manager = get_marker_manager(
-                species=cfg.marker_species, case_sensitive=False
-            )
-            base_manager.intersect_with(adata)
-            markers_dict = base_manager.get_doublet_lineage_markers()
+            return {}
 
     except Exception as e:
         log.error(
@@ -101,6 +104,7 @@ def _merge_doublet_predictions(
     heuristic_score_col: str,
     strategy: str = "weighted_average",
     algo_weight: float = 0.6,
+    expected_rate: Optional[Union[float, Dict[str, float]]] = 0.1,
 ) -> pd.Series:
     """
     Merge algorithmic and heuristic doublet scores for a final, more robust prediction.
@@ -143,17 +147,10 @@ def _merge_doublet_predictions(
     if final_score.max() > 0:
         final_score /= final_score.max()
 
-    # --- Determine the final threshold to make a binary call ---
-    # This is a critical step. A simple but effective dynamic threshold can be based on
-    # the distribution of scores, similar to how Scrublet automatically finds a threshold.
-    # A simple example: flag everything above a high quantile of the positive scores.
-    # Expected doublet rate can be used to inform this quantile.
-    expected_rate = (
-        adata.uns.get("sclucid", {})
-        .get("qc", {})
-        .get("doublet_params", {})
-        .get("expected_doublet_rate", 0.1)
-    )
+    if expected_rate is None:
+        log.warning("expected_doublet_rate is None, using a default of 0.1 for thresholding.")
+        expected_rate = 0.1
+        
     if isinstance(expected_rate, dict):  # Handle per-sample rates by taking the mean
         expected_rate = np.mean(list(expected_rate.values()))
 
@@ -482,6 +479,9 @@ def _plot_doublet_summary(
     upset_score_threshold: float = 0.1,
     save_dir: Optional[Union[str, Path]] = None,
     show: bool = True,
+    plot_bar: bool = True,
+    plot_scatter: bool = True,
+    plot_upset: bool = True,
 ) -> None:
     """
     Generates a comprehensive, UMAP-independent summary plot for doublet detection results.
@@ -500,7 +500,12 @@ def _plot_doublet_summary(
         save_dir: Directory to save the plot.
         show: Whether to display the plot.
     """
-    log.info("Generating enhanced doublet detection summary plot...")
+    # --- Check if there's anything to plot ---
+    if not any([plot_bar, plot_scatter, plot_upset]):
+        log.info("All summary plot panels are disabled. Skipping plot generation.")
+        return
+
+    log.info("Generating doublet detection summary plot...")
 
     # --- 1. Data Validation and Preparation ---
     # Find the algorithm's prediction and score columns dynamically.
@@ -533,126 +538,149 @@ def _plot_doublet_summary(
         adata.obs["doublet_source"], categories=source_categories, ordered=True
     )
 
-    # --- 2. Create the Main Figure Layout ---
-    # We now have 3 main plotting areas.
-    fig = plt.figure(figsize=(18, 12), facecolor="white")
-    gs = fig.add_gridspec(2, 2, height_ratios=[1, 1.2])
+    # --- 2. Dynamically Create the Figure Layout ---
+    # The layout now depends on which plots are enabled.
+    n_rows = 0
+    if plot_bar or plot_scatter:
+        n_rows += 1
+    if plot_upset:
+        n_rows += 1
+        
+    if n_rows == 0: # Should be caught by the check above, but as a safeguard.
+        return
+        
+    fig = plt.figure(figsize=(18, 6 * n_rows), facecolor="white")
+    
+    if n_rows == 2: # All plots enabled
+        gs = fig.add_gridspec(2, 2, height_ratios=[1, 1.2])
+        ax_bar = fig.add_subplot(gs[0, 0]) if plot_bar else None
+        gs_scatter_spec = gs[0, 1] if plot_scatter else None
+        ax_upset = fig.add_subplot(gs[1, :]) if plot_upset else None
+    elif plot_upset: # Only Upset plot
+        gs = fig.add_gridspec(1, 1)
+        ax_upset = fig.add_subplot(gs[0, 0])
+        ax_bar, gs_scatter_spec = None, None
+    else: # Only top row (bar and/or scatter)
+        gs = fig.add_gridspec(1, 2)
+        ax_bar = fig.add_subplot(gs[0, 0]) if plot_bar else None
+        gs_scatter_spec = gs[0, 1] if plot_scatter else None
+        ax_upset = None
+
     fig.suptitle("Doublet Detection Summary", fontsize=20, fontweight="bold")
-
-    ax_bar = fig.add_subplot(gs[0, 0])
-    ax_scatter_algo = fig.add_subplot(gs[0, 1])
-    ax_upset = fig.add_subplot(gs[1, :]) # Upset plot takes the full bottom row
-
+    
     # --- 3. Panel 1: Doublet Breakdown Bar Plot ---
-    log.info("Plotting doublet breakdown per sample...")
-    summary_df = (
-        adata.obs.groupby(sample_key)["doublet_source"]
-        .value_counts(normalize=True, sort=False)
-        .unstack(fill_value=0)
-        * 100
-    )
-    # Ensure all categories are present for consistent coloring
-    for cat in source_categories:
-        if cat not in summary_df.columns:
-            summary_df[cat] = 0.0
-            
-    summary_df[source_categories].plot(
-        kind="bar",
-        stacked=True,
-        ax=ax_bar,
-        color={
-            "Singleton": "lightgray",
-            "Heuristic Only": "coral",
-            "Algorithm Only": "skyblue",
-            "Both Methods": "darkred",
-        },
-        width=0.8,
-    )
-    ax_bar.set_title("Doublet Breakdown per Sample", fontsize=14)
-    ax_bar.set_ylabel("Percentage of Cells (%)")
-    ax_bar.set_xlabel("Sample")
-    ax_bar.tick_params(axis="x", labelrotation=45)
-    ax_bar.legend(title="Source", bbox_to_anchor=(1.05, 1), loc="upper left")
-    ax_bar.grid(axis="y", linestyle="--", alpha=0.7)
+    if plot_bar and ax_bar:
+        log.info("Plotting doublet breakdown per sample...")
+        summary_df = (
+            adata.obs.groupby(sample_key)["doublet_source"]
+            .value_counts(normalize=True, sort=False)
+            .unstack(fill_value=0)
+            * 100
+        )
+        # Ensure all categories are present for consistent coloring
+        for cat in source_categories:
+            if cat not in summary_df.columns:
+                summary_df[cat] = 0.0
+                
+        summary_df[source_categories].plot(
+            kind="bar",
+            stacked=True,
+            ax=ax_bar,
+            color={
+                "Singleton": "lightgray",
+                "Heuristic Only": "coral",
+                "Algorithm Only": "skyblue",
+                "Both Methods": "darkred",
+            },
+            width=0.8,
+        )
+        ax_bar.set_title("Doublet Breakdown per Sample", fontsize=14)
+        ax_bar.set_ylabel("Percentage of Cells (%)")
+        ax_bar.set_xlabel("Sample")
+        ax_bar.tick_params(axis="x", labelrotation=45)
+        ax_bar.legend(title="Source", bbox_to_anchor=(1.05, 1), loc="upper left")
+        ax_bar.grid(axis="y", linestyle="--", alpha=0.7)
 
     # --- 4. Panel 2: Enhanced Dual Scatter Plots ---
-    log.info("Plotting diagnostic scatter plots...")
-    # This requires a nested GridSpec for the two scatter plots
-    gs_scatter = gs[0, 1].subgridspec(1, 2, wspace=0.4)
-    ax_scatter_algo = fig.add_subplot(gs_scatter[0])
-    ax_scatter_heur = fig.add_subplot(gs_scatter[1])
+    if plot_scatter and gs_scatter_spec:
+        log.info("Plotting diagnostic scatter plots...")
+        # This requires a nested GridSpec for the two scatter plots
+        gs_scatter = gs[0, 1].subgridspec(1, 2, wspace=0.4)
+        ax_scatter_algo = fig.add_subplot(gs_scatter[0])
+        ax_scatter_heur = fig.add_subplot(gs_scatter[1])
 
-    # Plot 2a: Algorithm Score vs. Gene Count
-    if algo_score_col in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
-        sns.scatterplot(
-            data=adata.obs, x="n_genes_by_counts", y=algo_score_col,
-            hue=FINAL_PRED_COL, s=5, alpha=0.6,
-            palette={True: "red", False: "gray"}, ax=ax_scatter_algo, rasterized=True,
-        )
-        ax_scatter_algo.set_title("Algorithm Score vs. Gene Count", fontsize=12)
-        ax_scatter_algo.set_xlabel("Number of Genes")
-        ax_scatter_algo.set_ylabel("Algorithm Score")
-        ax_scatter_algo.get_legend().remove()
-    else:
-        ax_scatter_algo.text(0.5, 0.5, "Algorithm score data unavailable.", ha="center", va="center")
+        # Plot 2a: Algorithm Score vs. Gene Count
+        if algo_score_col in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
+            sns.scatterplot(
+                data=adata.obs, x="n_genes_by_counts", y=algo_score_col,
+                hue=FINAL_PRED_COL, s=5, alpha=0.6,
+                palette={True: "red", False: "gray"}, ax=ax_scatter_algo, rasterized=True,
+            )
+            ax_scatter_algo.set_title("Algorithm Score vs. Gene Count", fontsize=12)
+            ax_scatter_algo.set_xlabel("Number of Genes")
+            ax_scatter_algo.set_ylabel("Algorithm Score")
+            ax_scatter_algo.get_legend().remove()
+        else:
+            ax_scatter_algo.text(0.5, 0.5, "Algorithm score data unavailable.", ha="center", va="center")
 
-    # Plot 2b: Heuristic Score vs. Gene Count
-    if HEURISTIC_SCORE_COL in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
-        sns.scatterplot(
-            data=adata.obs, x="n_genes_by_counts", y=HEURISTIC_SCORE_COL,
-            hue=FINAL_PRED_COL, s=5, alpha=0.6,
-            palette={True: "red", False: "gray"}, ax=ax_scatter_heur, rasterized=True,
-        )
-        ax_scatter_heur.set_title("Heuristic Score vs. Gene Count", fontsize=12)
-        ax_scatter_heur.set_xlabel("Number of Genes")
-        ax_scatter_heur.set_ylabel("Heuristic Score")
-        ax_scatter_heur.legend(title="Final Call", bbox_to_anchor=(1.05, 1), loc="upper left")
-    else:
-        ax_scatter_heur.text(0.5, 0.5, "Heuristic score data unavailable.", ha="center", va="center")
+        # Plot 2b: Heuristic Score vs. Gene Count
+        if HEURISTIC_SCORE_COL in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
+            sns.scatterplot(
+                data=adata.obs, x="n_genes_by_counts", y=HEURISTIC_SCORE_COL,
+                hue=FINAL_PRED_COL, s=5, alpha=0.6,
+                palette={True: "red", False: "gray"}, ax=ax_scatter_heur, rasterized=True,
+            )
+            ax_scatter_heur.set_title("Heuristic Score vs. Gene Count", fontsize=12)
+            ax_scatter_heur.set_xlabel("Number of Genes")
+            ax_scatter_heur.set_ylabel("Heuristic Score")
+            ax_scatter_heur.legend(title="Final Call", bbox_to_anchor=(1.05, 1), loc="upper left")
+        else:
+            ax_scatter_heur.text(0.5, 0.5, "Heuristic score data unavailable.", ha="center", va="center")
 
     # --- 5. Panel 3: UpSet Plot from Quantitative Scores (THE FIX) ---
-    log.info("Plotting heuristic co-expression UpSet plot...")
-    if LINEAGE_SCORES_KEY in adata.obsm and not adata.obsm[LINEAGE_SCORES_KEY].empty:
-        lineage_scores_df = adata.obsm[LINEAGE_SCORES_KEY]
+    if plot_upset and ax_upset:
+        log.info("Plotting heuristic co-expression UpSet plot...")
+        if LINEAGE_SCORES_KEY in adata.obsm and not adata.obsm[LINEAGE_SCORES_KEY].empty:
+            lineage_scores_df = adata.obsm[LINEAGE_SCORES_KEY]
 
-        # Binarize the continuous scores to create sets for the UpSet plot.
-        # This is the key step to adapt the plot to the new quantitative workflow.
-        lineage_bool_df = lineage_scores_df > upset_score_threshold
-        
-        # Filter for cells that are positive for at least two lineages.
-        coexpressing_cells = lineage_bool_df[lineage_bool_df.sum(axis=1) >= 2]
+            # Binarize the continuous scores to create sets for the UpSet plot.
+            # This is the key step to adapt the plot to the new quantitative workflow.
+            lineage_bool_df = lineage_scores_df > upset_score_threshold
+            
+            # Filter for cells that are positive for at least two lineages.
+            coexpressing_cells = lineage_bool_df[lineage_bool_df.sum(axis=1) >= 2]
 
-        if not coexpressing_cells.empty:
-            # Count the number of cells in each co-expression combination.
-            lineage_combinations = coexpressing_cells.groupby(
-                list(coexpressing_cells.columns)
-            ).size()
-            lineage_combinations = lineage_combinations[lineage_combinations > 0]
+            if not coexpressing_cells.empty:
+                # Count the number of cells in each co-expression combination.
+                lineage_combinations = coexpressing_cells.groupby(
+                    list(coexpressing_cells.columns)
+                ).size()
+                lineage_combinations = lineage_combinations[lineage_combinations > 0]
 
-            if not lineage_combinations.empty:
-                try:
-                    upset_plot(lineage_combinations, fig=fig, element_size=32, show_counts=True)
-                    ax_upset.set_title(
-                        f"Heuristic: Lineage Co-expression (Score > {upset_score_threshold})",
-                        fontsize=14, y=0.9 # Adjust title position if needed
-                    )
-                except Exception as e:
-                    log.error(f"Failed to generate UpSet plot: {e}")
-                    ax_upset.text(0.5, 0.5, "Error generating UpSet plot.", ha="center", va="center")
+                if not lineage_combinations.empty:
+                    try:
+                        upset_plot(lineage_combinations, fig=fig, element_size=32, show_counts=True)
+                        ax_upset.set_title(
+                            f"Heuristic: Lineage Co-expression (Score > {upset_score_threshold})",
+                            fontsize=14, y=0.9 # Adjust title position if needed
+                        )
+                    except Exception as e:
+                        log.error(f"Failed to generate UpSet plot: {e}")
+                        ax_upset.text(0.5, 0.5, "Error generating UpSet plot.", ha="center", va="center")
+                else:
+                    log.info("No cells found with co-expression above the threshold.")
+                    ax_upset.text(0.5, 0.5, "No significant co-expression found.", ha="center", va="center")
             else:
                 log.info("No cells found with co-expression above the threshold.")
                 ax_upset.text(0.5, 0.5, "No significant co-expression found.", ha="center", va="center")
-        else:
-            log.info("No cells found with co-expression above the threshold.")
-            ax_upset.text(0.5, 0.5, "No significant co-expression found.", ha="center", va="center")
-        
-        # Remove original subplot axis from the grid to let upsetplot take over
-        ax_upset.axis('off')
+            
+            # Remove original subplot axis from the grid to let upsetplot take over
+            ax_upset.axis('off')
 
-    else:
-        log.info("Heuristic lineage scores not found, skipping UpSet plot.")
-        ax_upset.text(0.5, 0.5, "Heuristic scores data unavailable.", ha="center", va="center")
-        ax_upset.axis('off')
+        else:
+            log.info("Heuristic lineage scores not found, skipping UpSet plot.")
+            ax_upset.text(0.5, 0.5, "Heuristic scores data unavailable.", ha="center", va="center")
+            ax_upset.axis('off')
 
     # --- 6. Finalization and Saving ---
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -936,7 +964,8 @@ def predict_doublets(
         adata,
         algorithm_score_col=algo_score_col,
         heuristic_score_col=HEURISTIC_SCORE_COL,
-        strategy=cfg.merge_strategy,  # A new merge strategy like 'weighted_average' should be set in config
+        strategy=cfg.merge_strategy,
+        expected_rate=cfg.expected_doublet_rate,
     )
 
     # Store parameters for reproducibility
@@ -988,7 +1017,15 @@ def predict_doublets(
     # === 6. Reporting & Visualization ===
     if cfg.plot_summary:
         save_path = Path(cfg.save_dir) if cfg.save_dir else None
-        _plot_doublet_summary(adata, sample_key, save_path, cfg.show_plots)
+        _plot_doublet_summary(
+            adata=adata,
+            sample_key=sample_key,
+            save_dir=save_path,
+            show=cfg.show_plots,
+            plot_bar=cfg.plot_bar,
+            plot_scatter=cfg.plot_scatter,
+            plot_upset=cfg.plot_upset,
+        )
 
     if cfg.export_stats and cfg.save_dir:
         _export_doublet_stats(adata, sample_key, Path(cfg.save_dir))

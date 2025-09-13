@@ -152,12 +152,15 @@ def _get_sample_specific_genes(
         )
         return []
     log.info(f"[HVG] Identifying sample-specific genes across {n_samples} groups...")
+    
+    original_X = None
+    temp_adata = adata
     try:
-        temp_adata = adata.copy()
         if layer is not None:
             if layer not in temp_adata.layers:
                 raise KeyError(f"Layer '{layer}' not found in AnnData object")
-            temp_adata.X = temp_adata.layers[layer].copy()
+            original_X = temp_adata.X
+            temp_adata.X = temp_adata.layers[layer]
         valid_methods = ["t-test", "wilcoxon", "logreg"]
         if method not in valid_methods:
             log.warning(
@@ -179,7 +182,11 @@ def _get_sample_specific_genes(
         log.error(f"[HVG] Could not identify sample-specific genes: {str(e)}")
         log.exception("Detailed error:")
         return []
-
+    finally:
+        if original_X is not None:
+            temp_adata.X = original_X
+        if "rank_genes_groups" in temp_adata.uns:
+            del temp_adata.uns["rank_genes_groups"]
 
 def _to_savable_dict(d: dict) -> dict:
     """Recursively convert a dictionary to be h5ad-savable."""
@@ -283,7 +290,8 @@ def find_hvgs(
             for sample in samples:
                 sample_mask = adata.obs[sample_key] == sample
                 if sample_mask.sum() > 10:
-                    sample_adata = adata[sample_mask].copy()
+                    sample_adata_view = adata[sample_mask, :]
+                    sample_adata = sc.AnnData(X=sample_adata_view.X, var=sample_adata_view.var)
                     sc.pp.highly_variable_genes(
                         sample_adata, n_top_genes=n_top_genes, inplace=True
                     )
@@ -602,10 +610,9 @@ def evaluate_hvg_stability(
     for i in range(n_bootstrap):
         if i % report_interval == 0:
             log.info(f"[HVG stability] Bootstrap iteration {i + 1}/{n_bootstrap}")
-        cell_indices = np.random.choice(
-            adata.n_obs, size=n_cells_per_bootstrap, replace=False
-        )
-        bootstrap_adata = adata[cell_indices].copy()
+        cell_indices = np.random.choice(adata.n_obs, size=n_cells_per_bootstrap, replace=False)
+        bootstrap_adata_view = adata[cell_indices, :]
+        bootstrap_adata = sc.AnnData(X=bootstrap_adata_view.X, var=bootstrap_adata_view.var)
         find_hvgs(
             bootstrap_adata,
             HVGConfig(method=method, n_top_genes=n_top_genes, flavor=flavor),

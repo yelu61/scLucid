@@ -9,8 +9,9 @@ robust logging, and complete traceability for reproducible single-cell workflows
 import dataclasses
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
+import harmonypy as hm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -34,7 +35,7 @@ __all__ = [
 
 def _integrate_harmony(
     adata: AnnData,
-    batch_key: str,
+    covariate_keys: Union[str, List[str]],
     basis: str = "X_pca",
     embedding_key: str = "X_harmony",
     max_iter_harmony: int = 20,
@@ -47,29 +48,48 @@ def _integrate_harmony(
     **kwargs,
 ) -> AnnData:
     """
-    Wrapper for Harmony batch correction.
+    Wrapper for Harmony batch correction using the core `harmonypy` library.
     Adds result to adata.obsm[embedding_key].
+    This version supports single or multiple covariates.
     """
-    try:
-        from scanpy.external.pp import harmony_integrate
-    except ImportError:
-        log.error("Harmony requires: pip install harmonypy scanpy")
-        raise ImportError("Please install harmonypy and scanpy")
+    if isinstance(covariate_keys, str):
+        covariate_keys = [covariate_keys]
 
-    if batch_key not in adata.obs:
-        raise ValueError(f"batch_key '{batch_key}' not in adata.obs")
+    missing_keys = [key for key in covariate_keys if key not in adata.obs]
+    if missing_keys:
+        raise ValueError(f"Covariate keys {missing_keys} not found in adata.obs")
+
     if basis not in adata.obsm:
-        raise ValueError(f"basis '{basis}' not found in adata.obsm (run PCA first)")
+        raise ValueError(f"Basis '{basis}' not found in adata.obsm (run PCA first)")
+
     if copy:
         adata = adata.copy()
-    n_batches = adata.obs[batch_key].nunique()
-    if n_batches < 2:
-        log.warning("Harmony is designed for >1 batch.")
-
+    n_covariates = len(covariate_keys)
     log.info(
-        f"Harmony: batch_key={batch_key}, basis={basis}, theta={theta}, lambda={lambda_val}, sigma={sigma}, max_iter={max_iter_harmony}"
+        f"Running Harmony integration on {n_covariates} covariate(s): {', '.join(covariate_keys)}"
+    )
+    log.info(
+        f"Harmony params: basis={basis}, theta={theta}, lambda={lambda_val}, sigma={sigma}, max_iter={max_iter_harmony}"
     )
 
+    # Run Harmony using the harmonypy core function
+    harmony_out = hm.run_harmony(
+        data_mat=adata.obsm[basis],
+        meta_data=adata.obs,
+        vars_use=covariate_keys,
+        theta=theta,
+        lamb=lambda_val,
+        sigma=sigma,
+        max_iter_harmony=max_iter_harmony,
+        random_state=random_state,
+        plot_convergence=plot_convergence,
+        **kwargs,
+    )
+
+    # Store the corrected embedding
+    adata.obsm[embedding_key] = harmony_out.Z_corr.T
+
+    # Store metadata for reproducibility
     params = dict(
         theta=theta,
         lamb=lambda_val,
@@ -78,38 +98,17 @@ def _integrate_harmony(
         random_state=random_state,
         plot_convergence=plot_convergence,
     )
-    params.update(kwargs)
-    try:
-        harmony_integrate(
-            adata,
-            key=batch_key,
-            basis=basis,
-            adjusted_basis=f"{basis}_harmony",
-            **params,
-        )
-    except Exception as e:
-        log.error(f"Harmony integration failed: {e}")
-        raise RuntimeError(f"Harmony integration failed: {e}")
-
-    # Copy result to embedding_key
-    expected_key = f"{basis}_harmony"
-    if expected_key not in adata.obsm:
-        raise RuntimeError(f"Harmony failed: no {expected_key} in adata.obsm")
-    adata.obsm[embedding_key] = adata.obsm[expected_key].copy()
-    if embedding_key != expected_key:
-        del adata.obsm[expected_key]
-
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
         "integration", {}
     )["harmony"] = {
-        "batch_key": batch_key,
+        "covariate_keys": covariate_keys,
         "params": params,
         "input_dims": adata.obsm[basis].shape[1],
         "output_dims": adata.obsm[embedding_key].shape[1],
         "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     log.info(
-        f"Harmony integration finished: {embedding_key} shape {adata.obsm[embedding_key].shape}"
+        f"Harmony integration finished: result stored in .obsm['{embedding_key}'] with shape {adata.obsm[embedding_key].shape}"
     )
     return adata
 
@@ -503,7 +502,7 @@ def batch_correction(
     # Dispatch to the appropriate low-level wrapper
     if method == "harmony":
         adata = _integrate_harmony(
-            adata, batch_key, basis=use_rep, embedding_key=output_key, **method_kwargs
+            adata, covariate_keys=batch_key, basis=use_rep, embedding_key=output_key, **method_kwargs
         )
     elif method == "scanorama":
         adata = _integrate_scanorama(
@@ -514,13 +513,9 @@ def batch_correction(
             adata, batch_key, embedding_key=output_key, **method_kwargs
         )
     elif method == "bbknn":
-        adata = _integrate_bbknn(
-            adata, batch_key, use_rep=use_rep, **method_kwargs
-        )
+        adata = _integrate_bbknn(adata, batch_key, use_rep=use_rep, **method_kwargs)
     elif method == "combat":
-        adata = _integrate_combat(
-            adata, batch_key, **method_kwargs
-        )
+        adata = _integrate_combat(adata, batch_key, **method_kwargs)
     else:
         raise ValueError(
             f"Unknown method '{method}'. Choose from: harmony, scanorama, scvi, bbknn, combat."

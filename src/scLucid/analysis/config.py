@@ -22,7 +22,7 @@ __all__ = [
     "CompareGroupsConfig",
     "CompareConditionsConfig",
     "EnrichmentConfig",
-    "ProportionConfig",
+    #"ProportionConfig",
     "AnalysisWorkflowConfig",
 ]
 
@@ -147,42 +147,63 @@ class DifferentialConfig(BaseConfig):
     key_added: Optional[str] = "rank_genes_groups"
     groups: Optional[List[str]] = None
     reference: str = "rest"
-    pval_cutoff: Optional[float] = None
-    fold_change_max: Optional[float] = None
-
+    pval_cutoff: Optional[float] = 0.05 #: Post-hoc filter for adjusted p-value. Only genes with pvals_adj <= cutoff will be kept.
+    fold_change_max: Optional[float] = None #: Post-hoc clipping for log fold change. Useful for visualization.
 
 @dataclass
 class FilterMarkersConfig(BaseConfig):
-    """Configuration for filtering marker gene results."""
+    """
+    Configuration for filtering marker gene results from differential expression analysis.
+    
+    This config allows for fine-grained control over marker selection based on statistical
+    significance, effect size (log fold change), and expression specificity.
+    """
+    key: str = "rank_genes_groups" #: The key for the source DE results in adata.uns.
+    key_added: Optional[str] = None #: The key under which the filtered DataFrame will be stored. If None, defaults to f"{key}_filtered_df".
 
-    min_log2fc: float = 1.0
+    # --- Core Filtering Criteria ---
+    min_log2fc: float = 1.0 #: Minimum log2 fold change required.
+    max_padj: float = 0.05 #: Maximum adjusted p-value (e.g., FDR) allowed.
+    min_in_group_pct: float = 0.25 #: Minimum percentage (as a fraction, e.g., 0.25 for 25%) of cells expressing the gene within the target group.
+
+    # --- Specificity Filtering Criteria ---
+    max_out_group_pct: Optional[float] = 0.5 #: Maximum percentage of cells expressing the gene outside the target group. Helps find specific markers.
+    min_diff_pct: Optional[float] = 0.1 #: Minimum difference between in-group and out-group expression percentages.
+    
+    # --- Top N Selection ---
+    keep_top_n: Optional[int] = 100 #: After all filters, keep only the top N markers for each group, ranked by log2fc.
+
+
+@dataclass
+class CompareGroupsConfig(BaseConfig):
+    """Configuration for comparing two specific groups (e.g., two cell types)."""
+    groupby: str = "" #: The column in adata.obs that contains the groups to compare.
+    group1: str = "" #: The name of the first group.
+    group2: str = "" #: The name of the second group (will be used as the reference).
+    method: Literal["wilcoxon", "t-test", "logreg"] = "wilcoxon"
+    layer: Optional[str] = None
+    use_raw: bool = False
+    key_added: Optional[str] = None #: Key to store the results DataFrame in adata.uns. Defaults to 'compare_{group1}_vs_{group2}'.
+    # Filtering parameters for the comparison results
+    n_top_genes: int = 50 #: Number of top genes to keep for each group after filtering.
+    min_log2fc: float = 0.5
     max_padj: float = 0.05
-    min_in_group_pct: float = 0.25
-    keep_top_n: Optional[int] = 100
+    min_in_group_pct: float = 0.1
+    plot: bool = True #: Whether to generate a volcano plot of the results.
+    save_dir: Optional[str] = None #: Directory to save the volcano plot.
 
 
-#@dataclass
-#class CompareGroupsConfig(BaseConfig):
-    """Configuration for comparing two specific groups."""
-
-#    groupby: str
-#    group1: str
-#    group2: str
-#    use_raw: bool = True
-    # Add other DE parameters as needed
-
-
-#@dataclass
-#class CompareConditionsConfig(BaseConfig):
-    """Configuration for comparing the same cell type across conditions."""
-
-#    groupby: str
-#    group_name: str
-#    condition_key: str
-#    condition1: str
-#    condition2: str
-#    use_raw: bool = True
-    # Add other DE parameters as needed
+@dataclass
+class CompareConditionsConfig(BaseConfig):
+    """Configuration for comparing the same cell type across two conditions."""
+    groupby: str = "" #: The column identifying the cell type/group to analyze.
+    group_name: str = "" #: The specific cell type/group to subset for comparison.
+    condition_key: str = "" #: The column identifying the conditions (e.g., 'treatment', 'disease_status').
+    condition1: str = "" #: The first condition.
+    condition2: str = "" #: The second condition (will be used as the reference).
+    # Inherits comparison and plotting parameters from CompareGroupsConfig
+    comparison_params: CompareGroupsConfig = field(default_factory=CompareGroupsConfig)
+    key_added: Optional[str] = None #: Defaults to 'compare_{c1}_vs_{c2}_in_{group}'.
 
 
 # ===================== Enrichment & Proportion Configs =====================
@@ -190,17 +211,29 @@ class FilterMarkersConfig(BaseConfig):
 
 @dataclass
 class EnrichmentConfig(BaseConfig):
-    """Configuration for functional enrichment analysis."""
-
-    de_key: str = "rank_genes_groups"
-    gene_sets: List[str] = field(
-        default_factory=lambda: ["GO_Biological_Process_2023", "KEGG_2021_Human"]
-    )
-    organism: Optional[str] = "Human"
-    n_top_genes: int = 100
-    max_padj: float = 0.05
-    plot: bool = True
-    save_dir: Optional[str] = None
+    """
+    Configuration for functional enrichment analysis.
+    Supports both online (Enrichr) and offline (local GMT files) modes.
+    """
+    de_key: str = "rank_genes_groups_filtered_df" #: Key for the DE results DataFrame in adata.uns.
+    mode: Literal["online", "offline"] = "offline" #: Analysis mode. 'offline' is recommended for stability.
+    organism: Literal["human", "mouse"] = "human" #: Species for the analysis.
+    gmt_version: str = "v2025"
+    
+    # For 'online' mode, this is a list of Enrichr library names.
+    # For 'offline' mode, this is a list of categories (e.g., 'hallmark', 'go_bp')
+    # corresponding to local .gmt files in the resources directory.
+    gene_sets_online: List[str] = field(default_factory=lambda: ["GO_Biological_Process_2023"])
+    gene_sets_offline: List[str] = field(default_factory=lambda: ["hallmark", "go_bp", "reactome"])
+    
+    custom_gene_sets: Optional[str] = None #: Path to a user-provided .gmt file for offline mode.
+    n_top_genes: int = 100 #: Number of top marker genes from each cluster to use for enrichment.
+    min_genes_for_enrichment: int = 10 #: Minimum number of genes required to run enrichment for a cluster.
+    max_padj: float = 0.05 #: Adjusted p-value cutoff for filtering enrichment results.
+    key_added: str = "enrichment" #: Key under which to store the results in adata.uns.
+    plot: bool = True #: Whether to generate and save summary plots for each cluster.
+    n_plot_terms: int = 15 #: Number of top terms to show in the plot.
+    save_dir: Optional[str] = None #: Directory to save plots and results.
 
 
 #@dataclass
