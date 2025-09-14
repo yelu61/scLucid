@@ -794,6 +794,7 @@ def calculate_qc_metric(
         "include_standard_qc": cfg.include_standard_qc,
         "extra_gene_sets_provided": bool(extra_gene_sets),
         "percent_top_calculated": percent_top_list,
+        "scanpy_version": getattr(sc, "__version__", "unknown"),
     }
 
     # --- Optional: Cell cycle scoring ---
@@ -803,14 +804,12 @@ def calculate_qc_metric(
         try:
             from .cycle import score_cell_cycle
         except ImportError:
-            raise ImportError(
-                "cycle.py not found or not importable in the current module."
-            )
+            raise ImportError("cycle.py not found or not importable in the current module.")
         log.info("Automatic cell cycle scoring enabled.")
         adata = score_cell_cycle(
             adata,
             species=cell_cycle_species,
-            plot=True,
+            plot=cfg.show_plots,
             save_dir=cfg.save_dir,
             **cell_cycle_kwargs,
         )

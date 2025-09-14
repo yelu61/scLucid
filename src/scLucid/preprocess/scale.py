@@ -84,17 +84,51 @@ def scale_data(
         f"Scaling data in .X (shape: {adata.shape}) using '{active_config.scale_method}' method."
     )
 
-    # --- 2. Perform Scaling ---
-    # Keep a reference to the original data for plotting if needed
+    # --- 2. Apply the scaling method ---
+    if active_config.regress_in_scale:
+        vars_reg = active_config.vars_to_regress_in_scale or active_config.vars_to_regress or []
+        vars_reg = [v for v in vars_reg if v]  # 清理 None/空字符串
+        if vars_reg:
+            missing = [k for k in vars_reg if k not in adata.obs.columns]
+            if missing:
+                log.warning(f"Vars to regress not found in adata.obs (will skip): {missing}")
+                vars_reg = [k for k in vars_reg if k in adata.obs.columns]
+            if vars_reg:
+                # 选择用于回归的输入矩阵：优先 normalized 层；否则使用 adata.X（警告）
+                input_layer_for_regress = kwargs.get("input_layer_for_regress", "normalized")
+                if input_layer_for_regress in adata.layers:
+                    X_in = adata.layers[input_layer_for_regress].copy()
+                else:
+                    log.warning(
+                        f"Input layer '{input_layer_for_regress}' not found. "
+                        "Regressing on current adata.X (ensure it is log-normalized)."
+                    )
+                    X_in = adata.X.copy()
+                temp = AnnData(X=X_in, obs=adata.obs.copy(), var=adata.var.copy())
+                try:
+                    sc.pp.regress_out(temp, keys=vars_reg)
+                except Exception as e:
+                    log.error(f"Inline regress_out failed: {e}")
+                    raise
+                # 用回归后的矩阵替换 adata.X 作为缩放输入
+                original_X = adata.X  # 保留以便万一需要绘图
+                adata.X = temp.X.copy()
+                # 记录元数据
+                adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["regress_inline"] = {
+                    "vars_to_regress": vars_reg,
+                    "input_source": input_layer_for_regress if input_layer_for_regress in adata.layers else "X",
+                    "scanpy_version": getattr(sc, "__version__", "unknown"),
+                }
+            else:
+                log.info("No valid variables to regress in scale step; skipping inline regression.")
+        else:
+            log.info("regress_in_scale=True but no variables provided; skipping inline regression.")
+
+    # --- 3. Scale the data ---
     original_X = adata.X.copy()
 
-    # Ensure data is dense for custom scaling methods
-    if active_config.scale_method in ["robust", "minmax"] and scipy.sparse.issparse(
-        adata.X
-    ):
-        log.warning(
-            "Densifying data for robust/minmax scaling. This may increase memory usage."
-        )
+    if active_config.scale_method in ["robust", "minmax"] and scipy.sparse.issparse(adata.X):
+        log.warning("Densifying data for robust/minmax scaling. This may increase memory usage.")
         adata.X = adata.X.toarray()
 
     try:
@@ -110,17 +144,11 @@ def scale_data(
         log.error(f"Scaling failed: {str(e)}")
         raise RuntimeError(f"Failed to scale data: {str(e)}")
 
-    # --- 3. Store Metadata ---
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["scaling"] = {
         "params": dataclasses.asdict(active_config),
     }
 
     log.info("Scaling complete. adata.X has been updated.")
-
-    # --- 4. Plotting (Optional) ---
-    # This part can be expanded or called from the workflow
-    # For now, we ensure it doesn't break
-
     return adata
 
 
@@ -133,6 +161,11 @@ def regress_out(
 ) -> AnnData:
     """
     Regress out unwanted sources of variation from gene expression data.
+
+    Notes:
+    - Expects input_layer to be log-normalized-like.
+    - Variables must exist in adata.obs; typical covariates:
+      ['total_counts', 'pct_counts_mt', 'S_score', 'G2M_score', 'cc_diff'].
     """
     if config is None:
         active_config = ScalingConfig()
@@ -143,31 +176,47 @@ def regress_out(
         if hasattr(active_config, key):
             setattr(active_config, key, value)
 
-    if not active_config.vars_to_regress:
+    vars_to_regress = list(active_config.vars_to_regress or [])
+    if not vars_to_regress:
         log.info("No variables specified for regression. Skipping.")
-        if input_layer != output_layer:
+        if input_layer != output_layer and input_layer in adata.layers:
             adata.layers[output_layer] = adata.layers[input_layer].copy()
         return adata
 
-    missing_keys = [
-        key for key in active_config.vars_to_regress if key not in adata.obs
-    ]
+    missing_keys = [k for k in vars_to_regress if k not in adata.obs.columns]
     if missing_keys:
-        raise ValueError(f"Keys not found in adata.obs: {', '.join(missing_keys)}")
+        log.warning(
+            f"Variables to regress not found in adata.obs: {missing_keys}. "
+            "Proceeding with available variables."
+        )
+        vars_to_regress = [k for k in vars_to_regress if k in adata.obs.columns]
+        if not vars_to_regress:
+            log.info("No valid variables left to regress. Skipping.")
+            if input_layer != output_layer and input_layer in adata.layers:
+                adata.layers[output_layer] = adata.layers[input_layer].copy()
+            return adata
 
     if input_layer not in adata.layers:
         raise ValueError(f"Input layer '{input_layer}' not found in adata.layers.")
 
-    log.info(
-        f"Regressing out: {', '.join(active_config.vars_to_regress)} from layer '{input_layer}'"
-    )
-
-    temp_adata = AnnData(X=adata.layers[input_layer].copy(), obs=adata.obs.copy())
-    sc.pp.regress_out(temp_adata, keys=active_config.vars_to_regress)
+    log.info(f"Regressing out: {', '.join(vars_to_regress)} from layer '{input_layer}'")
+    temp_adata = AnnData(X=adata.layers[input_layer].copy(), obs=adata.obs.copy(), var=adata.var.copy())
+    try:
+        sc.pp.regress_out(temp_adata, keys=vars_to_regress)
+    except Exception as e:
+        log.error(f"regress_out failed: {e}")
+        raise
 
     adata.layers[output_layer] = temp_adata.X.copy()
-    log.info(f"Regression complete. Results stored in 'adata.layers[{output_layer}]'.")
+    log.info(f"Regression complete. Results stored in adata.layers['{output_layer}'].")
 
+    # Metadata
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["regress"] = {
+        "input_layer": input_layer,
+        "output_layer": output_layer,
+        "vars_to_regress": vars_to_regress,
+        "scanpy_version": getattr(sc, "__version__", "unknown"),
+    }
     return adata
 
 

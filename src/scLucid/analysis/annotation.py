@@ -28,8 +28,86 @@ __all__ = [
     "evaluate_annotation",
     "summarize_annotation_evidence",
     "apply_annotation_mapping",
+    "remap_labels",
     "run_annotation",
 ]
+
+
+# --------------------- Helper Functions -----------------------
+def _read_table_file(path: str) -> pd.DataFrame:
+    """
+    Read a tabular mapping file with robust handling:
+    - Supports .xlsx/.xls (preferred) and .csv
+    - For CSV, tries common encodings, then chardet probing as fallback
+    Returns a DataFrame.
+    """
+    import os
+
+    ext = os.path.splitext(path)[1].lower()
+    if ext in [".xlsx", ".xls"]:
+        # Excel is robust against encoding issues
+        return pd.read_excel(path)
+    elif ext == ".csv":
+        # Try multiple encodings
+        last_err = None
+        encodings = ["utf-8", "utf-8-sig", "gbk", "gb2312", "big5", "cp1252", "latin1"]
+        for enc in encodings:
+            try:
+                return pd.read_csv(path, encoding=enc)
+            except Exception as e:
+                last_err = e
+        # chardet fallback
+        try:
+            import chardet
+
+            with open(path, "rb") as f:
+                raw = f.read(200000)
+            guess = chardet.detect(raw).get("encoding") or "utf-8"
+            return pd.read_csv(path, encoding=guess, errors="replace")
+        except Exception:
+            pass
+        # final fallback
+        try:
+            return pd.read_csv(path, encoding="latin1", errors="replace")
+        except Exception:
+            raise (
+                last_err
+                if last_err
+                else RuntimeError(f"Failed to read CSV with multiple encodings: {path}")
+            )
+    else:
+        raise ValueError("Unsupported table format. Use .xlsx, .xls, or .csv")
+
+
+def _read_json_file(path: str) -> dict:
+    """
+    Read JSON with robust encoding handling.
+    """
+    import json
+
+    last_err = None
+    for enc in ["utf-8", "utf-8-sig", "gbk", "cp1252", "latin1"]:
+        try:
+            with open(path, "r", encoding=enc) as f:
+                return json.load(f)
+        except Exception as e:
+            last_err = e
+    try:
+        import chardet
+
+        with open(path, "rb") as fb:
+            raw = fb.read(200000)
+        guess = chardet.detect(raw).get("encoding") or "utf-8"
+        with open(path, "r", encoding=guess, errors="replace") as f:
+            return json.load(f)
+    except Exception:
+        pass
+    raise (
+        last_err
+        if last_err
+        else RuntimeError("Failed to read JSON with multiple encodings.")
+    )
+
 
 # --------------------- Scoring Function -----------------------
 
@@ -141,7 +219,11 @@ def annotate_clusters(
         for cluster in means.index:
             best = means.loc[cluster].idxmax()
             best_score = means.loc[cluster, best]
-            cell_type = best.replace("_score", "")
+            cell_type = (
+                best.removesuffix("_score")
+                if hasattr(str, "removesuffix")
+                else best.replace("_score", "")
+            )
             result[cluster] = cell_type if best_score >= min_score else "Unknown"
         return result
 
@@ -156,17 +238,23 @@ def annotate_clusters(
         )
         markers_df = sc.get.rank_genes_groups_df(adata, key=f"rank_genes_{cluster_key}")
         result = {}
-        for cluster in adata.obs[cluster_key].cat.categories:
+        categories = (
+            adata.obs[cluster_key].cat.categories
+            if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
+            else pd.unique(adata.obs[cluster_key])
+        )
+        for cluster in categories:
             genes = (
                 markers_df[markers_df["group"] == cluster]["names"]
                 .head(n_genes)
                 .tolist()
             )
-            best_score, best_type = -1, "Unknown"
+            best_score, best_type = -1.0, "Unknown"
             for cell_type, cell in mgr.CELLS.items():
                 if not cell.markers:
                     continue
-                overlap = len(set(genes) & set(cell.markers)) / len(cell.markers)
+                denom = max(1, len(cell.markers))
+                overlap = len(set(genes) & set(cell.markers)) / denom
                 if overlap > best_score:
                     best_score, best_type = overlap, cell_type
             result[cluster] = best_type if best_score >= min_score else "Unknown"
@@ -188,8 +276,13 @@ def annotate_clusters(
             key_added=f"rank_genes_{cluster_key}",
         )
         markers_df = sc.get.rank_genes_groups_df(adata, key=f"rank_genes_{cluster_key}")
+        categories = (
+            adata.obs[cluster_key].cat.categories
+            if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
+            else pd.unique(adata.obs[cluster_key])
+        )
         result = {}
-        for cluster in adata.obs[cluster_key].cat.categories:
+        for cluster in categories:
             genes = (
                 markers_df[markers_df["group"] == cluster]["names"]
                 .head(n_genes)
@@ -197,15 +290,15 @@ def annotate_clusters(
             )
             combined_scores = {}
             for cell_type, cell in mgr.CELLS.items():
+                score_col = f"{cell_type}_score"
                 score_val = (
-                    means.loc[cluster, f"{cell_type}_score"]
-                    if f"{cell_type}_score" in means.columns
-                    else 0
+                    float(means.loc[cluster, score_col])
+                    if score_col in means.columns
+                    else 0.0
                 )
+                denom = max(1, len(cell.markers))
                 overlap_val = (
-                    len(set(genes) & set(cell.markers)) / len(cell.markers)
-                    if cell.markers
-                    else 0
+                    len(set(genes) & set(cell.markers)) / denom if cell.markers else 0.0
                 )
                 combined_scores[cell_type] = (
                     score_weight * score_val + enrichment_weight * overlap_val
@@ -224,7 +317,22 @@ def annotate_clusters(
         mapping = annotate_by_combined()
     else:
         raise ValueError(f"Unknown annotation method: {method}")
-    adata.obs[key_added] = adata.obs[cluster_key].map(mapping).astype("category")
+
+    # Assign
+    categories = (
+        adata.obs[cluster_key].cat.categories
+        if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
+        else pd.unique(adata.obs[cluster_key])
+    )
+    mapping = {str(k): v for k, v in mapping.items()}  # ensure str keys
+    adata.obs[key_added] = pd.Categorical(
+        adata.obs[cluster_key].astype(str).map(mapping)
+    )
+    if adata.obs[key_added].isnull().any():
+        adata.obs[key_added] = (
+            adata.obs[key_added].cat.add_categories("Unknown").fillna("Unknown")
+        )
+
     # Save and plot
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
@@ -382,55 +490,187 @@ def apply_annotation_mapping(
     key_added: str = "cell_type",
 ) -> AnnData:
     """
-    Apply AI/manual cluster-to-celltype mapping from dict or csv/json file.
-    This robust version handles data type mismatches between clusters and mapping keys.
+    Apply AI/manual cluster-to-celltype mapping from dict, Excel (.xlsx/.xls), CSV, or JSON.
+    Robust to type mismatches and common header conventions.
+
+    Supported table schemas:
+    - Columns named ['cluster','cell_type'] (preferred)
+    - Or the first two columns are treated as [cluster, cell_type]
     """
-    # 1. --- Load mapping from file path if necessary ---
+    import datetime
+    import os
+
+    # 0) Validate cluster_key
+    if cluster_key not in adata.obs.columns:
+        raise KeyError(f"'{cluster_key}' not found in adata.obs.")
+
+    # 1) Load mapping
     if isinstance(mapping, str):
-        if mapping.endswith(".csv"):
-            df = pd.read_csv(mapping)
-            if len(df.columns) < 2:
-                raise ValueError("Mapping CSV must have at least two columns (cluster, cell_type)")
-            # Use the first column for keys and the second for values
-            mapping_dict = pd.Series(df.iloc[:, 1].values, index=df.iloc[:, 0]).to_dict()
-        elif mapping.endswith(".json"):
-            import json
-            with open(mapping) as f:
-                mapping_dict = json.load(f)
+        ext = os.path.splitext(mapping)[1].lower()
+        if ext in [".xlsx", ".xls", ".csv"]:
+            df = _read_table_file(mapping)
+            if {"cluster", "cell_type"}.issubset(df.columns):
+                mapping_dict = pd.Series(
+                    df["cell_type"].values, index=df["cluster"]
+                ).to_dict()
+            elif len(df.columns) >= 2:
+                mapping_dict = pd.Series(
+                    df.iloc[:, 1].values, index=df.iloc[:, 0]
+                ).to_dict()
+                log.info(
+                    "Mapping file has no standard headers; used first two columns as [cluster, cell_type]."
+                )
+            else:
+                raise ValueError(
+                    "Mapping table must have either ['cluster','cell_type'] columns or at least 2 columns."
+                )
+            mapping_source = {"type": "file", "path": mapping}
+        elif ext == ".json":
+            mapping_dict = _read_json_file(mapping)
+            mapping_source = {"type": "file", "path": mapping}
         else:
-            raise ValueError("Unsupported mapping file format. Use .csv or .json")
+            raise ValueError(
+                "Unsupported mapping file format. Use .xlsx, .xls, .csv or .json."
+            )
     elif isinstance(mapping, dict):
         mapping_dict = mapping
+        mapping_source = {"type": "dict"}
     else:
         raise TypeError("mapping must be a dictionary or a file path string.")
 
-    # 2. --- [CRITICAL FIX] Ensure robust type matching by converting to string ---
-    # Convert cluster IDs in adata to string
+    # 2) Ensure robust type matching (convert keys to string)
     source_clusters = adata.obs[cluster_key].astype(str)
-    # Convert keys in the mapping dictionary to string
     mapping_dict_str_keys = {str(k): v for k, v in mapping_dict.items()}
 
-    # 3. --- Apply the mapping ---
-    adata.obs[key_added] = source_clusters.map(mapping_dict_str_keys).astype("category")
+    # 3) Apply the mapping
+    new_series = source_clusters.map(mapping_dict_str_keys)
+    adata.obs[key_added] = pd.Categorical(new_series)
 
-    # 4. --- Check for unmapped clusters and provide a helpful warning ---
+    # 4) Unmapped handling
     unmapped_mask = adata.obs[key_added].isnull()
     if unmapped_mask.any():
         unmapped_ids = source_clusters[unmapped_mask].unique().tolist()
         log.warning(
             f"{unmapped_mask.sum()} cells could not be mapped. "
-            f"This is likely because the following cluster IDs were not found in your mapping file: {unmapped_ids}"
+            f"Missing cluster IDs in mapping: {unmapped_ids}"
         )
-        # Optionally, fill with a default value like 'Unmapped'
-        adata.obs[key_added] = adata.obs[key_added].cat.add_categories("Unmapped").fillna("Unmapped")
+        adata.obs[key_added] = (
+            adata.obs[key_added].cat.add_categories("Unmapped").fillna("Unmapped")
+        )
 
+    # 5) Store metadata snapshot
+    annot_ns = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("annotation", {})
+    )
+    annot_ns[f"{key_added}_mapping"] = mapping_dict
+    annot_ns[f"{key_added}_mapping_meta"] = {
+        "cluster_key": cluster_key,
+        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        **mapping_source,
+    }
 
-    # 5. --- Store results and return ---
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_mapping"] = mapping_dict
-    
+    log.info(
+        f"Applied mapping to column '{key_added}'. Categories: {list(adata.obs[key_added].cat.categories)}"
+    )
     return adata
 
+
+def remap_labels(
+    adata: AnnData,
+    column: str,
+    mapping: Optional[Dict[str, str]] = None,
+    where: Optional[pd.Series] = None,
+    to: Optional[str] = None,
+    in_place: bool = True,
+    key_added: Optional[str] = None,
+    tidy_categories: bool = True,
+) -> AnnData:
+    """
+    Partially remap or correct labels in an existing categorical column of adata.obs.
+
+    Modes:
+    1) Dictionary-based rename:
+       - mapping={'OldA':'NewA', 'OldB':'NewB'}
+    2) Condition-based assign:
+       - where: boolean Series aligned to adata.obs (True = replace), to='NewLabel'
+
+    Args:
+        column: Existing obs column to modify (e.g., 'celltype').
+        mapping: Old -> New label mapping.
+        where: Boolean mask of cells to set to `to`.
+        to: Target label for cells where mask is True.
+        in_place: If False, write to `key_added` and keep original intact.
+        key_added: Required if in_place=False.
+        tidy_categories: Drop unused categories after remap (clean legend).
+    """
+    if column not in adata.obs.columns:
+        raise KeyError(f"Column '{column}' not found in adata.obs.")
+    if not in_place and not key_added:
+        raise ValueError(
+            "When in_place=False, you must provide key_added for the new column name."
+        )
+
+    src = adata.obs[column].astype(str)
+    s = src.copy()
+
+    changed_by_mapping = 0
+    changed_by_where = 0
+
+    if mapping is not None:
+        before = s.copy()
+        s = s.replace(mapping)
+        changed_by_mapping = int((s != before).sum())
+
+    if where is not None:
+        if to is None:
+            raise ValueError(
+                "When providing 'where', you must also provide 'to' label."
+            )
+        if not isinstance(where, pd.Series) or not where.index.equals(adata.obs.index):
+            raise ValueError(
+                "'where' must be a boolean Series aligned to adata.obs index."
+            )
+        before = s.copy()
+        s.loc[where] = to
+        changed_by_where = int((s != before).sum())
+
+    # Cast back to categorical
+    cat = pd.Categorical(s)
+    target_col = column if in_place else key_added
+    adata.obs[target_col] = cat
+
+    # Optionally tidy categories (drop unused)
+    if tidy_categories:
+        adata.obs[target_col] = adata.obs[target_col].cat.remove_unused_categories()
+
+    # Audit
+    annot_ns = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("annotation", {})
+    )
+    audit = annot_ns.setdefault("remap_audit", [])
+    audit.append(
+        {
+            "source_column": column,
+            "target_column": target_col,
+            "mode": "mapping+where"
+            if (mapping is not None and where is not None)
+            else ("mapping" if mapping is not None else "where"),
+            "mapping": mapping if mapping is not None else None,
+            "to": to if where is not None else None,
+            "changed_by_mapping": changed_by_mapping,
+            "changed_by_where": changed_by_where,
+            "final_categories": list(adata.obs[target_col].cat.categories),
+        }
+    )
+
+    log.info(
+        f"Remapped labels in '{target_col}': +{changed_by_mapping} (mapping), +{changed_by_where} (where). Categories: {list(adata.obs[target_col].cat.categories)}"
+    )
+    return adata
 
 
 # --------------------- Evaluation & Main Function --------------------------
@@ -453,6 +693,11 @@ def evaluate_annotation(
         mgr = marker_config
     else:
         raise TypeError("marker_config must be a file path or Manager instance.")
+    if not mgr.CELLS:
+        log.warning(
+            "Marker manager has no cell types. Evaluation may be uninformative."
+        )
+
     mgr.intersect_with(adata)
     sc.tl.rank_genes_groups(
         adata,
@@ -461,28 +706,46 @@ def evaluate_annotation(
         key_added=f"rank_genes_{cluster_key}",
     )
     results = []
-    for cluster in adata.obs[cluster_key].cat.categories:
+
+    categories = (
+        adata.obs[cluster_key].cat.categories
+        if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
+        else pd.unique(adata.obs[cluster_key])
+    )
+    for cluster in categories:
         de_genes = sc.get.rank_genes_groups_df(
             adata, key=f"rank_genes_{cluster_key}", group=cluster
         )
+        if de_genes.empty or "pvals_adj" not in de_genes.columns:
+            log.warning(f"No DE genes or missing pvals_adj for cluster '{cluster}'.")
+            continue
         sig_genes = set(de_genes[de_genes["pvals_adj"] < 0.05]["names"])
-        cell_types = adata.obs.loc[adata.obs[cluster_key] == cluster, annotation_key]
-        assigned_type = cell_types.value_counts().index[0]
+
+        # Determine assigned type
+        assigned_series = adata.obs.loc[
+            adata.obs[cluster_key] == cluster, annotation_key
+        ].astype(str)
+        if assigned_series.empty:
+            continue
+        assigned_type = assigned_series.value_counts().index[0]
         if assigned_type == "Unknown" or assigned_type not in mgr.CELLS:
             continue
+
         expected_markers = set(mgr[assigned_type].markers)
         found_markers = sig_genes & expected_markers
         marker_coverage = (
-            len(found_markers) / len(expected_markers) if expected_markers else 0
+            len(found_markers) / len(expected_markers) if expected_markers else 0.0
         )
+
         all_other_markers = set(
             m for t, c in mgr.CELLS.items() if t != assigned_type for m in c.markers
         )
         specificity = (
             1.0 - (len(found_markers & all_other_markers) / len(found_markers))
             if found_markers
-            else 0
+            else 0.0
         )
+
         confidence = 0.6 * marker_coverage + 0.4 * specificity
         results.append(
             {
@@ -491,11 +754,14 @@ def evaluate_annotation(
                 "marker_coverage": marker_coverage,
                 "marker_specificity": specificity,
                 "annotation_confidence": confidence,
-                "found_markers": ", ".join(found_markers),
+                "found_markers": ", ".join(sorted(found_markers))
+                if found_markers
+                else "",
                 "expected_markers": len(expected_markers),
                 "detected_markers": len(found_markers),
             }
         )
+
     results_df = pd.DataFrame(results)
     if plot and not results_df.empty:
         results_df = results_df.sort_values("annotation_confidence")
@@ -513,6 +779,9 @@ def evaluate_annotation(
         if save_path:
             plt.savefig(f"{save_path}_confidence.png", dpi=300)
         plt.show()
+    elif plot and results_df.empty:
+        log.info("No evaluation results to plot (empty results).")
+
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
@@ -527,15 +796,18 @@ def run_annotation(
     config: AnnotationConfig,
 ) -> AnnData:
     """
-    Full annotation workflow: scoring → auto annotation → results in .obs/.uns.
+    Full annotation workflow: scoring -> auto annotation -> results in .obs/.uns.
     """
-    
     mgr = get_marker_manager(species=config.marker_species, tissue=config.marker_tissue)
     mgr.intersect_with(adata.raw if adata.raw is not None else adata)
+
     if config.run_celltypist:
         adata = run_celltypist(adata, model=config.celltypist_model)
+
     if config.run_scoring:
+        # Use raw for scoring by default
         adata = score_cell_types(adata, marker_config=mgr, use_raw=True)
+
     adata = annotate_clusters(
         adata,
         cluster_key=config.cluster_key,
@@ -544,7 +816,9 @@ def run_annotation(
         key_added=config.key_added,
         min_score=config.min_confidence,
         use_raw=True,
+        plot=config.plot,
     )
+
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )

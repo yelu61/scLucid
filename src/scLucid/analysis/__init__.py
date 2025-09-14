@@ -34,6 +34,7 @@ from .annotation import (
     evaluate_annotation,
     summarize_annotation_evidence,
     apply_annotation_mapping,
+    remap_labels,
     run_annotation
 )
 from .de_enrichment import (
@@ -86,6 +87,7 @@ __all__ = [
     "evaluate_annotation",
     "summarize_annotation_evidence",
     "apply_annotation_mapping",
+    "remap_labels",
     "run_annotation",
     # Differential expression and enrichment
     "find_markers",

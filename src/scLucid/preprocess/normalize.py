@@ -211,7 +211,7 @@ def normalize_data(
     if config is None:
         active_config = NormalizationConfig()
     else:
-        active_config = dataclasses.replace(config)  # Use a copy
+        active_config = dataclasses.replace(config)
 
     # Apply overrides from kwargs, making the function highly interactive
     for key, value in kwargs.items():
@@ -223,9 +223,7 @@ def normalize_data(
     # --- 2. Extract parameters from the final config ---
     input_layer = active_config.input_layer
     output_layer = active_config.output_layer
-    force = kwargs.get(
-        "force", False
-    )  # `force` is a runtime decision, best kept as a kwarg
+    force = kwargs.get("force", False)
     report = active_config.report
     plot = active_config.plot
     save_dir = Path(active_config.save_dir) if active_config.save_dir else None
@@ -247,24 +245,31 @@ def normalize_data(
     log.info(f"Diagnosing input data for normalization from '{source_name}' ...")
     stats_before = _diagnose_matrix(source_data, name="input")
     n_cells, n_genes = source_data.shape
-    if np.issubdtype(source_data.dtype, np.floating):
+
+    # Heuristics: warn if looks already transformed
+    try:
         if scipy.sparse.issparse(source_data):
             arr = source_data.data
+            min_val = source_data.min()
         else:
             arr = source_data
-        non_int = np.abs(np.modf(arr)[0]).sum()
-        if (np.min(arr) < 0) or (non_int > 1e-9):
-            log.warning(
-                f"Input data in '{source_name}' appears to be already normalized or transformed. "
-                "Normalization should be run on raw integer counts."
-            )
-        if stats_before["zero_frac"] < 0.2:
-            log.warning("Input matrix has few zeros; it may not be raw UMI counts.")
+            min_val = np.min(arr)
+        if np.issubdtype(arr.dtype, np.floating):
+            if min_val < 0:
+                log.warning(
+                    f"'{source_name}' has negative values. Likely already transformed/residualized."
+                )
+            # If too few zeros, also warn
+            if stats_before["zero_frac"] < 0.2:
+                log.warning("Input matrix has few zeros; may not be raw UMI counts.")
+    except Exception:
+        pass
 
-    log.info(f"Normalizing data from '{source_name}' using method '{config.method}'.")
+    log.info(
+        f"Normalizing data from '{source_name}' using method '{active_config.method}'."
+    )
 
     # --- 4. Core Normalization Logic ---
-    # Prepare scanpy arguments from the active_config
     norm_kwargs = {}
     for param in ["target_sum", "exclude_highly_expressed", "max_fraction"]:
         if hasattr(active_config, param):
@@ -276,29 +281,29 @@ def normalize_data(
     method_is_log_transformed = False
 
     try:
-        if config.method == "standard":
+        if active_config.method == "standard":
             log.info(
                 f"Applying standard library size normalization (params: {norm_kwargs})"
             )
             sc.pp.normalize_total(temp_adata, inplace=True, **norm_kwargs)
-        elif config.method == "scran":
+        elif active_config.method == "scran":
             try:
-                import scanpy.external.pp
+                import scanpy.external.pp as scepp
             except ImportError:
                 log.error(
                     "scanpy.external.pp.scran_normalize not found. Install scanpy[external] and rpy2."
                 )
                 raise RuntimeError(
-                    "scran normalization requires scanpy[external] and rpy2. See https://scanpy.readthedocs.io/en/stable/api/scanpy.external.pp.scran_normalize.html"
+                    "scran normalization requires scanpy[external] and rpy2. See Scanpy docs."
                 )
             log.warning("Method 'scran' requires a correctly configured R environment.")
-            scanpy.external.pp.scran_normalize(temp_adata, inplace=True)
-            method_is_log_transformed = True  # scran includes log-transform
-        elif config.method == "pearson_residuals":
-            log.info("Applying Pearson residuals normalization.")
+            scepp.scran_normalize(temp_adata, inplace=True)
+            method_is_log_transformed = True  # scran yields log-normalized-like output
+        elif active_config.method == "pearson_residuals":
+            log.info("Applying Pearson residuals normalization (experimental).")
             sc.experimental.pp.normalize_pearson_residuals(temp_adata, inplace=True)
             method_is_log_transformed = True
-        elif config.method == "clr":
+        elif active_config.method == "clr":
             log.info("Applying Centered Log-Ratio (CLR) normalization.")
             sc.pp.normalize_total(temp_adata, target_sum=1, inplace=True)
             sc.pp.log1p(temp_adata)
@@ -312,10 +317,10 @@ def normalize_data(
         else:
             valid_methods = ["standard", "scran", "pearson_residuals", "clr"]
             raise ValueError(
-                f"Unknown normalization method: '{config.method}'. Choose from {valid_methods}."
+                f"Unknown normalization method: '{active_config.method}'. Choose from {valid_methods}."
             )
     except Exception as e:
-        log.error(f"Normalization failed for method '{config.method}': {e}")
+        log.error(f"Normalization failed for method '{active_config.method}': {e}")
         raise RuntimeError(
             "Failed to normalize data. Check dependencies and data format."
         )
@@ -340,6 +345,10 @@ def normalize_data(
         "params": dataclasses.asdict(active_config),
         "input_stats": stats_before,
         "output_stats": stats_after,
+        "scanpy_version": getattr(sc, "__version__", "unknown"),
+        "log_transformed": final_log_transformed,
+        "input_layer": input_layer,
+        "output_layer": output_layer,
     }
 
     # --- 7. Reporting and Plotting ---

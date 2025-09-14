@@ -49,10 +49,13 @@ class HVGConfig:
     report: bool = True
     save_dir: Optional[str] = None
 
+
 @dataclass
 class ScalingConfig:
     """Configuration for data scaling and regression."""
     vars_to_regress: Optional[List[str]] = field(default_factory=lambda: ["total_counts", "pct_counts_mt"])
+    regress_in_scale: bool = True
+    vars_to_regress_in_scale: Optional[List[str]] = None
     scale_method: Literal["zscore", "robust", "minmax"] = "zscore"
     max_value: Optional[float] = 10.0
 

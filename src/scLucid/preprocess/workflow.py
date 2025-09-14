@@ -48,13 +48,16 @@ def run_preprocessing(
     )
 
     # --- 2. Set .raw with normalized data BEFORE regression ---
-    log.info(f"Step 2: Storing data from '{config.normalized_layer}' in .raw")
-    raw_adata = AnnData(
+    log.info(f"Step 2: Storing data from layer '{config.normalized_layer}' into .raw")
+    if config.normalized_layer not in adata.layers:
+        raise KeyError(
+            f"Layer '{config.normalized_layer}' not found. Normalization step may have failed."
+        )
+    adata.raw = AnnData(
         X=adata.layers[config.normalized_layer].copy(),
         var=adata.var.copy(),
         obs=adata.obs.copy(),
     )
-    adata.raw = raw_adata
 
     # --- 3. Regression (Optional) ---
     hvg_input_layer = config.normalized_layer
@@ -103,11 +106,11 @@ def run_preprocessing(
             sc.pl.pca_variance_ratio(
                 adata, log=True, save="_variance_ratio.png", show=False
             )
-            Path("./figures/pca_variance_ratio.png").rename(
-                results_path / "pca_variance_ratio.png"
-            )
-        except Exception:
-            log.warning("Could not save PCA variance plot.")
+            fig_path = Path("./figures/pca_variance_ratio.png")
+            if fig_path.exists():
+                fig_path.rename(results_path / "pca_variance_ratio.png")
+        except Exception as e:
+            log.warning(f"Could not save PCA variance plot: {e}")
 
     # --- 8. Integration/Batch Correction ---
     use_rep_downstream = "X_pca"

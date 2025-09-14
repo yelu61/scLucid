@@ -60,39 +60,29 @@ def find_markers(
     **kwargs,
 ) -> pd.DataFrame:
     """
-    Find marker genes using a flexible, config-driven workflow.
-
-    This function performs a one-vs-rest differential expression analysis and stores
-    both the raw Scanpy output and a processed DataFrame in adata.uns.
-    The entire process is controlled by the DifferentialConfig object.
-
-    Args:
-        adata: The AnnData object.
-        config: A DifferentialConfig object containing all parameters.
-        **kwargs: Allows overriding config parameters for interactive use.
-
-    Returns:
-        A pandas DataFrame containing the formatted marker genes for all groups.
+    Find marker genes (one-vs-rest) and store both raw scanpy output and a concatenated DataFrame.
+    Improvements:
+    - Stronger checks for scanpy output structure.
+    - Optional post-hoc p-value cut in config (default None recommended).
+    - Column name harmonization for pct columns if scanpy changes naming.
+    - Store params used for reproducibility.
     """
-    # --- 1. Finalize Configuration ---
+    # --- 1. Finalize configuration ---
     if config is None:
         active_config = DifferentialConfig(**kwargs)
     else:
-        # Use a copy to avoid modifying the original config object
         active_config = dataclasses.replace(config)
+        # Allow kwargs override
+        for k, v in kwargs.items():
+            if hasattr(active_config, k):
+                setattr(active_config, k, v)
 
-    # Allow kwargs to override parameters in the provided config object
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
-
-    # Unpack parameters for use
     groupby = active_config.groupby
     key_added = active_config.key_added or "rank_genes_groups"
 
     log.info(f"Finding markers for '{groupby}' using method '{active_config.method}'.")
 
-    # --- 2. Run Scanpy's rank_genes_groups ---
+    # --- 2. Run scanpy rank_genes_groups ---
     rank_genes_params = {
         "groupby": groupby,
         "method": active_config.method,
@@ -103,28 +93,55 @@ def find_markers(
         "reference": active_config.reference,
     }
     if active_config.groups is not None:
-        rank_genes_params['groups'] = active_config.groups
-        log.info(f"Running DE analysis on a subset of groups: {active_config.groups}")
+        rank_genes_params["groups"] = active_config.groups
+        log.info(f"Running DE analysis on subset of groups: {active_config.groups}")
 
     sc.tl.rank_genes_groups(adata, **rank_genes_params)
 
-    # --- 3. Format, Filter, and Store Results ---
-    result_dfs = []
-    # Determine the groups that were actually tested
-    groups_tested = adata.uns[key_added]["names"].dtype.names
+    # --- 3. Validate raw structure ---
+    if key_added not in adata.uns:
+        raise KeyError(f"scanpy returned no result at adata.uns['{key_added}'].")
 
+    raw = adata.uns[key_added]
+    if "names" not in raw:
+        raise KeyError(f"scanpy result missing 'names' at adata.uns['{key_added}'].")
+
+    names_field = raw["names"]
+    if not hasattr(names_field, "dtype") or names_field.dtype.names is None:
+        raise ValueError(
+            f"adata.uns['{key_added}']['names'] does not expose group fields. "
+            "This can happen if scanpy structure changed. Please check your scanpy version."
+        )
+
+    groups_tested = names_field.dtype.names
+    result_dfs: List[pd.DataFrame] = []
+
+    # --- 4. Build per-group DataFrames, normalize columns, apply optional p-value cut ---
     for group in groups_tested:
         df = sc.get.rank_genes_groups_df(adata, key=key_added, group=group)
         if df.empty:
             continue
+
+        # Harmonize expected columns if scanpy changes naming
+        # Common variants: 'pct_nz' vs 'pct_nz_group'
+        if "pct_nz_group" not in df.columns:
+            if "pct_nz" in df.columns:
+                df = df.rename(columns={"pct_nz": "pct_nz_group"})
+                log.warning("Renamed 'pct_nz' to 'pct_nz_group' for compatibility.")
+
+        # Some scanpy versions may provide reference pct via other keys; leave as-is if absent.
         df["group"] = group
 
         if active_config.pval_cutoff is not None:
+            before = len(df)
             df = df[df["pvals_adj"] <= active_config.pval_cutoff].copy()
+            log.info(
+                f"Group '{group}': p-adj <= {active_config.pval_cutoff} retained {len(df)}/{before} rows."
+            )
             if df.empty:
-                continue  # Skip if no genes pass the p-value filter
+                continue
 
-        if active_config.fold_change_max is not None:
+        if active_config.fold_change_max is not None and "logfoldchanges" in df.columns:
             df["logfoldchanges"] = df["logfoldchanges"].clip(
                 upper=active_config.fold_change_max
             )
@@ -137,20 +154,25 @@ def find_markers(
 
     full_df = pd.concat(result_dfs, ignore_index=True)
 
-    # Store results in the sclucid namespace
+    # --- 5. Store results and params in sclucid namespace ---
     df_key = f"{key_added}_df"
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
-    adata.uns["sclucid"]["analysis"]["de"][key_added] = adata.uns[
-        key_added
-    ]  # Store raw scanpy result
-    adata.uns["sclucid"]["analysis"]["de"][df_key] = (
-        full_df  # Store processed DataFrame
+    root = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("de", {})
     )
+    root[key_added] = adata.uns[key_added]  # raw scanpy result
+    root[df_key] = full_df  # processed table
+    root[f"{key_added}_params"] = (
+        active_config.to_dict()
+    )  # store params for reproducibility
 
     log.info(
-        f"Found {len(full_df)} total marker gene entries across {len(groups_tested)} groups."
+        f"Found {len(full_df)} total marker rows across {len(groups_tested)} groups."
     )
-    log.info(f"Results stored in .uns['sclucid']['analysis']['de']['{df_key}']")
+    log.info(
+        f"Stored processed DataFrame at .uns['sclucid']['analysis']['de']['{df_key}']"
+    )
 
     return full_df
 
@@ -160,19 +182,13 @@ def filter_markers(
     config: FilterMarkersConfig,
 ) -> pd.DataFrame:
     """
-    Filter marker genes based on a comprehensive configuration object.
+    Filter marker genes with robust handling of percentage scales and detailed step logs.
 
-    This function applies a series of filters to differential expression results
-    to identify high-confidence marker genes. Results are stored back into adata.uns.
-
-    Args:
-        adata: The AnnData object.
-        config: A FilterMarkersConfig object containing all filtering parameters.
-
-    Returns:
-        A pandas DataFrame containing the filtered marker genes.
+    Improvements:
+    - Auto-detect 0–1 vs 0–100 scale for pct columns and compare thresholds on 0–1 scale.
+    - Optional absolute log2FC filtering (via local flag or extend config if desired).
+    - Records params into .uns for reproducibility.
     """
-    # --- 1. Unpack parameters from config object ---
     key = config.key
     min_log2fc = config.min_log2fc
     max_padj = config.max_padj
@@ -184,108 +200,157 @@ def filter_markers(
     key_added = config.key_added or f"{key}_filtered_df"
     df_key = f"{key}_df"
 
+    # You can promote this into FilterMarkersConfig if you want external control.
+    use_abs_log2fc = False
+    # Sorting preference for keep_top_n
+    sort_preference = "scores"  # fallback to 'logfoldchanges' if missing
+
     log.info(f"Filtering marker genes from '.uns[...][{df_key}]'")
 
-    # --- 2. Retrieve source DataFrame ---
-    if (
-        "sclucid" in adata.uns
-        and "analysis" in adata.uns["sclucid"]
-        and "de" in adata.uns["sclucid"]["analysis"]
-        and df_key in adata.uns["sclucid"]["analysis"]["de"]
-    ):
-        df = adata.uns["sclucid"]["analysis"]["de"][df_key].copy()
-    else:
+    # --- Retrieve ---
+    root = adata.uns.get("sclucid", {}).get("analysis", {}).get("de", {})
+    if df_key not in root:
         raise KeyError(
-            f"Source DataFrame not found at `adata.uns['sclucid']['analysis']['de']['{df_key}']`. Run `find_markers` first."
+            f"Source DataFrame not found at .uns['sclucid']['analysis']['de']['{df_key}']. Run `find_markers` first."
         )
-
+    df = root[df_key].copy()
     if df.empty:
         log.warning("Source marker DataFrame is empty. Returning empty DataFrame.")
         return pd.DataFrame()
 
-    # --- 3. Apply Filters ---
-    # Start with a mask of all True
+    required_cols = ["logfoldchanges", "pvals_adj", "pct_nz_group"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise KeyError(f"Marker DataFrame missing required columns: {missing}")
+
+    # --- Scale detection helpers ---
+    def _is_0_to_1(series: pd.Series) -> bool:
+        s = series.dropna()
+        if s.empty:
+            return True
+        return (s.min() >= 0.0) and (s.max() <= 1.0)
+
+    def _is_0_to_100(series: pd.Series) -> bool:
+        s = series.dropna()
+        if s.empty:
+            return False
+        return (s.min() >= 0.0) and (s.max() <= 100.0) and not _is_0_to_1(series)
+
+    def _to_frac(series: pd.Series) -> pd.Series:
+        if _is_0_to_1(series):
+            return series
+        elif _is_0_to_100(series):
+            return series / 100.0
+        # robust fallback
+        return series.clip(lower=0, upper=100) / 100.0
+
+    has_ref = "pct_nz_reference" in df.columns
+    pct_group_frac = _to_frac(df["pct_nz_group"])
+    pct_ref_frac = _to_frac(df["pct_nz_reference"]) if has_ref else None
+
+    # Logging
+    log.info("Using fraction scale (0–1) for percentage-based filtering conditions.")
+
+    # --- Filters ---
     filt = pd.Series(True, index=df.index)
 
-    # Core filters
     if min_log2fc is not None:
-        filt &= df["logfoldchanges"] >= min_log2fc
-    if max_padj is not None:
-        filt &= df["pvals_adj"] <= max_padj
-    if min_in_group_pct is not None:
-        # Note: Scanpy's pct_nz_group is already in percentage, so we don't divide by 100
-        filt &= df["pct_nz_group"] >= (min_in_group_pct * 100)
-
-    # Specificity filters
-    if "pct_nz_reference" in df.columns:
-        if max_out_group_pct is not None:
-            filt &= df["pct_nz_reference"] <= (max_out_group_pct * 100)
-        if min_diff_pct is not None:
-            filt &= (df["pct_nz_group"] - df["pct_nz_reference"]) >= (
-                min_diff_pct * 100
+        if use_abs_log2fc:
+            keep = df["logfoldchanges"].abs() >= float(min_log2fc)
+            log.info(
+                f"[Filter] |log2FC| >= {min_log2fc}: kept {int(keep.sum())}/{len(keep)}"
             )
+        else:
+            keep = df["logfoldchanges"] >= float(min_log2fc)
+            log.info(
+                f"[Filter] log2FC >= {min_log2fc}: kept {int(keep.sum())}/{len(keep)}"
+            )
+        filt &= keep
+
+    if max_padj is not None:
+        keep = df["pvals_adj"] <= float(max_padj)
+        log.info(f"[Filter] adj p <= {max_padj}: kept {int(keep.sum())}/{len(keep)}")
+        filt &= keep
+
+    if min_in_group_pct is not None:
+        keep = pct_group_frac >= float(min_in_group_pct)
+        log.info(
+            f"[Filter] pct_in_group >= {min_in_group_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
+        )
+        filt &= keep
+
+    if has_ref:
+        if max_out_group_pct is not None:
+            keep = pct_ref_frac <= float(max_out_group_pct)
+            log.info(
+                f"[Filter] pct_out_group <= {max_out_group_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
+            )
+            filt &= keep
+        if min_diff_pct is not None:
+            keep = (pct_group_frac - pct_ref_frac) >= float(min_diff_pct)
+            log.info(
+                f"[Filter] (pct_in - pct_out) >= {min_diff_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
+            )
+            filt &= keep
     else:
         if max_out_group_pct is not None or min_diff_pct is not None:
-            log.warning(
-                "'pct_nz_reference' not found in marker DataFrame. Skipping specificity filters ('max_out_group_pct', 'min_diff_pct')."
-            )
+            log.warning("pct_nz_reference not found; specificity filters skipped.")
 
     filtered_df = df[filt].copy()
-    log.info(
-        f"Retained {len(filtered_df)} genes after applying statistical and specificity filters."
-    )
+    log.info(f"Retained {len(filtered_df)} genes after all filters.")
 
-    # --- 4. Keep Top N genes per group ---
-    if keep_top_n is not None and keep_top_n > 0:
-        # We sort by 'scores' if available (like from logreg), otherwise fall back to logfoldchanges.
-        sort_by_col = "scores" if "scores" in filtered_df.columns else "logfoldchanges"
+    # --- Keep top N per group ---
+    if keep_top_n is not None and keep_top_n > 0 and not filtered_df.empty:
+        sort_by_col = config.sort_by
+        
+        if sort_by_col == "diff_pct":
+            if "pct_nz_reference" in filtered_df.columns:
+                filtered_df["diff_pct"] = filtered_df["pct_nz_group"] - filtered_df["pct_nz_reference"]
+            else:
+                log.warning("Cannot sort by 'diff_pct' as 'pct_nz_reference' is missing. Falling back to 'scores'.")
+                sort_by_col = "scores"
 
-        log.info(
-            f"Selecting top {keep_top_n} genes per group, sorted by '{sort_by_col}'."
-        )
-        top_per_group = []
-        for group in filtered_df["group"].unique():
-            group_df = filtered_df[filtered_df["group"] == group]
-            top_group = group_df.sort_values(sort_by_col, ascending=False).head(
-                keep_top_n
+        if sort_by_col not in filtered_df.columns:
+            fallback_col = "logfoldchanges"
+            log.warning(f"Sort key '{sort_by_col}' not found. Falling back to '{fallback_col}'.")
+            sort_by_col = fallback_col
+
+        log.info(f"Selecting top {keep_top_n} genes per group, sorted by '{sort_by_col}'.")
+        parts = []
+        for g in filtered_df["group"].unique():
+            sub = filtered_df[filtered_df["group"] == g].sort_values(
+                sort_by_col, ascending=False
             )
-            top_per_group.append(top_group)
+            parts.append(sub.head(keep_top_n))
+        filtered_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
-        if top_per_group:
-            filtered_df = pd.concat(top_per_group, ignore_index=True)
-        else:
-            filtered_df = pd.DataFrame()  # Handle case where no groups have genes left
-
-    # --- 5. Store Results ---
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
-        key_added
-    ] = filtered_df
+    # --- Store results + params ---
+    root[key_added] = filtered_df
+    root[f"{key_added}_params"] = config.to_dict()
     log.info(
-        f"Final filtered markers: {len(filtered_df)} genes stored in .uns['sclucid']['analysis']['de']['{key_added}']"
+        f"Final filtered markers: {len(filtered_df)} rows -> .uns['sclucid']['analysis']['de']['{key_added}']"
     )
-
     return filtered_df
 
 
 def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
     """
     Compare two groups (e.g., cell types or conditions) for DE genes using a config object.
+    Improvements:
+    - Unify pct scale to 0–1 before applying thresholds.
+    - More explicit up/down selection avoiding tail() pitfalls.
+    - Store params for reproducibility.
     """
-    # --- 1. Unpack parameters from config ---
     groupby = config.groupby
     group1 = config.group1
     group2 = config.group2
     key_added = config.key_added or f"compare_{group1}_vs_{group2}".replace(" ", "_")
 
-    log.info(
-        f"Comparing DE genes between '{group1}' and '{group2}' from column '{groupby}'."
-    )
+    log.info(f"Comparing DE genes between '{group1}' and '{group2}' from '{groupby}'.")
 
-    # --- 2. Subset data and run DE ---
-    # Use a view and a temporary column to avoid large data copies
+    # --- Subset and run DE ---
     adata_view = adata[adata.obs[groupby].isin([group1, group2])]
 
-    # Create a temporary AnnData for DE to avoid modifying the view's .obs
     temp_adata = sc.AnnData(
         X=adata_view.X, obs=adata_view.obs.copy(), var=adata_view.var
     )
@@ -298,7 +363,7 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
     sc.tl.rank_genes_groups(
         temp_adata,
         groupby="_compare_groups",
-        groups=["group1"],  # Compare group1 against group2 as reference
+        groups=["group1"],
         reference="group2",
         method=config.method,
         layer=config.layer,
@@ -306,39 +371,59 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
         pts=True,
     )
 
-    # --- 3. Format and Filter Results ---
     results_df = sc.get.rank_genes_groups_df(temp_adata, group="group1")
-    results_df.rename(columns={"names": "gene"}, inplace=True)
+    # Harmonize pct column
+    if "pct_nz_group" not in results_df.columns and "pct_nz" in results_df.columns:
+        results_df = results_df.rename(columns={"pct_nz": "pct_nz_group"})
+        log.warning("Renamed 'pct_nz' to 'pct_nz_group' for compatibility.")
 
-    # Apply filters
-    filt = (
-        (results_df["logfoldchanges"].abs() >= config.min_log2fc)
-        & (results_df["pvals_adj"] <= config.max_padj)
-        & (results_df["pct_nz_group"] / 100 >= config.min_in_group_pct)
+    # --- Scale to fraction for filtering ---
+    def _is_0_to_1(s: pd.Series) -> bool:
+        s = s.dropna()
+        return s.empty or ((s.min() >= 0.0) and (s.max() <= 1.0))
+
+    def _to_frac(s: pd.Series) -> pd.Series:
+        if _is_0_to_1(s):
+            return s
+        return s.clip(lower=0, upper=100) / 100.0
+
+    in_frac = _to_frac(
+        results_df.get("pct_nz_group", pd.Series(index=results_df.index, dtype=float))
     )
 
+    # --- Apply thresholds ---
+    filt = (
+        (results_df["logfoldchanges"].abs() >= float(config.min_log2fc))
+        & (results_df["pvals_adj"] <= float(config.max_padj))
+        & (in_frac >= float(config.min_in_group_pct))
+    )
     filtered_results = results_df[filt].copy()
 
-    # Sort and take top N
-    filtered_results.sort_values("logfoldchanges", ascending=False, inplace=True)
-    upregulated = filtered_results[filtered_results["logfoldchanges"] > 0].head(
+    # --- Split upregulated/downregulated and take top N by magnitude ---
+    filtered_results = filtered_results.sort_values("logfoldchanges", ascending=False)
+    up = filtered_results[filtered_results["logfoldchanges"] > 0].head(
         config.n_top_genes
     )
-    downregulated = filtered_results[filtered_results["logfoldchanges"] < 0].tail(
-        config.n_top_genes
+    down = (
+        filtered_results[filtered_results["logfoldchanges"] < 0]
+        .sort_values("logfoldchanges", ascending=True)  # most negative first
+        .head(config.n_top_genes)
     )
-    final_results = pd.concat([upregulated, downregulated], ignore_index=True)
+    final_results = pd.concat([up, down], ignore_index=True)
 
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
-        key_added
-    ] = final_results
+    root = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("de", {})
+    )
+    root[key_added] = final_results
+    root[f"{key_added}_params"] = config.to_dict()
     log.info(
-        f"Found {len(final_results)} DE genes. Stored in .uns['...']['{key_added}']"
+        f"Found {len(final_results)} DE genes. Stored at .uns['...']['{key_added}']."
     )
 
-    # --- 4. Volcano Plot ---
+    # --- Volcano plot (unchanged aesthetics) ---
     if config.plot:
-        # ... (Volcano plot logic remains largely the same, but uses the config) ...
         plt.figure(figsize=(10, 7))
         plt.scatter(
             results_df["logfoldchanges"],
@@ -350,24 +435,16 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
             rasterized=True,
         )
         plt.scatter(
-            final_results[final_results["logfoldchanges"] > 0]["logfoldchanges"],
-            -np.log10(
-                final_results[final_results["logfoldchanges"] > 0]["pvals_adj"].clip(
-                    1e-300
-                )
-            ),
+            up["logfoldchanges"],
+            -np.log10(up["pvals_adj"].clip(1e-300)),
             alpha=0.7,
             s=30,
             color="red",
             label=f"Higher in {group1}",
         )
         plt.scatter(
-            final_results[final_results["logfoldchanges"] < 0]["logfoldchanges"],
-            -np.log10(
-                final_results[final_results["logfoldchanges"] < 0]["pvals_adj"].clip(
-                    1e-300
-                )
-            ),
+            down["logfoldchanges"],
+            -np.log10(down["pvals_adj"].clip(1e-300)),
             alpha=0.7,
             s=30,
             color="blue",
@@ -397,29 +474,26 @@ def compare_conditions(
 ) -> pd.DataFrame:
     """
     Compare two conditions within a specific group using a config object.
+    Improvement:
+    - Store params for reproducibility.
     """
-    # Unpack parameters
     groupby = config.groupby
     group_name = config.group_name
     condition_key = config.condition_key
 
     log.info(
-        f"Comparing conditions '{config.condition1}' vs '{config.condition2}' within cell group '{group_name}'."
+        f"Comparing conditions '{config.condition1}' vs '{config.condition2}' within '{group_name}'."
     )
 
-    # --- 1. Subset Data ---
     if group_name not in adata.obs[groupby].unique():
         raise ValueError(f"Group '{group_name}' not found in adata.obs['{groupby}']")
     adata_subset = adata[adata.obs[groupby] == group_name].copy()
 
-    # --- 2. Prepare and run compare_groups ---
-    # Use the nested config object for the comparison
     comp_config = config.comparison_params
-    comp_config.groupby = condition_key  # Set the correct groupby for the subset
+    comp_config.groupby = condition_key
     comp_config.group1 = config.condition1
     comp_config.group2 = config.condition2
 
-    # Set a descriptive key_added if not provided
     if config.key_added is None:
         safe_group = group_name.replace(" ", "_").replace("/", "_")
         comp_config.key_added = (
@@ -430,13 +504,14 @@ def compare_conditions(
 
     results_df = compare_groups(adata_subset, config=comp_config)
 
-    # Store results back into the original adata object for global context
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
-        comp_config.key_added
-    ] = results_df
-    log.info(
-        f"Stored condition comparison results in original adata.uns['...']['{comp_config.key_added}']"
+    root = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("de", {})
     )
+    root[comp_config.key_added] = results_df
+    root[f"{comp_config.key_added}_params"] = config.to_dict()
+    log.info(f"Stored condition comparison at .uns['...']['{comp_config.key_added}']")
 
     return results_df
 
@@ -456,27 +531,60 @@ def get_conserved_markers(
     key_added: Optional[str] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
-    Find marker genes for a group conserved across multiple conditions.
-    Returns dict: group -> DataFrame
+    Find markers for a group that are conserved across multiple conditions.
+    Improvements:
+    - Unify pct scale (0–1).
+    - Store per-condition detail alongside aggregates.
+    - More informative logging.
     """
     if key_added is None:
         key_added = f"conserved_markers_{groupby}_{condition_key}"
-    conditions = adata.obs[condition_key].cat.categories
-    groups = adata.obs[groupby].cat.categories
+
+    if condition_key not in adata.obs.columns or groupby not in adata.obs.columns:
+        raise KeyError("Both 'groupby' and 'condition_key' must exist in adata.obs.")
+
+    if pd.api.types.is_categorical_dtype(adata.obs[condition_key]):
+        conditions = list(adata.obs[condition_key].cat.categories)
+    else:
+        conditions = list(pd.unique(adata.obs[condition_key]))
+
+    if pd.api.types.is_categorical_dtype(adata.obs[groupby]):
+        groups = list(adata.obs[groupby].cat.categories)
+    else:
+        groups = list(pd.unique(adata.obs[groupby]))
+
     if min_conditions is None:
         min_conditions = max(1, len(conditions) - 1)
-    conserved_markers = {}
+
+    def _is_0_to_1(s: pd.Series) -> bool:
+        s = s.dropna()
+        return s.empty or ((s.min() >= 0.0) and (s.max() <= 1.0))
+
+    def _to_frac(s: pd.Series) -> pd.Series:
+        if _is_0_to_1(s):
+            return s
+        return s.clip(lower=0, upper=100) / 100.0
+
+    conserved_markers: Dict[str, pd.DataFrame] = {}
+    per_group_details: Dict[str, pd.DataFrame] = {}
+
     for group in groups:
         markers_per_condition = []
-        for condition in conditions:
+        for cond in conditions:
             subset = adata[
-                (adata.obs[groupby] == group) & (adata.obs[condition_key] == condition)
+                (adata.obs[groupby] == group) & (adata.obs[condition_key] == cond)
             ]
             if subset.n_obs < min_cells:
+                log.info(
+                    f"Skip group '{group}' in condition '{cond}': n_cells={subset.n_obs} < {min_cells}"
+                )
                 continue
-            temp_adata = adata[adata.obs[condition_key] == condition].copy()
-            if group not in temp_adata.obs[groupby].cat.categories:
+
+            temp_adata = adata[adata.obs[condition_key] == cond].copy()
+            # Ensure group exists within this condition subset
+            if group not in temp_adata.obs[groupby].unique():
                 continue
+
             sc.tl.rank_genes_groups(
                 temp_adata,
                 groupby=groupby,
@@ -487,22 +595,38 @@ def get_conserved_markers(
                 use_raw=use_raw,
                 pts=True,
             )
+
             df = sc.get.rank_genes_groups_df(temp_adata, group=group)
+            if "pct_nz_group" not in df.columns and "pct_nz" in df.columns:
+                df = df.rename(columns={"pct_nz": "pct_nz_group"})
+            # Unify to fraction
+            in_frac = _to_frac(
+                df.get("pct_nz_group", pd.Series(index=df.index, dtype=float))
+            )
+
             df = df[
-                (df["logfoldchanges"] >= min_log2fc)
-                & (df["pvals_adj"] <= max_padj)
-                & (df["pct_nz_group"] / 100 >= min_in_group_pct)
-            ]
+                (df["logfoldchanges"] >= float(min_log2fc))
+                & (df["pvals_adj"] <= float(max_padj))
+                & (in_frac >= float(min_in_group_pct))
+            ].copy()
             if df.empty:
                 continue
-            df["condition"] = condition
+            df["condition"] = cond
             markers_per_condition.append(df)
+
         if len(markers_per_condition) < min_conditions:
+            log.info(
+                f"Group '{group}': insufficient conditions with markers ({len(markers_per_condition)} < {min_conditions})."
+            )
             continue
-        full_df = pd.concat(markers_per_condition)
+
+        full_df = pd.concat(markers_per_condition, ignore_index=True)
+        per_group_details[group] = full_df.copy()
+
         gene_counts = full_df.groupby("names").size()
         conserved_genes = gene_counts[gene_counts >= min_conditions].index.tolist()
         conserved_df = full_df[full_df["names"].isin(conserved_genes)]
+
         agg_df = (
             conserved_df.groupby("names")
             .agg(
@@ -517,7 +641,28 @@ def get_conserved_markers(
             .sort_values("mean_log2fc", ascending=False)
         )
         conserved_markers[group] = agg_df
-    adata.uns["sclucid"]["analysis"]["de"][key_added] = conserved_markers
+
+    root = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("de", {})
+    )
+    root[key_added] = {
+        "aggregates": conserved_markers,
+        "details": per_group_details,
+        "params": {
+            "groupby": groupby,
+            "condition_key": condition_key,
+            "method": method,
+            "min_cells": min_cells,
+            "min_conditions": min_conditions,
+            "min_log2fc": min_log2fc,
+            "max_padj": max_padj,
+            "min_in_group_pct": min_in_group_pct,
+            "layer": layer,
+            "use_raw": use_raw,
+        },
+    }
     return conserved_markers
 
 
@@ -530,17 +675,19 @@ def run_enrichment(
     config: EnrichmentConfig,
 ) -> Dict[str, pd.DataFrame]:
     """
-    Enrichment analysis for each group using GSEApy, driven by a configuration object.
-    Supports online (Enrichr) and offline (local GMT files) modes.
+    Run enrichment for each group using GSEApy.
+    Improvements:
+    - Flexible marker ranking (scores preferred if available).
+    - Standardize result column names (Term, Adjusted P-value) to ease downstream usage.
+    - Record the gene list used per group for reproducibility.
+    - Preserve group order from adata.obs[groupby] if categorical.
     """
-    # Unpack parameters from the config object
     de_key = config.de_key
     mode = config.mode
     organism = config.organism
-    if mode == "online":
-        gene_sets_to_use = config.gene_sets_online
-    else:  # offline mode
-        gene_sets_to_use = config.gene_sets_offline
+    gene_sets_to_use = (
+        config.gene_sets_online if mode == "online" else config.gene_sets_offline
+    )
     gmt_version = config.gmt_version
     custom_gene_sets = config.custom_gene_sets
     n_top_genes = config.n_top_genes
@@ -551,44 +698,44 @@ def run_enrichment(
     save_dir = config.save_dir
     n_plot_terms = config.n_plot_terms
 
-    log.info(f"Running enrichment analysis for '{groupby}' groups in '{mode}' mode.")
+    log.info(f"Running enrichment for '{groupby}' in '{mode}' mode.")
 
-    de_results_key = (
-        de_key  # Assumes de_key is the full key, e.g., 'rank_genes_groups_filtered_df'
-    )
-    if (
-        "sclucid" in adata.uns
-        and "analysis" in adata.uns["sclucid"]
-        and "de" in adata.uns["sclucid"]["analysis"]
-        and de_results_key in adata.uns["sclucid"]["analysis"]["de"]
-    ):
-        marker_df = adata.uns["sclucid"]["analysis"]["de"][de_results_key]
-    else:
+    root = adata.uns.get("sclucid", {}).get("analysis", {}).get("de", {})
+    if de_key not in root:
         raise KeyError(
-            f"DE results not found at .uns['sclucid']['analysis']['de']['{de_results_key}']. Run find_markers/filter_markers first."
+            f"DE results not found at .uns['sclucid']['analysis']['de']['{de_key}']. Run find_markers/filter_markers first."
+        )
+    marker_df = root[de_key]
+    if marker_df.empty:
+        log.warning(
+            "Marker DataFrame is empty; enrichment will be skipped for all groups."
+        )
+        marker_df = pd.DataFrame(columns=["group", "names", "logfoldchanges"])
+
+    # Determine group order
+    if groupby in adata.obs and pd.api.types.is_categorical_dtype(adata.obs[groupby]):
+        group_order = list(adata.obs[groupby].cat.categories)
+    else:
+        group_order = (
+            list(pd.unique(marker_df["group"])) if "group" in marker_df.columns else []
         )
 
-    clusters = marker_df["group"].unique()
     background_genes = list(adata.var_names)
-
     if plot and save_dir:
         Path(save_dir).mkdir(parents=True, exist_ok=True)
 
-    enrichment_results = {}
-
-    # --- Prepare gene_sets for analysis ---
-    if isinstance(gene_sets_to_use, str):
-        gene_sets_to_use = [gene_sets_to_use]
-
-    # --- Load gene set file(s) for offline mode ---
+    # Prepare gene sets for offline
     gmt_files_to_run = {}
     if mode == "offline":
         if custom_gene_sets and Path(custom_gene_sets).is_file():
             gmt_files_to_run = {"custom": custom_gene_sets}
-            log.info(f"Using single custom gene set file from: {custom_gene_sets}")
+            log.info(f"Using custom gene set file: {custom_gene_sets}")
         else:
-            gmt_version = config.gmt_version
-            for gs_category in gene_sets_to_use:
+            for gs_category in (
+                gene_sets_to_use
+                if isinstance(gene_sets_to_use, list)
+                else [gene_sets_to_use]
+            ):
                 try:
                     filename = f"{organism.lower()}_{gs_category}_{gmt_version}.gmt"
                     file_path = resources.files("scLucid").joinpath(
@@ -604,22 +751,63 @@ def run_enrichment(
                 raise FileNotFoundError(
                     "No valid gene set files found for offline mode."
                 )
-            log.info(
-                f"Loaded {len(gmt_files_to_run)} local gene set(s) for offline analysis: {list(gmt_files_to_run.keys())}"
-            )
 
-    for cluster in clusters:
+    # Helper to standardize enrichment result columns
+    def _standardize_enrichment_cols(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        d = df.copy()
+        # Standardize term column
+        for c in ["Term", "term_name", "Name", "Term name"]:
+            if c in d.columns:
+                if c != "Term":
+                    d = d.rename(columns={c: "Term"})
+                break
+        # Standardize adjusted p column
+        for c in [
+            "Adjusted P-value",
+            "Adjusted P-value (Benjamini-Hochberg)",
+            "Adj P-value",
+            "FDR",
+            "qvalue",
+            "FDR q-value",
+            "padj",
+        ]:
+            if c in d.columns:
+                if c != "Adjusted P-value":
+                    d = d.rename(columns={c: "Adjusted P-value"})
+                break
+        return d
+
+    # Choose ranking column for top gene selection
+    rank_col = "scores" if "scores" in marker_df.columns else "logfoldchanges"
+
+    enrichment_results: Dict[str, pd.DataFrame] = {}
+    enrichment_meta: Dict[str, Dict[str, Union[List[str], str, int]]] = {}
+
+    for cluster in group_order:
         try:
+            sub = marker_df[marker_df["group"] == cluster]
+            if sub.empty:
+                log.info(f"Skipping group '{cluster}': no markers.")
+                enrichment_results[cluster] = pd.DataFrame()
+                continue
+
             gene_list = (
-                marker_df[marker_df["group"] == cluster]
-                .sort_values("logfoldchanges", ascending=False)["names"]
+                sub.sort_values(rank_col, ascending=False)["names"]
                 .head(n_top_genes)
+                .astype(str)
                 .tolist()
             )
+            enrichment_meta[cluster] = {
+                "n_input_genes": len(gene_list),
+                "rank_col": rank_col,
+                "de_key": de_key,
+            }
 
             if len(gene_list) < min_genes_for_enrichment:
                 log.warning(
-                    f"Skipping cluster {cluster}: Not enough genes ({len(gene_list)}) for enrichment."
+                    f"Skipping '{cluster}': not enough genes ({len(gene_list)} < {min_genes_for_enrichment})."
                 )
                 enrichment_results[cluster] = pd.DataFrame()
                 continue
@@ -634,7 +822,7 @@ def run_enrichment(
                     cutoff=max_padj,
                 )
                 results = enr.results
-            else:  # Offline mode
+            else:
                 all_offline_results = []
                 for category, gmt_file in gmt_files_to_run.items():
                     enr = gp.enrich(
@@ -644,11 +832,16 @@ def run_enrichment(
                         outdir=None,
                         cutoff=max_padj,
                     )
-                    # Add the category to the results for clarity
-                    enr.results["Gene_set"] = category
-                    all_offline_results.append(enr.results)
-                results = pd.concat(all_offline_results, ignore_index=True)
+                    res = enr.results.copy()
+                    res["Gene_set"] = category
+                    all_offline_results.append(res)
+                results = (
+                    pd.concat(all_offline_results, ignore_index=True)
+                    if all_offline_results
+                    else pd.DataFrame()
+                )
 
+            results = _standardize_enrichment_cols(results)
             sorted_results = (
                 results.sort_values("Adjusted P-value")
                 if not results.empty
@@ -659,10 +852,9 @@ def run_enrichment(
             if plot and not sorted_results.empty:
                 top_pathways = sorted_results.head(n_plot_terms)
                 plt.figure(figsize=(10, max(4, len(top_pathways) * 0.4)))
-                # Truncate long term names for better visualization
                 y_labels = [
-                    term[:70] + "..." if len(term) > 70 else term
-                    for term in top_pathways["Term"]
+                    t[:70] + "..." if isinstance(t, str) and len(t) > 70 else t
+                    for t in top_pathways["Term"]
                 ]
                 plt.barh(
                     y_labels,
@@ -686,12 +878,15 @@ def run_enrichment(
             log.warning(f"Enrichment failed for group '{cluster}': {str(e)}")
             enrichment_results[cluster] = pd.DataFrame()
 
+    # Store results + params + meta
+    out = {
+        "results": enrichment_results,
+        "params": config.to_dict(),
+        "meta": enrichment_meta,
+    }
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
         key_added
-    ] = {
-        "results": enrichment_results,
-        "params": config.to_dict(),  # Store the full config for reproducibility
-    }
+    ] = out
     return enrichment_results
 
 
@@ -716,50 +911,81 @@ def visualize_markers(
     **kwargs,
 ) -> None:
     """
-    Visualize marker genes across groups using various plot types.
+    Visualize marker genes across groups with several plot types.
+    Improvements:
+    - Robust gene extraction from df/dict/list.
+    - Safer default figsize with min/max bounds.
     """
-    gene_list = []
+    gene_list: List[str] = []
+
     if isinstance(markers, pd.DataFrame):
-        if "group" not in markers.columns or "names" not in markers.columns:
-            raise ValueError("DataFrame must contain 'group' and 'names' columns")
+        if "names" not in markers.columns:
+            # Try to remap common alternatives
+            for alt in ("gene", "Gene", "feature", "symbol"):
+                if alt in markers.columns:
+                    markers = markers.rename(columns={alt: "names"})
+                    log.info(f"Renamed '{alt}' to 'names' for plotting.")
+                    break
+        if "group" not in markers.columns:
+            raise ValueError(
+                "DataFrame must contain 'group' and 'names' columns for grouped visualization."
+            )
+
         if n_genes_per_group > 0:
-            for group in markers["group"].unique():
-                group_markers = markers[markers["group"] == group]
+            for g in markers["group"].unique():
+                group_markers = markers[markers["group"] == g]
                 if "logfoldchanges" in group_markers.columns:
                     group_markers = group_markers.sort_values(
                         "logfoldchanges", ascending=False
                     )
+                elif "scores" in group_markers.columns:
+                    group_markers = group_markers.sort_values("scores", ascending=False)
                 top_genes = group_markers["names"].head(n_genes_per_group).tolist()
                 gene_list.extend(top_genes)
         else:
             gene_list = markers["names"].tolist()
+
     elif isinstance(markers, dict):
         if n_genes_per_group > 0:
             for genes in markers.values():
-                gene_list.extend(genes[:n_genes_per_group])
+                gene_list.extend(list(genes)[:n_genes_per_group])
         else:
             for genes in markers.values():
-                gene_list.extend(genes)
+                gene_list.extend(list(genes))
+
     elif isinstance(markers, (list, tuple)):
         gene_list = list(markers)
         if groupby is None:
-            raise ValueError("groupby must be specified when markers is a list")
+            raise ValueError("groupby must be specified when markers is a list.")
     else:
-        raise TypeError("markers must be a DataFrame, dictionary, or list")
-    gene_list = list(dict.fromkeys(gene_list))  # Remove duplicates
-    # Remove genes not in dataset
-    gene_list = [gene for gene in gene_list if gene in adata.var_names]
+        raise TypeError("markers must be a DataFrame, dictionary, or list.")
+
+    # Deduplicate and ensure in var_names
+    gene_list = [g for g in dict.fromkeys(gene_list) if g in adata.var_names]
     if not gene_list:
-        raise ValueError("No valid genes found for visualization")
-    # Plot
+        raise ValueError("No valid genes found for visualization.")
+
+    # Auto figsize
     if figsize is None:
         n_groups = (
             len(adata.obs[groupby].cat.categories)
-            if groupby and groupby in adata.obs
+            if groupby
+            and groupby in adata.obs
+            and pd.api.types.is_categorical_dtype(adata.obs[groupby])
             else 1
         )
         n_genes = len(gene_list)
-        figsize = (max(6, min(12, n_genes * 0.5)), max(4, min(10, n_groups * 0.3)))
+        width = max(6, min(16, n_genes * 0.5))
+        height = max(4, min(12, n_groups * 0.4))
+        # If swapping axes, flip heuristic a bit
+        if swap_axes:
+            width, height = (
+                max(6, min(16, n_groups * 0.5)),
+                max(4, min(12, n_genes * 0.4)),
+            )
+        figsize = (width, height)
+
+    # Plot
     if plot_type == "dotplot":
         sc.pl.dotplot(
             adata,
@@ -824,6 +1050,7 @@ def visualize_markers(
         )
     else:
         raise ValueError(f"Unknown plot type: {plot_type}")
+
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         log.info(f"Saved visualization to {save_path}")
@@ -837,37 +1064,35 @@ def characterize_clusters(
     key_added: str = "cluster_characterization",
 ) -> AnnData:
     """
-    Run DE and enrichment analysis for each cluster to gather evidence for annotation.
-    This function is now a high-level wrapper around find_markers and run_enrichment.
+    Run DE and enrichment for each cluster and collect evidence for annotation.
+    Improvements:
+    - Store used keys and params for reproducibility.
     """
     log.info(f"Characterizing clusters in '{groupby}'...")
 
-    # --- 1. Run Differential Expression ---
     if de_config is None:
-        de_config = DifferentialConfig(
-            groupby=groupby, use_raw=True
-        )  # Sensible defaults
+        de_config = DifferentialConfig(groupby=groupby, use_raw=True)
     else:
-        de_config.groupby = groupby  # Ensure groupby is consistent
+        de_config.groupby = groupby
 
     de_key = de_config.key_added or "rank_genes_groups"
     de_df_key = f"{de_key}_df"
     find_markers(adata, config=de_config)
 
-    # --- 2. Run Enrichment Analysis ---
-    # This now leverages our robust, offline-capable run_enrichment function
     if enrichment_config is None:
-        # Create a default config that points to the DE results we just generated
         enrichment_config = EnrichmentConfig(de_key=de_df_key)
     else:
-        enrichment_config.de_key = de_df_key  # Ensure it uses the correct DE results
+        enrichment_config.de_key = de_df_key
 
     enrichment_results = run_enrichment(
         adata, groupby=groupby, config=enrichment_config
     )
 
-    # --- 3. Consolidate Results ---
-    clusters = adata.obs[groupby].cat.categories
+    clusters = (
+        adata.obs[groupby].cat.categories
+        if pd.api.types.is_categorical_dtype(adata.obs[groupby])
+        else pd.unique(adata.obs[groupby])
+    )
     characterization_results = {}
     de_df = adata.uns["sclucid"]["analysis"]["de"][de_df_key]
 
@@ -877,10 +1102,17 @@ def characterize_clusters(
             "enrichment": enrichment_results.get(cluster, pd.DataFrame()),
         }
 
-    adata.uns[key_added] = characterization_results
-    log.info(
-        f"Cluster characterization complete. Results stored in adata.uns['{key_added}']"
-    )
+    adata.uns[key_added] = {
+        "results": characterization_results,
+        "params": {
+            "groupby": groupby,
+            "de_df_key": de_df_key,
+            "enrichment_key": enrichment_config.key_added,
+            "de_params": de_config.to_dict(),
+            "enrichment_params": enrichment_config.to_dict(),
+        },
+    }
+    log.info(f"Cluster characterization complete -> adata.uns['{key_added}']")
     return adata
 
 
@@ -897,98 +1129,171 @@ def summarize_markers_and_enrichment(
     n_markers: int = 10,
     n_terms: int = 5,
     summary_file: Optional[str] = None,
+    sort_markers_by: str = "logfoldchanges",  # or "scores"
 ) -> Dict[str, str]:
     """
-    Export each group's top marker and enrichment summary (markdown), for AI/manual annotation.
+    Build per-group Markdown summaries of top markers and enriched terms.
 
-    This function can now automatically retrieve marker and enrichment data from adata.uns
-    if they are not provided directly.
-
-    Args:
-        adata: The AnnData object.
-        groupby: The key in adata.obs for which the analysis was run.
-        markers_df: (Optional) A DataFrame with marker genes. If None, tries to load from adata.uns.
-        enrichment_dict: (Optional) A dictionary with enrichment results. If None, tries to load from adata.uns.
-        markers_key: The key for the marker DataFrame in adata.uns['sclucid']['analysis']['de'].
-        enrichment_key: The key for the enrichment results in adata.uns['sclucid']['analysis']['de'].
-        n_markers: Number of top markers to include in the summary.
-        n_terms: Number of top enrichment terms to include.
-        summary_file: (Optional) Path to save the markdown summary file.
-
-    Returns:
-        A dictionary mapping each cluster/group to its markdown summary string.
+    Improvements:
+    - Robust auto-retrieval of markers and enrichment from .uns, with checks.
+    - Repairs missing or inconsistent 'group' column in markers_df when possible.
+    - Stable group ordering (categorical order if available).
+    - Flexible sorting of markers by 'logfoldchanges' or 'scores', with fallback.
+    - Gracefully handles missing enrichment results per group.
     """
-    # --- Auto-retrieve markers if not provided ---
+    # 1) Load markers
     if markers_df is None:
         try:
-            log.info(f"Attempting to auto-retrieve markers from .uns using key: {markers_key}")
-            markers_df = adata.uns['sclucid']['analysis']['de'][markers_key]
+            log.info(f"Auto-retrieving markers from .uns using key: {markers_key}")
+            markers_df = adata.uns["sclucid"]["analysis"]["de"][markers_key]
         except KeyError:
-            raise KeyError(f"Marker DataFrame not found at .uns['sclucid']['analysis']['de']['{markers_key}'].")
-    
-    # --- Check if the markers_df is empty BEFORE using it ❗ ---
+            raise KeyError(
+                f"Marker DataFrame not found at .uns['sclucid']['analysis']['de']['{markers_key}']."
+            )
+    markers_df = markers_df.copy()
+
     if markers_df.empty:
-        log.warning("The provided or retrieved 'markers_df' is empty. No summary can be generated.")
-        log.warning("This may be because your filtering criteria were too stringent.")
+        log.warning(
+            "The provided/retrieved markers_df is empty. No summary can be generated."
+        )
         if summary_file:
-            with open(summary_file, "w") as f:
-                f.write("# Marker and Enrichment Summary\n\nNo valid marker genes were found after filtering.")
+            Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
+            with open(summary_file, "w", encoding="utf-8") as f:
+                f.write(
+                    "# Marker and Enrichment Summary\n\nNo valid marker genes were found."
+                )
+            log.info(f"Empty summary written to {summary_file}")
         return {}
 
-    # If enrichment_dict is not provided, do the same.
+    # 2) Ensure required columns
+    if "names" not in markers_df.columns:
+        for alt in ("gene", "Gene", "feature", "symbol"):
+            if alt in markers_df.columns:
+                markers_df["names"] = markers_df[alt]
+                log.info(f"Mapped '{alt}' to 'names' for markers_df.")
+                break
+        if "names" not in markers_df.columns:
+            raise KeyError("markers_df must contain a 'names' column (gene symbols).")
+
+    if (
+        "logfoldchanges" not in markers_df.columns
+        and "scores" not in markers_df.columns
+    ):
+        raise KeyError(
+            "markers_df must contain at least one of ['logfoldchanges', 'scores']."
+        )
+
+    if "group" not in markers_df.columns:
+        log.warning(
+            "'group' column missing in markers_df. Assigning a pseudo-group '__ALL__'."
+        )
+        markers_df["group"] = "__ALL__"
+
+    # 3) Load enrichment
     if enrichment_dict is None:
+        enrichment_dict = {}
         try:
             log.info(
-                f"Attempting to auto-retrieve enrichment results from .uns using key: {enrichment_key}"
+                f"Auto-retrieving enrichment from .uns using key: {enrichment_key}"
             )
-            enrichment_dict = adata.uns["sclucid"]["analysis"]["de"][enrichment_key][
-                "results"
-            ]
+            enr_store = adata.uns["sclucid"]["analysis"]["de"].get(enrichment_key, {})
+            if isinstance(enr_store, dict) and "results" in enr_store:
+                enrichment_dict = enr_store["results"]
+            elif isinstance(enr_store, dict) and all(
+                isinstance(v, pd.DataFrame) for v in enr_store.values()
+            ):
+                enrichment_dict = enr_store
         except KeyError:
             log.warning(
-                f"Enrichment dictionary not found at .uns['sclucid']['analysis']['de']['{enrichment_key}']. Summary will not include pathways."
+                f"No enrichment found at .uns['sclucid']['analysis']['de']['{enrichment_key}']."
             )
-            enrichment_dict = {}  # Use an empty dict to prevent errors
 
-    summary = {}
-    # Ensure groups are taken from the provided groupby column for consistency
-    groups = (
-        adata.obs[groupby].cat.categories
-        if groupby in adata.obs
-        and pd.api.types.is_categorical_dtype(adata.obs[groupby])
-        else adata.obs[groupby].unique()
+    # 4) Stable group order
+    if groupby not in adata.obs.columns:
+        raise KeyError(f"'{groupby}' not found in adata.obs.")
+    if pd.api.types.is_categorical_dtype(adata.obs[groupby]):
+        group_order = list(adata.obs[groupby].cat.categories)
+    else:
+        group_order = list(pd.unique(adata.obs[groupby]))
+    # Append extra groups present in markers_df but not in obs
+    extra_groups = [g for g in markers_df["group"].unique() if g not in group_order]
+    if extra_groups:
+        log.warning(
+            f"Markers contain {len(extra_groups)} group(s) not present in adata.obs['{groupby}']: {extra_groups}. "
+            "They will be appended to the end."
+        )
+        group_order += extra_groups
+
+    # 5) Sorting preference
+    sort_col = (
+        sort_markers_by
+        if sort_markers_by in markers_df.columns
+        else ("scores" if "scores" in markers_df.columns else "logfoldchanges")
     )
-
-    lines = []
-    for g in groups:
-        # Gracefully handle cases where a group might not be in the marker df (e.g., if filtered out)
-        if g not in markers_df["group"].unique():
-            continue
-
-        top_genes = (
-            markers_df[markers_df["group"] == g]
-            .sort_values("logfoldchanges", ascending=False)
-            .head(n_markers)["names"]
-            .tolist()
+    if sort_col != sort_markers_by:
+        log.info(
+            f"Requested sort column '{sort_markers_by}' not found; using '{sort_col}' instead."
         )
 
-        enrichment_df_for_group = enrichment_dict.get(g, pd.DataFrame())
-        top_terms = (
-            enrichment_df_for_group.sort_values("Adjusted P-value")
-            .head(n_terms)["Term"]
-            .tolist()
-            if not enrichment_df_for_group.empty
-            else []
-        )
+    # 6) Build summaries
+    summaries: Dict[str, str] = {}
+    lines: List[str] = []
 
-        s = f"### Cluster {g}\n**Top Markers**: {', '.join(top_genes)}\n**Top Pathways**: {', '.join(top_terms)}"
-        summary[g] = s
+    for g in group_order:
+        mask = markers_df["group"] == g
+        group_markers = markers_df[mask] if mask.any() else markers_df
+
+        group_markers_sorted = group_markers.sort_values(
+            sort_col, ascending=False, kind="mergesort"
+        )
+        top_genes = group_markers_sorted["names"].head(n_markers).astype(str).tolist()
+
+        enr_df = pd.DataFrame()
+        if isinstance(enrichment_dict, dict):
+            enr_df = enrichment_dict.get(g, enrichment_dict.get(str(g), pd.DataFrame()))
+
+        top_terms: List[str] = []
+        if isinstance(enr_df, pd.DataFrame) and not enr_df.empty:
+            # Standardize likely columns
+            term_col = (
+                "Term"
+                if "Term" in enr_df.columns
+                else ("term_name" if "term_name" in enr_df.columns else None)
+            )
+            pcol = (
+                "Adjusted P-value"
+                if "Adjusted P-value" in enr_df.columns
+                else (
+                    "FDR"
+                    if "FDR" in enr_df.columns
+                    else ("qvalue" if "qvalue" in enr_df.columns else None)
+                )
+            )
+            if term_col and pcol:
+                top_terms = (
+                    enr_df.sort_values(pcol, ascending=True, kind="mergesort")[term_col]
+                    .head(n_terms)
+                    .astype(str)
+                    .tolist()
+                )
+
+        title = f"### Cluster {g}"
+        mk = f"**Top Markers**: {', '.join(top_genes) if top_genes else 'N/A'}"
+        pt = f"**Top Pathways**: {', '.join(top_terms) if top_terms else 'N/A'}"
+        s = f"{title}\n{mk}\n{pt}"
+
+        summaries[g] = s
         lines.append(s)
 
     if summary_file:
         Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
-        with open(summary_file, "w") as f:
-            f.write("\n\n---\n\n".join(lines))
+        content = (
+            "\n\n---\n\n".join(lines)
+            if lines
+            else "# Marker and Enrichment Summary\n\nNo results."
+        )
+        with open(summary_file, "w", encoding="utf-8") as f:
+            f.write(content)
         log.info(f"Marker + enrichment summaries exported to {summary_file}")
 
-    return summary
+    return summaries

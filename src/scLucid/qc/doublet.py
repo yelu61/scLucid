@@ -353,7 +353,12 @@ def _run_heuristic(
 
     # The ignore_coexpression_pairs logic can still be applied here if needed,
     # for example, to set scores of certain co-expressing cells to 0.
-
+    
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
+    adata.uns["sclucid"]["qc"]["doublet_params"]["heuristic_temp_norm"] = {
+        "used": True,
+        "use_raw": cfg.default_use_raw,
+    }
     return potential_doublets, lineage_scores_df, heuristic_confidence_score.fillna(0)
 
 
@@ -960,18 +965,22 @@ def predict_doublets(
 
     # === 4. MERGE RESULTS ===
     log.info("Merging algorithmic and heuristic scores for final prediction...")
-    adata.obs[FINAL_PRED_COL] = _merge_doublet_predictions(
+    merged_pred = _merge_doublet_predictions(
         adata,
         algorithm_score_col=algo_score_col,
         heuristic_score_col=HEURISTIC_SCORE_COL,
         strategy=cfg.merge_strategy,
         expected_rate=cfg.expected_doublet_rate,
     )
+    adata.obs[FINAL_PRED_COL] = merged_pred
 
-    # Store parameters for reproducibility
-    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["doublet_params"] = (
-        cfg.__dict__
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
+    adata.uns["sclucid"]["qc"]["doublet_params"].update({
+        "merge_strategy": cfg.merge_strategy,
+        "algorithm_weight": cfg.algorithm_weight,
+        "expected_doublet_rate": cfg.expected_doublet_rate,
+        "method": cfg.method,
+    })
 
     # === 5. SUMMARY STATISTICS ===
     log.info("\n" + "=" * 50)

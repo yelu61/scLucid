@@ -152,7 +152,7 @@ def _get_sample_specific_genes(
         )
         return []
     log.info(f"[HVG] Identifying sample-specific genes across {n_samples} groups...")
-    
+
     original_X = None
     temp_adata = adata
     try:
@@ -187,6 +187,7 @@ def _get_sample_specific_genes(
             temp_adata.X = original_X
         if "rank_genes_groups" in temp_adata.uns:
             del temp_adata.uns["rank_genes_groups"]
+
 
 def _to_savable_dict(d: dict) -> dict:
     """Recursively convert a dictionary to be h5ad-savable."""
@@ -229,7 +230,11 @@ def find_hvgs(
 
     # Extract parameters from the final config for use in the function
     force = kwargs.get("force", False)
-    report = kwargs.get("report", False)
+    report = (
+        active_config.report
+        if hasattr(active_config, "report")
+        else kwargs.get("report", False)
+    )
     plot = kwargs.get("plot", active_config.plot)
     save_dir = active_config.save_dir
     n_top_genes = active_config.n_top_genes
@@ -291,7 +296,9 @@ def find_hvgs(
                 sample_mask = adata.obs[sample_key] == sample
                 if sample_mask.sum() > 10:
                     sample_adata_view = adata[sample_mask, :]
-                    sample_adata = sc.AnnData(X=sample_adata_view.X, var=sample_adata_view.var)
+                    sample_adata = sc.AnnData(
+                        X=sample_adata_view.X, var=sample_adata_view.var
+                    )
                     sc.pp.highly_variable_genes(
                         sample_adata, n_top_genes=n_top_genes, inplace=True
                     )
@@ -610,9 +617,13 @@ def evaluate_hvg_stability(
     for i in range(n_bootstrap):
         if i % report_interval == 0:
             log.info(f"[HVG stability] Bootstrap iteration {i + 1}/{n_bootstrap}")
-        cell_indices = np.random.choice(adata.n_obs, size=n_cells_per_bootstrap, replace=False)
+        cell_indices = np.random.choice(
+            adata.n_obs, size=n_cells_per_bootstrap, replace=False
+        )
         bootstrap_adata_view = adata[cell_indices, :]
-        bootstrap_adata = sc.AnnData(X=bootstrap_adata_view.X, var=bootstrap_adata_view.var)
+        bootstrap_adata = sc.AnnData(
+            X=bootstrap_adata_view.X, var=bootstrap_adata_view.var
+        )
         find_hvgs(
             bootstrap_adata,
             HVGConfig(method=method, n_top_genes=n_top_genes, flavor=flavor),
