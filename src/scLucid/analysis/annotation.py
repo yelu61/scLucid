@@ -194,11 +194,17 @@ def annotate_clusters(
 ) -> AnnData:
     """
     Assign cell type labels to clusters using various evidence.
+
+    Enhancements:
+    - Robust to missing score columns and non-categorical cluster keys.
+    - Stable Unknown handling and category order preservation.
+    - Parameter trace including scanpy version and marker stats.
     """
     if copy:
         adata = adata.copy()
     if key_added is None:
         key_added = f"{cluster_key}_annotated"
+
     if isinstance(marker_config, str):
         mgr = Manager(marker_config)
     elif isinstance(marker_config, Manager):
@@ -206,6 +212,12 @@ def annotate_clusters(
     else:
         raise TypeError("marker_config must be a file path or Manager instance.")
     mgr.intersect_with(adata.raw if use_raw and adata.raw is not None else adata)
+
+    # Ensure categorical
+    if cluster_key not in adata.obs.columns:
+        raise KeyError(f"'{cluster_key}' not found in adata.obs.")
+    if not pd.api.types.is_categorical_dtype(adata.obs[cluster_key]):
+        adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
 
     # 1. Score-based
     def annotate_by_max_score():
@@ -218,13 +230,9 @@ def annotate_clusters(
         result = {}
         for cluster in means.index:
             best = means.loc[cluster].idxmax()
-            best_score = means.loc[cluster, best]
-            cell_type = (
-                best.removesuffix("_score")
-                if hasattr(str, "removesuffix")
-                else best.replace("_score", "")
-            )
-            result[cluster] = cell_type if best_score >= min_score else "Unknown"
+            best_score = float(means.loc[cluster, best])
+            cell_type = best[:-6] if best.endswith("_score") else best
+            result[str(cluster)] = cell_type if best_score >= min_score else "Unknown"
         return result
 
     # 2. Enrichment-based
@@ -238,15 +246,12 @@ def annotate_clusters(
         )
         markers_df = sc.get.rank_genes_groups_df(adata, key=f"rank_genes_{cluster_key}")
         result = {}
-        categories = (
-            adata.obs[cluster_key].cat.categories
-            if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
-            else pd.unique(adata.obs[cluster_key])
-        )
+        categories = list(adata.obs[cluster_key].cat.categories)
         for cluster in categories:
             genes = (
-                markers_df[markers_df["group"] == cluster]["names"]
+                markers_df.loc[markers_df["group"] == cluster, "names"]
                 .head(n_genes)
+                .astype(str)
                 .tolist()
             )
             best_score, best_type = -1.0, "Unknown"
@@ -257,7 +262,7 @@ def annotate_clusters(
                 overlap = len(set(genes) & set(cell.markers)) / denom
                 if overlap > best_score:
                     best_score, best_type = overlap, cell_type
-            result[cluster] = best_type if best_score >= min_score else "Unknown"
+            result[str(cluster)] = best_type if best_score >= min_score else "Unknown"
         return result
 
     # 3. Combined
@@ -276,16 +281,13 @@ def annotate_clusters(
             key_added=f"rank_genes_{cluster_key}",
         )
         markers_df = sc.get.rank_genes_groups_df(adata, key=f"rank_genes_{cluster_key}")
-        categories = (
-            adata.obs[cluster_key].cat.categories
-            if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
-            else pd.unique(adata.obs[cluster_key])
-        )
+        categories = list(adata.obs[cluster_key].cat.categories)
         result = {}
         for cluster in categories:
             genes = (
-                markers_df[markers_df["group"] == cluster]["names"]
+                markers_df.loc[markers_df["group"] == cluster, "names"]
                 .head(n_genes)
+                .astype(str)
                 .tolist()
             )
             combined_scores = {}
@@ -298,17 +300,19 @@ def annotate_clusters(
                 )
                 denom = max(1, len(cell.markers))
                 overlap_val = (
-                    len(set(genes) & set(cell.markers)) / denom if cell.markers else 0.0
+                    (len(set(genes) & set(cell.markers)) / denom)
+                    if cell.markers
+                    else 0.0
                 )
                 combined_scores[cell_type] = (
                     score_weight * score_val + enrichment_weight * overlap_val
                 )
             best_type = max(combined_scores, key=combined_scores.get)
             best_score = combined_scores[best_type]
-            result[cluster] = best_type if best_score >= min_score else "Unknown"
+            result[str(cluster)] = best_type if best_score >= min_score else "Unknown"
         return result
 
-    # Select annotation method
+    # Select method
     if method == "max_score":
         mapping = annotate_by_max_score()
     elif method == "enrichment":
@@ -318,22 +322,13 @@ def annotate_clusters(
     else:
         raise ValueError(f"Unknown annotation method: {method}")
 
-    # Assign
-    categories = (
-        adata.obs[cluster_key].cat.categories
-        if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
-        else pd.unique(adata.obs[cluster_key])
-    )
-    mapping = {str(k): v for k, v in mapping.items()}  # ensure str keys
-    adata.obs[key_added] = pd.Categorical(
-        adata.obs[cluster_key].astype(str).map(mapping)
-    )
-    if adata.obs[key_added].isnull().any():
-        adata.obs[key_added] = (
-            adata.obs[key_added].cat.add_categories("Unknown").fillna("Unknown")
-        )
+    # Assign labels
+    cluster_codes = adata.obs[cluster_key].astype(str)
+    assigned = cluster_codes.map(mapping)
+    assigned = assigned.fillna("Unknown")
+    adata.obs[key_added] = pd.Categorical(assigned)
 
-    # Save and plot
+    # Save and optional plot
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
@@ -343,6 +338,8 @@ def annotate_clusters(
         "score_weight": score_weight,
         "enrichment_weight": enrichment_weight,
         "mapping": mapping,
+        "scanpy_version": getattr(sc, "__version__", "unknown"),
+        "n_markers": {k: len(v.markers) for k, v in getattr(mgr, "CELLS", {}).items()},
     }
     if plot:
         if "X_umap" not in adata.obsm:
@@ -686,6 +683,10 @@ def evaluate_annotation(
 ) -> pd.DataFrame:
     """
     Evaluate annotation quality: marker coverage, specificity, confidence.
+
+    Enhancements:
+    - Guard against empty DE results or missing columns.
+    - Stable plotting and parameter trace saved to .uns.
     """
     if isinstance(marker_config, str):
         mgr = Manager(marker_config)
@@ -698,6 +699,12 @@ def evaluate_annotation(
             "Marker manager has no cell types. Evaluation may be uninformative."
         )
 
+    # Ensure cluster_key exists/categorical
+    if cluster_key not in adata.obs.columns:
+        raise KeyError(f"'{cluster_key}' not found in adata.obs.")
+    if not pd.api.types.is_categorical_dtype(adata.obs[cluster_key]):
+        adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
+
     mgr.intersect_with(adata)
     sc.tl.rank_genes_groups(
         adata,
@@ -707,24 +714,27 @@ def evaluate_annotation(
     )
     results = []
 
-    categories = (
-        adata.obs[cluster_key].cat.categories
-        if pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
-        else pd.unique(adata.obs[cluster_key])
-    )
+    categories = list(adata.obs[cluster_key].cat.categories)
     for cluster in categories:
         de_genes = sc.get.rank_genes_groups_df(
             adata, key=f"rank_genes_{cluster_key}", group=cluster
         )
-        if de_genes.empty or "pvals_adj" not in de_genes.columns:
-            log.warning(f"No DE genes or missing pvals_adj for cluster '{cluster}'.")
+        if (
+            de_genes.empty
+            or "pvals_adj" not in de_genes.columns
+            or "names" not in de_genes.columns
+        ):
+            log.warning(
+                f"No DE genes or required columns missing for cluster '{cluster}'."
+            )
             continue
-        sig_genes = set(de_genes[de_genes["pvals_adj"] < 0.05]["names"])
+        sig_genes = set(de_genes.loc[de_genes["pvals_adj"] < 0.05, "names"].astype(str))
 
         # Determine assigned type
-        assigned_series = adata.obs.loc[
-            adata.obs[cluster_key] == cluster, annotation_key
-        ].astype(str)
+        cluster_mask = adata.obs[cluster_key] == cluster
+        if not cluster_mask.any() or annotation_key not in adata.obs.columns:
+            continue
+        assigned_series = adata.obs.loc[cluster_mask, annotation_key].astype(str)
         if assigned_series.empty:
             continue
         assigned_type = assigned_series.value_counts().index[0]
@@ -763,24 +773,28 @@ def evaluate_annotation(
         )
 
     results_df = pd.DataFrame(results)
-    if plot and not results_df.empty:
-        results_df = results_df.sort_values("annotation_confidence")
-        plt.figure(figsize=(12, 8))
-        plt.barh(
-            results_df["cluster"].astype(str) + " (" + results_df["cell_type"] + ")",
-            results_df["annotation_confidence"],
-            color="skyblue",
-        )
-        plt.xlabel("Annotation Confidence Score")
-        plt.ylabel("Cluster (Cell Type)")
-        plt.title("Annotation Confidence by Cluster")
-        plt.xlim(0, 1.0)
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(f"{save_path}_confidence.png", dpi=300)
-        plt.show()
-    elif plot and results_df.empty:
-        log.info("No evaluation results to plot (empty results).")
+    if plot:
+        if not results_df.empty:
+            results_df = results_df.sort_values("annotation_confidence")
+            plt.figure(figsize=(12, 8))
+            plt.barh(
+                results_df["cluster"].astype(str)
+                + " ("
+                + results_df["cell_type"]
+                + ")",
+                results_df["annotation_confidence"],
+                color="skyblue",
+            )
+            plt.xlabel("Annotation Confidence Score")
+            plt.ylabel("Cluster (Cell Type)")
+            plt.title("Annotation Confidence by Cluster")
+            plt.xlim(0, 1.0)
+            plt.tight_layout()
+            if save_path:
+                plt.savefig(f"{save_path}_confidence.png", dpi=300)
+            plt.show()
+        else:
+            log.info("No evaluation results to plot (empty results).")
 
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
@@ -788,6 +802,15 @@ def evaluate_annotation(
     adata.uns["sclucid"]["analysis"]["annotation"][f"{annotation_key}_evaluation"] = (
         results_df
     )
+    # Save params
+    adata.uns["sclucid"]["analysis"]["annotation"][
+        f"{annotation_key}_evaluation_params"
+    ] = {
+        "cluster_key": cluster_key,
+        "annotation_key": annotation_key,
+        "scanpy_version": getattr(sc, "__version__", "unknown"),
+        "n_types_in_manager": len(getattr(mgr, "CELLS", {})),
+    }
     return results_df
 
 

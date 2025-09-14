@@ -61,18 +61,16 @@ def find_markers(
 ) -> pd.DataFrame:
     """
     Find marker genes (one-vs-rest) and store both raw scanpy output and a concatenated DataFrame.
-    Improvements:
-    - Stronger checks for scanpy output structure.
-    - Optional post-hoc p-value cut in config (default None recommended).
-    - Column name harmonization for pct columns if scanpy changes naming.
-    - Store params used for reproducibility.
+
+    Enhancements:
+    - Robustness to Scanpy structure changes.
+    - Optional post-hoc p-value cutoff and FC clipping.
+    - Trace saved with scanpy version and parameters.
     """
-    # --- 1. Finalize configuration ---
     if config is None:
         active_config = DifferentialConfig(**kwargs)
     else:
         active_config = dataclasses.replace(config)
-        # Allow kwargs override
         for k, v in kwargs.items():
             if hasattr(active_config, k):
                 setattr(active_config, k, v)
@@ -82,7 +80,7 @@ def find_markers(
 
     log.info(f"Finding markers for '{groupby}' using method '{active_config.method}'.")
 
-    # --- 2. Run scanpy rank_genes_groups ---
+    # Run scanpy rank genes
     rank_genes_params = {
         "groupby": groupby,
         "method": active_config.method,
@@ -98,7 +96,6 @@ def find_markers(
 
     sc.tl.rank_genes_groups(adata, **rank_genes_params)
 
-    # --- 3. Validate raw structure ---
     if key_added not in adata.uns:
         raise KeyError(f"scanpy returned no result at adata.uns['{key_added}'].")
 
@@ -109,63 +106,55 @@ def find_markers(
     names_field = raw["names"]
     if not hasattr(names_field, "dtype") or names_field.dtype.names is None:
         raise ValueError(
-            f"adata.uns['{key_added}']['names'] does not expose group fields. "
-            "This can happen if scanpy structure changed. Please check your scanpy version."
+            "Scanpy 'names' field lacks dtype names; structure may have changed."
         )
 
     groups_tested = names_field.dtype.names
     result_dfs: List[pd.DataFrame] = []
 
-    # --- 4. Build per-group DataFrames, normalize columns, apply optional p-value cut ---
     for group in groups_tested:
         df = sc.get.rank_genes_groups_df(adata, key=key_added, group=group)
         if df.empty:
             continue
-
-        # Harmonize expected columns if scanpy changes naming
-        # Common variants: 'pct_nz' vs 'pct_nz_group'
-        if "pct_nz_group" not in df.columns:
-            if "pct_nz" in df.columns:
-                df = df.rename(columns={"pct_nz": "pct_nz_group"})
-                log.warning("Renamed 'pct_nz' to 'pct_nz_group' for compatibility.")
-
-        # Some scanpy versions may provide reference pct via other keys; leave as-is if absent.
+        # Harmonize pct column
+        if "pct_nz_group" not in df.columns and "pct_nz" in df.columns:
+            df = df.rename(columns={"pct_nz": "pct_nz_group"})
+            log.warning("Renamed 'pct_nz' to 'pct_nz_group' for compatibility.")
         df["group"] = group
 
-        if active_config.pval_cutoff is not None:
+        # Optional filters
+        if active_config.pval_cutoff is not None and "pvals_adj" in df.columns:
             before = len(df)
-            df = df[df["pvals_adj"] <= active_config.pval_cutoff].copy()
+            df = df[df["pvals_adj"] <= float(active_config.pval_cutoff)].copy()
             log.info(
                 f"Group '{group}': p-adj <= {active_config.pval_cutoff} retained {len(df)}/{before} rows."
             )
-            if df.empty:
-                continue
 
         if active_config.fold_change_max is not None and "logfoldchanges" in df.columns:
             df["logfoldchanges"] = df["logfoldchanges"].clip(
-                upper=active_config.fold_change_max
+                upper=float(active_config.fold_change_max)
             )
 
         result_dfs.append(df)
 
     if not result_dfs:
         log.warning("No valid marker results found for any group after filtering.")
-        return pd.DataFrame()
+        full_df = pd.DataFrame()
+    else:
+        full_df = pd.concat(result_dfs, ignore_index=True)
 
-    full_df = pd.concat(result_dfs, ignore_index=True)
-
-    # --- 5. Store results and params in sclucid namespace ---
-    df_key = f"{key_added}_df"
     root = (
         adata.uns.setdefault("sclucid", {})
         .setdefault("analysis", {})
         .setdefault("de", {})
     )
     root[key_added] = adata.uns[key_added]  # raw scanpy result
-    root[df_key] = full_df  # processed table
-    root[f"{key_added}_params"] = (
-        active_config.to_dict()
-    )  # store params for reproducibility
+    df_key = f"{key_added}_df"
+    root[df_key] = full_df
+    # Params trace
+    p = active_config.to_dict()
+    p["scanpy_version"] = getattr(sc, "__version__", "unknown")
+    root[f"{key_added}_params"] = p
 
     log.info(
         f"Found {len(full_df)} total marker rows across {len(groups_tested)} groups."
@@ -173,7 +162,6 @@ def find_markers(
     log.info(
         f"Stored processed DataFrame at .uns['sclucid']['analysis']['de']['{df_key}']"
     )
-
     return full_df
 
 
@@ -184,30 +172,15 @@ def filter_markers(
     """
     Filter marker genes with robust handling of percentage scales and detailed step logs.
 
-    Improvements:
-    - Auto-detect 0–1 vs 0–100 scale for pct columns and compare thresholds on 0–1 scale.
-    - Optional absolute log2FC filtering (via local flag or extend config if desired).
-    - Records params into .uns for reproducibility.
+    Enhancements:
+    - Detect pct scale (0–1 or 0–100) and convert to fraction.
+    - More robust sorting fallback and top-N selection logging.
+    - Trace saved under .uns with filter counts.
     """
     key = config.key
-    min_log2fc = config.min_log2fc
-    max_padj = config.max_padj
-    min_in_group_pct = config.min_in_group_pct
-    max_out_group_pct = config.max_out_group_pct
-    min_diff_pct = config.min_diff_pct
-    keep_top_n = config.keep_top_n
-
     key_added = config.key_added or f"{key}_filtered_df"
     df_key = f"{key}_df"
 
-    # You can promote this into FilterMarkersConfig if you want external control.
-    use_abs_log2fc = False
-    # Sorting preference for keep_top_n
-    sort_preference = "scores"  # fallback to 'logfoldchanges' if missing
-
-    log.info(f"Filtering marker genes from '.uns[...][{df_key}]'")
-
-    # --- Retrieve ---
     root = adata.uns.get("sclucid", {}).get("analysis", {}).get("de", {})
     if df_key not in root:
         raise KeyError(
@@ -218,115 +191,117 @@ def filter_markers(
         log.warning("Source marker DataFrame is empty. Returning empty DataFrame.")
         return pd.DataFrame()
 
-    required_cols = ["logfoldchanges", "pvals_adj", "pct_nz_group"]
+    required_cols = ["logfoldchanges", "pvals_adj", "pct_nz_group", "group", "names"]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         raise KeyError(f"Marker DataFrame missing required columns: {missing}")
 
-    # --- Scale detection helpers ---
     def _is_0_to_1(series: pd.Series) -> bool:
         s = series.dropna()
-        if s.empty:
-            return True
-        return (s.min() >= 0.0) and (s.max() <= 1.0)
-
-    def _is_0_to_100(series: pd.Series) -> bool:
-        s = series.dropna()
-        if s.empty:
-            return False
-        return (s.min() >= 0.0) and (s.max() <= 100.0) and not _is_0_to_1(series)
+        return s.empty or ((s.min() >= 0.0) and (s.max() <= 1.0))
 
     def _to_frac(series: pd.Series) -> pd.Series:
-        if _is_0_to_1(series):
-            return series
-        elif _is_0_to_100(series):
-            return series / 100.0
-        # robust fallback
-        return series.clip(lower=0, upper=100) / 100.0
+        return series if _is_0_to_1(series) else series.clip(lower=0, upper=100) / 100.0
 
     has_ref = "pct_nz_reference" in df.columns
     pct_group_frac = _to_frac(df["pct_nz_group"])
     pct_ref_frac = _to_frac(df["pct_nz_reference"]) if has_ref else None
 
-    # Logging
-    log.info("Using fraction scale (0–1) for percentage-based filtering conditions.")
+    log.info("Using fraction scale (0–1) for percentage-based filters.")
 
-    # --- Filters ---
     filt = pd.Series(True, index=df.index)
 
-    if min_log2fc is not None:
-        if use_abs_log2fc:
-            keep = df["logfoldchanges"].abs() >= float(min_log2fc)
-            log.info(
-                f"[Filter] |log2FC| >= {min_log2fc}: kept {int(keep.sum())}/{len(keep)}"
-            )
-        else:
-            keep = df["logfoldchanges"] >= float(min_log2fc)
-            log.info(
-                f"[Filter] log2FC >= {min_log2fc}: kept {int(keep.sum())}/{len(keep)}"
-            )
-        filt &= keep
-
-    if max_padj is not None:
-        keep = df["pvals_adj"] <= float(max_padj)
-        log.info(f"[Filter] adj p <= {max_padj}: kept {int(keep.sum())}/{len(keep)}")
-        filt &= keep
-
-    if min_in_group_pct is not None:
-        keep = pct_group_frac >= float(min_in_group_pct)
+    if config.min_log2fc is not None:
+        keep = (
+            (df["logfoldchanges"].abs() >= float(config.min_log2fc))
+            if config.use_abs_log2fc
+            else (df["logfoldchanges"] >= float(config.min_log2fc))
+        )
         log.info(
-            f"[Filter] pct_in_group >= {min_in_group_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
+            f"[Filter] log2FC {'|x|' if config.use_abs_log2fc else ''} >= {config.min_log2fc}: kept {int(keep.sum())}/{len(keep)}"
+        )
+        filt &= keep
+
+    if config.max_padj is not None:
+        keep = df["pvals_adj"] <= float(config.max_padj)
+        log.info(
+            f"[Filter] adj p <= {config.max_padj}: kept {int(keep.sum())}/{len(keep)}"
+        )
+        filt &= keep
+
+    if config.min_in_group_pct is not None:
+        keep = pct_group_frac >= float(config.min_in_group_pct)
+        log.info(
+            f"[Filter] pct_in_group >= {config.min_in_group_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
         )
         filt &= keep
 
     if has_ref:
-        if max_out_group_pct is not None:
-            keep = pct_ref_frac <= float(max_out_group_pct)
+        if config.max_out_group_pct is not None:
+            keep = pct_ref_frac <= float(config.max_out_group_pct)
             log.info(
-                f"[Filter] pct_out_group <= {max_out_group_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
+                f"[Filter] pct_out_group <= {config.max_out_group_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
             )
             filt &= keep
-        if min_diff_pct is not None:
-            keep = (pct_group_frac - pct_ref_frac) >= float(min_diff_pct)
+        if config.min_diff_pct is not None:
+            keep = (pct_group_frac - pct_ref_frac) >= float(config.min_diff_pct)
             log.info(
-                f"[Filter] (pct_in - pct_out) >= {min_diff_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
+                f"[Filter] (pct_in - pct_out) >= {config.min_diff_pct:.3f}: kept {int(keep.sum())}/{len(keep)}"
             )
             filt &= keep
     else:
-        if max_out_group_pct is not None or min_diff_pct is not None:
-            log.warning("pct_nz_reference not found; specificity filters skipped.")
+        if config.max_out_group_pct is not None or config.min_diff_pct is not None:
+            log.warning(
+                "pct_nz_reference not found; specificity-related filters skipped."
+            )
 
     filtered_df = df[filt].copy()
     log.info(f"Retained {len(filtered_df)} genes after all filters.")
 
-    # --- Keep top N per group ---
-    if keep_top_n is not None and keep_top_n > 0 and not filtered_df.empty:
+    # Keep top N per group
+    if (
+        config.keep_top_n is not None
+        and config.keep_top_n > 0
+        and not filtered_df.empty
+    ):
         sort_by_col = config.sort_by
-        
         if sort_by_col == "diff_pct":
             if "pct_nz_reference" in filtered_df.columns:
-                filtered_df["diff_pct"] = filtered_df["pct_nz_group"] - filtered_df["pct_nz_reference"]
+                filtered_df["diff_pct"] = (
+                    filtered_df["pct_nz_group"] - filtered_df["pct_nz_reference"]
+                )
             else:
-                log.warning("Cannot sort by 'diff_pct' as 'pct_nz_reference' is missing. Falling back to 'scores'.")
+                log.warning(
+                    "Cannot sort by 'diff_pct' as 'pct_nz_reference' is missing. Falling back to 'scores'."
+                )
                 sort_by_col = "scores"
 
         if sort_by_col not in filtered_df.columns:
-            fallback_col = "logfoldchanges"
-            log.warning(f"Sort key '{sort_by_col}' not found. Falling back to '{fallback_col}'.")
+            fallback_col = (
+                "logfoldchanges"
+                if "logfoldchanges" in filtered_df.columns
+                else filtered_df.columns[0]
+            )
+            log.warning(
+                f"Sort key '{config.sort_by}' not found. Falling back to '{fallback_col}'."
+            )
             sort_by_col = fallback_col
 
-        log.info(f"Selecting top {keep_top_n} genes per group, sorted by '{sort_by_col}'.")
+        log.info(
+            f"Selecting top {config.keep_top_n} genes per group, sorted by '{sort_by_col}'."
+        )
         parts = []
         for g in filtered_df["group"].unique():
             sub = filtered_df[filtered_df["group"] == g].sort_values(
                 sort_by_col, ascending=False
             )
-            parts.append(sub.head(keep_top_n))
+            parts.append(sub.head(config.keep_top_n))
         filtered_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
-    # --- Store results + params ---
+    # Store
     root[key_added] = filtered_df
-    root[f"{key_added}_params"] = config.to_dict()
+    # Save params and counts
+    root[f"{key_added}_params"] = {**config.to_dict(), "n_retained": len(filtered_df)}
     log.info(
         f"Final filtered markers: {len(filtered_df)} rows -> .uns['sclucid']['analysis']['de']['{key_added}']"
     )

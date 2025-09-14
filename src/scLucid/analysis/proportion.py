@@ -26,24 +26,25 @@ def compute_celltype_proportion(
     """
     Computes cell type proportions per group.
 
-    Args:
-        adata: AnnData object.
-        celltype_col: Column in .obs specifying cell type annotation.
-        group_col: Column in .obs specifying group/sample.
-        condition_col: Optional column in .obs specifying condition/grouping for tests.
-
-    Returns:
-        If condition_col is None:
-            proportion_df: DataFrame indexed by group_col, columns = celltypes.
-        If condition_col is provided:
-            (proportion_df, sample_to_condition): 
-                sample_to_condition is a Series mapping group_col to condition.
+    Enhancements:
+    - Consistent index/name handling; avoid division-by-zero.
+    - Returns sample_to_condition as a Series if requested.
     """
-    # Count cells in each group/celltype
+    if celltype_col not in adata.obs.columns or group_col not in adata.obs.columns:
+        raise KeyError(f"'{celltype_col}' or '{group_col}' not found in adata.obs.")
     count_df = adata.obs.groupby([group_col, celltype_col]).size().unstack(fill_value=0)
-    prop_df = count_df.div(count_df.sum(axis=1), axis=0)
+    totals = count_df.sum(axis=1).replace(0, np.nan)
+    prop_df = count_df.div(totals, axis=0).fillna(0.0)
+    prop_df.index.name = group_col
+    prop_df.columns.name = celltype_col
     if condition_col:
-        sample_to_cond = adata.obs.drop_duplicates(group_col)[[group_col, condition_col]].set_index(group_col)[condition_col]
+        if condition_col not in adata.obs.columns:
+            raise KeyError(f"'{condition_col}' not found in adata.obs.")
+        sample_to_cond = (
+            adata.obs[[group_col, condition_col]]
+            .drop_duplicates(subset=[group_col])
+            .set_index(group_col)[condition_col]
+        )
         return prop_df, sample_to_cond
     else:
         return prop_df
@@ -120,29 +121,44 @@ def celltype_proportion_test(
     """
     For each celltype, performs group-wise statistical tests between conditions.
 
-    Args:
-        prop_df: Proportion DataFrame, index = sample, columns = celltypes.
-        sample_to_cond: Series mapping sample to condition.
-        test: Statistical test to use ("t", "wilcoxon", or "anova").
-
-    Returns:
-        DataFrame with columns: celltype, stat, pvalue, mean_{condition} for each group.
+    Enhancements:
+    - Guards for two-group vs multi-group tests.
+    - Handles NaN and small-sample cases gracefully.
     """
     results = []
-    conditions = sample_to_cond.unique()
+    # Align indices
+    common = prop_df.index.intersection(sample_to_cond.index)
+    if len(common) == 0:
+        raise ValueError("No overlapping samples between prop_df and sample_to_cond.")
+    prop_df = prop_df.loc[common]
+    sample_to_cond = sample_to_cond.loc[common]
+
+    conditions = sample_to_cond.dropna().unique()
+    if len(conditions) < 2:
+        log.warning("Fewer than 2 conditions available; skipping tests.")
+        return pd.DataFrame()
+
     for ct in prop_df.columns:
         group_vals = [prop_df.loc[sample_to_cond == cond, ct].dropna() for cond in conditions]
-        if test == "t" and len(conditions) == 2:
-            stat, p = ttest_ind(*group_vals)
-        elif test == "wilcoxon" and len(conditions) == 2:
-            stat, p = mannwhitneyu(*group_vals)
-        elif test == "anova" and len(conditions) > 2:
-            stat, p = f_oneway(*group_vals)
-        else:
+        # Require at least one observation per group
+        if any(len(v) < 2 for v in group_vals):
             stat, p = np.nan, np.nan
-        mean_per_group = {f"mean_{cond}": vals.mean() for cond, vals in zip(conditions, group_vals)}
+        else:
+            if test == "t" and len(conditions) == 2:
+                stat, p = ttest_ind(group_vals[0], group_vals[1], equal_var=False)
+            elif test == "wilcoxon" and len(conditions) == 2:
+                stat, p = mannwhitneyu(group_vals[0], group_vals[1], alternative="two-sided")
+            elif test == "anova" and len(conditions) >= 3:
+                stat, p = f_oneway(*group_vals)
+            else:
+                stat, p = np.nan, np.nan
+        mean_per_group = {f"mean_{cond}": float(vals.mean()) if len(vals) > 0 else np.nan for cond, vals in zip(conditions, group_vals)}
         results.append(dict(celltype=ct, stat=stat, pvalue=p, **mean_per_group))
-    return pd.DataFrame(results).sort_values("pvalue")
+
+    out = pd.DataFrame(results)
+    if not out.empty:
+        out = out.sort_values("pvalue", na_position="last")
+    return out
 
 def celltype_proportion_analysis(
     adata,
