@@ -93,17 +93,20 @@ def find_markers(
     log.info(f"Finding markers for '{groupby}' using method '{active_config.method}'.")
 
     # --- 2. Run Scanpy's rank_genes_groups ---
-    sc.tl.rank_genes_groups(
-        adata,
-        groupby=groupby,
-        method=active_config.method,
-        layer=active_config.layer,
-        key_added=key_added,
-        use_raw=active_config.use_raw,
-        pts=True,
-        reference=active_config.reference,
-        groups=active_config.groups,
-    )
+    rank_genes_params = {
+        "groupby": groupby,
+        "method": active_config.method,
+        "layer": active_config.layer,
+        "key_added": key_added,
+        "use_raw": active_config.use_raw,
+        "pts": True,
+        "reference": active_config.reference,
+    }
+    if active_config.groups is not None:
+        rank_genes_params['groups'] = active_config.groups
+        log.info(f"Running DE analysis on a subset of groups: {active_config.groups}")
+
+    sc.tl.rank_genes_groups(adata, **rank_genes_params)
 
     # --- 3. Format, Filter, and Store Results ---
     result_dfs = []
@@ -915,17 +918,22 @@ def summarize_markers_and_enrichment(
     Returns:
         A dictionary mapping each cluster/group to its markdown summary string.
     """
-    # If markers_df is not provided, try to get it from the standard location in adata.uns.
+    # --- Auto-retrieve markers if not provided ---
     if markers_df is None:
         try:
-            log.info(
-                f"Attempting to auto-retrieve markers from .uns using key: {markers_key}"
-            )
-            markers_df = adata.uns["sclucid"]["analysis"]["de"][markers_key]
+            log.info(f"Attempting to auto-retrieve markers from .uns using key: {markers_key}")
+            markers_df = adata.uns['sclucid']['analysis']['de'][markers_key]
         except KeyError:
-            raise KeyError(
-                f"Marker DataFrame not found at .uns['sclucid']['analysis']['de']['{markers_key}']. Please run find_markers or provide the DataFrame directly."
-            )
+            raise KeyError(f"Marker DataFrame not found at .uns['sclucid']['analysis']['de']['{markers_key}'].")
+    
+    # --- Check if the markers_df is empty BEFORE using it ❗ ---
+    if markers_df.empty:
+        log.warning("The provided or retrieved 'markers_df' is empty. No summary can be generated.")
+        log.warning("This may be because your filtering criteria were too stringent.")
+        if summary_file:
+            with open(summary_file, "w") as f:
+                f.write("# Marker and Enrichment Summary\n\nNo valid marker genes were found after filtering.")
+        return {}
 
     # If enrichment_dict is not provided, do the same.
     if enrichment_dict is None:

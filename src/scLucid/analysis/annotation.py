@@ -385,16 +385,14 @@ def apply_annotation_mapping(
     Apply AI/manual cluster-to-celltype mapping from dict or csv/json file.
     This robust version handles data type mismatches between clusters and mapping keys.
     """
-    # 1. --- 如果 mapping 是文件路径，则读取文件并转换为字典 ---
+    # 1. --- Load mapping from file path if necessary ---
     if isinstance(mapping, str):
         if mapping.endswith(".csv"):
-            # 更稳健地读取CSV，假设第一列是cluster，第二列是cell_type
             df = pd.read_csv(mapping)
             if len(df.columns) < 2:
                 raise ValueError("Mapping CSV must have at least two columns (cluster, cell_type)")
-            # 使用第一列作为键，第二列作为值创建字典
+            # Use the first column for keys and the second for values
             mapping_dict = pd.Series(df.iloc[:, 1].values, index=df.iloc[:, 0]).to_dict()
-
         elif mapping.endswith(".json"):
             import json
             with open(mapping) as f:
@@ -406,28 +404,29 @@ def apply_annotation_mapping(
     else:
         raise TypeError("mapping must be a dictionary or a file path string.")
 
-    # 2. --- 【关键修复】强制转换数据类型为字符串以确保匹配 ---
-    # 将 adata 中的 cluster ID 转换为字符串
+    # 2. --- [CRITICAL FIX] Ensure robust type matching by converting to string ---
+    # Convert cluster IDs in adata to string
     source_clusters = adata.obs[cluster_key].astype(str)
-    # 将 mapping 字典中的键也转换为字符串
-    mapping_dict = {str(k): v for k, v in mapping_dict.items()}
+    # Convert keys in the mapping dictionary to string
+    mapping_dict_str_keys = {str(k): v for k, v in mapping_dict.items()}
 
-    # 3. --- 应用 mapping ---
-    adata.obs[key_added] = source_clusters.map(mapping_dict).astype("category")
+    # 3. --- Apply the mapping ---
+    adata.obs[key_added] = source_clusters.map(mapping_dict_str_keys).astype("category")
 
-    # 4. --- 检查是否有未匹配上的 cluster (结果为 NaN) ---
-    unmapped_clusters = adata.obs[key_added].isnull().sum()
-    if unmapped_clusters > 0:
-        missing_ids = adata.obs[source_clusters.isin(mapping_dict.keys()) == False][cluster_key].unique().tolist()
+    # 4. --- Check for unmapped clusters and provide a helpful warning ---
+    unmapped_mask = adata.obs[key_added].isnull()
+    if unmapped_mask.any():
+        unmapped_ids = source_clusters[unmapped_mask].unique().tolist()
         log.warning(
-            f"{unmapped_clusters} cells could not be mapped. "
-            f"This is likely because the following cluster IDs were not found in your mapping file: {missing_ids}"
+            f"{unmapped_mask.sum()} cells could not be mapped. "
+            f"This is likely because the following cluster IDs were not found in your mapping file: {unmapped_ids}"
         )
+        # Optionally, fill with a default value like 'Unmapped'
+        adata.obs[key_added] = adata.obs[key_added].cat.add_categories("Unmapped").fillna("Unmapped")
 
-    # 5. --- 保存结果并返回 adata ---
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "annotation", {}
-    )
+
+    # 5. --- Store results and return ---
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_mapping"] = mapping_dict
     
     return adata

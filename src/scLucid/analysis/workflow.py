@@ -12,78 +12,48 @@ Assumes all functions/modules are imported from analysis package:
 """
 
 import scanpy as sc
-from analysis.de_enrichment import (
-    find_markers, filter_markers, run_enrichment, summarize_markers_and_enrichment,
-    visualize_markers
-)
-from analysis.annotation import (
-    score_cell_types, annotate_clusters, run_celltypist, transfer_labels,
-    summarize_annotation_evidence, apply_annotation_mapping, evaluate_annotation
-)
-from analysis.scoring import (
-    score_by_gene_sets, compare_scores, batch_compare_scores, plot_score_comparison
-)
 
-# 1. 预处理、降维、聚类（可用scanpy主流程）
-def preprocess_and_cluster(adata, n_pcs=30, n_neighbors=15, resolution=1.0, key_added="leiden"):
-    sc.pp.normalize_total(adata); sc.pp.log1p(adata)
-    sc.pp.highly_variable_genes(adata); adata = adata[:, adata.var.highly_variable]
-    sc.pp.pca(adata, n_comps=n_pcs); sc.pp.neighbors(adata, n_neighbors=n_neighbors)
-    sc.tl.umap(adata); sc.tl.leiden(adata, resolution=resolution, key_added=key_added)
-    return adata
+from analysis.config import AnalysisWorkflowConfig, ClusteringConfig, DifferentialConfig, AnnotationConfig
+from analysis.pipeline import run_full_analysis # Assuming you create a new pipeline module
 
-# 2. 差异分析与marker筛选
-def marker_analysis(adata, cluster_key="leiden", method="wilcoxon"):
-    markers_df = find_markers(adata, groupby=cluster_key, method=method)
-    filtered_df = filter_markers(adata, key="rank_genes_groups")
-    return filtered_df
+def setup_workflow_config() -> AnalysisWorkflowConfig:
+    """Creates a complete configuration for the analysis."""
+    
+    # Define each step's configuration
+    clustering_cfg = ClusteringConfig(resolution=1.2, key_added="leiden_1.2")
+    
+    de_cfg = DifferentialConfig(
+        groupby="leiden_1.2", 
+        method="wilcoxon"
+    )
 
-# 3. 富集分析
-def enrichment_analysis(adata, cluster_key="leiden", markers_df=None):
-    enrichment_dict = run_enrichment(adata, groupby=cluster_key)
-    return enrichment_dict
+    annotation_cfg = AnnotationConfig(
+        cluster_key="leiden_1.2",
+        marker_species="human",
+        final_method="combined",
+        key_added="cell_type_auto"
+    )
 
-# 4. 导出摘要供AI/人工命名
-def export_annotation_summary(adata, markers_df, enrichment_dict, out_file="annotation_summary.md"):
-    return summarize_markers_and_enrichment(adata, markers_df, enrichment_dict, summary_file=out_file)
+    # Combine into a master workflow config
+    workflow_config = AnalysisWorkflowConfig(
+        clustering=clustering_cfg,
+        de=de_cfg,
+        annotation=annotation_cfg
+    )
+    return workflow_config
 
-# 5. 应用人工/AI命名mapping
-def apply_manual_annotation(adata, cluster_key, mapping_file, key_added="cell_type_ai"):
-    apply_annotation_mapping(adata, cluster_key, mapping_file, key_added=key_added)
+def main():
+    # 1. Load data
+    adata = sc.read_h5ad("path/to/your/data.h5ad")
+    
+    # 2. Get the configuration
+    config = setup_workflow_config()
+    
+    # 3. Run the entire analysis with one function call
+    adata = run_full_analysis(adata, config)
 
-# 6. 自动注释（如需）
-def auto_annotation(adata, marker_config, cluster_key="leiden", method="combined"):
-    score_cell_types(adata, marker_config)
-    annotate_clusters(adata, cluster_key, marker_config, method=method, key_added="cell_type_auto")
+    # 4. Save results
+    adata.write_h5ad("path/to/results.h5ad")
 
-# 7. 注释评估
-def annotation_evaluation(adata, cluster_key, annotation_key, marker_config, plot=True):
-    return evaluate_annotation(adata, cluster_key, annotation_key, marker_config, plot=plot)
-
-# 8. 分数/通路打分及对比
-def score_and_compare(adata, gene_sets, groupby="leiden"):
-    score_by_gene_sets(adata, gene_sets)
-    for score in gene_sets:
-        plot_score_comparison(adata, f"{score}_score", groupby=groupby)
-
-# 9. 可视化markers
-def bulk_marker_visualization(adata, markers_df, cluster_key="leiden"):
-    visualize_markers(adata, markers_df, groupby=cluster_key, plot_type="dotplot")
-
-# 10. 全流程执行示例（入口）
-def main_workflow(adata, marker_config, gene_sets, mapping_file=None):
-    adata = preprocess_and_cluster(adata)
-    filtered_markers = marker_analysis(adata)
-    enrichment_dict = enrichment_analysis(adata, markers_df=filtered_markers)
-    export_annotation_summary(adata, filtered_markers, enrichment_dict)
-    if mapping_file:
-        apply_manual_annotation(adata, "leiden", mapping_file)
-        annotation_evaluation(adata, "leiden", "cell_type_ai", marker_config)
-    else:
-        auto_annotation(adata, marker_config, "leiden")
-        annotation_evaluation(adata, "leiden", "cell_type_auto", marker_config)
-    score_and_compare(adata, gene_sets)
-    bulk_marker_visualization(adata, filtered_markers)
-
-# 11. 可选：团队调用
-# main_workflow(adata, marker_config="markers.toml", gene_sets={"Tcell": ["CD3D", "CD3E"]}, mapping_file="mapping.csv")
+if __name__ == "__main__":
+    main()

@@ -122,15 +122,16 @@ class AnnotationConfig(BaseConfig):
 # ===================== Scoring Configs =====================
 
 
-#@dataclass
-#class ScoringConfig(BaseConfig):
+@dataclass
+class ScoringConfig(BaseConfig):
     """Configuration for gene set and cell type scoring."""
-
-#    gene_sets: Dict[str, List[str]]
-#    layer: Optional[str] = "normalized"
-#    use_raw: bool = False
-#    ctrl_size: int = 50
-#    score_name_suffix: str = "_score"
+    gene_sets: Dict[str, List[str]]
+    layer: Optional[str] = "normalized"
+    use_raw: bool = True
+    ctrl_size: int = 50
+    score_name_suffix: str = "_score"
+    plot_comparison: bool = True
+    comparison_groupby: Optional[str] = None
 
 
 # ===================== Differential Expression Configs =====================
@@ -236,17 +237,15 @@ class EnrichmentConfig(BaseConfig):
     save_dir: Optional[str] = None #: Directory to save plots and results.
 
 
-#@dataclass
-#class ProportionConfig(BaseConfig):
+@dataclass
+class ProportionConfig(BaseConfig):
     """Configuration for cell type proportion analysis."""
-
-#    celltype_col: str
-#    condition_col: str
-#    group_col: str = "sampleID"
-#    plot_types: List[str] = field(default_factory=lambda: ["box", "bar"])
-#    test: Literal["t", "wilcoxon", "anova"] = "wilcoxon"
-#    save_dir: Optional[str] = None
-
+    celltype_col: str
+    condition_col: str
+    group_col: str = "sample"  # e.g., sampleID
+    plot_types: List[str] = field(default_factory=lambda: ["box", "bar"])
+    test: Literal["t", "wilcoxon", "anova"] = "wilcoxon"
+    out_dir: Optional[str] = None
 
 # ===================== Master Workflow Config =====================
 
@@ -254,12 +253,11 @@ class EnrichmentConfig(BaseConfig):
 @dataclass
 class AnalysisWorkflowConfig(BaseConfig):
     """Master configuration for the entire analysis workflow."""
-
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     de: DifferentialConfig = field(default_factory=DifferentialConfig)
     annotation: AnnotationConfig = field(default_factory=AnnotationConfig)
-    #scoring: Optional[ScoringConfig] = None
-    #proportion: Optional[ProportionConfig] = None
+    scoring: Optional[ScoringConfig] = None
+    proportion: Optional[ProportionConfig] = None
 
 
 # Update __all__ to include all configuration classes

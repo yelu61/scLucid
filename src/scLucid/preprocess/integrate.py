@@ -456,15 +456,25 @@ def batch_correction(
     plot = active_config.plot
     save_dir = Path(active_config.save_dir) if active_config.save_dir else None
 
-    # --- 3. Input validation ---
+    # --- 3. ❗ ENHANCED Input validation ❗ ---
     if not method or not batch_key:
         log.info(
             "`method` or `batch_key` not specified in config. Skipping batch correction."
         )
         return adata
 
-    if batch_key not in adata.obs:
-        raise ValueError(f"batch_key '{batch_key}' not found in adata.obs")
+    # Handle both string and list for batch_key
+    if isinstance(batch_key, str):
+        keys_to_check = [batch_key]
+    elif isinstance(batch_key, list):
+        keys_to_check = batch_key
+    else:
+        raise TypeError(f"batch_key must be a string or a list of strings, not {type(batch_key)}")
+
+    missing_keys = [key for key in keys_to_check if key not in adata.obs]
+    if missing_keys:
+        raise ValueError(f"batch_key(s) {missing_keys} not found in adata.obs")
+    # --- END OF ENHANCEMENT ---
 
     if output_key in adata.obsm and not force:
         log.info(
@@ -480,8 +490,7 @@ def batch_correction(
         if "X_umap" not in adata_before.obsm:
             sc.tl.umap(adata_before)
 
-    # --- 5. Main integration logic ---
-    #  Prepare method-specific arguments from the config
+    # --- 5. Main integration logic (no changes here) ---
     method_kwargs = {}
     if method == "harmony":
         method_kwargs = active_config.harmony_params
@@ -499,7 +508,6 @@ def batch_correction(
 
     log.info(f"Running batch correction with method: '{method}'")
 
-    # Dispatch to the appropriate low-level wrapper
     if method == "harmony":
         adata = _integrate_harmony(
             adata, covariate_keys=batch_key, basis=use_rep, embedding_key=output_key, **method_kwargs
@@ -513,9 +521,13 @@ def batch_correction(
             adata, batch_key, embedding_key=output_key, **method_kwargs
         )
     elif method == "bbknn":
-        adata = _integrate_bbknn(adata, batch_key, use_rep=use_rep, **method_kwargs)
+        adata = _integrate_bbknn(
+            adata, batch_key, use_rep=use_rep, **method_kwargs
+        )
     elif method == "combat":
-        adata = _integrate_combat(adata, batch_key, **method_kwargs)
+        adata = _integrate_combat(
+            adata, batch_key, **method_kwargs
+        )
     else:
         raise ValueError(
             f"Unknown method '{method}'. Choose from: harmony, scanorama, scvi, bbknn, combat."
@@ -529,24 +541,27 @@ def batch_correction(
 
     log.info(f"Integration complete. Result stored in: adata.obsm['{output_key}']")
 
-    # Plot after
     if plot:
         if method != "bbknn":
             sc.pp.neighbors(adata, use_rep=output_key)
         sc.tl.umap(adata)
 
+        # If batch_key is a list, use the first element for coloring the UMAP
+        color_key = batch_key[0] if isinstance(batch_key, list) else batch_key
+        log.info(f"Using '{color_key}' for UMAP color annotation.")
+        
         fig, axes = plt.subplots(1, 2, figsize=(16, 7))
         fig.suptitle("Batch Correction Comparison", fontsize=16)
         sc.pl.umap(
             adata_before,
-            color=batch_key,
+            color=color_key,
             ax=axes[0],
             show=False,
             title=f"Before ({use_rep})",
         )
         sc.pl.umap(
             adata,
-            color=batch_key,
+            color=color_key,
             ax=axes[1],
             show=False,
             title=f"After {method.capitalize()}",
