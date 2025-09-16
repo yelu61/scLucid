@@ -41,45 +41,69 @@ def _get_marker_abundance(
     """
     Calculate the average number of significant markers per cluster.
     A higher number suggests better biological separability.
+
+    Notes:
+    - Uses a temporary rank_genes_groups key to avoid interfering with user's results.
+    - Interprets pct columns in their native scale (expects 0–1 fraction here).
     """
     try:
-        # Use a temporary key to avoid overwriting important results
         rank_key = f"rank_genes_{cluster_key}_temp"
         sc.tl.rank_genes_groups(
             adata,
             groupby=cluster_key,
             method=de_method,
             key_added=rank_key,
-            n_genes=100,  # Only need top genes to check for existence
+            n_genes=100,  # enough to judge presence
             pts=True,
             use_raw=True,
         )
 
         markers_df = sc.get.rank_genes_groups_df(adata, key=rank_key, group=None)
+        # Harmonize pct column if needed
+        if "pct_nz_group" not in markers_df.columns and "pct_nz" in markers_df.columns:
+            markers_df = markers_df.rename(columns={"pct_nz": "pct_nz_group"})
 
-        # Filter for significant markers
         sig_markers = markers_df[
-            (markers_df["logfoldchanges"] > min_log2fc)
-            & (markers_df["pvals_adj"] < 0.05)
-            & (markers_df["pct_nz_group"] > min_pct)
+            (markers_df.get("logfoldchanges", 0) > float(min_log2fc))
+            & (markers_df.get("pvals_adj", 1.0) < 0.05)
+            & (markers_df.get("pct_nz_group", 0) > float(min_pct))
         ]
 
-        # Calculate average number of markers per cluster
-        marker_counts = sig_markers.groupby("group").size()
-        n_clusters = adata.obs[cluster_key].nunique()
+        # Average marker count per cluster (fill missing with 0)
+        if (
+            cluster_key not in adata.obs.columns
+            or not pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
+        ):
+            # ensure categorical for stable category order
+            adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
 
-        # For clusters with 0 markers, their count will be missing. Fill with 0.
-        avg_markers = marker_counts.reindex(
-            adata.obs[cluster_key].cat.categories, fill_value=0
-        ).mean()
+        marker_counts = (
+            sig_markers.groupby("group").size()
+            if not sig_markers.empty
+            else pd.Series(dtype=int)
+        )
+        avg_markers = (
+            marker_counts.reindex(
+                adata.obs[cluster_key].cat.categories, fill_value=0
+            ).mean()
+            if len(adata.obs[cluster_key].cat.categories) > 0
+            else 0.0
+        )
 
-        # Clean up temporary results
-        del adata.uns[rank_key]
+        # Cleanup temporary results
+        if rank_key in adata.uns:
+            del adata.uns[rank_key]
 
         return float(avg_markers)
 
     except Exception as e:
-        log.warning(f"Could not compute marker abundance for {cluster_key}: {e}")
+        log.warning(f"Could not compute marker abundance for '{cluster_key}': {e}")
+        # Cleanup best effort
+        try:
+            if rank_key in adata.uns:
+                del adata.uns[rank_key]
+        except Exception:
+            pass
         return 0.0
 
 
@@ -89,28 +113,42 @@ def _get_clustering_stability(adata: AnnData, key1: str, key2: str) -> float:
     """
     if key1 not in adata.obs or key2 not in adata.obs:
         return np.nan
-
     labels1 = adata.obs[key1]
     labels2 = adata.obs[key2]
+    try:
+        return metrics.normalized_mutual_info_score(
+            labels1, labels2, average_method="arithmetic"
+        )
+    except Exception:
+        return np.nan
 
-    return metrics.normalized_mutual_info_score(
-        labels1, labels2, average_method="arithmetic"
-    )
 
-
-def _print_resolution_guidance(eval_df):
-    best_silhouette = eval_df.loc[eval_df["silhouette"].idxmax()]
-    best_markers = eval_df.loc[eval_df["marker_abundance"].idxmax()]
-
-    log.info("--- Resolution Selection Guidance ---")
+def _print_resolution_guidance(eval_df: pd.DataFrame) -> None:
+    """
+    Print guidance based on peak silhouette and marker abundance.
+    """
+    if eval_df.empty:
+        return
+    # Guard against columns missing
+    if "silhouette" in eval_df.columns and not eval_df["silhouette"].isna().all():
+        best_silhouette = eval_df.loc[eval_df["silhouette"].idxmax()]
+        log.info("--- Resolution Selection Guidance ---")
+        log.info(
+            f"Peak silhouette at resolution {best_silhouette['resolution']:.2f} "
+            f"({int(best_silhouette['n_clusters'])} clusters): better separation."
+        )
+    if (
+        "marker_abundance" in eval_df.columns
+        and not eval_df["marker_abundance"].isna().all()
+    ):
+        best_markers = eval_df.loc[eval_df["marker_abundance"].idxmax()]
+        log.info(
+            f"Peak marker abundance at resolution {best_markers['resolution']:.2f} "
+            f"({int(best_markers['n_clusters'])} clusters): higher biological separability."
+        )
     log.info(
-        f"The peak silhouette coefficient occurs at a resolution of {best_silhouette['resolution']:.2f} (yielding {best_silhouette['n_clusters']} clusters), which is beneficial for cluster separation."
-    )
-    log.info(
-        f"The peak marker abundance occurs at a resolution of {best_markers['resolution']:.2f} (yielding {best_markers['n_clusters']} clusters), which is likely to have the best biological significance."
-    )
-    log.info(
-        "Suggestion: Look for a point in the graph where a relatively reasonable number of clusters and stability are maintained despite high marker abundance. For example, look for an 'inflection point' or plateau in the marker abundance curve."
+        "Suggestion: Choose a resolution around an 'elbow/plateau' where marker abundance is high, "
+        "the silhouette is reasonable, and stability does not drop abruptly."
     )
 
 
@@ -133,8 +171,8 @@ def find_resolution(
     - Full trace saved under .uns['sclucid']['analysis']['clustering']['resolution_search'].
 
     Returns:
-        A pandas DataFrame containing:
-        ['resolution','n_clusters','silhouette','marker_abundance','stability'] (subset may be missing if disabled)
+        A pandas DataFrame with columns among:
+        ['resolution','n_clusters','silhouette','marker_abundance','stability']
     """
     if config is None:
         active_config = ResolutionSearchConfig()
@@ -152,10 +190,11 @@ def find_resolution(
     # Check use_rep availability
     if use_rep not in adata.obsm:
         raise ValueError(
-            f"Representation '{use_rep}' not found in adata.obsm. Please compute PCA or the target embedding first."
+            f"Representation '{use_rep}' not found in adata.obsm. "
+            "Please compute PCA or the selected embedding first."
         )
 
-    # Ensure neighbors graph exists for community-based clustering
+    # Ensure neighbors graph exists
     if "neighbors" not in adata.uns:
         log.info(f"Neighbors graph not found. Computing neighbors on '{use_rep}'.")
         sc.pp.neighbors(adata, use_rep=use_rep)
@@ -170,11 +209,11 @@ def find_resolution(
         current_key = f"{method}_res_{res:.3f}"
         log.info(f"Testing resolution: {res:.3f}")
 
-        # Run clustering at this resolution
+        # Clustering at this resolution
         try:
             if method == "leiden":
                 sc.tl.leiden(adata, resolution=float(res), key_added=current_key)
-            else:  # louvain
+            else:
                 sc.tl.louvain(adata, resolution=float(res), key_added=current_key)
         except Exception as e:
             log.error(f"Clustering failed at resolution {res:.3f}: {e}")
@@ -182,22 +221,24 @@ def find_resolution(
             previous_key = None
             continue
 
+        # Ensure categorical for consistency
+        if not pd.api.types.is_categorical_dtype(adata.obs[current_key]):
+            adata.obs[current_key] = adata.obs[current_key].astype("category")
+
         n_clusters = int(adata.obs[current_key].nunique())
         result = {"resolution": res, "n_clusters": n_clusters}
 
-        # Silhouette score
+        # Silhouette score with optional sampling
         if active_config.compute_silhouette:
             try:
                 from sklearn.metrics import silhouette_score
 
-                labels = adata.obs[current_key].astype("category").cat.codes.values
+                labels = adata.obs[current_key].cat.codes.values
                 X = adata.obsm[use_rep]
-                # Sample if too large for speed
                 max_cells = min(20000, adata.n_obs)
                 if adata.n_obs > max_cells:
-                    idx = np.random.RandomState(42).choice(
-                        adata.n_obs, size=max_cells, replace=False
-                    )
+                    rng = np.random.RandomState(42)
+                    idx = rng.choice(adata.n_obs, size=max_cells, replace=False)
                     sil = silhouette_score(X[idx], labels[idx], sample_size=None)
                 else:
                     sil = silhouette_score(X, labels, sample_size=None)
@@ -206,19 +247,16 @@ def find_resolution(
                 log.warning(f"Silhouette failed at resolution {res:.3f}: {e}")
                 result["silhouette"] = np.nan
 
-        # Marker abundance
+        # Marker abundance (fix: use min_pct_for_markers from config)
         if active_config.compute_marker_abundance:
             try:
+                min_pct = float(getattr(active_config, "min_pct_for_markers", 0.25))
                 score = _get_marker_abundance(
                     adata=adata,
                     cluster_key=current_key,
                     de_method=active_config.de_method_for_markers,
-                    min_log2fc=active_config.min_log2fc_for_markers,
-                    min_pct=active_config.min_in_group_pct_for_markers
-                    if hasattr(active_config, "min_in_group_pct_for_markers")
-                    else active_config.min_in_group_pct_for_markers
-                    if hasattr(active_config, "min_in_group_pct_for_markers")
-                    else active_config.min_in_group_pct,
+                    min_log2fc=float(active_config.min_log2fc_for_markers),
+                    min_pct=min_pct,
                 )
             except Exception as e:
                 log.warning(f"Marker abundance metric failed at {res:.3f}: {e}")
@@ -228,12 +266,11 @@ def find_resolution(
         # Stability (NMI vs previous)
         if active_config.compute_stability:
             try:
-                if previous_key is not None:
-                    result["stability"] = _get_clustering_stability(
-                        adata, previous_key, current_key
-                    )
-                else:
-                    result["stability"] = np.nan
+                result["stability"] = (
+                    _get_clustering_stability(adata, previous_key, current_key)
+                    if previous_key is not None
+                    else np.nan
+                )
             except Exception as e:
                 log.warning(f"Stability metric failed at {res:.3f}: {e}")
                 result["stability"] = np.nan
@@ -250,6 +287,7 @@ def find_resolution(
     adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"] = {
         "results_df": eval_df,
         "parameters": active_config.to_dict(),
+        "scanpy_version": getattr(sc, "__version__", "unknown"),
     }
 
     # Plotting
@@ -268,7 +306,12 @@ def find_resolution(
 
         # n_clusters
         ax = axes[0]
-        sns.lineplot(data=eval_df, x="resolution", y="n_clusters", marker="o", ax=ax)
+        try:
+            sns.lineplot(
+                data=eval_df, x="resolution", y="n_clusters", marker="o", ax=ax
+            )
+        except Exception as e:
+            ax.text(0.5, 0.5, f"Plot failed: {e}", ha="center", va="center")
         ax.set_title("Number of Clusters vs. Resolution")
         ax.set_ylabel("Count")
         ax.grid(True, linestyle="--")
@@ -284,7 +327,7 @@ def find_resolution(
                     ax.text(
                         0.02,
                         0.05,
-                        "Note: Higher may favor fewer clusters.",
+                        "Note: Higher values may favor fewer clusters.",
                         transform=ax.transAxes,
                         fontsize=9,
                         style="italic",
@@ -305,10 +348,8 @@ def find_resolution(
 
         plt.show()
 
-    # Guidance message if feasible
-    if not eval_df.empty and {"silhouette", "marker_abundance"}.issubset(
-        eval_df.columns
-    ):
+    # Guidance message
+    if not eval_df.empty:
         _print_resolution_guidance(eval_df)
 
     return eval_df
@@ -325,7 +366,7 @@ def cluster_cells(
     Enhancements:
     - Safer neighbor graph handling for Leiden/Louvain with explicit random_state.
     - KMeans/HDBSCAN robust behavior and informative errors.
-    - Result trace saved with full config and scanpy/sklearn versions.
+    - Result trace saved with full config and scanpy/sklearn/hdbscan versions.
     """
     if config is None:
         active_config = ClusteringConfig()
@@ -337,16 +378,15 @@ def cluster_cells(
 
     method = active_config.method
     use_rep = active_config.use_rep
-    if method in ["kmeans", "hdbscan"]:
-        if use_rep not in adata.obsm:
-            raise ValueError(
-                f"Representation '{use_rep}' not found in adata.obsm. Please compute PCA or your representation first."
-            )
-    else:
-        if use_rep not in adata.obsm:
-            raise ValueError(
-                f"Representation '{use_rep}' not found in adata.obsm. Please compute PCA or your representation first."
-            )
+
+    # Representation check
+    if use_rep not in adata.obsm:
+        raise ValueError(
+            f"Representation '{use_rep}' not found in adata.obsm. Please compute PCA or your representation first."
+        )
+
+    # Ensure neighbors for graph-based methods
+    if method in ["leiden", "louvain"]:
         if "neighbors" not in adata.uns:
             log.info(
                 f"Neighbors graph not found for {method}. Computing on '{use_rep}'."
@@ -406,20 +446,24 @@ def cluster_cells(
         log.error(f"Clustering failed: {e}")
         raise
 
-    n_clusters = adata.obs[key_added].nunique()
+    # Ensure categorical type
+    if not pd.api.types.is_categorical_dtype(adata.obs[key_added]):
+        adata.obs[key_added] = adata.obs[key_added].astype("category")
+
+    n_clusters = int(adata.obs[key_added].nunique())
     log.info(
         f"Clustering ({method}) finished: {n_clusters} clusters in obs['{key_added}']"
     )
 
+    # Trace
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "clustering", {}
     )
     trace = {
         "config": active_config.to_dict(),
-        "n_clusters": int(n_clusters),
+        "n_clusters": n_clusters,
         "scanpy_version": getattr(sc, "__version__", "unknown"),
     }
-    # record sklearn/hdbscan versions if used
     try:
         import sklearn
 
@@ -434,27 +478,31 @@ def cluster_cells(
         pass
     adata.uns["sclucid"]["analysis"]["clustering"][key_added] = trace
 
+    # Optional UMAP plot
     if active_config.plot:
         if "X_umap" not in adata.obsm:
-            sc.tl.umap(adata)
-        # Remove color cache to avoid stale color maps
-        color_key = f"{key_added}_colors"
-        if color_key in adata.uns:
-            del adata.uns[color_key]
-        sc.pl.umap(
-            adata,
-            color=key_added,
-            legend_loc="on data",
-            title=f"{method.capitalize()} Clustering (n={n_clusters})",
-            show=False,
-        )
-        if active_config.save_dir:
-            save_path = Path(active_config.save_dir)
-            save_path.mkdir(parents=True, exist_ok=True)
-            figure_path = save_path / f"{key_added}_umap.png"
-            plt.savefig(figure_path, dpi=300, bbox_inches="tight")
-            log.info(f"Saved UMAP to {figure_path}")
-        plt.show()
+            try:
+                sc.tl.umap(adata)
+            except Exception as e:
+                log.warning(f"UMAP computation failed: {e}")
+        if "X_umap" in adata.obsm:
+            color_key = f"{key_added}_colors"
+            if color_key in adata.uns:
+                del adata.uns[color_key]
+            sc.pl.umap(
+                adata,
+                color=key_added,
+                legend_loc="on data",
+                title=f"{method.capitalize()} Clustering (n={n_clusters})",
+                show=False,
+            )
+            if active_config.save_dir:
+                save_path = Path(active_config.save_dir)
+                save_path.mkdir(parents=True, exist_ok=True)
+                figure_path = save_path / f"{key_added}_umap.png"
+                plt.savefig(figure_path, dpi=300, bbox_inches="tight")
+                log.info(f"Saved UMAP to {figure_path}")
+            plt.show()
 
     return adata
 
@@ -536,7 +584,6 @@ def merge_clusters(
                         sim = len(s1 & s2) / len(s1 | s2)
                         sim_matrix.loc[c1, c2] = sim_matrix.loc[c2, c1] = float(sim)
         finally:
-            # Cleanup temporary results to avoid namespace pollution
             if rank_key in adata.uns:
                 del adata.uns[rank_key]
     elif method == "expression_correlation":
@@ -597,5 +644,6 @@ def merge_clusters(
         "merged_clusters": n_merged,
         "mapping": mapping,
         "config": active_config.to_dict(),
+        "scanpy_version": getattr(sc, "__version__", "unknown"),
     }
     return adata
