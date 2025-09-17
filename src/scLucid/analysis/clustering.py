@@ -22,6 +22,7 @@ import seaborn as sns
 from anndata import AnnData
 from sklearn import metrics
 
+from ..utils import sanitize_for_hdf5
 from .config import ClusteringConfig, MergeClustersConfig, ResolutionSearchConfig
 
 log = logging.getLogger(__name__)
@@ -284,11 +285,15 @@ def find_resolution(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "clustering", {}
     )
-    adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"] = {
-        "results_df": eval_df,
-        "parameters": active_config.to_dict(),
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
-    }
+    adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"] = (
+        sanitize_for_hdf5(
+            {
+                "results_df": eval_df,
+                "parameters": active_config.to_dict(),
+                "scanpy_version": getattr(sc, "__version__", "unknown"),
+            }
+        )
+    )
 
     # Plotting
     if active_config.plot and not eval_df.empty:
@@ -476,7 +481,7 @@ def cluster_cells(
         trace["hdbscan_version"] = getattr(_hb, "__version__", "unknown")
     except Exception:
         pass
-    adata.uns["sclucid"]["analysis"]["clustering"][key_added] = trace
+    adata.uns["sclucid"]["analysis"]["clustering"][key_added] = sanitize_for_hdf5(trace)
 
     # Optional UMAP plot
     if active_config.plot:
@@ -636,14 +641,18 @@ def merge_clusters(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "clustering", {}
     )
-    adata.uns["sclucid"]["analysis"]["clustering"][f"{key_added}_params"] = {
-        "source_clusters": cluster_key,
-        "method": method,
-        "similarity_threshold": threshold,
-        "original_clusters": n_original,
-        "merged_clusters": n_merged,
-        "mapping": mapping,
-        "config": active_config.to_dict(),
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
-    }
+    adata.uns["sclucid"]["analysis"]["clustering"][f"{key_added}_params"] = (
+        sanitize_for_hdf5(
+            {
+                "source_clusters": cluster_key,
+                "method": method,
+                "similarity_threshold": threshold,
+                "original_clusters": n_original,
+                "merged_clusters": n_merged,
+                "mapping": mapping,
+                "config": active_config.to_dict(),
+                "scanpy_version": getattr(sc, "__version__", "unknown"),
+            }
+        )
+    )
     return adata

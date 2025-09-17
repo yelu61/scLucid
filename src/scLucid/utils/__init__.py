@@ -13,7 +13,7 @@ from .marker_manager import (
     KNOWN_SPECIES,
     MARKER_FORMATS,
 )
-from .utils import load_10x_data,identify_outliers, use_layer_as_X, subset_adata, subset_from_annotations
+from .utils import load_10x_data,identify_outliers, use_layer_as_X, sanitize_for_hdf5, subset_adata, subset_from_annotations
 from .plotting import (
     plot_composition,
     plot_embedding,
@@ -34,6 +34,7 @@ from .plotting import (
 __all__ = [
     "load_10x_data",
     "use_layer_as_X",
+    "sanitize_for_hdf5",
     "identify_outliers",
     "subset_adata",
     "subset_from_annotations",

@@ -6,16 +6,17 @@ visualizes (barplot, boxplot, dotplot), and performs group-wise statistical test
 """
 
 import logging
-from typing import Optional, List, Literal, Tuple, Union
 from pathlib import Path
+from typing import List, Literal, Optional, Tuple, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import ttest_ind, mannwhitneyu, f_oneway
+from scipy.stats import f_oneway, mannwhitneyu, ttest_ind
 
 log = logging.getLogger(__name__)
+
 
 def compute_celltype_proportion(
     adata,
@@ -48,6 +49,7 @@ def compute_celltype_proportion(
         return prop_df, sample_to_cond
     else:
         return prop_df
+
 
 def plot_celltype_proportion(
     prop_df: pd.DataFrame,
@@ -84,7 +86,9 @@ def plot_celltype_proportion(
         plt.close()
     else:
         # Melt to long-form DataFrame
-        df_long = prop_df.reset_index().melt(id_vars=prop_df.index.name, var_name="celltype", value_name="proportion")
+        df_long = prop_df.reset_index().melt(
+            id_vars=prop_df.index.name, var_name="celltype", value_name="proportion"
+        )
         if sample_to_cond is not None:
             df_long["condition"] = df_long[group_col].map(sample_to_cond)
         plt.figure(figsize=figsize)
@@ -93,7 +97,7 @@ def plot_celltype_proportion(
                 data=df_long,
                 x="celltype",
                 y="proportion",
-                hue="condition" if sample_to_cond is not None else None
+                hue="condition" if sample_to_cond is not None else None,
             )
             plt.xticks(rotation=45)
         elif plot_type == "dot":
@@ -103,7 +107,7 @@ def plot_celltype_proportion(
                 y="proportion",
                 hue="condition" if sample_to_cond is not None else None,
                 dodge=True,
-                jitter=True
+                jitter=True,
             )
             plt.xticks(rotation=45)
         plt.tight_layout()
@@ -113,10 +117,11 @@ def plot_celltype_proportion(
             plt.show()
         plt.close()
 
+
 def celltype_proportion_test(
     prop_df: pd.DataFrame,
     sample_to_cond: pd.Series,
-    test: Literal["t", "wilcoxon", "anova"] = "wilcoxon"
+    test: Literal["t", "wilcoxon", "anova"] = "wilcoxon",
 ) -> pd.DataFrame:
     """
     For each celltype, performs group-wise statistical tests between conditions.
@@ -139,7 +144,9 @@ def celltype_proportion_test(
         return pd.DataFrame()
 
     for ct in prop_df.columns:
-        group_vals = [prop_df.loc[sample_to_cond == cond, ct].dropna() for cond in conditions]
+        group_vals = [
+            prop_df.loc[sample_to_cond == cond, ct].dropna() for cond in conditions
+        ]
         # Require at least one observation per group
         if any(len(v) < 2 for v in group_vals):
             stat, p = np.nan, np.nan
@@ -147,18 +154,24 @@ def celltype_proportion_test(
             if test == "t" and len(conditions) == 2:
                 stat, p = ttest_ind(group_vals[0], group_vals[1], equal_var=False)
             elif test == "wilcoxon" and len(conditions) == 2:
-                stat, p = mannwhitneyu(group_vals[0], group_vals[1], alternative="two-sided")
+                stat, p = mannwhitneyu(
+                    group_vals[0], group_vals[1], alternative="two-sided"
+                )
             elif test == "anova" and len(conditions) >= 3:
                 stat, p = f_oneway(*group_vals)
             else:
                 stat, p = np.nan, np.nan
-        mean_per_group = {f"mean_{cond}": float(vals.mean()) if len(vals) > 0 else np.nan for cond, vals in zip(conditions, group_vals)}
+        mean_per_group = {
+            f"mean_{cond}": float(vals.mean()) if len(vals) > 0 else np.nan
+            for cond, vals in zip(conditions, group_vals)
+        }
         results.append(dict(celltype=ct, stat=stat, pvalue=p, **mean_per_group))
 
     out = pd.DataFrame(results)
     if not out.empty:
         out = out.sort_values("pvalue", na_position="last")
     return out
+
 
 def celltype_proportion_analysis(
     adata,
@@ -187,7 +200,9 @@ def celltype_proportion_analysis(
     """
     log.info("Starting cell type proportion analysis")
     if condition_col:
-        prop_df, sample_to_cond = compute_celltype_proportion(adata, celltype_col, group_col, condition_col)
+        prop_df, sample_to_cond = compute_celltype_proportion(
+            adata, celltype_col, group_col, condition_col
+        )
     else:
         prop_df = compute_celltype_proportion(adata, celltype_col, group_col)
         sample_to_cond = None
@@ -199,7 +214,7 @@ def celltype_proportion_analysis(
         prop_df.to_csv(out_dir / "proportion_table.csv")
         if sample_to_cond is not None:
             sample_to_cond.to_csv(out_dir / "sample_to_condition.csv")
-    
+
     # Draw plots
     for ptype in plot_types:
         plot_celltype_proportion(
@@ -207,9 +222,9 @@ def celltype_proportion_analysis(
             sample_to_cond,
             plot_type=ptype,
             out_dir=out_dir,
-            group_col=group_col
+            group_col=group_col,
         )
-    
+
     # Statistical test
     if sample_to_cond is not None:
         stat_df = celltype_proportion_test(prop_df, sample_to_cond, test)

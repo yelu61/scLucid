@@ -13,7 +13,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from ..utils import use_layer_as_X
+from ..utils import sanitize_for_hdf5, use_layer_as_X
 from ..utils.marker_manager import Manager, get_marker_manager
 from .config import AnnotationConfig
 
@@ -166,12 +166,15 @@ def score_cell_types(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["sclucid"]["analysis"]["annotation"]["scoring_params"] = {
-        "use_raw": use_raw,
-        "layer": layer,
-        "min_genes": min_genes,
-        "ctrl_size": ctrl_size,
-    }
+    scoring_params = sanitize_for_hdf5(
+        {
+            "use_raw": use_raw,
+            "layer": layer,
+            "min_genes": min_genes,
+            "ctrl_size": ctrl_size,
+        }
+    )
+    adata.uns["sclucid"]["analysis"]["annotation"]["scoring_params"] = scoring_params
     return adata
 
 
@@ -332,15 +335,20 @@ def annotate_clusters(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = {
-        "method": method,
-        "min_score": min_score,
-        "score_weight": score_weight,
-        "enrichment_weight": enrichment_weight,
-        "mapping": mapping,
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
-        "n_markers": {k: len(v.markers) for k, v in getattr(mgr, "CELLS", {}).items()},
-    }
+    params_dict = sanitize_for_hdf5(
+        {
+            "method": method,
+            "min_score": min_score,
+            "score_weight": score_weight,
+            "enrichment_weight": enrichment_weight,
+            "mapping": mapping,
+            "scanpy_version": getattr(sc, "__version__", "unknown"),
+            "n_markers": {
+                k: len(v.markers) for k, v in getattr(mgr, "CELLS", {}).items()
+            },
+        }
+    )
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = params_dict
     if plot:
         if "X_umap" not in adata.obsm:
             sc.tl.umap(adata)
@@ -380,7 +388,14 @@ def run_celltypist(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_results"] = pred
+    celltypist_info = {
+        "model": model,
+        "majority_voting": majority_voting,
+        "timestamp": str(pd.Timestamp.now()),
+    }
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_results"] = (
+        sanitize_for_hdf5(celltypist_info)
+    )
     return adata
 
 
@@ -430,14 +445,19 @@ def transfer_labels(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = {
-        "method": "knn_transfer",
-        "n_neighbors": n_neighbors,
-        "use_rep": use_rep,
-        "normalize_weights": normalize_weights,
-        "confidence_threshold": confidence_threshold,
-        "reference_label_key": ref_label_key,
-    }
+    transfer_params = sanitize_for_hdf5(
+        {
+            "method": "knn_transfer",
+            "n_neighbors": n_neighbors,
+            "use_rep": use_rep,
+            "normalize_weights": normalize_weights,
+            "confidence_threshold": confidence_threshold,
+            "reference_label_key": ref_label_key,
+        }
+    )
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = (
+        transfer_params
+    )
     return adata
 
 
@@ -561,12 +581,14 @@ def apply_annotation_mapping(
         .setdefault("analysis", {})
         .setdefault("annotation", {})
     )
-    annot_ns[f"{key_added}_mapping"] = mapping_dict
-    annot_ns[f"{key_added}_mapping_meta"] = {
-        "cluster_key": cluster_key,
-        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
-        **mapping_source,
-    }
+    annot_ns[f"{key_added}_mapping"] = sanitize_for_hdf5(mapping_dict)
+    annot_ns[f"{key_added}_mapping_meta"] = sanitize_for_hdf5(
+        {
+            "cluster_key": cluster_key,
+            "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            **mapping_source,
+        }
+    )
 
     log.info(
         f"Applied mapping to column '{key_added}'. Categories: {list(adata.obs[key_added].cat.categories)}"
@@ -649,7 +671,7 @@ def remap_labels(
         .setdefault("annotation", {})
     )
     audit = annot_ns.setdefault("remap_audit", [])
-    audit.append(
+    audit_entry = sanitize_for_hdf5(
         {
             "source_column": column,
             "target_column": target_col,
@@ -663,6 +685,7 @@ def remap_labels(
             "final_categories": list(adata.obs[target_col].cat.categories),
         }
     )
+    audit.append(audit_entry)
 
     log.info(
         f"Remapped labels in '{target_col}': +{changed_by_mapping} (mapping), +{changed_by_where} (where). Categories: {list(adata.obs[target_col].cat.categories)}"
@@ -803,14 +826,17 @@ def evaluate_annotation(
         results_df
     )
     # Save params
+    eval_params = sanitize_for_hdf5(
+        {
+            "cluster_key": cluster_key,
+            "annotation_key": annotation_key,
+            "scanpy_version": getattr(sc, "__version__", "unknown"),
+            "n_types_in_manager": len(getattr(mgr, "CELLS", {})),
+        }
+    )
     adata.uns["sclucid"]["analysis"]["annotation"][
         f"{annotation_key}_evaluation_params"
-    ] = {
-        "cluster_key": cluster_key,
-        "annotation_key": annotation_key,
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
-        "n_types_in_manager": len(getattr(mgr, "CELLS", {})),
-    }
+    ] = eval_params
     return results_df
 
 
@@ -845,5 +871,7 @@ def run_annotation(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}
     )
-    adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = config.to_dict()
+    adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = (
+        sanitize_for_hdf5(config.to_dict())
+    )
     return adata

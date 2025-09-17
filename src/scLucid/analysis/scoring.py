@@ -9,6 +9,8 @@ import seaborn as sns
 from anndata import AnnData
 from scipy.stats import mannwhitneyu, ttest_ind
 
+from ..utils import sanitize_for_hdf5
+
 log = logging.getLogger(__name__)
 
 __all__ = [
@@ -149,7 +151,7 @@ def score_by_gene_sets(
             log.warning(f"Failed to score set '{set_name}': {e}")
             skipped_sets.append(set_name)
 
-    ns["gene_set_scoring"] = {
+    ns["gene_set_scoring"] = sanitize_for_hdf5({
         "n_sets_input": total_sets,
         "n_sets_scored": scored_count,
         "n_sets_skipped": len(skipped_sets),
@@ -164,7 +166,7 @@ def score_by_gene_sets(
             "min_genes_required": min_genes_required,
             "scanpy_version": getattr(sc, "__version__", "unknown"),
         },
-    }
+    })
     log.info(f"Completed scoring: {scored_count}/{total_sets} sets scored, {len(skipped_sets)} skipped.")
     return adata
 
@@ -256,7 +258,7 @@ def compare_scores(
         }
     )
 
-    ns[f"compare_{score_key}_{group1}_vs_{group2}"] = results
+    ns[f"compare_{score_key}_{group1}_vs_{group2}"] = sanitize_for_hdf5(results)
     return results
 
 
@@ -326,13 +328,13 @@ def plot_score_comparison(
     ax.tick_params(axis="x", rotation=45)
     plt.tight_layout()
 
-    ns[f"{score_key}_{groupby}_{plot_type}_plot"] = {
+    ns[f"{score_key}_{groupby}_{plot_type}_plot"] = sanitize_for_hdf5({
         "groups": list(map(str, groups_to_compare)) if groups_to_compare else None,
         "order": list(order) if order is not None else None,
         "plot_type": plot_type,
         "palette": palette,
         "figsize": figsize,
-    }
+    })
 
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -387,7 +389,7 @@ def batch_compare_scores(
 
     if results:
         all_results = pd.concat(results, ignore_index=True)
-        ns["batch_compare_results"] = all_results
+        ns["batch_compare_results"] = sanitize_for_hdf5(all_results)
         return all_results
     else:
         log.info("No valid comparisons were produced.")

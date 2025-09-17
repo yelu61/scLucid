@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 __all__ = ["load_10x_data", 
            "use_layer_as_X", 
+           "sanitize_for_hdf5",
            "identify_outliers",
            "subset_adata",
            "subset_from_annotations"]
@@ -87,7 +88,7 @@ def _find_sample_paths(
 
     return found_paths
 
-
+        
 def _read_10x_manually(sample_path: str) -> AnnData:
     """
     Manually reads 10x data files as a robust fallback method.
@@ -271,6 +272,28 @@ def use_layer_as_X(adata: AnnData, layer: Optional[str]):
         adata.X = X_backup
 
 
+def sanitize_for_hdf5(obj):
+    """
+    Make objects HDF5-compatible by:
+    1. Converting tuples to lists
+    2. Converting integer keys to strings in dictionaries
+    3. Handling other non-HDF5 compatible types
+    """
+    if isinstance(obj, tuple):
+        return [sanitize_for_hdf5(item) for item in obj]
+    elif isinstance(obj, list):
+        return [sanitize_for_hdf5(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {str(k): sanitize_for_hdf5(v) for k, v in obj.items()}
+    elif isinstance(obj, (int, float, str, bool, np.number, np.bool_)) or obj is None:
+        return obj
+    else:
+        # Try to convert other types to string representation
+        try:
+            return str(obj)
+        except:
+            return "Unconvertible object"
+        
 def _identify_outliers_subset(
     obs_subset: pd.DataFrame,
     metrics: List[Tuple[str, str, Optional[float]]],

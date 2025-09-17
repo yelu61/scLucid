@@ -30,6 +30,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
+from ..utils import sanitize_for_hdf5
 from .config import (
     CompareConditionsConfig,
     CompareGroupsConfig,
@@ -154,7 +155,7 @@ def find_markers(
     # Params trace
     p = active_config.to_dict()
     p["scanpy_version"] = getattr(sc, "__version__", "unknown")
-    root[f"{key_added}_params"] = p
+    root[f"{key_added}_params"] = sanitize_for_hdf5(p)
 
     log.info(
         f"Found {len(full_df)} total marker rows across {len(groups_tested)} groups."
@@ -392,7 +393,8 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
         .setdefault("de", {})
     )
     root[key_added] = final_results
-    root[f"{key_added}_params"] = config.to_dict()
+    root[f"{key_added}_params"] = sanitize_for_hdf5(config.to_dict())
+
     log.info(
         f"Found {len(final_results)} DE genes. Stored at .uns['...']['{key_added}']."
     )
@@ -485,7 +487,7 @@ def compare_conditions(
         .setdefault("de", {})
     )
     root[comp_config.key_added] = results_df
-    root[f"{comp_config.key_added}_params"] = config.to_dict()
+    root[f"{comp_config.key_added}_params"] = sanitize_for_hdf5(config.to_dict())
     log.info(f"Stored condition comparison at .uns['...']['{comp_config.key_added}']")
 
     return results_df
@@ -622,22 +624,24 @@ def get_conserved_markers(
         .setdefault("analysis", {})
         .setdefault("de", {})
     )
-    root[key_added] = {
+    params_dict = sanitize_for_hdf5({
+        "groupby": groupby,
+        "condition_key": condition_key,
+        "method": method,
+        "min_cells": min_cells,
+        "min_conditions": min_conditions,
+        "min_log2fc": min_log2fc,
+        "max_padj": max_padj,
+        "min_in_group_pct": min_in_group_pct,
+        "layer": layer,
+        "use_raw": use_raw,
+    })
+
+    root[key_added] = sanitize_for_hdf5({
         "aggregates": conserved_markers,
         "details": per_group_details,
-        "params": {
-            "groupby": groupby,
-            "condition_key": condition_key,
-            "method": method,
-            "min_cells": min_cells,
-            "min_conditions": min_conditions,
-            "min_log2fc": min_log2fc,
-            "max_padj": max_padj,
-            "min_in_group_pct": min_in_group_pct,
-            "layer": layer,
-            "use_raw": use_raw,
-        },
-    }
+        "params": params_dict,
+    })
     return conserved_markers
 
 
@@ -854,11 +858,11 @@ def run_enrichment(
             enrichment_results[cluster] = pd.DataFrame()
 
     # Store results + params + meta
-    out = {
+    out = sanitize_for_hdf5({
         "results": enrichment_results,
         "params": config.to_dict(),
         "meta": enrichment_meta,
-    }
+    })
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
         key_added
     ] = out
@@ -1077,7 +1081,7 @@ def characterize_clusters(
             "enrichment": enrichment_results.get(cluster, pd.DataFrame()),
         }
 
-    adata.uns[key_added] = {
+    adata.uns[key_added] = sanitize_for_hdf5({
         "results": characterization_results,
         "params": {
             "groupby": groupby,
@@ -1086,7 +1090,7 @@ def characterize_clusters(
             "de_params": de_config.to_dict(),
             "enrichment_params": enrichment_config.to_dict(),
         },
-    }
+    })
     log.info(f"Cluster characterization complete -> adata.uns['{key_added}']")
     return adata
 
