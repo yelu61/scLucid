@@ -10,7 +10,7 @@ import logging
 import os
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import anndata
 import numpy as np
@@ -18,16 +18,17 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 from scipy import io
-from scipy.stats import median_abs_deviation
 
 log = logging.getLogger(__name__)
 
-__all__ = ["load_10x_data", 
-           "use_layer_as_X", 
-           "sanitize_for_hdf5",
-           "identify_outliers",
-           "subset_adata",
-           "subset_from_annotations"]
+__all__ = [
+    "load_10x_data",
+    "use_layer_as_X",
+    "sanitize_for_hdf5",
+    "subset_adata",
+    "subset_from_annotations",
+    "merge_obs_metadata"
+]
 
 
 def _find_sample_paths(
@@ -88,7 +89,7 @@ def _find_sample_paths(
 
     return found_paths
 
-        
+
 def _read_10x_manually(sample_path: str) -> AnnData:
     """
     Manually reads 10x data files as a robust fallback method.
@@ -145,12 +146,14 @@ def _read_10x_manually(sample_path: str) -> AnnData:
     barcodes = barcodes_df[0]
 
     # --- Create and Sanitize AnnData Object ---
-    adata = anndata.AnnData(X=X, 
-                        obs=pd.DataFrame(index=barcodes.values), 
-                        var=pd.DataFrame(index=gene_names.values))
+    adata = anndata.AnnData(
+        X=X,
+        obs=pd.DataFrame(index=barcodes.values),
+        var=pd.DataFrame(index=gene_names.values),
+    )
 
     adata.var_names_make_unique()  # Ensure gene names are unique
-    adata.layers['counts'] = adata.X.copy()
+    adata.layers["counts"] = adata.X.copy()
 
     return adata
 
@@ -246,8 +249,8 @@ def load_10x_data(
         combined_adata.write(output_file, compression=compression)
         log.info(f"Data successfully saved to {output_file}")
 
-    combined_adata.layers['counts'] = combined_adata.X.copy()
-    
+    combined_adata.layers["counts"] = combined_adata.X.copy()
+
     return combined_adata
 
 
@@ -293,136 +296,6 @@ def sanitize_for_hdf5(obj):
             return str(obj)
         except:
             return "Unconvertible object"
-        
-def _identify_outliers_subset(
-    obs_subset: pd.DataFrame,
-    metrics: List[Tuple[str, str, Optional[float]]],
-    nmads: float = 5.0,
-    group_name: str = "global",
-) -> pd.Series:
-    """
-    Internal helper function to identify outliers on a subset of data.
-    """
-    subset_outliers = pd.Series(False, index=obs_subset.index)
-
-    for metric, direction, threshold in metrics:
-        if metric not in obs_subset.columns:
-            log.warning(
-                f"Metric '{metric}' not found in data for group '{group_name}', skipping."
-            )
-            continue
-
-        values = obs_subset[metric]
-        metric_outliers = pd.Series(False, index=obs_subset.index)
-
-        if threshold is not None:
-            # Use fixed threshold
-            if direction == "upper":
-                metric_outliers = values > threshold
-            elif direction == "lower":
-                metric_outliers = values < threshold
-            elif direction == "both":
-                # For fixed threshold, 'both' is not meaningful.
-                # A user should provide two separate tuples for upper and lower bounds.
-                log.warning(
-                    f"Direction 'both' with a fixed threshold is ambiguous for '{metric}'. "
-                    "Please provide separate 'upper' and 'lower' tuples if needed. Skipping."
-                )
-                continue
-            else:
-                log.warning(
-                    f"Invalid direction '{direction}' for '{metric}', skipping."
-                )
-                continue
-        else:
-            # Calculate threshold using MAD
-            median = np.nanmedian(values)
-            mad = median_abs_deviation(values, scale="normal", nan_policy="omit")
-
-            if mad == 0:
-                log.warning(
-                    f"MAD is zero for '{metric}' in group '{group_name}'. "
-                    "Cannot perform outlier detection for this metric."
-                )
-                continue
-
-            upper_bound = median + nmads * mad
-            lower_bound = median - nmads * mad
-
-            if direction == "upper":
-                metric_outliers = values > upper_bound
-            elif direction == "lower":
-                metric_outliers = values < lower_bound
-            elif direction == "both":
-                metric_outliers = (values > upper_bound) | (values < lower_bound)
-            else:
-                log.warning(
-                    f"Invalid direction '{direction}' for '{metric}', skipping."
-                )
-                continue
-
-        outlier_count = metric_outliers.sum()
-        if outlier_count > 0:
-            log.info(
-                f"  - Group '{group_name}': Identified {outlier_count} outliers "
-                f"({outlier_count / len(values):.2%}) for metric '{metric}' (direction: {direction})"
-            )
-
-        subset_outliers |= metric_outliers
-
-    return subset_outliers
-
-
-def identify_outliers(
-    adata: AnnData,
-    metrics: List[Tuple[str, str, Optional[float]]],
-    sample_key: Optional[str] = None,
-    nmads: float = 5.0,
-) -> pd.Series:
-    """
-    Identify outliers based on metrics using median absolute deviation (MAD) or fixed thresholds.
-
-    This function can process multiple metrics and optionally group by sample for per-group
-    outlier detection.
-
-    Args:
-        adata: AnnData object to check for outliers.
-        metrics: List of tuples for outlier detection. Each tuple is (metric, direction, threshold).
-                 - metric (str): Column name in `adata.obs`.
-                 - direction (str): 'upper', 'lower', or 'both'.
-                 - threshold (float, optional): If provided, this fixed value is used as the threshold.
-                   If None, the threshold is calculated dynamically using MAD.
-        sample_key: If provided, outliers will be identified separately per sample group.
-        nmads: Number of median absolute deviations for dynamic outlier detection.
-
-    Returns:
-        Boolean pd.Series indicating if a cell is an outlier for any of the specified metrics.
-    """
-    if not metrics:
-        return pd.Series(False, index=adata.obs_names)
-
-    final_outliers = pd.Series(False, index=adata.obs_names)
-
-    if sample_key and sample_key in adata.obs.columns:
-        log.info(f"Identifying outliers per group in '{sample_key}'...")
-        for sample_id, group_df in adata.obs.groupby(sample_key):
-            group_outliers = _identify_outliers_subset(
-                group_df, metrics, nmads, group_name=str(sample_id)
-            )
-            final_outliers[group_outliers.index] = group_outliers
-    else:
-        log.info("Identifying outliers on the entire dataset...")
-        global_outliers = _identify_outliers_subset(
-            adata.obs, metrics, nmads, group_name="global"
-        )
-        final_outliers = global_outliers
-
-    total_count = final_outliers.sum()
-    log.info(
-        f"Total unique outliers identified: {total_count} ({total_count / len(final_outliers):.2%})"
-    )
-
-    return final_outliers
 
 
 def subset_adata(
@@ -526,14 +399,16 @@ def subset_from_annotations(
 
     # --- Step 1: Merge Annotations ---
     log.info(f"Merging annotations for columns: {columns_to_merge} from source object.")
-    
+
     # Check if columns exist in the source
     missing_cols = [col for col in columns_to_merge if col not in adata_source.obs]
     if missing_cols:
-        raise ValueError(f"Columns {missing_cols} not found in the source AnnData object's .obs")
+        raise ValueError(
+            f"Columns {missing_cols} not found in the source AnnData object's .obs"
+        )
 
     annotations = adata_source.obs[columns_to_merge]
-    
+
     # Use a temporary DataFrame to avoid modifying the original adata_target.obs in case of error
     obs_merged = adata_target.obs.join(annotations)
 
@@ -550,9 +425,55 @@ def subset_from_annotations(
     temp_adata.obs = obs_merged
 
     # --- Step 2: Subset ---
-    log.info(f"Subsetting target object based on new annotations with filters: {filters}")
-    
+    log.info(
+        f"Subsetting target object based on new annotations with filters: {filters}"
+    )
+
     # Now we can call the original, simple subset_adata function
     adata_subset = subset_adata(temp_adata, filters=filters)
 
     return adata_subset
+
+
+def merge_obs_metadata(
+    adata: AnnData,
+    metadata_path: str,
+    left_on: Optional[str] = None, # If None, uses adata.obs.index
+    right_on: Optional[str] = None, # If None, uses metadata_df.index
+    how: str = "left",
+) -> AnnData:
+    """
+    Merges metadata from an external file into the AnnData object's .obs DataFrame.
+
+    Args:
+        adata: The AnnData object to modify.
+        metadata_path: Path to the metadata file (.csv, .tsv, or .xlsx).
+        left_on: Column in adata.obs to join on. If None, uses the index (cell barcodes).
+        right_on: Column in the external file to join on. If None, uses the index.
+        how: How to perform the merge (e.g., 'left', 'inner'). Defaults to 'left'.
+
+    Returns:
+        The AnnData object with merged metadata (modified in place).
+    """
+    log.info(f"Loading metadata from {metadata_path}")
+    if metadata_path.endswith(".csv"):
+        meta_df = pd.read_csv(metadata_path)
+    elif metadata_path.endswith((".xlsx", ".xls")):
+        meta_df = pd.read_excel(metadata_path)
+    elif metadata_path.endswith(".tsv"):
+        meta_df = pd.read_csv(metadata_path, sep="\t")
+    else:
+        raise ValueError("Unsupported file format. Please use .csv, .tsv, or .xlsx.")
+
+    initial_cols = set(adata.obs.columns)
+    
+    # Perform the merge
+    if left_on is None: # Join on index
+        adata.obs = adata.obs.join(meta_df.set_index(right_on) if right_on else meta_df, how=how)
+    else: # Join on a column
+        adata.obs = adata.obs.merge(meta_df, left_on=left_on, right_on=right_on, how=how, suffixes=("", "_new"))
+
+    new_cols = set(adata.obs.columns) - initial_cols
+    log.info(f"Successfully merged {len(new_cols)} new columns into .obs: {list(new_cols)}")
+    
+    return adata

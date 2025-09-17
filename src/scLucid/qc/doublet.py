@@ -21,7 +21,7 @@ import seaborn as sns
 from anndata import AnnData
 from upsetplot import plot as upset_plot
 
-from ..utils.marker_manager import get_marker_manager
+from ..markers import get_marker_manager
 from .config import DoubletConfig, MarkerConfig
 
 log = logging.getLogger(__name__)

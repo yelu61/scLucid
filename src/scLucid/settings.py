@@ -16,18 +16,20 @@ log = logging.getLogger(__name__)
 # --- Backup original matplotlib settings for restoration ---
 _original_rc_params = mpl.rcParams.copy()
 
+
 # --- Backup original scanpy settings for restoration ---
 def _get_initial_scanpy_params():
     # For newer scanpy versions
     return {
-        "dpi": getattr(_scanpy.settings, 'figdir_dpi', 80),
-        "dpi_save": getattr(_scanpy.settings, 'figdir_dpi_save', 150),
-        "figsize": getattr(_scanpy.settings, 'figsize', (8, 6)),
-        "facecolor": getattr(_scanpy.settings, 'facecolor', 'white'),
-        "autoshow": getattr(_scanpy.settings, 'autoshow', True),
-        "autosave": getattr(_scanpy.settings, 'autosave', False),
-        "verbosity": getattr(_scanpy.settings, 'verbosity', 1),
+        "dpi": getattr(_scanpy.settings, "figdir_dpi", 80),
+        "dpi_save": getattr(_scanpy.settings, "figdir_dpi_save", 150),
+        "figsize": getattr(_scanpy.settings, "figsize", (8, 6)),
+        "facecolor": getattr(_scanpy.settings, "facecolor", "white"),
+        "autoshow": getattr(_scanpy.settings, "autoshow", True),
+        "autosave": getattr(_scanpy.settings, "autosave", False),
+        "verbosity": getattr(_scanpy.settings, "verbosity", 1),
     }
+
 
 _original_scanpy_params = _get_initial_scanpy_params()
 
@@ -112,6 +114,7 @@ _DEFAULT_STYLES = {
 
 __all__ = ["setup_logging", "set_figure_params", "reset_figure_params"]
 
+
 def setup_logging(
     level: str = "INFO",
     file_path: Optional[str] = None,
@@ -151,23 +154,23 @@ def _configure_scanpy_directly(dpi, dpi_save, figsize, facecolor):
     _scanpy.settings.verbosity = 3
     _scanpy.settings.autoshow = True
     _scanpy.settings.autosave = False
-    
+
     # Set figure parameters directly
     _scanpy.settings.figdir_dpi = dpi
     _scanpy.settings.figdir_dpi_save = dpi_save
     _scanpy.settings.figsize = figsize
-    
+
     # Attempt to set facecolor if the attribute exists
-    if hasattr(_scanpy.settings, 'facecolor'):
+    if hasattr(_scanpy.settings, "facecolor"):
         _scanpy.settings.facecolor = facecolor
-    
+
     # Handle scanpy plotting RC params directly if available
-    if hasattr(_scanpy, 'plotting') and hasattr(_scanpy.plotting, 'rcParams'):
-        _scanpy.plotting.rcParams['figure.figsize'] = figsize
-        _scanpy.plotting.rcParams['figure.dpi'] = dpi
-        _scanpy.plotting.rcParams['savefig.dpi'] = dpi_save
-        if 'figure.facecolor' in _scanpy.plotting.rcParams:
-            _scanpy.plotting.rcParams['figure.facecolor'] = facecolor
+    if hasattr(_scanpy, "plotting") and hasattr(_scanpy.plotting, "rcParams"):
+        _scanpy.plotting.rcParams["figure.figsize"] = figsize
+        _scanpy.plotting.rcParams["figure.dpi"] = dpi
+        _scanpy.plotting.rcParams["savefig.dpi"] = dpi_save
+        if "figure.facecolor" in _scanpy.plotting.rcParams:
+            _scanpy.plotting.rcParams["figure.facecolor"] = facecolor
 
 
 def set_figure_params(
@@ -204,7 +207,7 @@ def set_figure_params(
         dpi=dpi,
         dpi_save=dpi_save,
         figsize=figsize,
-        facecolor=_THEMES[color_theme]["axes.facecolor"]
+        facecolor=_THEMES[color_theme]["axes.facecolor"],
     )
 
     # Prepare base matplotlib styles
@@ -253,19 +256,20 @@ def reset_figure_params() -> None:
     """
     log.info("Resetting plotting settings to matplotlib and scanpy defaults.")
     mpl.rcParams.update(_original_rc_params)
-    
+
     # Reset scanpy settings directly
     _configure_scanpy_directly(
         dpi=_original_scanpy_params["dpi"],
         dpi_save=_original_scanpy_params["dpi_save"],
         figsize=_original_scanpy_params["figsize"],
-        facecolor=_original_scanpy_params["facecolor"]
+        facecolor=_original_scanpy_params["facecolor"],
     )
-    
+
     _scanpy.settings.autoshow = _original_scanpy_params["autoshow"]
     _scanpy.settings.autosave = _original_scanpy_params["autosave"]
     _scanpy.settings.verbosity = _original_scanpy_params["verbosity"]
     log.info("Plotting settings reset.")
+
 
 # --- Extra: Warn user if scanpy import path is suspicious, to avoid local conflicts ---
 def _check_scanpy_path():

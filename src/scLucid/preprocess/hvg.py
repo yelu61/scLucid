@@ -25,7 +25,7 @@ try:
 except ImportError:
     HAS_VENN = False
 
-from ..utils.utils import use_layer_as_X
+from ..utils import use_layer_as_X
 from .config import HVGConfig
 
 log = logging.getLogger(__name__)

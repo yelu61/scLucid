@@ -1,0 +1,38 @@
+name: sclucid-env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  # 1. Core Python dependencies
+  - python=3.9
+  - pip
+  - scanpy
+  - anndata
+  - matplotlib
+  - seaborn
+  - scrublet
+  - harmonypy
+  - scvi-tools
+  - infercnvpy
+  - pyscenic
+  - cellphonedb  # If available on conda
+  # ... other python deps
+
+  # 2. R Environment
+  - r-base=4.2
+  - r-rpy2
+  - r-essentials
+
+  # 3. R Packages from Bioconda/Conda-Forge
+  - bioconductor-singlecellexperiment
+  - r-seurat
+  - bioconductor-monocle3
+  - bioconductor-cellchat
+  - bioconductor-slingshot
+  - bioconductor-deseq2
+  # ... other R deps like r-devtools for github packages ...
+  
+  # 4. Your package (installed via pip after env is created)
+  - pip:
+    - sclucid[all] # Or point to the local directory for development: -e .[all]

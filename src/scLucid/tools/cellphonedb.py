@@ -25,7 +25,7 @@ def run_cellphonedb(
 ) -> anndata.AnnData:
     """
     Run CellPhoneDB analysis for cell-cell communication.
-    Results are saved to adata.uns['scrnatk']['cellphonedb']
+    Results are saved to adata.uns['sclucid']['cellphonedb']
     """
     if copy:
         adata = adata.copy()
@@ -89,7 +89,7 @@ def run_cellphonedb(
             key_name = f.replace(".txt", "")
             results[key_name] = pd.read_csv(path, sep='\t')
     
-    adata.uns.setdefault("scrnatk", {})["cellphonedb"] = {
+    adata.uns.setdefault("sclucid", {})["cellphonedb"] = {
         "results": results,
         "params": {
             "groupby": groupby,
@@ -176,7 +176,7 @@ def summarize_cellphonedb(
     """
     Summarize and export main CellPhoneDB result tables and top interactions.
     """
-    db = adata.uns.get("scrnatk", {}).get("cellphonedb", {})
+    db = adata.uns.get("sclucid", {}).get("cellphonedb", {})
     results = db.get("results", {})
     params = db.get("params", {})
 

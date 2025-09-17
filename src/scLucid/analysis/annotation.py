@@ -14,7 +14,7 @@ import scanpy as sc
 from anndata import AnnData
 
 from ..utils import sanitize_for_hdf5, use_layer_as_X
-from ..utils.marker_manager import Manager, get_marker_manager
+from ..markers import Manager, get_marker_manager
 from .config import AnnotationConfig
 
 log = logging.getLogger(__name__)

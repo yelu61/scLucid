@@ -66,10 +66,11 @@ def deconvolve_bulk(
         raise ValueError(f"Unsupported deconvolution method: {method}")
 
     # Store results
-    adata_ref.uns.setdefault('scrnatk', {}).setdefault('tools', {})
-    adata_ref.uns['scrnatk']['tools'][key_added] = {
+    adata_ref.uns.setdefault('sclucid', {}).setdefault('tools', {})
+    adata_ref.uns['sclucid']['tools'][key_added] = {
         'proportions': proportions_df,
-        'params': {'method': method, ...}
+        'params': {'method': method, 
+                   }
     }
     log.info(f"Deconvolution results stored in .uns.")
     

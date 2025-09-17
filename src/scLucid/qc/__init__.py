@@ -19,6 +19,7 @@ from .doublet import (
 )
 from .filtering import (
     suggest_qc_thresholds,
+    identify_outliers,
     generate_qc_report,
     mark_low_quality_cell,
     filter_cells,
@@ -44,6 +45,7 @@ __all__ = [
     "create_custom_marker_dict",
     "predict_doublets",
     "suggest_qc_thresholds",
+    "identify_outliers",
     "mark_low_quality_cell",
     "filter_cells",
     "generate_qc_report",
