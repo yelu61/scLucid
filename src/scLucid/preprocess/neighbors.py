@@ -44,7 +44,8 @@ def _compute_silhouette_for_params(
             n_pcs=n_pcs,
         )
         if config.clustering_method == "leiden":
-            sc.tl.leiden(adata_local, resolution=config.resolution, key_added="cluster")
+            sc.tl.leiden(adata_local, resolution=config.resolution, key_added="cluster",
+                         flavor="igraph", n_iterations=2, directed=False)
         else:  # louvain
             sc.tl.louvain(
                 adata_local, resolution=config.resolution, key_added="cluster"

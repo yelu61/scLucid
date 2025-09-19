@@ -35,7 +35,6 @@ MARKER_FORMATS = ["toml", "json"]
 KNOWN_SPECIES = [
     "human",
     "mouse",
-    "rat",
 ]
 
 
@@ -773,6 +772,11 @@ class Manager:
                 if cell.markers:  # Only include if it has markers
                     lineage_markers[name] = cell.markers
         
+        # Fix for mouse genes: convert uppercase genes to title case if species is mouse
+        if hasattr(self, '_source_file') and 'mouse' in self._source_file.lower():
+            for lineage, genes in lineage_markers.items():
+                lineage_markers[lineage] = [g.title() if g.isupper() else g for g in genes]
+        
         log.info(f"Extracted {len(lineage_markers)} dedicated lineages for doublet detection.")
         return lineage_markers
 
@@ -781,7 +785,7 @@ def get_marker_manager(
     species: str,
     tissue: Optional[str] = None,
     states: Optional[List[str]] = None,
-    case_sensitive: bool = False,
+    case_sensitive: bool = True,
 ) -> Manager:
     """
     Factory function to build a Manager by combining base, tissue, and state markers.

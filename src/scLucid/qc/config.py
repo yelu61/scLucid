@@ -137,7 +137,6 @@ class DoubletConfig:
     method: Literal["scrublet",] = "scrublet" #: The algorithm to use for doublet score calculation.
     n_pcs: int = 30 #: Number of principal components to use for the algorithm.
     plot_umap: bool = True #: Whether to plot the UMAP of the data.
-    expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = None #: Expected doublet rate. Can be a single float or a dict per sample.
     run_algorithm: bool = True
     """If False, skips the algorithmic detection step entirely. Useful for heuristic-only exploratory runs."""
     
@@ -161,6 +160,7 @@ class DoubletConfig:
     # --- Result Merging and Reporting ---
     merge_strategy: Literal['weighted_average', 'max_score', 'heuristic_boost'] = "weighted_average"
     algorithm_weight: float = 0.7
+    expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = None #: Expected doublet rate. Can be a single float or a dict per sample.
     random_state: int = 61 #: Random seed for reproducibility.
     plot_summary: bool = True #: Master switch to generate a summary plot at the end of the run.
     plot_bar: bool = True #: (If plot_summary=True) Include the bar plot.

@@ -62,10 +62,11 @@ def _create_doublet_marker_config_from_manager(
         )
         log.info(f"Performing marker intersection on {'adata.raw' if cfg.default_use_raw and adata.raw else 'adata'}.")
         
+        case_sensitive = True if cfg.marker_species.lower() == "mouse" else False
         manager = get_marker_manager(
             species=cfg.marker_species,
             tissue=cfg.marker_tissue,
-            case_sensitive=False, # Gene symbols are typically case-insensitive in this context
+            case_sensitive=case_sensitive
         )
         # Intersect with the correctly chosen data object
         manager.intersect_with(adata_for_intersection)
@@ -971,6 +972,7 @@ def predict_doublets(
         heuristic_score_col=HEURISTIC_SCORE_COL,
         strategy=cfg.merge_strategy,
         expected_rate=cfg.expected_doublet_rate,
+        algo_weight=cfg.algorithm_weight,
     )
     adata.obs[FINAL_PRED_COL] = merged_pred
 

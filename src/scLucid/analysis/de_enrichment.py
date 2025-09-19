@@ -624,24 +624,28 @@ def get_conserved_markers(
         .setdefault("analysis", {})
         .setdefault("de", {})
     )
-    params_dict = sanitize_for_hdf5({
-        "groupby": groupby,
-        "condition_key": condition_key,
-        "method": method,
-        "min_cells": min_cells,
-        "min_conditions": min_conditions,
-        "min_log2fc": min_log2fc,
-        "max_padj": max_padj,
-        "min_in_group_pct": min_in_group_pct,
-        "layer": layer,
-        "use_raw": use_raw,
-    })
+    params_dict = sanitize_for_hdf5(
+        {
+            "groupby": groupby,
+            "condition_key": condition_key,
+            "method": method,
+            "min_cells": min_cells,
+            "min_conditions": min_conditions,
+            "min_log2fc": min_log2fc,
+            "max_padj": max_padj,
+            "min_in_group_pct": min_in_group_pct,
+            "layer": layer,
+            "use_raw": use_raw,
+        }
+    )
 
-    root[key_added] = sanitize_for_hdf5({
-        "aggregates": conserved_markers,
-        "details": per_group_details,
-        "params": params_dict,
-    })
+    root[key_added] = sanitize_for_hdf5(
+        {
+            "aggregates": conserved_markers,
+            "details": per_group_details,
+            "params": params_dict,
+        }
+    )
     return conserved_markers
 
 
@@ -737,7 +741,7 @@ def run_enrichment(
             return pd.DataFrame()
         d = df.copy()
         # Standardize term column
-        for c in ["Term", "term_name", "Name", "Term name"]:
+        for c in ["Term", "term_name", "Description", "Name", "Pathway", "term"]:
             if c in d.columns:
                 if c != "Term":
                     d = d.rename(columns={c: "Term"})
@@ -747,19 +751,36 @@ def run_enrichment(
             "Adjusted P-value",
             "Adjusted P-value (Benjamini-Hochberg)",
             "Adj P-value",
-            "FDR",
-            "qvalue",
-            "FDR q-value",
+            "p.adjust",
             "padj",
+            "FDR",
+            "FDR q-value",
+            "qvalue",
         ]:
             if c in d.columns:
                 if c != "Adjusted P-value":
                     d = d.rename(columns={c: "Adjusted P-value"})
                 break
+        # Ensure numeric type for Adjusted P-value if present
+        if "Adjusted P-value" in d.columns:
+            d["Adjusted P-value"] = pd.to_numeric(
+                d["Adjusted P-value"], errors="coerce"
+            )
+
         return d
 
     # Choose ranking column for top gene selection
-    rank_col = "scores" if "scores" in marker_df.columns else "logfoldchanges"
+    rank_col = (
+        "scores"
+        if (config.prefer_score_for_enrichment and "scores" in marker_df.columns)
+        else "logfoldchanges"
+        if "logfoldchanges" in marker_df.columns
+        else None
+    )
+    if rank_col is None:
+        raise KeyError(
+            "marker_df must contain either 'scores' or 'logfoldchanges' to rank genes for enrichment."
+        )
 
     enrichment_results: Dict[str, pd.DataFrame] = {}
     enrichment_meta: Dict[str, Dict[str, Union[List[str], str, int]]] = {}
@@ -857,15 +878,17 @@ def run_enrichment(
             log.warning(f"Enrichment failed for group '{cluster}': {str(e)}")
             enrichment_results[cluster] = pd.DataFrame()
 
-    # Store results + params + meta
-    out = sanitize_for_hdf5({
-        "results": enrichment_results,
-        "params": config.to_dict(),
-        "meta": enrichment_meta,
-    })
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
-        key_added
-    ] = out
+    # Store results without sanitizing DataFrames; only params/meta sanitized
+    store_root = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("de", {})
+    )
+    store_root[key_added] = {
+        "results": enrichment_results,  # keep DataFrames as-is
+        "params": sanitize_for_hdf5(config.to_dict()),
+        "meta": sanitize_for_hdf5(enrichment_meta),
+    }
     return enrichment_results
 
 
@@ -1081,21 +1104,26 @@ def characterize_clusters(
             "enrichment": enrichment_results.get(cluster, pd.DataFrame()),
         }
 
-    adata.uns[key_added] = sanitize_for_hdf5({
-        "results": characterization_results,
-        "params": {
-            "groupby": groupby,
-            "de_df_key": de_df_key,
-            "enrichment_key": enrichment_config.key_added,
-            "de_params": de_config.to_dict(),
-            "enrichment_params": enrichment_config.to_dict(),
-        },
-    })
+    adata.uns[key_added] = sanitize_for_hdf5(
+        {
+            "results": characterization_results,
+            "params": {
+                "groupby": groupby,
+                "de_df_key": de_df_key,
+                "enrichment_key": enrichment_config.key_added,
+                "de_params": de_config.to_dict(),
+                "enrichment_params": enrichment_config.to_dict(),
+            },
+        }
+    )
     log.info(f"Cluster characterization complete -> adata.uns['{key_added}']")
     return adata
 
 
 # --- Marker + Enrichment Summary for AI/manual annotation ---
+
+
+# In de_enrichment.py
 
 
 def summarize_markers_and_enrichment(
@@ -1105,22 +1133,19 @@ def summarize_markers_and_enrichment(
     enrichment_dict: Optional[Dict[str, pd.DataFrame]] = None,
     markers_key: str = "rank_genes_groups_df",
     enrichment_key: str = "enrichment",
-    n_markers: int = 10,
-    n_terms: int = 5,
+    n_markers: int = 25,
+    n_terms: int = 10,
     summary_file: Optional[str] = None,
     sort_markers_by: str = "logfoldchanges",  # or "scores"
+    enrichment_padj_cutoff: float = 0.05,  #
 ) -> Dict[str, str]:
     """
     Build per-group Markdown summaries of top markers and enriched terms.
 
-    Improvements:
-    - Robust auto-retrieval of markers and enrichment from .uns, with checks.
-    - Repairs missing or inconsistent 'group' column in markers_df when possible.
-    - Stable group ordering (categorical order if available).
-    - Flexible sorting of markers by 'logfoldchanges' or 'scores', with fallback.
-    - Gracefully handles missing enrichment results per group.
+    This robust version correctly parses enrichment results and filters them
+    to ensure only significant pathways are summarized.
     """
-    # 1) Load markers
+    # 1. Load markers
     if markers_df is None:
         try:
             log.info(f"Auto-retrieving markers from .uns using key: {markers_key}")
@@ -1129,46 +1154,12 @@ def summarize_markers_and_enrichment(
             raise KeyError(
                 f"Marker DataFrame not found at .uns['sclucid']['analysis']['de']['{markers_key}']."
             )
-    markers_df = markers_df.copy()
 
-    if markers_df.empty:
-        log.warning(
-            "The provided/retrieved markers_df is empty. No summary can be generated."
-        )
-        if summary_file:
-            Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
-            with open(summary_file, "w", encoding="utf-8") as f:
-                f.write(
-                    "# Marker and Enrichment Summary\n\nNo valid marker genes were found."
-                )
-            log.info(f"Empty summary written to {summary_file}")
-        return {}
+    if markers_df is None or markers_df.empty:
+        log.warning("The provided marker DataFrame is empty. Cannot summarize markers.")
+        markers_df = pd.DataFrame(columns=["group", "names", "logfoldchanges"])
 
-    # 2) Ensure required columns
-    if "names" not in markers_df.columns:
-        for alt in ("gene", "Gene", "feature", "symbol"):
-            if alt in markers_df.columns:
-                markers_df["names"] = markers_df[alt]
-                log.info(f"Mapped '{alt}' to 'names' for markers_df.")
-                break
-        if "names" not in markers_df.columns:
-            raise KeyError("markers_df must contain a 'names' column (gene symbols).")
-
-    if (
-        "logfoldchanges" not in markers_df.columns
-        and "scores" not in markers_df.columns
-    ):
-        raise KeyError(
-            "markers_df must contain at least one of ['logfoldchanges', 'scores']."
-        )
-
-    if "group" not in markers_df.columns:
-        log.warning(
-            "'group' column missing in markers_df. Assigning a pseudo-group '__ALL__'."
-        )
-        markers_df["group"] = "__ALL__"
-
-    # 3) Load enrichment
+    # 2. Load enrichment results
     if enrichment_dict is None:
         enrichment_dict = {}
         try:
@@ -1178,92 +1169,143 @@ def summarize_markers_and_enrichment(
             enr_store = adata.uns["sclucid"]["analysis"]["de"].get(enrichment_key, {})
             if isinstance(enr_store, dict) and "results" in enr_store:
                 enrichment_dict = enr_store["results"]
-            elif isinstance(enr_store, dict) and all(
-                isinstance(v, pd.DataFrame) for v in enr_store.values()
-            ):
-                enrichment_dict = enr_store
+            else:
+                enrichment_dict = enr_store  # Fallback for older format
         except KeyError:
             log.warning(
-                f"No enrichment found at .uns['sclucid']['analysis']['de']['{enrichment_key}']."
+                f"No enrichment data found with key '{enrichment_key}'. Pathways will be 'N/A'."
             )
 
-    # 4) Stable group order
-    if groupby not in adata.obs.columns:
-        raise KeyError(f"'{groupby}' not found in adata.obs.")
-    if pd.api.types.is_categorical_dtype(adata.obs[groupby]):
-        group_order = list(adata.obs[groupby].cat.categories)
-    else:
-        group_order = list(pd.unique(adata.obs[groupby]))
-    # Append extra groups present in markers_df but not in obs
-    extra_groups = [g for g in markers_df["group"].unique() if g not in group_order]
-    if extra_groups:
-        log.warning(
-            f"Markers contain {len(extra_groups)} group(s) not present in adata.obs['{groupby}']: {extra_groups}. "
-            "They will be appended to the end."
-        )
-        group_order += extra_groups
+    # 2.1 Attempt to auto-deserialize any non-DataFrame entries (compat with older sanitized storage)
+    def _to_df(obj) -> pd.DataFrame:
+        if isinstance(obj, pd.DataFrame):
+            return obj
+        if obj is None:
+            return pd.DataFrame()
+        # Common sanitized patterns: JSON string, dict-of-lists, list-of-records
+        if isinstance(obj, str):
+            # try JSON
+            try:
+                return pd.read_json(obj)
+            except Exception:
+                try:
+                    # sometimes stored as repr(list[dict])
+                    tmp = eval(obj, {"__builtins__": {}})  # only if trusted
+                    return pd.DataFrame(tmp)
+                except Exception:
+                    return pd.DataFrame()
+        if isinstance(obj, dict):
+            # dict-of-lists or dict like DataFrame.to_dict()
+            try:
+                return pd.DataFrame(obj)
+            except Exception:
+                # dict with 'data' or 'records'
+                for k in ("data", "records"):
+                    if k in obj:
+                        try:
+                            return pd.DataFrame(obj[k])
+                        except Exception:
+                            pass
+                return pd.DataFrame()
+        if isinstance(obj, (list, tuple)):
+            try:
+                return pd.DataFrame(obj)
+            except Exception:
+                return pd.DataFrame()
+        return pd.DataFrame()
 
-    # 5) Sorting preference
+    enrichment_dict = {str(k): _to_df(v) for k, v in (enrichment_dict or {}).items()}
+
+    # 3. Determine group order
+    if groupby in adata.obs:
+        group_order = list(pd.unique(adata.obs[groupby].astype(str)))
+    else:
+        group_order = list(
+            pd.unique(markers_df.get("group", pd.Series([], dtype=str)).astype(str))
+        )
+
+    # 4. Determine marker sort column
     sort_col = (
         sort_markers_by
         if sort_markers_by in markers_df.columns
-        else ("scores" if "scores" in markers_df.columns else "logfoldchanges")
+        else "scores"
+        if "scores" in markers_df.columns
+        else "logfoldchanges"
     )
-    if sort_col != sort_markers_by:
-        log.info(
-            f"Requested sort column '{sort_markers_by}' not found; using '{sort_col}' instead."
-        )
 
-    # 6) Build summaries
+    # 5. Build summaries
     summaries: Dict[str, str] = {}
     lines: List[str] = []
 
+    # Helper to detect term and p-adj columns robustly
+    def _detect_cols(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
+        term_candidates = [
+            "Term",
+            "term_name",
+            "Description",
+            "Name",
+            "Pathway",
+            "term",
+        ]
+        pval_candidates = [
+            "Adjusted P-value",
+            "Adjusted P-value (Benjamini-Hochberg)",
+            "Adj P-value",
+            "p.adjust",
+            "padj",
+            "FDR",
+            "FDR q-value",
+            "qvalue",
+        ]
+        tcol = next((c for c in term_candidates if c in df.columns), None)
+        pcol = next((c for c in pval_candidates if c in df.columns), None)
+        return tcol, pcol
+
     for g in group_order:
-        mask = markers_df["group"] == g
-        group_markers = markers_df[mask] if mask.any() else markers_df
-
-        group_markers_sorted = group_markers.sort_values(
-            sort_col, ascending=False, kind="mergesort"
+        # Top markers
+        group_markers = markers_df[markers_df["group"].astype(str) == str(g)]
+        top_genes = (
+            group_markers.sort_values(sort_col, ascending=False)["names"]
+            .head(n_markers)
+            .astype(str)
+            .tolist()
         )
-        top_genes = group_markers_sorted["names"].head(n_markers).astype(str).tolist()
 
-        enr_df = pd.DataFrame()
-        if isinstance(enrichment_dict, dict):
-            enr_df = enrichment_dict.get(g, enrichment_dict.get(str(g), pd.DataFrame()))
-
+        # Top pathways
         top_terms: List[str] = []
+        enr_df = enrichment_dict.get(str(g), pd.DataFrame())
+
         if isinstance(enr_df, pd.DataFrame) and not enr_df.empty:
-            # Standardize likely columns
-            term_col = (
-                "Term"
-                if "Term" in enr_df.columns
-                else ("term_name" if "term_name" in enr_df.columns else None)
-            )
-            pcol = (
-                "Adjusted P-value"
-                if "Adjusted P-value" in enr_df.columns
-                else (
-                    "FDR"
-                    if "FDR" in enr_df.columns
-                    else ("qvalue" if "qvalue" in enr_df.columns else None)
-                )
-            )
-            if term_col and pcol:
-                top_terms = (
-                    enr_df.sort_values(pcol, ascending=True, kind="mergesort")[term_col]
-                    .head(n_terms)
-                    .astype(str)
-                    .tolist()
+            term_col, pval_col = _detect_cols(enr_df)
+            if term_col and pval_col:
+                tmp = enr_df.copy()
+                tmp[pval_col] = pd.to_numeric(tmp[pval_col], errors="coerce")
+                sig = tmp[tmp[pval_col] < float(enrichment_padj_cutoff)]
+                if not sig.empty:
+                    top_terms = (
+                        sig.sort_values(pval_col, ascending=True)[term_col]
+                        .head(n_terms)
+                        .astype(str)
+                        .tolist()
+                    )
+                else:
+                    log.info(
+                        f"Cluster {g}: No pathways found below p_adj cutoff of {enrichment_padj_cutoff}"
+                    )
+            else:
+                log.warning(
+                    f"Cluster {g}: Could not detect term/padj columns. Columns present: {list(enr_df.columns)}"
                 )
 
         title = f"### Cluster {g}"
-        mk = f"**Top Markers**: {', '.join(top_genes) if top_genes else 'N/A'}"
-        pt = f"**Top Pathways**: {', '.join(top_terms) if top_terms else 'N/A'}"
-        s = f"{title}\n{mk}\n{pt}"
+        mk_str = f"**Top Markers**: {', '.join(top_genes) if top_genes else 'N/A'}"
+        pt_str = f"**Top Pathways**: {', '.join(top_terms) if top_terms else 'N/A'}"
 
-        summaries[g] = s
-        lines.append(s)
+        summary_text = f"{title}\n{mk_str}\n{pt_str}"
+        summaries[str(g)] = summary_text
+        lines.append(summary_text)
 
+    # 6. Write to file
     if summary_file:
         Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
         content = (
