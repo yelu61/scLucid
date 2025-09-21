@@ -313,6 +313,7 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
     """
     Compare two groups (e.g., cell types or conditions) for DE genes using a config object.
     Improvements:
+    - Preserve raw/layers by operating on a subset copy (no new empty AnnData).
     - Unify pct scale to 0–1 before applying thresholds.
     - More explicit up/down selection avoiding tail() pitfalls.
     - Store params for reproducibility.
@@ -324,18 +325,22 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
 
     log.info(f"Comparing DE genes between '{group1}' and '{group2}' from '{groupby}'.")
 
-    # --- Subset and run DE ---
-    adata_view = adata[adata.obs[groupby].isin([group1, group2])]
-
-    temp_adata = sc.AnnData(
-        X=adata_view.X, obs=adata_view.obs.copy(), var=adata_view.var
-    )
+    # --- Subset while preserving raw & layers ---
+    if groupby not in adata.obs.columns:
+        raise KeyError(f"Column '{groupby}' not found in adata.obs.")
+    subset_mask = adata.obs[groupby].isin([group1, group2])
+    if subset_mask.sum() == 0:
+        raise ValueError(
+            f"No cells found for either '{group1}' or '{group2}' in '{groupby}'."
+        )
+    temp_adata = adata[subset_mask].copy()  # keeps .raw and .layers
     temp_adata.obs["_compare_groups"] = (
         temp_adata.obs[groupby]
         .map({group1: "group1", group2: "group2"})
         .astype("category")
     )
 
+    # --- Run DE on the subset copy ---
     sc.tl.rank_genes_groups(
         temp_adata,
         groupby="_compare_groups",
@@ -359,18 +364,21 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
         return s.empty or ((s.min() >= 0.0) and (s.max() <= 1.0))
 
     def _to_frac(s: pd.Series) -> pd.Series:
+        if s is None:
+            return pd.Series(index=results_df.index, dtype=float)
+        s = pd.to_numeric(s, errors="coerce")
         if _is_0_to_1(s):
             return s
         return s.clip(lower=0, upper=100) / 100.0
 
-    in_frac = _to_frac(
-        results_df.get("pct_nz_group", pd.Series(index=results_df.index, dtype=float))
-    )
+    in_frac = _to_frac(results_df.get("pct_nz_group"))
 
     # --- Apply thresholds ---
+    lfc = pd.to_numeric(results_df["logfoldchanges"], errors="coerce")
+    padj = pd.to_numeric(results_df["pvals_adj"], errors="coerce")
     filt = (
-        (results_df["logfoldchanges"].abs() >= float(config.min_log2fc))
-        & (results_df["pvals_adj"] <= float(config.max_padj))
+        (lfc.abs() >= float(config.min_log2fc))
+        & (padj <= float(config.max_padj))
         & (in_frac >= float(config.min_in_group_pct))
     )
     filtered_results = results_df[filt].copy()
@@ -404,7 +412,7 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
         plt.figure(figsize=(10, 7))
         plt.scatter(
             results_df["logfoldchanges"],
-            -np.log10(results_df["pvals_adj"].clip(1e-300)),
+            -np.log10(pd.to_numeric(results_df["pvals_adj"], errors="coerce").clip(1e-300)),
             alpha=0.3,
             s=10,
             color="grey",
@@ -413,7 +421,7 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
         )
         plt.scatter(
             up["logfoldchanges"],
-            -np.log10(up["pvals_adj"].clip(1e-300)),
+            -np.log10(pd.to_numeric(up["pvals_adj"], errors="coerce").clip(1e-300)),
             alpha=0.7,
             s=30,
             color="red",
@@ -421,7 +429,7 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
         )
         plt.scatter(
             down["logfoldchanges"],
-            -np.log10(down["pvals_adj"].clip(1e-300)),
+            -np.log10(pd.to_numeric(down["pvals_adj"], errors="coerce").clip(1e-300)),
             alpha=0.7,
             s=30,
             color="blue",
@@ -439,7 +447,8 @@ def compare_groups(adata: AnnData, config: CompareGroupsConfig) -> pd.DataFrame:
         plt.tight_layout()
         if config.save_dir:
             Path(config.save_dir).mkdir(parents=True, exist_ok=True)
-            plt.savefig(Path(config.save_dir) / f"{key_added}_volcano.png", dpi=300)
+            safe_key = str(key_added).replace("/", "_").replace(" ", "_")
+            plt.savefig(Path(config.save_dir) / f"{safe_key}_volcano.png", dpi=300)
         plt.show()
 
     return final_results
