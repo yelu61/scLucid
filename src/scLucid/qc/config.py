@@ -134,11 +134,21 @@ class DoubletConfig:
     High-level configuration for the main doublet detection workflow.
     """
     # --- Core Algorithm Parameters ---
-    method: Literal["scrublet",] = "scrublet" #: The algorithm to use for doublet score calculation.
-    n_pcs: int = 30 #: Number of principal components to use for the algorithm.
-    plot_umap: bool = True #: Whether to plot the UMAP of the data.
     run_algorithm: bool = True
     """If False, skips the algorithmic detection step entirely. Useful for heuristic-only exploratory runs."""
+    method: Literal["scrublet","solo"] = "scrublet" #: The algorithm to use for doublet score calculation.
+    
+    # --- Scrublet Algorithm Specific Parameters ---
+    expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = None #: Expected doublet rate. Can be a single float or a dict per sample.
+    n_pcs: int = 30 #: Number of principal components to use for the algorithm.
+    plot_umap: bool = False #: Whether to plot the UMAP of the data.
+    
+    # --- SOLO Algorithm Specific Parameters ---
+    solo_n_epochs: int = 400
+    solo_learning_rate: float = 1e-3
+    solo_use_gpu: bool = True
+    solo_use_raw: bool = True  # 是否使用raw数据
+    solo_clear_cache: bool = True  # 训练后清理GPU缓存
     
     # --- Heuristic Analysis ---
     use_heuristics: bool = True #: Master switch to enable/disable marker-based heuristic analysis.
@@ -160,7 +170,6 @@ class DoubletConfig:
     # --- Result Merging and Reporting ---
     merge_strategy: Literal['weighted_average', 'max_score', 'heuristic_boost'] = "weighted_average"
     algorithm_weight: float = 0.7
-    expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = None #: Expected doublet rate. Can be a single float or a dict per sample.
     random_state: int = 61 #: Random seed for reproducibility.
     plot_summary: bool = True #: Master switch to generate a summary plot at the end of the run.
     plot_bar: bool = True #: (If plot_summary=True) Include the bar plot.
@@ -172,9 +181,16 @@ class DoubletConfig:
 
     def validate(self):
         """Validate configuration parameters."""
-        allowed_methods = ["scrublet"]
+        allowed_methods = ["scrublet","solo"]
         if self.method not in allowed_methods:
             raise ValueError(f"method must be one of {allowed_methods}")
+        if self.method == "solo":
+            if self.solo_n_epochs < 100:
+                logging.warning("solo_n_epochs < 100 may result in poor model convergence")
+            try:
+                import scvi
+            except ImportError:
+                logging.warning("scvi-tools not found. Please install it to use SOLO: pip install scvi-tools")
         if self.n_pcs <= 1:
             raise ValueError("n_pcs must be greater than 1")
         if (
@@ -194,9 +210,6 @@ class DoubletConfig:
                     raise ValueError(
                         f"expected_doublet_rate for sample '{k}' must be between 0 and 1"
                     )
-        allowed_methods = ["scrublet", ]
-        if self.method not in allowed_methods:
-            raise ValueError(f"method must be one of {allowed_methods}")
         allowed_merge_strategies = [
             'weighted_average', 'max_score', 'heuristic_boost'
         ]

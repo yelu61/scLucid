@@ -2,7 +2,7 @@
 Enhanced doublet detection for single-cell RNA-seq data.
 
 This module provides comprehensive functions for identifying potential doublet cells
-using an algorithmic method (Scrublet) and a flexible heuristic approach based on
+using algorithmic methods (Scrublet, Solo et al.) and a flexible heuristic approach based on
 mutually exclusive lineage marker co-expression.
 """
 
@@ -12,15 +12,13 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
-import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib.pyplot as plt   
 import pandas as pd
 import scanpy as sc
-import scrublet as scr
+import numpy as np
 import seaborn as sns
 from anndata import AnnData
 from upsetplot import plot as upset_plot
-
 from ..markers import get_marker_manager
 from .config import DoubletConfig, MarkerConfig
 
@@ -171,7 +169,10 @@ def _run_scrublet(
     """
     Run Scrublet algorithm for doublet detection on a single AnnData view.
     Returns (scores, predicted) arrays.
-    """
+    """ 
+    if not hasattr(np.ndarray, 'ptp'):
+        np.ndarray.ptp = np.ptp 
+    
     rate = config.expected_doublet_rate
     current_rate = rate.get(sample_name, 0.1) if isinstance(rate, dict) else rate
     if current_rate is None:  # Handle case where rate is not provided for a sample
@@ -181,8 +182,9 @@ def _run_scrublet(
         current_rate = 0.1
 
     actual_n_pcs = min(config.n_pcs, adata_view.n_obs - 1, adata_view.n_vars - 1)
-
+    
     try:
+        import scrublet as scr
         scrub = scr.Scrublet(adata_view.X, expected_doublet_rate=current_rate)
         scores, _ = scrub.scrub_doublets(n_prin_comps=actual_n_pcs, verbose=False)
         predicted = scrub.call_doublets(verbose=False)
@@ -195,9 +197,11 @@ def _run_scrublet(
 
         if config.plot_umap:
             try:
-                scrub.set_embedding(
-                    "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
-                )
+                try:
+                    umap_result = scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
+                    scrub.set_embedding("UMAP", umap_result)
+                except Exception as e:
+                    log.warning(f"UMAP generation failed with newer NumPy version: {e}")
                 fig, ax = scrub.plot_embedding("UMAP", order_points=True)
                 if config.save_dir:
                     save_path = (
@@ -219,6 +223,89 @@ def _run_scrublet(
         return None, None
     finally:
         gc.collect()
+
+
+def _run_solo(
+    adata_view: AnnData,
+    sample_name: str,
+    config: DoubletConfig,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Run Solo (from scvi-tools) for doublet detection on a single AnnData view.
+
+    Args:
+        adata_view: AnnData object for a single sample.
+        sample_name: Name of the sample being processed.
+        config: The main DoubletConfig object.
+
+    Returns:
+        A tuple containing (scores, predicted) numpy arrays.
+    """
+    try:
+        import scvi
+        import torch
+    except ImportError:
+        log.error(
+            "scvi-tools is not installed. Please install it to use the 'solo' method: pip install scvi-tools"
+        )
+        return None, None
+
+    # --- 1. Data Preparation ---
+    adata_solo = adata_view.copy()
+    if config.solo_use_raw and adata_solo.raw:
+        log.info("  Using 'adata.raw' for Solo as configured.")
+        adata_solo = adata_solo.raw.to_adata()
+    else:
+        log.info("  Using 'adata.X' for Solo.")
+
+    log.info("  Setting up AnnData for scvi-tools model...")
+    scvi.model.SCVI.setup_anndata(adata_solo)
+
+    # --- 2. VAE Model Training ---
+    log.info("  Training the underlying VAE model...")
+    vae_model = scvi.model.SCVI(adata_solo)
+    
+    use_gpu_flag = torch.cuda.is_available() and config.solo_use_gpu
+    accelerator = "gpu" if use_gpu_flag else "cpu"
+    devices = 1 if use_gpu_flag else "auto"
+
+    vae_model.train(
+        max_epochs=config.solo_n_epochs,
+        accelerator=accelerator,
+        devices=devices,
+        plan_kwargs={"lr": config.solo_learning_rate},
+        # Add a check to prevent excessive console output from the trainer
+        enable_progress_bar=False,
+        logger=False
+    )
+    
+    # --- 3. Solo Model Training and Prediction ---
+    log.info("  Training the Solo model for doublet detection...")
+    solo_model = scvi.external.SOLO.from_scvi_model(vae_model)
+    solo_model.train(accelerator=accelerator, devices=devices, enable_progress_bar=False, logger=False)
+
+    log.info("  Predicting doublets with Solo...")
+    
+    # In newer scvi-tools, .predict() returns a Series of labels
+    predictions_series = solo_model.predict(soft=False)
+    predicted = (predictions_series == 'doublet').values
+
+    # The scores are now retrieved using .get_scores()
+    scores_df = solo_model.get_scores()
+    scores = scores_df['doublet_scores'].values
+    
+    # #############################################
+
+    doublet_count = sum(predicted)
+    doublet_rate = doublet_count / len(predicted) if len(predicted) > 0 else 0
+    log.info(
+        f"  Found {doublet_count} potential doublets via Solo ({doublet_rate:.2%})"
+    )
+
+    if use_gpu_flag and config.solo_clear_cache:
+        torch.cuda.empty_cache()
+
+    return scores, predicted
 
 
 def _run_heuristic(
@@ -490,151 +577,115 @@ def _plot_doublet_summary(
     plot_upset: bool = True,
 ) -> None:
     """
-    Generates a comprehensive, UMAP-independent summary plot for doublet detection results.
+    Generates comprehensive, separate summary plots for doublet detection results.
 
-    This function is enhanced to work with the quantitative heuristic scoring workflow.
-    It creates a multi-panel figure showing:
-    1. A stacked bar plot of doublet counts per sample, broken down by prediction source.
-    2. A dual-panel scatter plot comparing algorithmic and heuristic scores against gene counts.
-    3. An UpSet plot visualizing co-expression patterns from heuristic analysis, based on binarizing
-       the continuous lineage module scores.
+    This refactored version saves each plot type (bar, scatter, upset) as a
+    separate file for improved clarity and usability.
 
     Args:
         adata: AnnData object after running `predict_doublets`.
         sample_key: The key in adata.obs for sample identification.
-        upset_score_threshold: The minimum module score required to consider a lineage "positive" for the UpSet plot.
-        save_dir: Directory to save the plot.
-        show: Whether to display the plot.
+        upset_score_threshold: The minimum module score to consider a lineage "positive" for the UpSet plot.
+        save_dir: Directory to save the plots.
+        show: Whether to display the plots.
+        plot_bar, plot_scatter, plot_upset: Booleans to control which plots are generated.
     """
-    # --- Check if there's anything to plot ---
     if not any([plot_bar, plot_scatter, plot_upset]):
         log.info("All summary plot panels are disabled. Skipping plot generation.")
         return
 
-    log.info("Generating doublet detection summary plot...")
+    log.info("Generating doublet detection summary plots...")
+    if save_dir:
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        log.info(f"Plots will be saved to: {save_path.resolve()}")
 
     # --- 1. Data Validation and Preparation ---
-    # Find the algorithm's prediction and score columns dynamically.
     algo_pred_col_list = [
         c for c in adata.obs.columns if c.endswith("_predicted") and "heuristic" not in c
     ]
     if not algo_pred_col_list or FINAL_PRED_COL not in adata.obs:
         log.warning(
             f"Required prediction columns not found ('{FINAL_PRED_COL}' or algorithm-specific). "
-            "Run `predict_doublets` first. Skipping summary plot."
+            "Run `predict_doublets` first. Skipping summary plots."
         )
         return
     algo_pred_col = algo_pred_col_list[0]
     algo_score_col = algo_pred_col.replace("_predicted", "_score")
 
-    # Ensure heuristic column exists, even if analysis was skipped.
     if HEURISTIC_PRED_COL not in adata.obs:
         adata.obs[HEURISTIC_PRED_COL] = False
 
-    # Create a 'doublet_source' column for breakdown visualization.
-    source_categories = ["Singleton", "Heuristic Only", "Algorithm Only", "Both Methods"]
-    conditions = [
-        adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL],
-        adata.obs[algo_pred_col] & ~adata.obs[HEURISTIC_PRED_COL],
-        ~adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL],
-    ]
-    choices = ["Both Methods", "Algorithm Only", "Heuristic Only"]
-    adata.obs["doublet_source"] = np.select(conditions, choices, default="Singleton")
-    adata.obs["doublet_source"] = pd.Categorical(
-        adata.obs["doublet_source"], categories=source_categories, ordered=True
-    )
-
-    # --- 2. Dynamically Create the Figure Layout ---
-    # The layout now depends on which plots are enabled.
-    n_rows = 0
-    if plot_bar or plot_scatter:
-        n_rows += 1
-    if plot_upset:
-        n_rows += 1
+    # --- 2. Panel 1: Doublet Breakdown Bar Plot ---
+    if plot_bar:
+        log.info("Generating doublet breakdown bar plot...")
+        fig_bar, ax_bar = plt.subplots(figsize=(max(6, len(adata.obs[sample_key].unique()) * 0.5), 6), facecolor="white")
         
-    if n_rows == 0: # Should be caught by the check above, but as a safeguard.
-        return
-        
-    fig = plt.figure(figsize=(18, 6 * n_rows), facecolor="white")
-    
-    if n_rows == 2: # All plots enabled
-        gs = fig.add_gridspec(2, 2, height_ratios=[1, 1.2])
-        ax_bar = fig.add_subplot(gs[0, 0]) if plot_bar else None
-        gs_scatter_spec = gs[0, 1] if plot_scatter else None
-        ax_upset = fig.add_subplot(gs[1, :]) if plot_upset else None
-    elif plot_upset: # Only Upset plot
-        gs = fig.add_gridspec(1, 1)
-        ax_upset = fig.add_subplot(gs[0, 0])
-        ax_bar, gs_scatter_spec = None, None
-    else: # Only top row (bar and/or scatter)
-        gs = fig.add_gridspec(1, 2)
-        ax_bar = fig.add_subplot(gs[0, 0]) if plot_bar else None
-        gs_scatter_spec = gs[0, 1] if plot_scatter else None
-        ax_upset = None
+        source_categories = ["Singleton", "Heuristic Only", "Algorithm Only", "Both Methods"]
+        conditions = [
+            adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL],
+            adata.obs[algo_pred_col] & ~adata.obs[HEURISTIC_PRED_COL],
+            ~adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL],
+        ]
+        choices = ["Both Methods", "Algorithm Only", "Heuristic Only"]
+        adata.obs["doublet_source"] = np.select(conditions, choices, default="Singleton")
+        adata.obs["doublet_source"] = pd.Categorical(
+            adata.obs["doublet_source"], categories=source_categories, ordered=True
+        )
 
-    fig.suptitle("Doublet Detection Summary", fontsize=20, fontweight="bold")
-    
-    # --- 3. Panel 1: Doublet Breakdown Bar Plot ---
-    if plot_bar and ax_bar:
-        log.info("Plotting doublet breakdown per sample...")
         summary_df = (
             adata.obs.groupby(sample_key)["doublet_source"]
             .value_counts(normalize=True, sort=False)
             .unstack(fill_value=0)
             * 100
         )
-        # Ensure all categories are present for consistent coloring
         for cat in source_categories:
             if cat not in summary_df.columns:
                 summary_df[cat] = 0.0
                 
         summary_df[source_categories].plot(
-            kind="bar",
-            stacked=True,
-            ax=ax_bar,
-            color={
-                "Singleton": "lightgray",
-                "Heuristic Only": "coral",
-                "Algorithm Only": "skyblue",
-                "Both Methods": "darkred",
-            },
+            kind="bar", stacked=True, ax=ax_bar,
+            color={"Singleton": "lightgray", "Heuristic Only": "coral", "Algorithm Only": "skyblue", "Both Methods": "darkred"},
             width=0.8,
         )
-        ax_bar.set_title("Doublet Breakdown per Sample", fontsize=14)
+        ax_bar.set_title("Doublet Breakdown per Sample", fontsize=16, fontweight="bold")
         ax_bar.set_ylabel("Percentage of Cells (%)")
         ax_bar.set_xlabel("Sample")
-        ax_bar.tick_params(axis="x", labelrotation=45)
+        ax_bar.tick_params(axis="x", labelrotation=45, ha="right")
         ax_bar.legend(title="Source", bbox_to_anchor=(1.05, 1), loc="upper left")
         ax_bar.grid(axis="y", linestyle="--", alpha=0.7)
+        fig_bar.tight_layout()
 
-    # --- 4. Panel 2: Enhanced Dual Scatter Plots ---
-    if plot_scatter and gs_scatter_spec:
-        log.info("Plotting diagnostic scatter plots...")
-        # This requires a nested GridSpec for the two scatter plots
-        gs_scatter = gs[0, 1].subgridspec(1, 2, wspace=0.4)
-        ax_scatter_algo = fig.add_subplot(gs_scatter[0])
-        ax_scatter_heur = fig.add_subplot(gs_scatter[1])
+        if save_dir:
+            bar_save_path = save_path / "doublet_summary_bar_plot.png"
+            fig_bar.savefig(bar_save_path, dpi=300, bbox_inches="tight")
+            log.info(f"Saved bar plot to {bar_save_path}")
+        if show:
+            plt.show()
+        plt.close(fig_bar)
 
-        # Plot 2a: Algorithm Score vs. Gene Count
+    # --- 3. Panel 2: Enhanced Dual Scatter Plots ---
+    if plot_scatter:
+        log.info("Generating diagnostic scatter plots...")
+        fig_scatter, (ax_scatter_algo, ax_scatter_heur) = plt.subplots(1, 2, figsize=(12, 5), facecolor="white")
+        fig_scatter.suptitle("Diagnostic Scatter Plots", fontsize=16, fontweight="bold")
+
         if algo_score_col in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
             sns.scatterplot(
-                data=adata.obs, x="n_genes_by_counts", y=algo_score_col,
-                hue=FINAL_PRED_COL, s=5, alpha=0.6,
-                palette={True: "red", False: "gray"}, ax=ax_scatter_algo, rasterized=True,
+                data=adata.obs, x="n_genes_by_counts", y=algo_score_col, hue=FINAL_PRED_COL,
+                s=5, alpha=0.6, palette={True: "red", False: "gray"}, ax=ax_scatter_algo, rasterized=True,
             )
             ax_scatter_algo.set_title("Algorithm Score vs. Gene Count", fontsize=12)
             ax_scatter_algo.set_xlabel("Number of Genes")
             ax_scatter_algo.set_ylabel("Algorithm Score")
-            ax_scatter_algo.get_legend().remove()
+            ax_scatter_algo.legend().remove()
         else:
             ax_scatter_algo.text(0.5, 0.5, "Algorithm score data unavailable.", ha="center", va="center")
 
-        # Plot 2b: Heuristic Score vs. Gene Count
         if HEURISTIC_SCORE_COL in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
             sns.scatterplot(
-                data=adata.obs, x="n_genes_by_counts", y=HEURISTIC_SCORE_COL,
-                hue=FINAL_PRED_COL, s=5, alpha=0.6,
-                palette={True: "red", False: "gray"}, ax=ax_scatter_heur, rasterized=True,
+                data=adata.obs, x="n_genes_by_counts", y=HEURISTIC_SCORE_COL, hue=FINAL_PRED_COL,
+                s=5, alpha=0.6, palette={True: "red", False: "gray"}, ax=ax_scatter_heur, rasterized=True,
             )
             ax_scatter_heur.set_title("Heuristic Score vs. Gene Count", fontsize=12)
             ax_scatter_heur.set_xlabel("Number of Genes")
@@ -643,65 +694,54 @@ def _plot_doublet_summary(
         else:
             ax_scatter_heur.text(0.5, 0.5, "Heuristic score data unavailable.", ha="center", va="center")
 
-    # --- 5. Panel 3: UpSet Plot from Quantitative Scores (THE FIX) ---
-    if plot_upset and ax_upset:
-        log.info("Plotting heuristic co-expression UpSet plot...")
+        fig_scatter.tight_layout(rect=[0, 0, 1, 0.96])
+        
+        if save_dir:
+            scatter_save_path = save_path / "doublet_summary_scatter_plot.png"
+            fig_scatter.savefig(scatter_save_path, dpi=300, bbox_inches="tight")
+            log.info(f"Saved scatter plot to {scatter_save_path}")
+        if show:
+            plt.show()
+        plt.close(fig_scatter)
+
+    # --- 4. Panel 3: UpSet Plot ---
+    if plot_upset:
+        log.info("Generating heuristic co-expression UpSet plot...")
         if LINEAGE_SCORES_KEY in adata.obsm and not adata.obsm[LINEAGE_SCORES_KEY].empty:
             lineage_scores_df = adata.obsm[LINEAGE_SCORES_KEY]
-
-            # Binarize the continuous scores to create sets for the UpSet plot.
-            # This is the key step to adapt the plot to the new quantitative workflow.
             lineage_bool_df = lineage_scores_df > upset_score_threshold
-            
-            # Filter for cells that are positive for at least two lineages.
             coexpressing_cells = lineage_bool_df[lineage_bool_df.sum(axis=1) >= 2]
 
             if not coexpressing_cells.empty:
-                # Count the number of cells in each co-expression combination.
-                lineage_combinations = coexpressing_cells.groupby(
-                    list(coexpressing_cells.columns)
-                ).size()
+                lineage_combinations = coexpressing_cells.groupby(list(coexpressing_cells.columns)).size()
                 lineage_combinations = lineage_combinations[lineage_combinations > 0]
 
                 if not lineage_combinations.empty:
                     try:
-                        upset_plot(lineage_combinations, fig=fig, element_size=32, show_counts=True)
-                        ax_upset.set_title(
+                        # Upsetplot creates its own figure
+                        fig_upset = plt.figure(figsize=(12, 7), facecolor="white")
+                        upset_plot(lineage_combinations, fig=fig_upset, element_size=32, show_counts=True)
+                        fig_upset.suptitle(
                             f"Heuristic: Lineage Co-expression (Score > {upset_score_threshold})",
-                            fontsize=14, y=0.9 # Adjust title position if needed
+                            fontsize=16, fontweight="bold"
                         )
+                        
+                        if save_dir:
+                            upset_save_path = save_path / "doublet_summary_upset_plot.png"
+                            fig_upset.savefig(upset_save_path, dpi=300, bbox_inches="tight")
+                            log.info(f"Saved UpSet plot to {upset_save_path}")
+                        if show:
+                            plt.show()
+                        plt.close(fig_upset)
+
                     except Exception as e:
                         log.error(f"Failed to generate UpSet plot: {e}")
-                        ax_upset.text(0.5, 0.5, "Error generating UpSet plot.", ha="center", va="center")
                 else:
-                    log.info("No cells found with co-expression above the threshold.")
-                    ax_upset.text(0.5, 0.5, "No significant co-expression found.", ha="center", va="center")
+                    log.info("No cells found with co-expression above the threshold. Skipping UpSet plot.")
             else:
-                log.info("No cells found with co-expression above the threshold.")
-                ax_upset.text(0.5, 0.5, "No significant co-expression found.", ha="center", va="center")
-            
-            # Remove original subplot axis from the grid to let upsetplot take over
-            ax_upset.axis('off')
-
+                log.info("No cells found with co-expression above the threshold. Skipping UpSet plot.")
         else:
             log.info("Heuristic lineage scores not found, skipping UpSet plot.")
-            ax_upset.text(0.5, 0.5, "Heuristic scores data unavailable.", ha="center", va="center")
-            ax_upset.axis('off')
-
-    # --- 6. Finalization and Saving ---
-    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-    if save_dir:
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
-        overview_save_path = save_path / "doublet_summary_plot.png"
-        fig.savefig(overview_save_path, dpi=300, bbox_inches="tight")
-        log.info(f"Saved doublet summary plot to {overview_save_path}")
-
-    if show:
-        plt.show()
-
-    plt.close(fig)
 
 
 # --- Main Functions ---
@@ -911,7 +951,8 @@ def predict_doublets(
 
     # Use a dispatcher for multi-algorithm support ---
     ALGORITHM_DISPATCHER = {
-        "scrublet": _run_scrublet
+        "scrublet": _run_scrublet,
+        "solo": _run_solo,
         # "doubletfinder": _run_doubletfinder # Future-ready
     }
     if cfg.method not in ALGORITHM_DISPATCHER:
