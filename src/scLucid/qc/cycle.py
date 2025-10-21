@@ -463,6 +463,11 @@ def score_cell_cycle(
     except Exception as e:
         log.error(f"Cell cycle scoring failed: {str(e)}")
         raise RuntimeError(f"Failed to compute cell cycle scores: {str(e)}")
+    
+    # Mark cell cycle genes in var
+    adata.var['is_cell_cycle'] = False  # 默认False
+    adata.var.loc[s_genes_found + g2m_genes_found, 'is_cell_cycle'] = True
+    log.info(f"Marked {len(s_genes_found + g2m_genes_found)} cell cycle genes in adata.var['is_cell_cycle'].")
 
     # Calculate additional metrics
     adata.obs["cc_diff"] = adata.obs["S_score"] - adata.obs["G2M_score"]
