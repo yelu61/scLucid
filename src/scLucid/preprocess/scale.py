@@ -13,6 +13,7 @@ from typing import List, Optional, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
+import pandas as pd
 import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
@@ -45,6 +46,93 @@ def _minmax_scale(X: np.ndarray) -> np.ndarray:
     gene_ranges[gene_ranges == 0] = 1e-8  # Avoid division by zero
 
     return (X - gene_mins) / gene_ranges
+
+
+def _robust_scale_sparse(
+    X: scipy.sparse.spmatrix,
+    max_value: Optional[float]
+) -> scipy.sparse.spmatrix:
+    """
+    Robust scaling for sparse matrices (memory efficient).
+    
+    Uses median and MAD computed in a sparse-aware manner.
+    """
+    import scipy.sparse as sp
+    
+    if not sp.issparse(X):
+        return _robust_scale(X, max_value)  # Fallback to dense version
+    
+    # Convert to CSC format for efficient column operations
+    X_csc = X.tocsc()
+    
+    n_genes = X_csc.shape[1]
+    medians = np.zeros(n_genes)
+    mads = np.zeros(n_genes)
+    
+    # Compute median and MAD per gene
+    for i in range(n_genes):
+        col_data = X_csc.getcol(i).data  # Only non-zero values
+        
+        if len(col_data) > 0:
+            medians[i] = np.median(col_data)
+            
+            # MAD calculation
+            deviations = np.abs(col_data - medians[i])
+            mads[i] = np.median(deviations)
+        else:
+            medians[i] = 0
+            mads[i] = 1e-8
+    
+    # Avoid division by zero
+    mads[mads == 0] = 1e-8
+    
+    # Scale: (X - median) / MAD
+    X_scaled = X_csc.copy()
+    
+    # Subtract median (broadcast-safe for sparse)
+    for i in range(n_genes):
+        col = X_scaled.getcol(i)
+        col.data = (col.data - medians[i]) / mads[i]
+        X_scaled[:, i] = col
+    
+    # Clip values if max_value specified
+    if max_value is not None:
+        X_scaled.data = np.clip(X_scaled.data, -max_value, max_value)
+    
+    return X_scaled.tocsr()  # Convert back to CSR
+
+
+def _minmax_scale_sparse(X: scipy.sparse.spmatrix) -> scipy.sparse.spmatrix:
+    """
+    MinMax scaling for sparse matrices.
+    """
+    import scipy.sparse as sp
+    
+    if not sp.issparse(X):
+        return _minmax_scale(X)
+    
+    X_csc = X.tocsc()
+    n_genes = X_csc.shape[1]
+    
+    mins = np.zeros(n_genes)
+    maxs = np.zeros(n_genes)
+    
+    for i in range(n_genes):
+        col_data = X_csc.getcol(i).data
+        if len(col_data) > 0:
+            mins[i] = col_data.min()
+            maxs[i] = col_data.max()
+    
+    ranges = maxs - mins
+    ranges[ranges == 0] = 1e-8
+    
+    X_scaled = X_csc.copy()
+    for i in range(n_genes):
+        col = X_scaled.getcol(i)
+        col.data = (col.data - mins[i]) / ranges[i]
+        X_scaled[:, i] = col
+    
+    return X_scaled.tocsr()
 
 
 # --- Main Functions ---
@@ -87,37 +175,37 @@ def scale_data(
     # --- 2. Apply the scaling method ---
     if active_config.regress_in_scale:
         vars_reg = active_config.vars_to_regress_in_scale or active_config.vars_to_regress or []
-        vars_reg = [v for v in vars_reg if v]  # 清理 None/空字符串
+        vars_reg = [v for v in vars_reg if v]
+        
         if vars_reg:
             missing = [k for k in vars_reg if k not in adata.obs.columns]
             if missing:
-                log.warning(f"Vars to regress not found in adata.obs (will skip): {missing}")
+                log.warning(f"Vars to regress not found: {missing}")
                 vars_reg = [k for k in vars_reg if k in adata.obs.columns]
+            
             if vars_reg:
-                # 选择用于回归的输入矩阵：优先 normalized 层；否则使用 adata.X（警告）
-                input_layer_for_regress = kwargs.get("input_layer_for_regress", "normalized")
-                if input_layer_for_regress in adata.layers:
-                    X_in = adata.layers[input_layer_for_regress].copy()
-                else:
-                    log.warning(
-                        f"Input layer '{input_layer_for_regress}' not found. "
-                        "Regressing on current adata.X (ensure it is log-normalized)."
+                # === IMPROVED: Use config setting ===
+                input_layer = active_config.input_layer_for_regress
+                
+                if input_layer not in adata.layers:
+                    raise ValueError(
+                        f"Layer '{input_layer}' specified in config.input_layer_for_regress "
+                        f"not found in adata.layers. Available: {list(adata.layers.keys())}"
                     )
-                    X_in = adata.X.copy()
+                
+                X_in = adata.layers[input_layer].copy()
                 temp = AnnData(X=X_in, obs=adata.obs.copy(), var=adata.var.copy())
-                try:
-                    sc.pp.regress_out(temp, keys=vars_reg)
-                except Exception as e:
-                    log.error(f"Inline regress_out failed: {e}")
-                    raise
-                # 用回归后的矩阵替换 adata.X 作为缩放输入
-                original_X = adata.X  # 保留以便万一需要绘图
+                
+                log.info(f"Regressing {vars_reg} from layer '{input_layer}' before scaling")
+                sc.pp.regress_out(temp, keys=vars_reg)
+                
                 adata.X = temp.X.copy()
-                # 记录元数据
+                
+                # Store metadata
                 adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["regress_inline"] = {
                     "vars_to_regress": vars_reg,
-                    "input_source": input_layer_for_regress if input_layer_for_regress in adata.layers else "X",
-                    "scanpy_version": getattr(sc, "__version__", "unknown"),
+                    "input_layer": input_layer,
+                    "timestamp": pd.Timestamp.now().isoformat()
                 }
             else:
                 log.info("No valid variables to regress in scale step; skipping inline regression.")
@@ -127,19 +215,27 @@ def scale_data(
     # --- 3. Scale the data ---
     original_X = adata.X.copy()
 
-    if active_config.scale_method in ["robust", "minmax"] and scipy.sparse.issparse(adata.X):
-        log.warning("Densifying data for robust/minmax scaling. This may increase memory usage.")
-        adata.X = adata.X.toarray()
-
     try:
         if active_config.scale_method == "zscore":
             sc.pp.scale(adata, max_value=active_config.max_value, zero_center=True)
+        
         elif active_config.scale_method == "robust":
-            adata.X = _robust_scale(adata.X, max_value=active_config.max_value)
+            if scipy.sparse.issparse(adata.X):
+                log.info("Using sparse-aware robust scaling")
+                adata.X = _robust_scale_sparse(adata.X, max_value=active_config.max_value)
+            else:
+                adata.X = _robust_scale(adata.X, max_value=active_config.max_value)
+        
         elif active_config.scale_method == "minmax":
-            adata.X = _minmax_scale(adata.X)
+            if scipy.sparse.issparse(adata.X):
+                log.info("Using sparse-aware minmax scaling")
+                adata.X = _minmax_scale_sparse(adata.X)
+            else:
+                adata.X = _minmax_scale(adata.X)
+        
         else:
             raise ValueError(f"Unknown scale_method: '{active_config.scale_method}'")
+
     except Exception as e:
         log.error(f"Scaling failed: {str(e)}")
         raise RuntimeError(f"Failed to scale data: {str(e)}")

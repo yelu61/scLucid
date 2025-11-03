@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from scipy import stats
 from scipy.stats import median_abs_deviation
 
 from .config import FilterConfig, MarkingConfig, QCThresholds
@@ -25,9 +26,254 @@ __all__ = [
     "suggest_qc_thresholds",
     "identify_outliers",
     "mark_low_quality_cell",
+    "mark_low_quality_cells_adaptive",
     "filter_cells",
     "generate_qc_report",
 ]
+
+
+class AdaptiveThresholdCalculator:
+    """
+    Batch-aware adaptive threshold calculator using mixed-effect modeling.
+
+    This addresses the common issue where different batches/samples have
+    inherently different QC distributions (e.g., fresh vs. frozen samples).
+    """
+
+    def __init__(
+        self, adata: AnnData, batch_key: str, reference_batch: Optional[str] = None
+    ):
+        """
+        Initialize adaptive threshold calculator.
+
+        Args:
+            adata: AnnData object with QC metrics
+            batch_key: Column in .obs for batch identification
+            reference_batch: Optional reference batch for normalization
+        """
+        self.adata = adata
+        self.batch_key = batch_key
+        self.reference_batch = reference_batch
+        self.batch_statistics = {}
+
+    def _calculate_batch_effects(self, metric: str, plot: bool = True) -> pd.DataFrame:
+        """
+        Quantify batch effects for a QC metric.
+
+        Returns:
+            DataFrame with batch-specific statistics and effect sizes
+        """
+        batches = self.adata.obs[self.batch_key].unique()
+        stats_list = []
+
+        for batch in batches:
+            batch_mask = self.adata.obs[self.batch_key] == batch
+            values = self.adata.obs.loc[batch_mask, metric].dropna()
+
+            stats_list.append(
+                {
+                    "batch": batch,
+                    "n_cells": len(values),
+                    "mean": values.mean(),
+                    "median": values.median(),
+                    "std": values.std(),
+                    "q25": values.quantile(0.25),
+                    "q75": values.quantile(0.75),
+                    "iqr": values.quantile(0.75) - values.quantile(0.25),
+                }
+            )
+
+        stats_df = pd.DataFrame(stats_list)
+
+        # Calculate effect sizes (Cohen's d between each batch and reference)
+        if self.reference_batch and self.reference_batch in batches:
+            ref_mask = self.adata.obs[self.batch_key] == self.reference_batch
+            ref_values = self.adata.obs.loc[ref_mask, metric].dropna()
+            ref_mean = ref_values.mean()
+            ref_std = ref_values.std()
+
+            for batch in batches:
+                if batch == self.reference_batch:
+                    stats_df.loc[stats_df["batch"] == batch, "cohens_d"] = 0.0
+                else:
+                    batch_mask = self.adata.obs[self.batch_key] == batch
+                    batch_values = self.adata.obs.loc[batch_mask, metric].dropna()
+                    batch_mean = batch_values.mean()
+
+                    # Cohen's d
+                    pooled_std = np.sqrt(
+                        (
+                            (len(ref_values) - 1) * ref_std**2
+                            + (len(batch_values) - 1) * batch_values.std() ** 2
+                        )
+                        / (len(ref_values) + len(batch_values) - 2)
+                    )
+                    cohens_d = (batch_mean - ref_mean) / pooled_std
+                    stats_df.loc[stats_df["batch"] == batch, "cohens_d"] = cohens_d
+
+        # Kruskal-Wallis test for overall batch effect
+        batch_groups = [
+            self.adata.obs.loc[self.adata.obs[self.batch_key] == b, metric].dropna()
+            for b in batches
+        ]
+        h_stat, p_value = stats.kruskal(*batch_groups)
+
+        log.info(f"Batch effect analysis for {metric}:")
+        log.info(f"  Kruskal-Wallis H-statistic: {h_stat:.4f}, p-value: {p_value:.4e}")
+
+        if p_value < 0.001:
+            log.warning(
+                f"⚠️  Strong batch effect detected for {metric} (p < 0.001). "
+                "Consider batch-specific thresholds."
+            )
+
+        self.batch_statistics[metric] = {
+            "stats": stats_df,
+            "h_statistic": h_stat,
+            "p_value": p_value,
+        }
+
+        return stats_df
+
+    def _suggest_adaptive_thresholds(
+        self, metric: str, method: str = "hierarchical", percentile: float = 95.0
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Suggest batch-specific thresholds using hierarchical strategy.
+
+        Args:
+            metric: QC metric name
+            method: 'hierarchical', 'independent', or 'pooled'
+            percentile: Percentile for threshold calculation
+
+        Returns:
+            Dictionary mapping batch names to threshold dictionaries
+        """
+        if metric not in self.batch_statistics:
+            self._calculate_batch_effects(metric, plot=False)
+
+        batches = self.adata.obs[self.batch_key].unique()
+        thresholds = {}
+
+        if method == "independent":
+            # Each batch gets its own threshold independently
+            for batch in batches:
+                batch_mask = self.adata.obs[self.batch_key] == batch
+                values = self.adata.obs.loc[batch_mask, metric].dropna()
+
+                thresholds[batch] = {
+                    "lower": values.quantile((100 - percentile) / 100),
+                    "upper": values.quantile(percentile / 100),
+                    "method": "independent",
+                }
+
+        elif method == "pooled":
+            # Single threshold for all batches (traditional approach)
+            values = self.adata.obs[metric].dropna()
+            global_threshold = {
+                "lower": values.quantile((100 - percentile) / 100),
+                "upper": values.quantile(percentile / 100),
+                "method": "pooled",
+            }
+            thresholds = {batch: global_threshold for batch in batches}
+
+        elif method == "hierarchical":
+            # Hierarchical: adjust batch-specific thresholds toward global mean
+            # This is like empirical Bayes shrinkage
+
+            # Global statistics
+            global_values = self.adata.obs[metric].dropna()
+            global_mean = global_values.mean()
+            global_std = global_values.std()
+
+            for batch in batches:
+                batch_mask = self.adata.obs[self.batch_key] == batch
+                batch_values = self.adata.obs.loc[batch_mask, metric].dropna()
+                batch_mean = batch_values.mean()
+                batch_std = batch_values.std()
+                n_batch = len(batch_values)
+
+                # Shrinkage factor (more shrinkage for small batches)
+                shrinkage = 1 / (1 + n_batch / 100)
+
+                # Shrunken estimates
+                adjusted_mean = (1 - shrinkage) * batch_mean + shrinkage * global_mean
+                adjusted_std = (1 - shrinkage) * batch_std + shrinkage * global_std
+
+                # Calculate thresholds from adjusted distribution
+                z_score = stats.norm.ppf(percentile / 100)
+
+                thresholds[batch] = {
+                    "lower": adjusted_mean - z_score * adjusted_std,
+                    "upper": adjusted_mean + z_score * adjusted_std,
+                    "method": "hierarchical",
+                    "shrinkage_factor": shrinkage,
+                    "n_cells": n_batch,
+                }
+
+                log.info(
+                    f"Batch '{batch}': adjusted threshold = "
+                    f"[{thresholds[batch]['lower']:.2f}, {thresholds[batch]['upper']:.2f}] "
+                    f"(shrinkage: {shrinkage:.3f})"
+                )
+
+        else:
+            raise ValueError(f"Unknown method: {method}")
+
+        return thresholds
+
+    def _plot_batch_distributions(
+        self,
+        metric: str,
+        thresholds: Optional[Dict] = None,
+        save_path: Optional[str] = None,
+    ):
+        """
+        Visualize batch-specific distributions with adaptive thresholds.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Violin plot
+        sns.violinplot(
+            data=self.adata.obs, x=self.batch_key, y=metric, ax=axes[0], inner="box"
+        )
+        axes[0].set_title(f"{metric} Distribution by Batch")
+        axes[0].tick_params(axis="x", rotation=45)
+
+        if thresholds:
+            # Add threshold lines
+            for i, batch in enumerate(self.adata.obs[self.batch_key].unique()):
+                if batch in thresholds:
+                    y_lower = thresholds[batch]["lower"]
+                    y_upper = thresholds[batch]["upper"]
+                    axes[0].hlines(
+                        y=[y_lower, y_upper],
+                        xmin=i - 0.4,
+                        xmax=i + 0.4,
+                        colors="red",
+                        linestyles="--",
+                        alpha=0.7,
+                    )
+
+        # KDE plot
+        for batch in self.adata.obs[self.batch_key].unique():
+            batch_mask = self.adata.obs[self.batch_key] == batch
+            values = self.adata.obs.loc[batch_mask, metric].dropna()
+            sns.kdeplot(values, ax=axes[1], label=batch)
+
+        axes[1].set_title(f"{metric} Density by Batch")
+        axes[1].legend()
+
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+            log.info(f"Saved batch distribution plot to {save_path}")
+
+        return fig
 
 
 # --- Helper Functions ---
@@ -980,6 +1226,56 @@ def mark_low_quality_cell(
     for col in outlier_cols_to_cast:
         if col in adata.obs:
             adata.obs[col] = adata.obs[col].fillna(False).astype(bool)
+
+    return adata
+
+
+def mark_low_quality_cells_adaptive(
+    adata: AnnData,
+    batch_key: str = "sampleID",
+    metrics: List[str] = ["n_genes_by_counts", "pct_counts_mt"],
+    method: str = "hierarchical",
+    **kwargs,
+) -> AnnData:
+    """
+    Enhanced version of mark_low_quality_cell with batch-aware thresholds.
+
+    This is particularly useful for datasets with strong batch effects
+    (e.g., multi-center studies, fresh vs. frozen samples).
+    """
+    calculator = AdaptiveThresholdCalculator(adata, batch_key)
+
+    for metric in metrics:
+        log.info(f"Calculating adaptive thresholds for {metric}...")
+
+        # Analyze batch effects
+        batch_stats = calculator._calculate_batch_effects(metric)
+
+        # Get adaptive thresholds
+        thresholds = calculator._suggest_adaptive_thresholds(metric, method=method)
+
+        # Apply batch-specific thresholds
+        outlier_mask = pd.Series(False, index=adata.obs_names)
+
+        for batch, batch_thresholds in thresholds.items():
+            batch_mask = adata.obs[batch_key] == batch
+            values = adata.obs.loc[batch_mask, metric]
+
+            if metric in ["n_genes_by_counts", "total_counts"]:
+                # Lower threshold for count metrics
+                batch_outliers = values < batch_thresholds["lower"]
+            else:
+                # Upper threshold for percentage metrics
+                batch_outliers = values > batch_thresholds["upper"]
+
+            outlier_mask[batch_mask] = batch_outliers
+
+        adata.obs[f"outlier_{metric}_adaptive"] = outlier_mask
+
+        log.info(
+            f"Marked {outlier_mask.sum()} cells as outliers for {metric} "
+            f"({outlier_mask.sum() / len(outlier_mask):.2%})"
+        )
 
     return adata
 

@@ -14,13 +14,14 @@ __all__ = [
     "ResolutionSearchConfig",
     "MergeClustersConfig",
     "AnnotationConfig",
-    # "ScoringConfig",
     "DifferentialConfig",
     "FilterMarkersConfig",
     "CompareGroupsConfig",
     "CompareConditionsConfig",
+    "ConservedMarkersConfig",
     "EnrichmentConfig",
-    # "ProportionConfig",
+    "ProportionConfig",
+    "ScoringConfig",
     "AnalysisWorkflowConfig",
 ]
 
@@ -29,7 +30,7 @@ __all__ = [
 class BaseConfig:
     """Base class for all analysis configuration objects."""
 
-    namespace: str = "sclucid"
+    namespace: str = field(init=False, default="sclucid")
 
     def to_dict(self):
         return asdict(self)
@@ -125,16 +126,16 @@ class AnnotationConfig(BaseConfig):
 # ===================== Scoring Configs =====================
 
 
-# @dataclass
-# class ScoringConfig(BaseConfig):
-#    """Configuration for gene set and cell type scoring."""
-#    gene_sets: Dict[str, List[str]]
-#    layer: Optional[str] = "normalized"
-#    use_raw: bool = True
-#    ctrl_size: int = 50
-#    score_name_suffix: str = "_score"
-#    plot_comparison: bool = True
-#    comparison_groupby: Optional[str] = None
+class ScoringConfig(BaseConfig):
+    """Configuration for gene set and cell type scoring."""
+
+    gene_sets: Dict[str, List[str]]
+    layer: Optional[str] = "normalized"
+    use_raw: bool = True
+    ctrl_size: int = 50
+    score_name_suffix: str = "_score"
+    preserve_missing: bool = True
+    min_genes_required: int = 1
 
 
 # ===================== Differential Expression Configs =====================
@@ -242,6 +243,22 @@ class CompareConditionsConfig(BaseConfig):
     key_added: Optional[str] = None  #: Defaults to 'compare_{c1}_vs_{c2}_in_{group}'.
 
 
+@dataclass
+class ConservedMarkersConfig(BaseConfig):
+    """Configuration for finding conserved markers across conditions."""
+
+    groupby: str
+    condition_key: str
+    method: str = "wilcoxon"
+    min_cells: int = 10
+    min_conditions: Optional[int] = None
+    min_log2fc: float = 0.5
+    max_padj: float = 0.05
+    min_in_group_pct: float = 0.25
+    layer: Optional[str] = None
+    use_raw: bool = False
+    key_added: Optional[str] = None
+
 # ===================== Enrichment & Proportion Configs =====================
 
 
@@ -253,11 +270,26 @@ class EnrichmentConfig(BaseConfig):
     """
 
     de_key: str = "rank_genes_groups_filtered_df"  # Key for the DE results DataFrame in adata.uns.
+    method: Literal["ora", "gsea", "both"] = "ora"
+    
     mode: Literal["online", "offline"] = (
         "offline"  # Analysis mode. 'offline' is recommended for stability.
     )
     organism: Literal["human", "mouse"] = "human"  # Species for the analysis.
     gmt_version: str = "v2025"
+    max_padj: float = 0.05
+    key_added: str = "enrichment"
+    plot: bool = True
+    n_plot_terms: int = 15
+    save_dir: Optional[str] = None
+    # --- ORA (Enrichr) 特定参数 ---
+    n_top_genes_ora: int = 100
+    min_genes_for_ora: int = 10
+    # --- GSEA (Prerank) 特定参数 ---
+    rank_col_gsea: str = "logfoldchanges"  # or "scores"
+    gsea_permutations: int = 100
+    gsea_min_size: int = 15
+    gsea_max_size: int = 500
 
     # For 'online' mode, this is a list of Enrichr library names.
     # For 'offline' mode, this is a list of categories (e.g., 'hallmark', 'go_bp')
@@ -272,33 +304,29 @@ class EnrichmentConfig(BaseConfig):
     custom_gene_sets: Optional[str] = (
         None  # Path to a user-provided .gmt file for offline mode.
     )
-    n_top_genes: int = (
-        100  # Number of top marker genes from each cluster to use for enrichment.
-    )
-    min_genes_for_enrichment: int = (
-        10  # Minimum number of genes required to run enrichment for a cluster.
-    )
-    max_padj: float = 0.05  # Adjusted p-value cutoff for filtering enrichment results.
-    key_added: str = "enrichment"  # Key under which to store the results in adata.uns.
-    plot: bool = True  # Whether to generate and save summary plots for each cluster.
-    n_plot_terms: int = 15  # Number of top terms to show in the plot.
-    save_dir: Optional[str] = None  # Directory to save plots and results.
-
-    # --- New: marker ranking preference for enrichment gene list ---
+      # --- New: marker ranking preference for enrichment gene list ---
     prefer_score_for_enrichment: bool = (
         True  # If True and 'scores' exists, rank by 'scores' else by 'logfoldchanges'.
     )
 
 
-# @dataclass
-# class ProportionConfig(BaseConfig):
-#    """Configuration for cell type proportion analysis."""
-#    celltype_col: str
-#    condition_col: str
-#    group_col: str = "sample"  # e.g., sampleID
-#    plot_types: List[str] = field(default_factory=lambda: ["box", "bar"])
-#    test: Literal["t", "wilcoxon", "anova"] = "wilcoxon"
-#    out_dir: Optional[str] = None
+@dataclass
+class ProportionConfig(BaseConfig):
+    """Configuration for cell type proportion analysis."""
+    
+    celltype_col: str         # .obs column for cell types (e.g., 'cell_type')
+    sample_col: str           # .obs column for sample IDs (e.g., 'sampleID')
+    condition_col: str        # .obs column for conditions to compare (e.g., 'disease')
+    
+    test_method: Literal["t-test", "wilcoxon", "anova", "lmm"] = "wilcoxon"
+    
+    # --- LMM (Linear Mixed Model) specific params ---
+    lmm_batch_key: Optional[str] = None # .obs col for batch/patient ID (e.g., 'patient_id')
+    lmm_formula: Optional[str] = None   # e.g., "proportion ~ condition" (auto-builds if None)
+
+    plot_types: List[str] = field(default_factory=lambda: ["bar", "box"])
+    out_dir: Optional[str] = None
+    figsize: Tuple[float, float] = (10, 6)
 
 # ===================== Master Workflow Config =====================
 
@@ -310,8 +338,9 @@ class AnalysisWorkflowConfig(BaseConfig):
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     de: DifferentialConfig = field(default_factory=DifferentialConfig)
     annotation: AnnotationConfig = field(default_factory=AnnotationConfig)
-    # scoring: Optional[ScoringConfig] = None
-    # proportion: Optional[ProportionConfig] = None
+    enrichment: EnrichmentConfig = field(default_factory=EnrichmentConfig)
+    scoring: Optional[ScoringConfig] = None
+    proportion: Optional[ProportionConfig] = None
 
 
 # Update __all__ to include all configuration classes

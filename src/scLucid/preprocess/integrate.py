@@ -8,6 +8,7 @@ robust logging, and complete traceability for reproducible single-cell workflows
 
 import dataclasses
 import logging
+logging.getLogger("harmonypy").setLevel(logging.ERROR)
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -31,8 +32,6 @@ __all__ = [
 # ==============================================================================
 # Low-Level Integration Wrappers (private, not in __all__)
 # ==============================================================================
-
-
 def _integrate_harmony(
     adata: AnnData,
     covariate_keys: Union[str, List[str]],
@@ -45,6 +44,8 @@ def _integrate_harmony(
     random_state: int = 42,
     plot_convergence: bool = False,
     copy: bool = False,
+    check_convergence: bool = True,
+    convergence_threshold: float = 1e-4,
     **kwargs,
 ) -> AnnData:
     """
@@ -71,6 +72,9 @@ def _integrate_harmony(
     log.info(
         f"Harmony params: basis={basis}, theta={theta}, lambda={lambda_val}, sigma={sigma}, max_iter={max_iter_harmony}"
     )
+    # Initialize convergence tracking variables
+    final_change: Optional[float] = None
+    converged: Optional[bool] = None
 
     # Run Harmony using the harmonypy core function
     harmony_out = hm.run_harmony(
@@ -86,30 +90,77 @@ def _integrate_harmony(
         **kwargs,
     )
 
-    # Store the corrected embedding
-    adata.obsm[embedding_key] = harmony_out.Z_corr.T
+    # === Validation ===
+    Z_corr = harmony_out.Z_corr.T
+    
+    # 1. Check for NaN/Inf
+    if np.any(~np.isfinite(Z_corr)):
+        n_invalid = np.sum(~np.isfinite(Z_corr))
+        raise RuntimeError(
+            f"Harmony output contains {n_invalid} NaN or Inf values. "
+            "This may indicate convergence failure. Try adjusting theta or lambda."
+        )
+    
+    # 2. Check convergence
+    if check_convergence and hasattr(harmony_out, 'objective_history'):
+        obj_history = harmony_out.objective_history
+        
+        if len(obj_history) >= 2:
+            final_change = abs(obj_history[-1] - obj_history[-2])
+            converged = final_change <= convergence_threshold 
+            
+            if not converged:
+                log.warning(
+                    f"⚠️  Harmony may not have fully converged. "
+                    f"Final objective change: {final_change:.2e} > threshold {convergence_threshold:.2e}. "
+                    f"Consider increasing max_iter_harmony (current: {max_iter_harmony})."
+                )
+            else:
+                log.info(f"✓ Harmony converged. Final change: {final_change:.2e}")
+        elif len(obj_history) < 2:
+            log.info("Harmony converged in < 2 iterations. Setting convergence as True.")
+            converged = True # if less than 2 iterations, consider converged
+            
+    
+    # 3. Check variance preservation
+    input_var = np.var(adata.obsm[basis], axis=0).sum()
+    output_var = np.var(Z_corr, axis=0).sum()
+    var_ratio = output_var / input_var
+    
+    if var_ratio < 0.5:
+        log.warning(
+            f"⚠️  Harmony reduced total variance by {(1-var_ratio)*100:.1f}%. "
+            "This may indicate over-correction. Consider reducing theta."
+        )
+    
+    log.info(f"Variance retention: {var_ratio:.1%}")
+    
+    # Store result
+    adata.obsm[embedding_key] = Z_corr
 
     # Store metadata for reproducibility
-    params = dict(
-        theta=theta,
-        lamb=lambda_val,
-        sigma=sigma,
-        max_iter_harmony=max_iter_harmony,
-        random_state=random_state,
-        plot_convergence=plot_convergence,
-    )
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
         "integration", {}
     )["harmony"] = {
         "covariate_keys": covariate_keys,
-        "params": params,
+        "params": {
+            "theta": theta,
+            "lamb": lambda_val,
+            "sigma": sigma,
+            "max_iter_harmony": max_iter_harmony,
+            "random_state": random_state,
+        },
         "input_dims": adata.obsm[basis].shape[1],
-        "output_dims": adata.obsm[embedding_key].shape[1],
+        "output_dims": Z_corr.shape[1],
+        "variance_retention": float(var_ratio),
+        "converged": converged,
         "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+    
     log.info(
         f"Harmony integration finished: result stored in .obsm['{embedding_key}'] with shape {adata.obsm[embedding_key].shape}"
     )
+    
     return adata
 
 
@@ -413,6 +464,103 @@ def _integrate_combat(
     return adata
 
 
+def _compute_kbet_score(
+    X: np.ndarray,
+    batch_labels: pd.Series,
+    n_neighbors: int = 25,
+    alpha: float = 0.05,
+    n_sample_cells: int = 1000
+) -> Dict[str, float]:
+    """
+    Compute proper k-BET (k-nearest neighbor Batch Effect Test) score.
+    
+    Based on: Büttner et al., Nature Methods 2019
+    
+    Returns:
+        Dict with 'rejection_rate', 'acceptance_rate', and 'kbet_score'
+    """
+    from sklearn.neighbors import NearestNeighbors
+    from scipy.stats import chi2
+    
+    n_cells = X.shape[0]
+    
+    # Sample cells if dataset is large
+    if n_cells > n_sample_cells:
+        np.random.seed(42)
+        sample_idx = np.random.choice(n_cells, n_sample_cells, replace=False)
+        X_sample = X[sample_idx]
+        batch_sample = batch_labels.iloc[sample_idx]
+    else:
+        X_sample = X
+        batch_sample = batch_labels
+    
+    # Build k-NN graph
+    nn = NearestNeighbors(n_neighbors=n_neighbors + 1)  # +1 to exclude self
+    nn.fit(X)
+    distances, indices = nn.kneighbors(X_sample)
+    indices = indices[:, 1:]  # Remove self
+    
+    # Get global batch distribution
+    batch_categories = sorted(batch_labels.unique())
+    global_freq = batch_labels.value_counts(normalize=True).reindex(batch_categories).values
+    
+    # Test each neighborhood
+    rejections = 0
+    valid_tests = 0
+    
+    for i in range(len(X_sample)):
+        # Get batch composition of neighborhood
+        neighbor_batches = batch_labels.iloc[indices[i]].values
+        
+        # Count batches in neighborhood
+        observed = np.array([
+            (neighbor_batches == batch).sum() for batch in batch_categories
+        ])
+        
+        # Expected counts under null hypothesis
+        expected = global_freq * n_neighbors
+        
+        # Skip if expected counts are too small
+        if (expected < 5).any():
+            continue
+        
+        # Chi-square test
+        chi2_stat = np.sum((observed - expected) ** 2 / expected)
+        
+        # Degrees of freedom
+        df = len(batch_categories) - 1
+        
+        # p-value
+        p_value = 1 - chi2.cdf(chi2_stat, df)
+        
+        valid_tests += 1
+        
+        if p_value < alpha:
+            rejections += 1
+    
+    if valid_tests == 0:
+        log.warning("k-BET: No valid tests could be performed")
+        return {
+            'rejection_rate': np.nan,
+            'acceptance_rate': np.nan,
+            'kbet_score': np.nan
+        }
+    
+    rejection_rate = rejections / valid_tests
+    acceptance_rate = 1 - rejection_rate
+    
+    # k-BET score: lower rejection rate = better integration
+    # Scale to [0, 1] where 1 is perfect
+    kbet_score = acceptance_rate
+    
+    return {
+        'rejection_rate': rejection_rate,
+        'acceptance_rate': acceptance_rate,
+        'kbet_score': kbet_score,
+        'n_tests': valid_tests
+    }
+    
+    
 # ==============================================================================
 # High-level entry: batch_correction
 # ==============================================================================
@@ -664,80 +812,20 @@ def evaluate_integration(
     # 2. k-BET (batch effect test - measures batch mixing in local neighborhoods)
     if "kbet" in methods:
         try:
-            # We'll implement a simplified version of k-BET
-            # Compute nearest neighbors for each cell
-            from sklearn.neighbors import NearestNeighbors
-
-            nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric).fit(X)
-            distances, indices = nn.kneighbors(X)
-
-            # For each neighborhood, test if batch distribution matches global distribution
-            from scipy.stats import chi2_contingency
-
-            # Get global batch distribution
-            batch_categories = (
-                adata.obs[batch_key].cat.categories
-                if hasattr(adata.obs[batch_key], "cat")
-                else sorted(adata.obs[batch_key].unique())
+            log.info("Computing k-BET score...")
+            kbet_result = _compute_kbet_score(
+                X,
+                adata.obs[batch_key],
+                n_neighbors=n_neighbors,
+                n_sample_cells=min(2000, adata.n_obs)
             )
-            global_batch_counts = (
-                adata.obs[batch_key].value_counts().reindex(batch_categories).fillna(0)
-            )
-            global_batch_freqs = global_batch_counts / global_batch_counts.sum()
-
-            # Test each neighborhood
-            rejection_rate = 0
-            n_valid_tests = 0
-
-            # We'll test a random subset for very large datasets
-            import random
-
-            test_indices = random.sample(range(adata.n_obs), min(1000, adata.n_obs))
-
-            for i in test_indices:
-                # Get batch labels of neighbors
-                neighbor_batches = adata.obs[batch_key].iloc[indices[i]]
-                local_batch_counts = (
-                    neighbor_batches.value_counts().reindex(batch_categories).fillna(0)
-                )
-
-                # Skip neighborhoods with too few distinct batches for a meaningful test
-                if (local_batch_counts > 0).sum() <= 1:
-                    continue
-
-                # Compute chi-square test
-                expected_counts = global_batch_freqs * len(neighbor_batches)
-
-                # Filter out categories with too few expected counts for a valid chi-square test
-                valid_cats = expected_counts >= 5
-                if sum(valid_cats) <= 1:
-                    continue
-
-                observed = local_batch_counts[valid_cats].values
-                expected = expected_counts[valid_cats].values
-
-                _, p_value, _, _ = chi2_contingency(
-                    [observed, expected], correction=True
-                )
-
-                # A low p-value means we reject the null hypothesis that the local distribution
-                # matches the global distribution (bad for integration)
-                if p_value < 0.05:
-                    rejection_rate += 1
-
-                n_valid_tests += 1
-
-            if n_valid_tests > 0:
-                # Compute rejection rate (lower is better)
-                rejection_rate = rejection_rate / n_valid_tests
-
-                # Convert to an acceptance rate (higher is better)
-                results["kbet_acceptance"] = 1 - rejection_rate
-
-                log.info(f"k-BET acceptance rate: {results['kbet_acceptance']:.4f}")
-            else:
-                log.warning("Could not compute k-BET: insufficient valid tests")
-
+            
+            results['kbet_acceptance'] = kbet_result['acceptance_rate']
+            results['kbet_rejection_rate'] = kbet_result['rejection_rate']
+            
+            log.info(f"k-BET acceptance rate: {kbet_result['acceptance_rate']:.4f}")
+            log.info(f"k-BET tests performed: {kbet_result['n_tests']}")
+            
         except Exception as e:
             log.warning(f"Failed to compute k-BET: {str(e)}")
 

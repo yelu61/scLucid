@@ -188,6 +188,8 @@ def annotate_clusters(
     method: Literal["max_score", "enrichment", "combined"] = "max_score",
     use_raw: bool = False,
     key_added: Optional[str] = None,
+    min_confidence: float = 0.3, 
+    confidence_key: Optional[str] = None, 
     min_score: float = 0.1,
     n_genes: int = 100,
     score_weight: float = 0.6,

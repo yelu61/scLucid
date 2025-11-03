@@ -122,15 +122,15 @@ def setup_logging(
 ) -> None:
     """
     Configure the root logger for the scLucid toolkit.
-
-    Args:
-        level: Logging level (e.g., 'DEBUG', 'INFO', 'WARNING').
-        file_path: Optional path to a file to save logs.
-        log_format: The format string for the log messages.
     """
     numeric_level = getattr(logging, level.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError(f"Invalid log level: {level}")
+
+    root_logger = logging.getLogger()
+    
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
 
     handlers = [logging.StreamHandler()]
     if file_path:
@@ -140,8 +140,14 @@ def setup_logging(
         level=numeric_level,
         format=log_format,
         handlers=handlers,
-        force=True,  # Override any existing configuration
+        force=True,  
     )
+    
+
+    logging.getLogger("harmonypy").setLevel(logging.ERROR)
+    logging.getLogger("scvi").setLevel(logging.WARNING)
+    logging.getLogger("numba").setLevel(logging.WARNING)
+
     log.info(f"scLucid logging configured to level {level}.")
 
 

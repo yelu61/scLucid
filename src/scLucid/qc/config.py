@@ -136,19 +136,25 @@ class DoubletConfig:
     # --- Core Algorithm Parameters ---
     run_algorithm: bool = True
     """If False, skips the algorithmic detection step entirely. Useful for heuristic-only exploratory runs."""
-    method: Literal["scrublet","solo"] = "scrublet" #: The algorithm to use for doublet score calculation.
+    method: Literal["scrublet","solo","doubletdetection"] = "scrublet" #: The algorithm to use for doublet score calculation.
     
     # --- Scrublet Algorithm Specific Parameters ---
-    expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = None #: Expected doublet rate. Can be a single float or a dict per sample.
-    n_pcs: int = 30 #: Number of principal components to use for the algorithm.
-    plot_umap: bool = False #: Whether to plot the UMAP of the data.
+    scr_n_pcs: int = 30 #: Number of principal components to use for the algorithm.
+    scr_plot_umap: bool = False #: Whether to plot the UMAP of the data.
     
     # --- SOLO Algorithm Specific Parameters ---
     solo_n_epochs: int = 400
     solo_learning_rate: float = 1e-3
     solo_use_gpu: bool = True
-    solo_use_raw: bool = True  # 是否使用raw数据
-    solo_clear_cache: bool = True  # 训练后清理GPU缓存
+    solo_use_raw: bool = True  
+    solo_clear_cache: bool = True  
+    
+    # --- DoubletDetection Algorithm Specific Parameters ---
+    dd_n_components: int = 30 #: Number of principal components to use for DoubletDetection.
+    dd_n_top_var_genes: int = 10000 #: Number of top variable genes to use.
+    dd_p_thresh: float = 1e-16 #: p-value threshold for doublet calling.
+    dd_voter_thresh: float = 0.8 #: Voter threshold for doublet calling.
+    dd_use_raw: bool = True #: Whether to use raw counts for DoubletDetection.
     
     # --- Heuristic Analysis ---
     use_heuristics: bool = True #: Master switch to enable/disable marker-based heuristic analysis.
@@ -170,6 +176,7 @@ class DoubletConfig:
     # --- Result Merging and Reporting ---
     merge_strategy: Literal['weighted_average', 'max_score', 'heuristic_boost'] = "weighted_average"
     algorithm_weight: float = 0.7
+    expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = None #: Expected doublet rate. Can be a single float or a dict per sample.
     random_state: int = 61 #: Random seed for reproducibility.
     plot_summary: bool = True #: Master switch to generate a summary plot at the end of the run.
     plot_bar: bool = True #: (If plot_summary=True) Include the bar plot.
@@ -181,18 +188,36 @@ class DoubletConfig:
 
     def validate(self):
         """Validate configuration parameters."""
-        allowed_methods = ["scrublet","solo"]
+        allowed_methods = ["scrublet","solo","doubletdetection"]
         if self.method not in allowed_methods:
             raise ValueError(f"method must be one of {allowed_methods}")
-        if self.method == "solo":
+        
+        if self.method == "scrublet":
+            try:
+                import scrublet
+            except ImportError:
+                logging.warning("scrublet not found. Please install it to use: pip install scrublet")
+            # 检查 scrublet 特定的 n_pcs 参数
+            if self.scr_n_pcs <= 1:
+                raise ValueError(f"scr_n_pcs (for scrublet) must be greater than 1, but got {self.scr_n_pcs}")
+        
+        elif self.method == "solo":
             if self.solo_n_epochs < 100:
                 logging.warning("solo_n_epochs < 100 may result in poor model convergence")
             try:
                 import scvi
             except ImportError:
-                logging.warning("scvi-tools not found. Please install it to use SOLO: pip install scvi-tools")
-        if self.n_pcs <= 1:
-            raise ValueError("n_pcs must be greater than 1")
+                logging.warning("scvi-tools not found. Please install it to use: pip install scvi-tools")
+        
+        elif self.method == "doubletdetection":
+            try:
+                import doubletdetection
+            except ImportError:
+                logging.warning("doublet-detection not found. Please install it to use: pip install doublet-detection")
+            # 检查 doubletdetection 特定的 n_components 参数
+            if self.dd_n_components <= 1:
+                raise ValueError(f"dd_n_components (for doubletdetection) must be greater than 1, but got {self.dd_n_components}")
+
         if (
             self.use_heuristics
             and (self.min_lineages_for_doublet is not None)
@@ -210,6 +235,7 @@ class DoubletConfig:
                     raise ValueError(
                         f"expected_doublet_rate for sample '{k}' must be between 0 and 1"
                     )
+        
         allowed_merge_strategies = [
             'weighted_average', 'max_score', 'heuristic_boost'
         ]

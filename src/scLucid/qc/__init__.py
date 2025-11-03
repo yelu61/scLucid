@@ -16,12 +16,14 @@ from .doublet import (
     generate_doublet_rates,
     create_custom_marker_dict,
     predict_doublets,
+    predict_doublets_with_profiling
 )
 from .filtering import (
     suggest_qc_thresholds,
     identify_outliers,
     generate_qc_report,
     mark_low_quality_cell,
+    mark_low_quality_cells_adaptive,
     filter_cells,
 )
 
@@ -44,9 +46,11 @@ __all__ = [
     "generate_doublet_rates",
     "create_custom_marker_dict",
     "predict_doublets",
+    "predict_doublets_with_profiling",
     "suggest_qc_thresholds",
     "identify_outliers",
     "mark_low_quality_cell",
+    "mark_low_quality_cells_adaptive",
     "filter_cells",
     "generate_qc_report",
     # Workflow Functions

@@ -11,7 +11,7 @@ This module provides:
 import dataclasses
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -34,7 +34,67 @@ __all__ = [
 ]
 
 # ====================== Clustering Evaluation Helpers ======================
-
+def _auto_select_resolution(
+    eval_df: pd.DataFrame,
+    strategy: str = "balanced",
+) -> float:
+    """
+    Automatically select the best resolution based on computed metrics.
+    
+    Strategies:
+    1. 'elbow': Find elbow point in n_clusters vs resolution curve
+    2. 'peak': Maximum marker abundance
+    3. 'balanced': Composite score balancing all metrics
+    """
+    if strategy == "elbow":
+        # Detect elbow using kneedle algorithm
+        from kneed import KneeLocator
+        
+        kn = KneeLocator(
+            eval_df['resolution'],
+            eval_df['n_clusters'],
+            curve='convex',
+            direction='increasing'
+        )
+        return kn.elbow if kn.elbow is not None else eval_df['resolution'].median()
+    
+    elif strategy == "peak":
+        # Simply pick max marker abundance
+        if 'marker_abundance' in eval_df.columns:
+            idx = eval_df['marker_abundance'].idxmax()
+            return eval_df.loc[idx, 'resolution']
+        else:
+            return eval_df['resolution'].median()
+    
+    elif strategy == "balanced":
+        # Composite score: normalize each metric and compute weighted sum
+        score = pd.Series(0.0, index=eval_df.index)
+        
+        # Normalize each metric to [0, 1]
+        if 'silhouette' in eval_df.columns:
+            sil_norm = (eval_df['silhouette'] - eval_df['silhouette'].min()) / \
+                       (eval_df['silhouette'].max() - eval_df['silhouette'].min() + 1e-8)
+            score += 0.3 * sil_norm
+        
+        if 'marker_abundance' in eval_df.columns:
+            ma_norm = (eval_df['marker_abundance'] - eval_df['marker_abundance'].min()) / \
+                      (eval_df['marker_abundance'].max() - eval_df['marker_abundance'].min() + 1e-8)
+            score += 0.5 * ma_norm  # Higher weight for biological signal
+        
+        if 'stability' in eval_df.columns:
+            # Penalize low stability
+            stab_norm = (eval_df['stability'] - eval_df['stability'].min()) / \
+                        (eval_df['stability'].max() - eval_df['stability'].min() + 1e-8)
+            score += 0.2 * stab_norm
+        
+        # Pick resolution with max composite score
+        idx = score.idxmax()
+        return eval_df.loc[idx, 'resolution']
+    
+    else:
+        raise ValueError(f"Unknown selection strategy: {strategy}")
+    
+    
 
 def _get_marker_abundance(
     adata: AnnData, cluster_key: str, de_method: str, min_log2fc: float, min_pct: float
@@ -159,6 +219,8 @@ def _print_resolution_guidance(eval_df: pd.DataFrame) -> None:
 def find_resolution(
     adata: AnnData,
     config: Optional[ResolutionSearchConfig] = None,
+    auto_select: bool = True,
+    selection_strategy: Literal["elbow", "peak", "balanced"] = "balanced",
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -171,9 +233,15 @@ def find_resolution(
     - Stable plotting even when some metrics are missing.
     - Full trace saved under .uns['sclucid']['analysis']['clustering']['resolution_search'].
 
+    Args:
+        auto_select: If True, automatically recommend a resolution
+        selection_strategy: How to pick the best resolution:
+            - 'elbow': Elbow point in n_clusters curve
+            - 'peak': Maximum marker abundance
+            - 'balanced': Balance between silhouette, markers, and stability
+    
     Returns:
-        A pandas DataFrame with columns among:
-        ['resolution','n_clusters','silhouette','marker_abundance','stability']
+        Tuple of (evaluation DataFrame, recommended resolution or None)
     """
     if config is None:
         active_config = ResolutionSearchConfig()
@@ -281,19 +349,16 @@ def find_resolution(
 
     eval_df = pd.DataFrame(eval_results)
 
-    # Store results and parameters
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "clustering", {}
-    )
-    adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"] = (
-        sanitize_for_hdf5(
-            {
-                "results_df": eval_df,
-                "parameters": active_config.to_dict(),
-                "scanpy_version": getattr(sc, "__version__", "unknown"),
-            }
-        )
-    )
+    recommended_res = None
+    if auto_select and not eval_df.empty:
+        recommended_res = _auto_select_resolution(eval_df, strategy=selection_strategy)
+        log.info(f"🎯 Auto-selected resolution: {recommended_res:.3f}")
+    
+    # Store recommendation
+    adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"].update({
+        "recommended_resolution": recommended_res,
+        "selection_strategy": selection_strategy,
+    })
 
     # Plotting
     if active_config.plot and not eval_df.empty:
@@ -357,7 +422,7 @@ def find_resolution(
     if not eval_df.empty:
         _print_resolution_guidance(eval_df)
 
-    return eval_df
+    return eval_df, recommended_res
 
 
 def cluster_cells(

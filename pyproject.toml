@@ -3,7 +3,7 @@
 # ===================================================================
 
 [build-system]
-requires = ["setuptools>=64.0"]
+requires = ["setuptools>=65.0", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 # ===================================================================
@@ -15,7 +15,7 @@ version = "0.1.0"
 authors = [
     { name = "Ye Lu", email = "foliageyelu@gmail.com" }, 
 ]
-description = "An integrated, flexible, and exploratory analysis system for single-cell genomics."
+description = "An integrated, flexible, and exploratory analysis system for single-cell RNA-seq analysis."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }

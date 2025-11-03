@@ -502,3 +502,60 @@ def score_cell_cycle(
             log.warning(f"Failed to generate cell cycle plots: {str(e)}")
 
     return adata
+
+def score_cell_cycle_advanced(
+    adata: AnnData,
+    species: str = 'human',
+    regress_out: bool = False,  # 新功能
+    plot_phase_markers: bool = True,  # 新功能
+    **kwargs
+) -> AnnData:
+    """
+    增强版细胞周期打分，可选回归。
+    """
+    # 现有打分逻辑
+    adata = score_cell_cycle(adata, species, **kwargs)
+    
+    # 新功能1: 可选的细胞周期效应回归
+    if regress_out:
+        import scanpy as sc
+        log.info("Regressing out cell cycle effects...")
+        sc.pp.regress_out(adata, ['S_score', 'G2M_score'])
+        adata.uns['cell_cycle_regressed'] = True
+    
+    # 新功能2: 每个phase的marker基因表达热图
+    if plot_phase_markers:
+        _plot_phase_specific_markers(adata, species)
+    
+    return adata
+
+
+def _plot_phase_specific_markers(
+    adata: AnnData,
+    species: str,
+    save_path: Optional[str] = None
+):
+    """
+    可视化不同cell cycle phase的marker基因表达。
+    """
+    import scanpy as sc
+    
+    s_genes = SPECIES_GENES[species]['s_genes'][:10]
+    g2m_genes = SPECIES_GENES[species]['g2m_genes'][:10]
+    
+    marker_genes = s_genes + g2m_genes
+    marker_genes = [g for g in marker_genes if g in adata.var_names]
+    
+    if len(marker_genes) < 5:
+        log.warning("Too few marker genes found for visualization")
+        return
+    
+    # Create dotplot
+    sc.pl.dotplot(
+        adata,
+        marker_genes,
+        groupby='phase',
+        dendrogram=True,
+        standard_scale='var',
+        save=save_path
+    )
