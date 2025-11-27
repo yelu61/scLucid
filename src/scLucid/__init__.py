@@ -20,7 +20,7 @@ from importlib.metadata import version, PackageNotFoundError
 try:
     __version__ = version("sclucid")
 except PackageNotFoundError:
-    __version__ = "unknown"
+    __version__ = "0.1"
     
 # --- Core Modules ---
 # Import the full modules for explicit access

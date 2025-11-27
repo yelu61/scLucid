@@ -22,12 +22,17 @@ import logging
 from importlib import resources
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
-
+import os
+import re
 import gseapy as gp
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import seaborn as sns
+from matplotlib.patches import Rectangle
+from matplotlib.lines import Line2D
+from adjustText import adjust_text
 from anndata import AnnData
 
 from ..utils import sanitize_for_hdf5
@@ -72,6 +77,16 @@ def _to_frac(series: pd.Series) -> pd.Series:
     log.debug("Detected percentage scale (0-100). Converting to fraction (0-1).")
     return s_numeric.clip(lower=0, upper=100) / 100.0
 
+def export_enrichment_results(
+    adata: AnnData,
+    enrichment_key: str = "enrichment",
+    output_path: str = "enrichment_results.xlsx"
+):
+    with pd.ExcelWriter(output_path) as writer:
+        for cluster, results in enrichment_results.items():
+            results["ora"].to_excel(writer, sheet_name=f"{cluster}_ORA")
+            results["gsea"].to_excel(writer, sheet_name=f"{cluster}_GSEA")
+            
 # --- Differential Expression Analysis ---
 def find_markers(
     adata: AnnData,
@@ -782,6 +797,59 @@ def run_enrichment(
     return enrichment_results
 
 
+# 建议在 de_enrichment.py 中新增高级 API
+def batch_celltype_deg_enrichment(
+    adata: AnnData,
+    celltype_col: str,
+    condition_col: str,
+    group1: str,
+    group2: str,
+    outdir: str,
+    **kwargs
+) -> Dict[str, Dict]:
+    """
+    批量对每个细胞类型执行 DEG 和富集分析（类似您的脚本）
+    
+    返回:
+        results: {celltype: {"degs": df, "enr_up": enr, "enr_down": enr}}
+    """
+    results = {}
+    for celltype in adata.obs[celltype_col].unique():
+        # 子集数据
+        adata_sub = adata[adata.obs[celltype_col] == celltype]
+        
+        # DEG 分析
+        config = CompareConditionsConfig(
+            groupby=celltype_col,
+            group_name=celltype,
+            condition_key=condition_col,
+            condition1=group1,
+            condition2=group2,
+            **kwargs
+        )
+        degs = compare_conditions(adata_sub, config)
+        
+        # 富集分析
+        enr_config = EnrichmentConfig(
+            de_key=config.comparison_params.key_added,
+            **kwargs.get("enrichment_params", {})
+        )
+        enr_results = run_enrichment(adata_sub, groupby=celltype_col, config=enr_config)
+        
+        # 可视化
+        plot_volcano(
+            degs, title=f"{celltype}: {group1} vs {group2}",
+            savepath=f"{outdir}/{celltype}_volcano.pdf"
+        )
+        
+        results[celltype] = {
+            "degs": degs,
+            "enr_up": enr_results.get("ora", {}),
+            "enr_down": enr_results.get("gsea", {})
+        }
+    
+    return results
+
 # --- Batch Visualization and Cluster Characterization ---
 
 def visualize_markers(
@@ -1149,3 +1217,348 @@ def summarize_markers_and_enrichment(
         log.info(f"Marker + enrichment summaries exported to {summary_file}")
 
     return summaries
+
+
+def plot_multi_cluster_deg_summary(
+    adata: AnnData,
+    de_key: str = "rank_genes_groups_filtered_df",
+    groupby: str = "leiden_clusters",
+    **kwargs
+) -> None:
+    """
+    绘制所有簇的 DEG 概览图（带智能标签防重叠）
+    
+    参数:
+        adata: AnnData 对象
+        de_key: DE 结果在 adata.uns 中的键
+        groupby: 分组列名
+        **kwargs: 传递给 plot_multi_cluster_deg 的参数
+    """
+    de_df = adata.uns["sclucid"]["analysis"]["de"][de_key]
+    
+    # 转换为您的函数需要的格式
+    df_for_plot = de_df.rename(columns={
+        "group": "Cluster",
+        "names": "Gene",
+        "logfoldchanges": "avg_logFC"
+    })
+    
+    from .visualization import plot_multi_cluster_deg  # 新增模块
+    plot_multi_cluster_deg(
+        df=df_for_plot,
+        cluster_color_dict=dict(zip(
+            adata.obs[groupby].cat.categories,
+            adata.uns.get(f"{groupby}_colors", None)
+        )),
+        **kwargs
+    )
+    
+    
+def plot_volcano(
+    degs_df,
+    title,
+    subtitle,
+    top_n_up=15,
+    top_n_down=15,
+    genes_to_highlight=None,
+    lfc_threshold=1.0,
+    pval_threshold=0.05,
+    palette=None,
+    savepath=None,
+):
+    """
+    绘制一幅具有出版质量的火山图。
+
+    vim
+    参数:
+    - degs_df: 差异分析结果的DataFrame。
+    - title: 图的主标题。
+    - subtitle: 图的副标题。
+    - top_n_up: 在图上标记Top N个上调基因。
+    - top_n_down: 在图上标记Top N个下调基因。
+    - genes_to_highlight: 一个包含特定基因名的列表，这些基因将被特别标记。
+    - lfc_threshold: Log2 Fold Change的阈值。
+    - pval_threshold: 调整后P值的阈值。
+    - palette: 颜色配置字典。
+    """
+    df = degs_df.copy()
+
+    # --- 1. 数据准备 ---
+    df['-log10_pvals_adj'] = -np.log10(df['pvals_adj'].astype(float) + 1e-300)
+    df['status'] = 'Not significant'
+    df.loc[(df['logfoldchanges'] > lfc_threshold) & (df['pvals_adj'] < pval_threshold), 'status'] = 'Up-regulated'
+    df.loc[(df['logfoldchanges'] < -lfc_threshold) & (df['pvals_adj'] < pval_threshold), 'status'] = 'Down-regulated'
+
+    # 颜色配置
+    if palette is None:
+        palette = {
+            'Up-regulated': '#d62728',  # 更鲜亮的红色
+            'Down-regulated': '#1f77b4', # 更鲜亮的蓝色
+            'Not significant': '#cccccc'
+        }
+
+    # --- 2. 绘图 ---
+    plt.style.use('seaborn-v0_8-whitegrid') # 使用一个干净的绘图风格
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    # 分别绘制点，以控制透明度和层级
+    ax.scatter(
+        df[df['status'] == 'Not significant']['logfoldchanges'],
+        df[df['status'] == 'Not significant']['-log10_pvals_adj'],
+        s=15, alpha=0.4, c=palette['Not significant'], label='Not significant', ec='none'
+    )
+    ax.scatter(
+        df[df['status'] == 'Up-regulated']['logfoldchanges'],
+        df[df['status'] == 'Up-regulated']['-log10_pvals_adj'],
+        s=30, alpha=0.8, c=palette['Up-regulated'], label='Up-regulated', ec='none'
+    )
+    ax.scatter(
+        df[df['status'] == 'Down-regulated']['logfoldchanges'],
+        df[df['status'] == 'Down-regulated']['-log10_pvals_adj'],
+        s=30, alpha=0.8, c=palette['Down-regulated'], label='Down-regulated', ec='none'
+    )
+
+    # --- 3. 核心改进：分离式标签选择 ---
+    df['ranking_score'] = abs(df['logfoldchanges']) * df['-log10_pvals_adj']
+
+    up_genes = df[df['status'] == 'Up-regulated'].sort_values('ranking_score', ascending=False).head(top_n_up)
+    down_genes = df[df['status'] == 'Down-regulated'].sort_values('ranking_score', ascending=False).head(top_n_down)
+
+    genes_to_label_df = pd.concat([up_genes, down_genes])
+
+    # 如果有指定要高亮的基因，也加入标签列表
+    if genes_to_highlight:
+        highlight_df = df[df['names'].isin(genes_to_highlight)]
+        genes_to_label_df = pd.concat([genes_to_label_df, highlight_df]).drop_duplicates(subset=['names'])
+
+    texts = []
+    for _, row in genes_to_label_df.iterrows():
+        texts.append(ax.text(row['logfoldchanges'], row['-log10_pvals_adj'], row['names'], fontsize=12))
+
+    adjust_text(texts, ax=ax,
+                arrowprops=dict(arrowstyle='-', color='grey', lw=0.5),
+                force_points=(0.2, 0.5),
+                force_text=(0.5, 1.0))
+
+    # --- 4. 添加注释和美化 ---
+    # 阈值线
+    ax.axhline(y=-np.log10(pval_threshold), color='grey', linestyle='--', linewidth=1)
+    ax.axvline(x=lfc_threshold, color='grey', linestyle='--', linewidth=1)
+    ax.axvline(x=-lfc_threshold, color='grey', linestyle='--', linewidth=1)
+
+    # 统计数量注释
+    num_up = (df['status'] == 'Up-regulated').sum()
+    num_down = (df['status'] == 'Down-regulated').sum()
+    ax.text(0.02, 0.98, f'Up: {num_up}\nDown: {num_down}', transform=ax.transAxes,
+            fontsize=12, verticalalignment='top', bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.5, ec='none'))
+
+    # 标题和轴标签
+    fig.suptitle(title, fontsize=20, weight='bold')
+    ax.set_title(subtitle, fontsize=14, pad=10)
+    ax.set_xlabel("Log2 Fold Change", fontsize=14)
+    ax.set_ylabel("-log10(Adjusted P-value)", fontsize=14)
+
+    # 图例
+    ax.legend(loc='upper right', frameon=False, fontsize=12)
+
+    # 移除顶部和右侧的轴线
+    sns.despine(ax=ax)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96]) # 为主标题留出空间
+    if savepath:
+        plt.savefig(savepath, dpi=300)
+    plt.show()   
+    
+
+def plot_multi_cluster_deg(df, highlight_genes=None, pval_cutoff=0.01, logfc_threshold=1.0, top_n=3,
+point_size_by_pval=False, add_colored_bottom=True, cluster_color_dict=None,
+out_path=None):
+    """
+    增强版adjustText配置，支持更多标签
+    """
+    try:
+        clusters = sorted(df['Cluster'].unique(), key=int) # 假设Cluster列是整数类型
+    except ValueError:
+        clusters = sorted(df['Cluster'].unique())
+    
+    x_pos = np.arange(len(clusters))
+    cluster_map = dict(zip(clusters, x_pos))
+
+    if cluster_color_dict:
+        color_map = cluster_color_dict
+    else:
+        cluster_colors = plt.cm.Spectral(np.linspace(0, 1, len(clusters)))
+        color_map = dict(zip(clusters, cluster_colors))
+
+    # 根据 top_n 动态调整图形大小
+    fig_width = max(12, len(clusters) * 1.5)
+    fig_height = max(7, 7 + top_n * 0.15)  # 随标签数量增加高度
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    total_up = 0
+    total_down = 0
+
+    texts = []
+
+    for c in clusters:
+        sub = df[df['Cluster'] == c].copy()
+        idx = cluster_map[c]
+        y = sub['avg_logFC'].values
+        sig = sub['pval_adj'].values < pval_cutoff
+        up = (y > logfc_threshold) & sig
+        down = (y < -logfc_threshold) & sig
+        ns = ~sig
+        
+        total_up += sum(up)
+        total_down += sum(down)
+        
+        sub['neg_log_p'] = -np.log10(np.clip(sub['pval_adj'], 1e-10, 1))
+        
+        x = np.full(len(sub), idx)
+        x_jitter = x + np.random.uniform(-0.45, 0.45, len(sub))
+        
+        base_size = 5
+        if point_size_by_pval:
+            sizes_ns = base_size * np.ones(sum(ns))
+            sizes_up = base_size + 5 * sub['neg_log_p'][up]
+            sizes_down = base_size + 5 * sub['neg_log_p'][down]
+        else:
+            sizes_ns = base_size
+            sizes_up = base_size * 1.6
+            sizes_down = base_size * 1.6
+        
+        ax.scatter(x_jitter[ns], y[ns], c='#cccccc', s=sizes_ns, alpha=0.4, zorder=1)
+        ax.scatter(x_jitter[up], y[up], c='#d62728', s=sizes_up, alpha=0.8, zorder=2)
+        ax.scatter(x_jitter[down], y[down], c='#1f77b4', s=sizes_down, alpha=0.8, zorder=2)
+        
+        sub['ranking_score'] = np.abs(sub['avg_logFC']) * sub['neg_log_p']
+        
+        # Top up - 减小字体，增加对比度
+        top_up = sub[up].nlargest(top_n, 'ranking_score')
+        for _, row in top_up.iterrows():
+            txt = ax.text(idx, row['avg_logFC'], row['Gene'], 
+                        fontsize=7, ha='center', va='bottom', 
+                        weight='normal', zorder=3)
+            texts.append(txt)
+        
+        # Top down
+        top_down = sub[down].nlargest(top_n, 'ranking_score')
+        for _, row in top_down.iterrows():
+            txt = ax.text(idx, row['avg_logFC'], row['Gene'], 
+                        fontsize=7, ha='center', va='top',
+                        weight='normal', zorder=3)
+            texts.append(txt)
+        
+        # Highlight genes
+        if highlight_genes:
+            high_sub = sub[sub['Gene'].isin(highlight_genes)]
+            for _, row in high_sub.iterrows():
+                va = 'bottom' if row['avg_logFC'] > 0 else 'top'
+                txt = ax.text(idx, row['avg_logFC'], row['Gene'], 
+                            fontsize=12, fontweight='bold', color='green', 
+                            ha='center', va=va, zorder=4)
+                texts.append(txt)
+
+    # ===== 关键：增强的 adjustText 参数 =====
+    adjust_text(texts, 
+                ax=ax,
+                # 箭头样式
+                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5, alpha=0.5),
+                
+                # 扩展范围（增加文本和点的排斥区域）
+                expand_points=(2.0, 2.0),      # 点周围的排斥范围
+                expand_text=(1.3, 1.3),        # 文本之间的排斥范围
+                expand_objects=(1.2, 1.2),     # 与其他对象的排斥范围
+                
+                # 排斥力（增加力的强度）
+                force_points=(0.3, 0.6),       # 与点的排斥力 (x, y)
+                force_text=(0.5, 0.8),         # 文本间的排斥力 (x, y)
+                force_objects=(0.3, 0.5),      # 与其他对象的排斥力
+                
+                # 迭代次数和精度
+                lim=500,                       # 最大迭代次数（默认100，增加以获得更好结果）
+                precision=0.01,                # 精度阈值
+                
+                # 允许文本移动的范围
+                only_move={'points': 'xy', 'text': 'xy'},  # 允许x和y方向移动
+                
+                # 避免文本超出边界
+                avoid_self=True,               # 避免自身重叠
+                avoid_points=True,             # 避免与点重叠
+                
+                # 自动调整坐标轴范围以容纳所有标签
+                autoalign='xy',                # 在xy方向自动对齐
+                
+                # 调试模式（可选，查看优化过程）
+                # time_lim=5,                  # 最大运行时间（秒）
+                # verbose=True                 # 打印调试信息
+            )
+
+    # 阈值线
+    ax.axhline(logfc_threshold, ls='--', c='black', alpha=0.5, linewidth=1)
+    ax.axhline(-logfc_threshold, ls='--', c='black', alpha=0.5, linewidth=1)
+    ax.axhline(0, ls='--', c='gray', linewidth=0.8)
+
+    # 底部颜色条
+    if add_colored_bottom:
+        ylim = ax.get_ylim()
+        dy = (ylim[1] - ylim[0]) * 0.04
+        ax.set_ylim(ylim[0] - dy, ylim[1])
+        
+        for i, c in enumerate(clusters):
+            color = color_map.get(c, 'gray')
+            ax.add_patch(Rectangle((i - 0.5, ylim[0] - dy), 1, dy, 
+                                color=color, edgecolor='white', linewidth=0.5,
+                                clip_on=False, zorder=0))
+            
+            # 自动判断文字颜色
+            if isinstance(color, str) and color.startswith('#'):
+                rgb = [int(color.lstrip('#')[k:k+2], 16)/255 for k in (0,2,4)]
+                text_color = 'white' if np.mean(rgb) < 0.5 else 'black'
+            else:
+                text_color = 'black'
+            
+            ax.text(i, ylim[0] - dy / 2, str(c), ha='center', va='center', 
+                fontsize=12, color=text_color, weight='bold')
+
+    # X轴设置
+    if add_colored_bottom:
+        ax.set_xticks([])
+        ax.set_xlabel('')
+    else:
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(clusters, rotation=45, ha='right')
+        ax.set_xlabel("Cluster")
+
+    # 标题和标签
+    ax.set_ylabel("average logFC", fontsize=16, weight='bold')
+    ax.set_title("DEG per Celltype", fontsize=18, weight='bold', pad=15)
+
+    # 网格
+    ax.grid(True, ls='--', alpha=0.25, linewidth=0.5)
+
+    # 去除边框
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['left'].set_linewidth(1.2)
+    ax.spines['bottom'].set_linewidth(1.2)
+
+    # 图例
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', 
+            label=f'Sig Up (adj P < {pval_cutoff})', 
+            markerfacecolor='#d62728', markersize=8),
+        Line2D([0], [0], marker='o', color='w', 
+            label=f'Sig Down (adj P < {pval_cutoff})', 
+            markerfacecolor='#1f77b4', markersize=8),
+        Line2D([0], [0], marker='o', color='w', 
+            label=f'Non-Sig (adj P >= {pval_cutoff})', 
+            markerfacecolor='#cccccc', markersize=8),
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', frameon=True, 
+            fancybox=True, shadow=True, fontsize=9)
+
+    plt.tight_layout()
+    if out_path:
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    plt.show()

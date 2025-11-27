@@ -240,6 +240,9 @@ def set_figure_params(
         log.info(f"Applied custom style dict: {style_dict}")
 
     plt.rcParams.update(applied_styles)
+    
+    mpl.rcParams['pdf.fonttype'] = 42
+    mpl.rcParams['ps.fonttype'] = 42
 
     # Configure IPython display format if in Jupyter
     try:

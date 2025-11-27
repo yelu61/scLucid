@@ -19,12 +19,12 @@ from .cellphonedb import (
     summarize_cellphonedb,
 )
 from .infercnv import find_tumor, run_cnv_analysis
-#from .sccoda import (
-#    plot_sccoda_proportion_with_significance,
-#    run_sccoda,
-#    run_sccoda_batch,
-#    summarize_sccoda,
-#)
+from .sccoda import (
+    plot_sccoda_proportion_with_significance,
+    run_sccoda,
+    run_sccoda_batch,
+    summarize_sccoda,
+)
 from .scenic import (
     analyze_scenic_results,
     export_scenic_report,
@@ -57,10 +57,10 @@ __all__ = [
     "run_cellphonedb_by_group",
     "summarize_cellphonedb",
     # Compositional Analysis
-    #"run_sccoda",
-    #"run_sccoda_batch",
-    #"summarize_sccoda",
-    #"plot_sccoda_proportion_with_significance",
+    "run_sccoda",
+    "run_sccoda_batch",
+    "summarize_sccoda",
+    "plot_sccoda_proportion_with_significance",
     
     # R Tools Bridge (Access R functions like CellChat, Monocle3 via this class)
     # "RTools",

@@ -7,19 +7,26 @@ validation, and pipeline-level consistency.
 """
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING
+from pathlib import Path
+
+if TYPE_CHECKING:
+    from ..analysis.scoring import FunctionalSignatureManager
+
 
 __all__ = [
     "ClusteringConfig",
     "ResolutionSearchConfig",
     "MergeClustersConfig",
-    "AnnotationConfig",
     "DifferentialConfig",
     "FilterMarkersConfig",
+    "ComparisonConfig",
     "CompareGroupsConfig",
     "CompareConditionsConfig",
     "ConservedMarkersConfig",
     "EnrichmentConfig",
+    "AnnotationConfig",
     "ProportionConfig",
     "ScoringConfig",
     "AnalysisWorkflowConfig",
@@ -31,10 +38,18 @@ class BaseConfig:
     """Base class for all analysis configuration objects."""
 
     namespace: str = field(init=False, default="sclucid")
+    
+    verbose: bool = True
+    plot: bool = True
+    save_dir: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.save_dir:
+            Path(self.save_dir).mkdir(parents=True, exist_ok=True)
 
     def to_dict(self):
         return asdict(self)
-
+    
     @classmethod
     def from_dict(cls, d: Dict[str, Any]):
         return cls(**d)
@@ -98,46 +113,6 @@ class MergeClustersConfig(BaseConfig):
     de_method_for_markers: str = "wilcoxon"  # For marker_overlap method
 
 
-# ===================== Annotation Configs =====================
-
-
-@dataclass
-class AnnotationConfig(BaseConfig):
-    """Configuration for the cell type annotation workflow."""
-
-    cluster_key: str = "leiden_clusters"
-    marker_species: str = "human"
-    marker_tissue: Optional[str] = None
-    run_celltypist: bool = False
-    celltypist_model: str = "Immune_All_Low.pkl"
-    run_scoring: bool = True
-    final_method: Literal["max_score", "enrichment", "combined"] = "combined"
-    key_added: str = "cell_type_auto"
-    min_confidence: float = 0.1
-    plot: bool = True
-    # Parameters for DE and enrichment steps within the annotation workflow
-    min_log2fc: float = 0.5
-    min_in_group_pct: float = 0.2
-    enrichment_gene_sets: List[str] = field(
-        default_factory=lambda: ["GO_Biological_Process_2023"]
-    )
-
-
-# ===================== Scoring Configs =====================
-
-
-class ScoringConfig(BaseConfig):
-    """Configuration for gene set and cell type scoring."""
-
-    gene_sets: Dict[str, List[str]]
-    layer: Optional[str] = "normalized"
-    use_raw: bool = True
-    ctrl_size: int = 50
-    score_name_suffix: str = "_score"
-    preserve_missing: bool = True
-    min_genes_required: int = 1
-
-
 # ===================== Differential Expression Configs =====================
 
 
@@ -199,6 +174,33 @@ class FilterMarkersConfig(BaseConfig):
         "scores"  # Column used to rank when keeping top N.
     )
 
+@dataclass
+class ComparisonConfig(BaseConfig):
+    """差异分析通用配置"""
+    method: Literal["wilcoxon", "t-test", "logreg"] = "wilcoxon"
+    corr_method: Literal["benjamini-hochberg", "bonferroni"] = "benjamini-hochberg"
+    key_added: str = "rank_genes_groups"
+    
+    # 过滤参数
+    min_log2fc: Optional[float] = 0.5
+    max_padj: Optional[float] = 0.05
+    min_pct: Optional[float] = 0.1
+    use_abs_log2fc: bool = False
+    
+    # 高级参数
+    tie_correct: bool = True
+    rankby_abs: bool = False
+    pts: bool = True
+    
+    def validate(self):
+        """参数验证"""
+        if self.min_log2fc is not None and self.min_log2fc < 0:
+            raise ValueError("min_log2fc must be non-negative")
+        if self.max_padj is not None and not (0 < self.max_padj <= 1):
+            raise ValueError("max_padj must be in (0, 1]")
+        if self.min_pct is not None and not (0 <= self.min_pct <= 1):
+            raise ValueError("min_pct must be in [0, 1]")
+        
 
 @dataclass
 class CompareGroupsConfig(BaseConfig):
@@ -259,7 +261,8 @@ class ConservedMarkersConfig(BaseConfig):
     use_raw: bool = False
     key_added: Optional[str] = None
 
-# ===================== Enrichment & Proportion Configs =====================
+
+# ===================== Enrichment Configs =====================
 
 
 @dataclass
@@ -271,7 +274,7 @@ class EnrichmentConfig(BaseConfig):
 
     de_key: str = "rank_genes_groups_filtered_df"  # Key for the DE results DataFrame in adata.uns.
     method: Literal["ora", "gsea", "both"] = "ora"
-    
+
     mode: Literal["online", "offline"] = (
         "offline"  # Analysis mode. 'offline' is recommended for stability.
     )
@@ -304,30 +307,129 @@ class EnrichmentConfig(BaseConfig):
     custom_gene_sets: Optional[str] = (
         None  # Path to a user-provided .gmt file for offline mode.
     )
-      # --- New: marker ranking preference for enrichment gene list ---
+    # --- New: marker ranking preference for enrichment gene list ---
     prefer_score_for_enrichment: bool = (
         True  # If True and 'scores' exists, rank by 'scores' else by 'logfoldchanges'.
     )
 
 
+# ===================== Annotation Configs =====================
+
+
+@dataclass
+class AnnotationConfig(BaseConfig):
+    """Configuration for the cell type annotation workflow."""
+
+    cluster_key: str = "leiden_clusters"
+    marker_species: str = "human"
+    marker_tissue: Optional[str] = None
+    run_celltypist: bool = False
+    celltypist_model: str = "Immune_All_Low.pkl"
+    run_scoring: bool = True
+    final_method: Literal["max_score", "enrichment", "combined"] = "combined"
+    key_added: str = "cell_type_auto"
+    min_confidence: float = 0.1
+    plot: bool = True
+    # Parameters for DE and enrichment steps within the annotation workflow
+    min_log2fc: float = 0.5
+    min_in_group_pct: float = 0.2
+    enrichment_gene_sets: List[str] = field(
+        default_factory=lambda: ["GO_Biological_Process_2023"]
+    )
+    
+
+# ===================== Enrichment & Proportion Configs =====================
+
+
 @dataclass
 class ProportionConfig(BaseConfig):
     """Configuration for cell type proportion analysis."""
-    
-    celltype_col: str         # .obs column for cell types (e.g., 'cell_type')
-    sample_col: str           # .obs column for sample IDs (e.g., 'sampleID')
-    condition_col: str        # .obs column for conditions to compare (e.g., 'disease')
-    
-    test_method: Literal["t-test", "wilcoxon", "anova", "lmm"] = "wilcoxon"
-    
-    # --- LMM (Linear Mixed Model) specific params ---
-    lmm_batch_key: Optional[str] = None # .obs col for batch/patient ID (e.g., 'patient_id')
-    lmm_formula: Optional[str] = None   # e.g., "proportion ~ condition" (auto-builds if None)
 
-    plot_types: List[str] = field(default_factory=lambda: ["bar", "box"])
+    celltype_col: str  # .obs column for cell types (e.g., 'cell_type')
+    sample_col: str  # .obs column for sample IDs (e.g., 'sampleID')
+    condition_col: str  # .obs column for conditions to compare (e.g., 'disease')
+    pairing_col: Optional[str] = None  
+    """Column for paired analysis (e.g., 'patient_id' for before/after studies).
+    If specified, enables paired statistical tests (e.g., paired t-test, Wilcoxon signed-rank)."""
+    batch_col: Optional[str] = None  
+    """Column for batch effect detection (e.g., 'sequencing_batch').
+    Used to identify and control for technical variation in proportion analysis."""
+    timepoint_col: Optional[str] = None  
+    """Column for time-series analysis (e.g., 'day', 'week').
+    Enables longitudinal analysis and trajectory visualization."""
+    
+    auto_configure: bool = True  
+    """If True, automatically detect data structure and select appropriate statistical tests."""
+    
+    test_method: Literal["deseq2", "t-test", "wilcoxon", "anova", "chi-square", "fisher"] = "deseq2"
+    correction_scope: str = "per_test"  # or "global" for multiple comparisons correction.
+
+    # --- Plotting Configuration ---
+    # Allowed types: 'counts', 'bar', 'bar_composition', 'box', 'alluvial', 'diff'
+    plot_types: List[str] = field(
+        default_factory=lambda: [
+            "counts",
+            "bar",
+            "bar_composition",
+            "box",
+            "alluvial",
+            "diff",
+        ]
+    )
+    # "group" calls aggregation/comparison plots; "sample" shows individual sample details
+    analysis_level: Literal["sample", "group"] = "group"
+    # Sample模式下的 counts 图样式:
+    # 'stacked' = 堆叠图 (看总数), 'grouped' = 簇状图 (看细胞类型内的样本差异)
+    sample_plot_style: Literal["stacked", "grouped"] = "grouped"
+    # Volcano plot settings
+    volcano_effect_col: str = "cohen_d"  # or "cliff_delta"
+    effect_size_threshold: float = 0.5  # For volcano plots
+
+    # --- Palettes separated by type ---
+    # Colors for Cell Types (used in Stacked Bars, Alluvial flows)
+    ct_palette: Optional[Dict[str, str]] = None
+    # Colors for Conditions (used in Boxplots, Diff bars)
+    condition_palette: Optional[Dict[str, str]] = None
+    # Colors for Samples (used in Sample-Grouped Counts)
+    sample_palette: Optional[Dict[str, str]] = None
+
+    # Order of cell types for plotting (e.g., ['T cells', 'B cells', 'NK cells'])
+    celltype_order: Optional[List[str]] = None
+    condition_order: Optional[List[str]] = None
+    timepoint_order: Optional[List[str]] = None  # For longitudinal studies
+
     out_dir: Optional[str] = None
-    figsize: Tuple[float, float] = (10, 6)
+    figsize: Tuple[float, float] = (8, 6)
+    export_data: bool = True
+    export_format: str = "csv"  # or "excel", "parquet"
 
+
+# ===================== Scoring Configs =====================
+
+
+@dataclass
+class ScoringConfig(BaseConfig):
+    """Configuration for gene set and cell type scoring."""
+    
+    # Gene set source: can be dict, path string, or FunctionalSignatureManager
+    gene_sets: Optional[Union[Dict[str, List[str]], str, "FunctionalSignatureManager"]] = None
+    species: str = "human"
+    custom_signatures: Optional[str] = None
+    
+    # Scoring parameters
+    layer: Optional[str] = "log1p_norm"
+    use_raw: bool = True
+    ctrl_size: int = 50
+    score_name_suffix: str = "_score"
+    preserve_missing: bool = True
+    min_genes_required: int = 1
+    
+    # Visualization
+    plot_heatmap: bool = True
+    z_score: bool = True
+    heatmap_cmap: str = "RdBu_r"
+    
+    
 # ===================== Master Workflow Config =====================
 
 
