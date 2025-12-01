@@ -14,7 +14,7 @@ import seaborn as sns
 from anndata import AnnData
 from scipy.stats import mannwhitneyu, ttest_ind, zscore
 
-from ..markers.manager import _get_marker_path, _load_marker_file
+from ..utils.manager import _get_marker_path, _load_marker_file
 from ..utils import sanitize_for_hdf5
 
 log = logging.getLogger(__name__)

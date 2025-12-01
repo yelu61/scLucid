@@ -25,7 +25,7 @@ from .sccoda import (
     run_sccoda_batch,
     summarize_sccoda,
 )
-from .scenic import (
+from .pyscenic import (
     analyze_scenic_results,
     export_scenic_report,
     run_scenic,

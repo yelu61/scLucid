@@ -64,6 +64,11 @@ class QCDecisionAssistant:
         import scanpy as sc
         from sklearn.metrics import silhouette_score
         
+        if self.adata.n_obs > 10000:
+            if not hasattr(self, '_simulation_subset'):
+                log.info("Subsampling data to 10k cells for rapid simulation...")
+                sc.pp.subsample(self.adata, n_obs=10000, copy=True)
+        
         # Apply thresholds to create filtered data
         adata_filtered = self.adata.copy()
         

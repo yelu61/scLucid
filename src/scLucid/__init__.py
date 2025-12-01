@@ -27,7 +27,6 @@ except PackageNotFoundError:
 from . import qc
 from . import preprocess
 from . import analysis
-from . import markers
 from . import plotting
 from . import utils
 # Make tools import optional

@@ -25,6 +25,8 @@ from rich.style import Style
 from rich.text import Text
 from rich.tree import Tree
 
+#from ..utils.resource_loader import load_toml, get_resource_path
+
 # Configure logging
 log = logging.getLogger(__name__)
 
@@ -154,6 +156,7 @@ class CellType:
     color: Optional[str]
     markers: List[str]
     level: Literal["major", "minor"]
+    negative_markers: List[str] = field(default_factory=list)
     parent: Optional[CellType] = None
     minor: List[CellType] = field(default_factory=list)
     metadata: Dict[str, str] = field(default_factory=dict)
@@ -179,6 +182,7 @@ class CellType:
             "name": self.name,
             "color": self.color,
             "markers": self.markers,
+            "negative_markers": self.negative_markers
         }
 
         # Add metadata if present

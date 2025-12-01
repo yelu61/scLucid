@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Dict, Any, Literal
 import warnings
+import threading
+from contextlib import contextmanager
 
+_config_lock = threading.Lock()
 
 @dataclass
 class GlobalConfig:
@@ -49,6 +52,7 @@ class GlobalConfig:
     
     def _setup_logging(self):
         """Configure logging based on verbosity."""
+        logger = logging.getLogger('sclucid')
         log_levels = {
             0: logging.WARNING,
             1: logging.INFO,
@@ -95,16 +99,28 @@ class GlobalConfig:
                 UserWarning
             )
             self.verbosity = 1
+            
+        if self.marker_db_path and isinstance(self.marker_db_path, str):
+            self.marker_db_path = Path(self.marker_db_path)
     
     def set(self, **kwargs):
         """Update configuration settings."""
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-                if key == 'verbosity':
-                    self._setup_logging()
             else:
                 raise ValueError(f"Unknown configuration key: {key}")
+        self._validate_settings()
+        
+        if 'verbosity' in kwargs or 'log_file' in kwargs:
+            self._setup_logging()
+        
+        if any(k in kwargs for k in ['figure_dpi', 'plot_theme']):
+            from .settings import set_figure_params
+            set_figure_params(
+                dpi=self.figure_dpi, 
+                color_theme=self.plot_theme
+            )
     
     def reset(self):
         """Reset to default configuration."""
@@ -122,8 +138,20 @@ def get_config() -> GlobalConfig:
 
 def set_config(**kwargs):
     """Set global configuration parameters."""
-    _config.set(**kwargs)
+    with _config_lock:
+        _config.set(**kwargs)
 
+@contextmanager
+def config_context(**kwargs):
+    """Temporary configuration context manager."""
+    with _config_lock:
+        old_config = {k: getattr(_config, k) for k in kwargs}
+        _config.set(**kwargs)
+    try:
+        yield _config
+    finally:
+        with _config_lock:
+            _config.set(**old_config)
 
 def reset_config():
     """Reset global configuration to defaults."""

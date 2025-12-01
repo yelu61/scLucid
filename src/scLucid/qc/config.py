@@ -171,7 +171,9 @@ class DoubletConfig:
     default_use_raw: bool = True #: Default setting to use adata.raw for heuristics.
     min_lineage_prevalence: float = 0.005
     min_lineages_for_doublet: int = 2 #: How many distinct lineages must be co-expressed to be a doublet.
-    ignore_coexpression_pairs: Optional[List[Tuple[str, str]]] = None #: Specific lineage pairs to ignore (e.g., [('T_cells', 'NK_cells')]).
+    ignore_coexpression_pairs: Optional[List[Tuple[str, str]]] = field(
+        default_factory=lambda: [('Epithelial', 'Mesenchymal')]
+    ) #: Specific lineage pairs to ignore (e.g., [('T_cells', 'NK_cells')]).
 
     # --- Result Merging and Reporting ---
     merge_strategy: Literal['weighted_average', 'max_score', 'heuristic_boost'] = "weighted_average"

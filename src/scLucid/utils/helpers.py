@@ -154,6 +154,31 @@ def _read_10x_manually(sample_path: str) -> AnnData:
 
     adata.var_names_make_unique()  # Ensure gene names are unique
     adata.layers["counts"] = adata.X.copy()
+    
+    if X.shape[0] != len(barcodes):
+        raise ValueError(
+            f"Mismatch: {X.shape[0]} cells in matrix, "
+            f"but {len(barcodes)} barcodes"
+        )
+    
+    if X.shape[1] != len(gene_names):
+        raise ValueError(
+            f"Mismatch: {X.shape[1]} genes in matrix, "
+            f"but {len(gene_names)} gene names"
+        )
+    
+    # Check for empty matrix
+    if X.sum() == 0:
+        raise ValueError(f"Matrix contains no data (all zeros)")
+    
+    # Check for genes with zero expression across all cells
+    cells_per_gene = (X > 0).sum(axis=0).A1
+    if (cells_per_gene == 0).sum() > 0.5 * X.shape[1]:
+        log.warning(
+            f"Over 50% of genes have zero expression. "
+            "Check if matrix is correctly oriented."
+        )
+    
 
     return adata
 
@@ -167,6 +192,7 @@ def load_10x_data(
     output_file: Optional[str] = None,
     compression: Optional[str] = "gzip",
     backup_existing: bool = True,
+    chunk_size: Optional[int] = None
 ) -> AnnData:
     """
     Load multiple 10x Genomics samples with a robust fallback mechanism.
@@ -302,6 +328,7 @@ def subset_adata(
     adata: AnnData,
     filters: Dict[str, Union[Any, List[Any]]],
     keep_raw_genes: bool = True,
+    raise_on_empty: bool = True
 ) -> AnnData:
     """
     Subset an AnnData object based on metadata criteria, retaining raw gene data.
@@ -348,10 +375,18 @@ def subset_adata(
     log.info(f"  - Final cells after filtering: {final_cells}")
 
     if final_cells == 0:
+        msg = f"No cells remaining after applying filters: {filters}"
+        if raise_on_empty:
+            raise ValueError(msg)
+        else:
+            log.warning(msg)
+            return AnnData()
+        
+    if final_cells < 10:
         log.warning(
-            "No cells remaining after applying filters. Returning an empty AnnData object."
+            f"Only {final_cells} cells remaining. "
+            "Results may be unreliable."
         )
-        return AnnData()
 
     # The core slicing operation
     adata_subset = adata[combined_mask, :].copy()
@@ -441,6 +476,7 @@ def merge_obs_metadata(
     left_on: Optional[str] = None, # If None, uses adata.obs.index
     right_on: Optional[str] = None, # If None, uses metadata_df.index
     how: str = "left",
+    handle_duplicates: str = 'warn'  # 'warn', 'error', 'overwrite'
 ) -> AnnData:
     """
     Merges metadata from an external file into the AnnData object's .obs DataFrame.
@@ -466,14 +502,44 @@ def merge_obs_metadata(
         raise ValueError("Unsupported file format. Please use .csv, .tsv, or .xlsx.")
 
     initial_cols = set(adata.obs.columns)
+    meta_cols = set(meta_df.columns if right_on is None 
+                   else meta_df.columns.drop(right_on))
     
-    # Perform the merge
-    if left_on is None: # Join on index
-        adata.obs = adata.obs.join(meta_df.set_index(right_on) if right_on else meta_df, how=how)
-    else: # Join on a column
-        adata.obs = adata.obs.merge(meta_df, left_on=left_on, right_on=right_on, how=how, suffixes=("", "_new"))
-
-    new_cols = set(adata.obs.columns) - initial_cols
-    log.info(f"Successfully merged {len(new_cols)} new columns into .obs: {list(new_cols)}")
+    overlapping = initial_cols & meta_cols
+    
+    if overlapping:
+        if handle_duplicates == 'error':
+            raise ValueError(
+                f"Columns already exist in adata.obs: {overlapping}"
+            )
+        elif handle_duplicates == 'warn':
+            log.warning(
+                f"Columns {overlapping} already exist. "
+                f"New columns will be suffixed with '_new'"
+            )
+            suffixes = ("", "_new")
+        elif handle_duplicates == 'overwrite':
+            log.info(f"Overwriting columns: {overlapping}")
+            # Drop existing columns before merge
+            adata.obs.drop(columns=overlapping, inplace=True)
+            suffixes = ("", "")
+    else:
+        suffixes = ("", "")
+    
+    # Perform merge
+    if left_on is None:
+        adata.obs = adata.obs.join(
+            meta_df.set_index(right_on) if right_on else meta_df, 
+            how=how,
+            rsuffix='_new' if handle_duplicates == 'warn' else ''
+        )
+    else:
+        adata.obs = adata.obs.merge(
+            meta_df, 
+            left_on=left_on, 
+            right_on=right_on, 
+            how=how, 
+            suffixes=suffixes
+        )
     
     return adata

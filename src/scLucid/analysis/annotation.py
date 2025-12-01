@@ -13,8 +13,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from ..utils import sanitize_for_hdf5, use_layer_as_X
-from ..markers import Manager, get_marker_manager
+from ..utils import sanitize_for_hdf5, use_layer_as_X, Manager, get_marker_manager
 from .config import AnnotationConfig
 
 log = logging.getLogger(__name__)

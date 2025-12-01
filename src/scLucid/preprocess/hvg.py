@@ -768,6 +768,7 @@ def find_hvgs(
     adata: AnnData,
     config: Optional[HVGConfig] = None,
     input_layer: str = "normalized",
+    preserve_tumor_heterogeneity: bool = False,
     **kwargs,
 ) -> AnnData:
     """
@@ -926,10 +927,10 @@ def find_hvgs(
 
             # 3b. Sample-specific marker genes
             if n_specific_genes > 0:
-                log.info(
-                    f"\nIdentifying top {n_specific_genes} sample-specific genes "
-                    "per sample to exclude..."
-                )
+                if preserve_tumor_heterogeneity:
+                    log.info("preserve_tumor_heterogeneity=True: Skipping sample-specific gene exclusion to retain inter-tumor heterogeneity.")
+                else:
+                    log.info("Identifying sample-specific genes to exclude (Batch Effect removal)...")
 
                 sample_specific_mask = _identify_sample_specific_genes_parallel(
                     adata,

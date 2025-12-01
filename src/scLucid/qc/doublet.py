@@ -20,7 +20,7 @@ import seaborn as sns
 from anndata import AnnData
 from upsetplot import plot as upset_plot
 
-from ..markers import get_marker_manager
+from ..utils import get_marker_manager
 from .config import DoubletConfig, MarkerConfig
 
 log = logging.getLogger(__name__)
@@ -532,7 +532,15 @@ def _run_heuristic(
 
     # The ignore_coexpression_pairs logic can still be applied here if needed,
     # for example, to set scores of certain co-expressing cells to 0.
-
+    if cfg.ignore_coexpression_pairs:
+        # top_two_scores 包含了 lineage names，假设你修改了逻辑让它返回 Name 而不是 Score
+        # 或者在这里遍历 whitelist
+        for (lin1, lin2) in cfg.ignore_coexpression_pairs:
+            # 找到同时高表达 lin1 和 lin2 的细胞，将其 heuristic_score 强制置 0
+            mask = (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
+            heuristic_confidence_score[mask] = 0.0
+            log.info(f"Ignoring co-expression of {lin1} + {lin2} in {mask.sum()} cells (Allowlist).")
+            
     adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault(
         "doublet_params", {}
     )

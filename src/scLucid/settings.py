@@ -118,6 +118,7 @@ __all__ = ["setup_logging", "set_figure_params", "reset_figure_params"]
 def setup_logging(
     level: str = "INFO",
     file_path: Optional[str] = None,
+    modules: Optional[list] = None,
     log_format: str = "%(asctime)s - %(name)s - [%(levelname)s] - %(message)s",
 ) -> None:
     """
@@ -135,6 +136,9 @@ def setup_logging(
     handlers = [logging.StreamHandler()]
     if file_path:
         handlers.append(logging.FileHandler(file_path))
+
+    from .config import _config
+    _config.verbosity = {"WARNING": 0, "INFO": 1, "DEBUG": 2}[level]
 
     logging.basicConfig(
         level=numeric_level,

@@ -11,6 +11,8 @@ from typing import Dict, List, Literal, Optional, Set, Union
 
 import numpy as np
 import pandas as pd
+import time
+from functools import wraps
 from anndata import AnnData
 
 log = logging.getLogger(__name__)
@@ -91,7 +93,24 @@ BIOTYPE_CATEGORIES = {
 }
 
 
+
 # --- Helper Functions ---
+def retry(retries=3, delay=5):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if i == retries - 1:
+                        raise e
+                    log.warning(f"Attempt {i+1} failed: {e}. Retrying in {delay}s...")
+                    time.sleep(delay)
+        return wrapper
+    return decorator
+
+
 def _load_ensembl_biotypes(
     species: Literal["human", "mouse", "rat"] = "human",
     ensembl_version: Optional[int] = None,

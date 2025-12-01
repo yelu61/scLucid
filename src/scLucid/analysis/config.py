@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from typing import TYPE_CHECKING
 from pathlib import Path
+import logging
+from importlib import resources
 
 if TYPE_CHECKING:
     from ..analysis.scoring import FunctionalSignatureManager
@@ -31,7 +33,7 @@ __all__ = [
     "ScoringConfig",
     "AnalysisWorkflowConfig",
 ]
-
+log = logging.getLogger(__name__)
 
 @dataclass
 class BaseConfig:
@@ -40,19 +42,23 @@ class BaseConfig:
     namespace: str = field(init=False, default="sclucid")
     
     verbose: bool = True
-    plot: bool = True
+    plot: bool = False
     save_dir: Optional[str] = None
-    
+
     def __post_init__(self):
         if self.save_dir:
             Path(self.save_dir).mkdir(parents=True, exist_ok=True)
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, d: Dict[str, Any]):
         return cls(**d)
+
+    def validate(self):
+        """Subclasses can override this method for parameter validation"""
+        pass
 
 
 # ===================== Clustering Configs =====================
@@ -174,65 +180,53 @@ class FilterMarkersConfig(BaseConfig):
         "scores"  # Column used to rank when keeping top N.
     )
 
+
 @dataclass
 class ComparisonConfig(BaseConfig):
-    """差异分析通用配置"""
+    """Base configuration class for differential expression analysis"""
+    # Differential expression method
     method: Literal["wilcoxon", "t-test", "logreg"] = "wilcoxon"
     corr_method: Literal["benjamini-hochberg", "bonferroni"] = "benjamini-hochberg"
+
+    # Data source
+    layer: Optional[str] = None
+    use_raw: bool = False
+
+    # Result storage
     key_added: str = "rank_genes_groups"
-    
-    # 过滤参数
+
+    # Filtering thresholds
     min_log2fc: Optional[float] = 0.5
     max_padj: Optional[float] = 0.05
     min_pct: Optional[float] = 0.1
     use_abs_log2fc: bool = False
-    
-    # 高级参数
+
+    # Advanced parameters
     tie_correct: bool = True
     rankby_abs: bool = False
     pts: bool = True
-    
+    n_genes: int = 5000
+
     def validate(self):
-        """参数验证"""
         if self.min_log2fc is not None and self.min_log2fc < 0:
             raise ValueError("min_log2fc must be non-negative")
         if self.max_padj is not None and not (0 < self.max_padj <= 1):
             raise ValueError("max_padj must be in (0, 1]")
         if self.min_pct is not None and not (0 <= self.min_pct <= 1):
-            raise ValueError("min_pct must be in [0, 1]")
+            raise ValueError("min_pct must be in [0, 1]")   
         
 
 @dataclass
-class CompareGroupsConfig(BaseConfig):
+class CompareGroupsConfig(ComparisonConfig):
     """Configuration for comparing two specific groups (e.g., two cell types)."""
-
-    groupby: str = ""  # The column in adata.obs that contains the groups to compare.
-    group1: str = ""  # The name of the first group.
-    group2: str = ""  # The name of the second group (used as the reference).
-    method: Literal["wilcoxon", "t-test", "logreg"] = "wilcoxon"
-    layer: Optional[str] = None
-    use_raw: bool = False
-    key_added: Optional[str] = (
-        None  # Key to store the results DataFrame in adata.uns. Defaults to 'compare_{group1}_vs_{group2}'.
-    )
-
-    # Filtering parameters for the comparison results
-    n_top_genes: int = (
-        50  # Number of top genes to keep for each direction after filtering.
-    )
-    min_log2fc: float = 0.5
-    max_padj: float = 0.05
-    min_in_group_pct: float = 0.1
-
-    plot: bool = True  # Whether to generate a volcano plot of the results.
-    save_dir: Optional[str] = None  # Directory to save the volcano plot.
-
-    # Optional: if you want explicit control (currently hardcoded in function as 0–1 fraction logic)
-    # use_fraction_scale: bool = True
+    groupby: str = ""
+    group1: str = ""
+    group2: str = ""
+    n_top_genes: int = 50
 
 
 @dataclass
-class CompareConditionsConfig(BaseConfig):
+class CompareConditionsConfig(ComparisonConfig):
     """Configuration for comparing the same cell type across two conditions."""
 
     groupby: str = ""  #: The column identifying the cell type/group to analyze.
@@ -240,26 +234,17 @@ class CompareConditionsConfig(BaseConfig):
     condition_key: str = ""  #: The column identifying the conditions (e.g., 'treatment', 'disease_status').
     condition1: str = ""  #: The first condition.
     condition2: str = ""  #: The second condition (will be used as the reference).
-    # Inherits comparison and plotting parameters from CompareGroupsConfig
-    comparison_params: CompareGroupsConfig = field(default_factory=CompareGroupsConfig)
     key_added: Optional[str] = None  #: Defaults to 'compare_{c1}_vs_{c2}_in_{group}'.
 
 
 @dataclass
-class ConservedMarkersConfig(BaseConfig):
-    """Configuration for finding conserved markers across conditions."""
+class ConservedMarkersConfig(ComparisonConfig):
+    """Configuration for conserved marker gene discovery"""
 
-    groupby: str
-    condition_key: str
-    method: str = "wilcoxon"
+    groupby: str = ""
+    condition_key: str = ""
     min_cells: int = 10
     min_conditions: Optional[int] = None
-    min_log2fc: float = 0.5
-    max_padj: float = 0.05
-    min_in_group_pct: float = 0.25
-    layer: Optional[str] = None
-    use_raw: bool = False
-    key_added: Optional[str] = None
 
 
 # ===================== Enrichment Configs =====================
@@ -271,47 +256,55 @@ class EnrichmentConfig(BaseConfig):
     Configuration for functional enrichment analysis.
     Supports both online (Enrichr) and offline (local GMT files) modes.
     """
-
+    # Data source
     de_key: str = "rank_genes_groups_filtered_df"  # Key for the DE results DataFrame in adata.uns.
+    # Analysis mode
     method: Literal["ora", "gsea", "both"] = "ora"
-
     mode: Literal["online", "offline"] = (
         "offline"  # Analysis mode. 'offline' is recommended for stability.
     )
+    # Organism and gene sets
     organism: Literal["human", "mouse"] = "human"  # Species for the analysis.
+    # For 'online' mode, this is a list of Enrichr library names.
+    gene_sets_online: List[str] = field(
+        default_factory=lambda: ["GO_Biological_Process_2023"]
+    )
+    # For 'offline' mode, this is a list of categories (e.g., 'hallmark', 'go_bp')
+    gene_sets_offline: List[str] = field(
+        default_factory=lambda: ["hallmark", "go_bp", "reactome"]
+    )
+    # corresponding to local .gmt files in the resources directory.
     gmt_version: str = "v2025"
+    
+    custom_gene_sets: Optional[str] = (
+        None  # Path to a user-provided .gmt file for offline mode.
+    )
+    # General parameters
     max_padj: float = 0.05
+    cutoff_pval: float = 0.05
     key_added: str = "enrichment"
     plot: bool = True
     n_plot_terms: int = 15
     save_dir: Optional[str] = None
-    # --- ORA (Enrichr) 特定参数 ---
+    # --- ORA (Enrichr) parameters ---
     n_top_genes_ora: int = 100
     min_genes_for_ora: int = 10
-    # --- GSEA (Prerank) 特定参数 ---
+    background: Optional[List[str]] = None
+    # --- GSEA (Prerank) parameters ---
     rank_col_gsea: str = "logfoldchanges"  # or "scores"
-    gsea_permutations: int = 100
+    gsea_permutations: int = 1000
     gsea_min_size: int = 15
     gsea_max_size: int = 500
-
-    # For 'online' mode, this is a list of Enrichr library names.
-    # For 'offline' mode, this is a list of categories (e.g., 'hallmark', 'go_bp')
-    # corresponding to local .gmt files in the resources directory.
-    gene_sets_online: List[str] = field(
-        default_factory=lambda: ["GO_Biological_Process_2023"]
-    )
-    gene_sets_offline: List[str] = field(
-        default_factory=lambda: ["hallmark", "go_bp", "reactome"]
-    )
-
-    custom_gene_sets: Optional[str] = (
-        None  # Path to a user-provided .gmt file for offline mode.
-    )
-    # --- New: marker ranking preference for enrichment gene list ---
     prefer_score_for_enrichment: bool = (
         True  # If True and 'scores' exists, rank by 'scores' else by 'logfoldchanges'.
     )
-
+        
+    def __post_init__(self):
+        super().__post_init__()
+        
+        if self.mode == "offline" and not self.custom_gene_sets:
+            log.info(f"Offline mode: using default GMT files for {self.organism}")
+    
 
 # ===================== Annotation Configs =====================
 
@@ -341,13 +334,15 @@ class AnnotationConfig(BaseConfig):
 # ===================== Enrichment & Proportion Configs =====================
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ProportionConfig(BaseConfig):
     """Configuration for cell type proportion analysis."""
-
+    # Required fields (no default values)
     celltype_col: str  # .obs column for cell types (e.g., 'cell_type')
     sample_col: str  # .obs column for sample IDs (e.g., 'sampleID')
     condition_col: str  # .obs column for conditions to compare (e.g., 'disease')
+    
+    # Optional fields (with default values)
     pairing_col: Optional[str] = None  
     """Column for paired analysis (e.g., 'patient_id' for before/after studies).
     If specified, enables paired statistical tests (e.g., paired t-test, Wilcoxon signed-rank)."""
