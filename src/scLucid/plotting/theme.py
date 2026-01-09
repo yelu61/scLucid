@@ -1,14 +1,12 @@
-# theme.py
 """Publication-ready plotting themes."""
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List
 
-# 通用字体设置，按优先级回退
 FONT_FAMILY = ['Arial', 'Helvetica', 'DejaVu Sans', 'sans-serif']
 
-# Nature 风格
+# Nature style
 NATURE_THEME = {
     'font.family': 'sans-serif',
     'font.sans-serif': FONT_FAMILY,
@@ -31,7 +29,7 @@ NATURE_COLORS = {
     'cmap': 'RdYlBu_r'
 }
 
-# Science 风格
+# Science style
 SCIENCE_THEME = {
     'font.family': 'sans-serif',
     'font.sans-serif': FONT_FAMILY,
