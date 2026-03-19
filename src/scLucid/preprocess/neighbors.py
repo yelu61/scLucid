@@ -3,7 +3,6 @@ Functions for building and optimizing the nearest neighbor graph and evaluating 
 with silhouette score and visualization for single-cell analysis.
 """
 
-import dataclasses
 import logging
 from pathlib import Path
 from typing import Dict, Optional
@@ -137,7 +136,9 @@ def optimize_neighbors_pcs(
     if config is None:
         active_config = NeighborsConfig()
     else:
-        active_config = dataclasses.replace(config)
+        # Create a copy of config and apply kwargs
+
+        active_config = config.model_copy()
 
     for key, value in kwargs.items():
         if hasattr(active_config, key):

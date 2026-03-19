@@ -8,7 +8,6 @@ auto-detection of sample keys, and user-friendly logging.
 
 import logging
 import re
-from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -671,7 +670,7 @@ def calculate_qc_metric(
     report_config = MetricsReportingConfig()
 
     if reporting_config is not None:
-        config_dict = asdict(reporting_config)
+        config_dict = reporting_config.to_dict()  # Pydantic's built-in serialization
         for key, value in config_dict.items():
             if hasattr(report_config, key):
                 setattr(report_config, key, value)

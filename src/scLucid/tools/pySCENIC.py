@@ -30,7 +30,7 @@ def run_scenic(
 ) -> anndata.AnnData:
     """
     Run the core pySCENIC workflow (GRN -> motifs -> AUCell).
-    Results are saved to adata.uns['scrnatk']['scenic'].
+    Results are saved to adata.uns['sclucid']['scenic'].
     """
     os.makedirs(out_dir, exist_ok=True)
     log.info(f"Starting pySCENIC workflow. Output: {out_dir}")
@@ -92,17 +92,17 @@ def run_scenic(
     adata.uns["SCENIC_regulon_names"] = regulon_names
 
     # --- Step 5: Structured results for downstream use ---
-    adata.uns.setdefault("scrnatk", {}).setdefault("scenic", {})
-    adata.uns["scrnatk"]["scenic"]["params"] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("scenic", {})
+    adata.uns["sclucid"]["scenic"]["params"] = {
         "species": species,
         "scenic_db_dir": scenic_db_dir,
         "n_cpu": n_cpu,
         "out_dir": out_dir,
         "run_time": datetime.datetime.now().isoformat(),
     }
-    adata.uns["scrnatk"]["scenic"]["regulons"] = adata.uns["SCENIC_regulons"]
-    adata.uns["scrnatk"]["scenic"]["regulon_names"] = regulon_names
-    adata.uns["scrnatk"]["scenic"]["auc_matrix"] = auc_matrix
+    adata.uns["sclucid"]["scenic"]["regulons"] = adata.uns["SCENIC_regulons"]
+    adata.uns["sclucid"]["scenic"]["regulon_names"] = regulon_names
+    adata.uns["sclucid"]["scenic"]["auc_matrix"] = auc_matrix
 
     log.info("pySCENIC workflow complete.")
     return adata
@@ -237,11 +237,11 @@ def export_scenic_report(
     Auto-generate SCENIC analysis report: parameter summary, main figures, top regulons.
     """
     os.makedirs(out_dir, exist_ok=True)
-    params = adata.uns.get("scrnatk", {}).get("scenic", {}).get("params", {})
+    params = adata.uns.get("sclucid", {}).get("scenic", {}).get("params", {})
     with open(os.path.join(out_dir, "scenic_params.txt"), "w") as f:
         for k, v in params.items():
             f.write(f"{k}: {v}\n")
-    regulons = adata.uns.get("scrnatk", {}).get("scenic", {}).get("regulon_names", [])
+    regulons = adata.uns.get("sclucid", {}).get("scenic", {}).get("regulon_names", [])
     pd.Series(regulons[:top_n]).to_csv(os.path.join(out_dir, "top_regulons.csv"))
     # Optionally, export main figures if available
     # ... call analyze_scenic_results() with save_dir=out_dir ...

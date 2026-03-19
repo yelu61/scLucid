@@ -5,7 +5,6 @@ This module provides flexible, config-driven functions for scaling and
 regressing out covariates, ensuring consistency with the scLucid workflow.
 """
 
-import dataclasses
 import logging
 from pathlib import Path
 from typing import List, Optional, Union
@@ -139,6 +138,7 @@ def _minmax_scale_sparse(X: scipy.sparse.spmatrix) -> scipy.sparse.spmatrix:
 def scale_data(
     adata: AnnData,
     config: Optional[ScalingConfig] = None,
+    output_layer: Optional[str] = "scaled",
     **kwargs,
 ) -> AnnData:
     """
@@ -155,12 +155,16 @@ def scale_data(
 
     Returns:
         The modified AnnData object with scaled adata.X.
+        If `output_layer` is not None, scaled values are also stored in
+        `adata.layers[output_layer]` for downstream compatibility.
     """
     # --- 1. Establish the final configuration ---
     if config is None:
         active_config = ScalingConfig()
     else:
-        active_config = dataclasses.replace(config)
+        # Create a copy of config and apply kwargs
+
+        active_config = config.model_copy()
 
     for key, value in kwargs.items():
         if hasattr(active_config, key):
@@ -240,8 +244,13 @@ def scale_data(
         log.error(f"Scaling failed: {str(e)}")
         raise RuntimeError(f"Failed to scale data: {str(e)}")
 
+    # Backward compatibility: persist scaled matrix into a named layer.
+    if output_layer:
+        adata.layers[output_layer] = adata.X.copy()
+
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["scaling"] = {
-        "params": dataclasses.asdict(active_config),
+        "params": active_config.to_dict(),  # Pydantic's built-in serialization
+        "output_layer": output_layer,
     }
 
     log.info("Scaling complete. adata.X has been updated.")
@@ -266,7 +275,9 @@ def regress_out(
     if config is None:
         active_config = ScalingConfig()
     else:
-        active_config = dataclasses.replace(config)
+        # Create a copy of config and apply kwargs
+
+        active_config = config.model_copy()
 
     for key, value in kwargs.items():
         if hasattr(active_config, key):

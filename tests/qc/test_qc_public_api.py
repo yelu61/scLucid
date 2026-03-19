@@ -1,0 +1,24 @@
+"""Public API checks for scLucid.qc."""
+
+import pytest
+
+import scLucid.qc as qc
+
+
+@pytest.mark.unit
+def test_qc_exports_resolve():
+    for symbol in qc.__all__:
+        assert hasattr(qc, symbol), f"scLucid.qc missing exported symbol: {symbol}"
+
+
+@pytest.mark.unit
+def test_qc_thresholds_success_and_validation_error():
+    if not hasattr(qc, "QCThresholds"):
+        pytest.skip("QCThresholds not available in current environment")
+
+    thresholds = qc.QCThresholds(min_genes=100, max_genes=1000, pc_mt=20.0)
+    assert thresholds.min_genes == 100
+    assert thresholds.max_genes == 1000
+
+    with pytest.raises(ValueError):
+        qc.QCThresholds(min_genes=500, max_genes=100)

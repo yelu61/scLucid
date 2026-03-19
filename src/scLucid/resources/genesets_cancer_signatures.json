@@ -1,0 +1,81 @@
+{
+  "_metadata": {
+    "version": "1.0.0",
+    "last_updated": "2025-02-07",
+    "description": "Cancer-specific gene signatures for tumor characterization",
+    "author": "scLucid Development Team",
+    "sources": [
+      "Literature-curated tumor biology signatures",
+      "TCGA marker gene publications",
+      "Therapy response and resistance studies"
+    ],
+    "total_signatures": 12,
+    "categories": ["EMT", "Stemness", "Metastasis", "Therapy_Response", "TME"],
+    "species": ["human"]
+  },
+  "human": {
+    "_categories": {
+      "EMT": ["EMT_epithelial", "EMT_mesenchymal", "EMT_hybrid"],
+      "Stemness": ["Core_stemness", "Embryonic_stemness", "Tissue_stemness", "Epithelial_plasticity"],
+      "Metastasis": ["EMT_metastasis", "Invasion", "Angiogenesis_metastasis", "Organ_tropism"],
+      "Therapy_Response": ["Chemo_sensitive", "Chemo_resistant", "Immunotherapy_responsive", "Immunotherapy_nonresponsive"],
+      "TME": ["Immune_infiltrated", "Immune_desert", "Stromal_reactive"]
+    },
+    "EMT_epithelial": {
+      "genes": ["CDH1", "EPCAM", "CLDN1", "CLDN3", "CLDN4", "CLDN7", "OCLN", "TJP1"],
+      "description": "Epithelial phenotype markers"
+    },
+    "EMT_mesenchymal": {
+      "genes": ["VIM", "CDH2", "FN1", "ZEB1", "ZEB2", "SNAI1", "SNAI2", "TWIST1", "ACTA2"],
+      "description": "Mesenchymal phenotype markers"
+    },
+    "EMT_hybrid": {
+      "genes": ["CLDN1", "VIM", "CDH1", "ZEB1", "SNAI1"],
+      "description": "Hybrid E/M state markers"
+    },
+    "Core_stemness": {
+      "genes": ["PROM1", "CD44", "ALDH1A1", "ALDH1A3", "NANOG", "SOX2", "POU5F1", "MYC", "KLF4", "LIN28A", "SALL4", "DPPA4"],
+      "description": "Core cancer stem cell markers"
+    },
+    "Embryonic_stemness": {
+      "genes": ["NANOG", "SOX2", "POU5F1", "LIN28A", "SALL4", "DPPA2", "DPPA4", "ZFP42", "TDGF1", "GDF3", "UTF1", "LEFTY1"],
+      "description": "Embryonic stem cell signature"
+    },
+    "Tissue_stemness": {
+      "genes": ["LGR5", "ASCL2", "SMOC2", "OLFM4", "AXIN2", "EPHB2", "TNFRSF19", "SOX9", "CD44", "ITGB1", "EPCAM", "PROM1"],
+      "description": "Adult tissue stem cell markers"
+    },
+    "Epithelial_plasticity": {
+      "genes": ["CDH1", "CDH2", "VIM", "CLDN3", "CLDN4", "CLDN7", "EPCAM", "MUC1", "CD24", "CD44", "ALCAM", "MET"],
+      "description": "Epithelial cell plasticity markers"
+    },
+    "Metastasis_EMT": {
+      "genes": ["CDH2", "VIM", "SNAI1", "SNAI2", "TWIST1", "ZEB1", "ZEB2", "FN1", "MMP2", "MMP3", "MMP9", "TGFB1", "TGFB2"],
+      "description": "EMT-mediated metastasis"
+    },
+    "Metastasis_invasion": {
+      "genes": ["MMP1", "MMP2", "MMP3", "MMP7", "MMP9", "MMP13", "PLAU", "PLAUR", "CTSD", "CTSB", "HEBP2"],
+      "description": "Matrix degradation and invasion"
+    },
+    "Metastasis_angiogenesis": {
+      "genes": ["VEGFA", "VEGFB", "VEGFC", "ANGPT1", "ANGPT2", "PDGFA", "FGF2", "HGF", "TGFA", "IGF1", "IGF2"],
+      "description": "Angiogenesis for metastatic spread"
+    },
+    "Chemotherapy_sensitive": {
+      "genes": ["BCL2L11", "BAD", "BAK1", "BAX", "CASP8", "FAS", "TNFRSF10A", "CHEK1", "CHEK2", "TP53", "ATM", "ATR"],
+      "description": "Markers of chemotherapy sensitivity"
+    },
+    "Chemotherapy_resistant": {
+      "genes": ["ABCB1", "ABCC1", "ABCC2", "ABCG2", "GSTP1", "MGMT", "BCL2", "BCL2L1", "MCL1", "BIRC5", "XIAP"],
+      "description": "Drug resistance mechanisms"
+    },
+    "Immunotherapy_responsive": {
+      "genes": ["CD8A", "CD8B", "GZMA", "GZMB", "PRF1", "IFNG", "CXCL9", "CXCL10", "CXCL11", "TBX21", "EOMES", "PDCD1", "CTLA4", "LAG3"],
+      "description": "Immune-active tumor phenotype"
+    },
+    "Immunotherapy_nonresponsive": {
+      "genes": ["FOXP3", "IL10", "TGFB1", "VEGFA", "ARG1", "IDO1", "CD274", "PDCD1LG2", "SIGLEC15", "VTCN1"],
+      "description": "Immune-suppressed tumor phenotype"
+    }
+  }
+}

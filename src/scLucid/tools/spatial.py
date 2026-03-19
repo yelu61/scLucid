@@ -35,12 +35,12 @@ def run_spatial_analysis(
 ) -> anndata.AnnData:
     """
     Unified spatial transcriptomics analysis.
-    Results are stored in adata.uns['scrnatk']['spatial'].
+    Results are stored in adata.uns['sclucid']['spatial'].
     """
     if copy:
         adata = adata.copy()
-    adata.uns.setdefault('scrnatk', {}).setdefault('spatial', {})
-    spat_uns = adata.uns['scrnatk']['spatial']
+    adata.uns.setdefault('sclucid', {}).setdefault('spatial', {})
+    spat_uns = adata.uns['sclucid']['spatial']
 
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
@@ -150,8 +150,8 @@ def plot_spatial(
             plt.close()
 
     # Plot Moran's I top genes
-    if "scrnatk" in adata.uns and "spatial" in adata.uns["scrnatk"]:
-        moran_top = adata.uns["scrnatk"]["spatial"].get("moran_top")
+    if "sclucid" in adata.uns and "spatial" in adata.uns["sclucid"]:
+        moran_top = adata.uns["sclucid"]["spatial"].get("moran_top")
         if moran_top is not None:
             for gene in moran_top["gene"].head(5):
                 log.info(f"Plotting spatial autocorr for {gene}")
@@ -205,7 +205,7 @@ def export_spatial_report(
     Export spatial analysis results and summary report.
     """
     os.makedirs(out_dir, exist_ok=True)
-    spatial = adata.uns.get("scrnatk", {}).get("spatial", {})
+    spatial = adata.uns.get("sclucid", {}).get("spatial", {})
     # Export marker genes and Moran's I results
     if "marker_genes" in spatial:
         spatial["marker_genes"].head(top_n).to_csv(os.path.join(out_dir, "top_markers.csv"), index=False)

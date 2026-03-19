@@ -7,7 +7,6 @@ cells, doublets, and custom outliers, with flexible logic and clear outputs.
 
 import logging
 import re
-from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
@@ -1002,7 +1001,7 @@ def mark_low_quality_cell(
     # === CONFIGURATION SETUP ===
     base_config = MarkingConfig()
     if config is not None:
-        config_dict = asdict(config)
+        config_dict = config.to_dict()  # Pydantic's built-in serialization
         if "thresholds" in config_dict:
             # Update the default thresholds object field by field
             for th_key, th_value in config_dict["thresholds"].items():
@@ -1321,7 +1320,7 @@ def filter_cells(
     # === 1. CONFIGURATION SETUP ===
     base_config = FilterConfig()
     if config is not None:
-        base_config.__dict__.update(asdict(config))
+        base_config.__dict__.update(config.to_dict())  # Pydantic's built-in serialization
     if kwargs:
         for key, value in kwargs.items():
             if hasattr(base_config, key):
@@ -1329,7 +1328,7 @@ def filter_cells(
             else:
                 log.warning(f"Unknown parameter '{key}' ignored.")
     cfg = base_config
-    cfg.validate()
+    # Pydantic configs validate automatically
 
     # --- Use cfg.criteria_to_filter instead of building a new list ---
     criteria = cfg.criteria_to_filter

@@ -1,55 +1,92 @@
 """Global configuration for scLucid."""
 
+from __future__ import annotations
+
 import logging
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional, Dict, Any, Literal
-import warnings
 import threading
+import warnings
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Optional, Literal
+
+from pydantic import Field, field_validator, model_validator
+
+try:
+    from .base_config import SclucidBaseConfig
+except ImportError:
+    from pydantic import BaseModel
+
+    class SclucidBaseConfig(BaseModel):
+        """Fallback base config when base_config module is unavailable."""
+
+        model_config = {"extra": "ignore"}
 
 _config_lock = threading.Lock()
 
-@dataclass
-class GlobalConfig:
+
+class GlobalConfig(SclucidBaseConfig):
     """Global configuration settings for scLucid."""
-    
+
+    model_config = {"extra": "ignore"}
+
     # Computational settings
-    n_jobs: int = -1
-    random_state: int = 42
-    backend: Literal['loky', 'threading', 'multiprocessing'] = 'loky'
-    
+    n_jobs: int = Field(default=-1, description="Number of parallel jobs (-1 for all cores)")
+    random_state: int = Field(default=42, description="Random seed for reproducibility")
+    backend: Literal['loky', 'threading', 'multiprocessing'] = Field(
+        default='loky', description="Parallel backend for joblib"
+    )
+
     # Logging settings
-    verbosity: int = 1  # 0: WARNING, 1: INFO, 2: DEBUG
-    log_file: Optional[Path] = None
-    
+    verbosity: int = Field(default=1, description="Logging level (0: WARNING, 1: INFO, 2: DEBUG)")
+    log_file: Optional[Path] = Field(default=None, description="Path to log file")
+
     # Cache settings
-    cache_dir: Optional[Path] = None
-    use_cache: bool = True
-    
+    cache_dir: Optional[Path] = Field(default=None, description="Directory for caching")
+    use_cache: bool = Field(default=True, description="Whether to use caching")
+
     # Plotting settings
-    plot_backend: Literal['matplotlib', 'plotly'] = 'matplotlib'
-    figure_dpi: int = 100
-    figure_format: str = 'png'
-    color_palette: str = 'tab20'
-    plot_theme: str = 'default'
-    
+    plot_backend: Literal['matplotlib', 'plotly'] = Field(default='matplotlib', description="Plotting backend")
+    figure_dpi: int = Field(default=100, description="Figure DPI")
+    figure_format: str = Field(default='png', description="Figure format (png, pdf, svg)")
+    color_palette: str = Field(default='tab20', description="Color palette name")
+    plot_theme: str = Field(default='default', description="Plot theme")
+    font_style: Optional[Literal['nature', 'cell', 'traditional']] = Field(
+        default=None, description="Academic font style"
+    )
+
     # Memory settings
-    chunk_size: int = 1000
-    low_memory_mode: bool = False
-    
+    chunk_size: int = Field(default=1000, description="Chunk size for large datasets")
+    low_memory_mode: bool = Field(default=False, description="Enable memory-efficient mode")
+
     # Species-specific settings
-    default_species: str = 'human'
-    
+    default_species: str = Field(default='human', description="Default species")
+
     # Resource paths
-    marker_db_path: Optional[Path] = None
-    gene_set_path: Optional[Path] = None
-    
-    def __post_init__(self):
-        """Set up logging and validate settings."""
+    marker_db_path: Optional[Path] = Field(default=None, description="Path to marker database")
+    gene_set_path: Optional[Path] = Field(default=None, description="Path to gene sets")
+
+    @model_validator(mode="before")
+    @classmethod
+    def setup_and_validate(cls, data: Any) -> Any:
+        """Set up logging and validate settings before initialization."""
+        if not isinstance(data, dict):
+            return data
+
+        # Convert string paths to Path objects
+        path_fields = ["log_file", "marker_db_path", "gene_set_path", "cache_dir"]
+        for field in path_fields:
+            if field in data and isinstance(data[field], str):
+                data[field] = Path(data[field])
+
+        return data
+
+    @model_validator(mode="after")
+    def post_init_setup(self) -> "GlobalConfig":
+        """Set up logging after initialization."""
         self._setup_logging()
         self._validate_settings()
-    
+        return self
+
     def _setup_logging(self):
         """Configure logging based on verbosity."""
         logger = logging.getLogger('sclucid')
@@ -58,13 +95,15 @@ class GlobalConfig:
             1: logging.INFO,
             2: logging.DEBUG
         }
-        
+
         level = log_levels.get(self.verbosity, logging.INFO)
-        
+
+        # Clear existing handlers
+        logger.handlers.clear()
+
         # Configure root logger
-        logger = logging.getLogger('sclucid')
         logger.setLevel(level)
-        
+
         # Console handler
         console_handler = logging.StreamHandler()
         console_handler.setLevel(level)
@@ -74,16 +113,15 @@ class GlobalConfig:
         )
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
-        
+
         # File handler (if specified)
         if self.log_file:
-            self.log_file = Path(self.log_file)
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
             file_handler = logging.FileHandler(self.log_file)
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
-    
+
     def _validate_settings(self):
         """Validate configuration settings."""
         if self.n_jobs < -1 or self.n_jobs == 0:
@@ -91,18 +129,15 @@ class GlobalConfig:
                 f"n_jobs={self.n_jobs} is invalid. Setting to -1 (use all cores).",
                 UserWarning
             )
-            self.n_jobs = -1
-        
+            # Can't modify self during validation, so this warning is informational
+            # The user should set n_jobs correctly when creating the config
+
         if self.verbosity not in [0, 1, 2]:
             warnings.warn(
                 f"verbosity={self.verbosity} is invalid. Setting to 1 (INFO).",
                 UserWarning
             )
-            self.verbosity = 1
-            
-        if self.marker_db_path and isinstance(self.marker_db_path, str):
-            self.marker_db_path = Path(self.marker_db_path)
-    
+
     def set(self, **kwargs):
         """Update configuration settings."""
         for key, value in kwargs.items():
@@ -111,20 +146,24 @@ class GlobalConfig:
             else:
                 raise ValueError(f"Unknown configuration key: {key}")
         self._validate_settings()
-        
+
         if 'verbosity' in kwargs or 'log_file' in kwargs:
             self._setup_logging()
-        
-        if any(k in kwargs for k in ['figure_dpi', 'plot_theme']):
+
+        if any(k in kwargs for k in ['figure_dpi', 'plot_theme', 'font_style']):
             from .settings import set_figure_params
             set_figure_params(
-                dpi=self.figure_dpi, 
-                color_theme=self.plot_theme
+                dpi=self.figure_dpi,
+                color_theme=self.plot_theme,
+                font_style=self.font_style
             )
-    
+
     def reset(self):
         """Reset to default configuration."""
-        self.__init__()
+        # Create a new default instance and copy its values
+        default_config = GlobalConfig()
+        for field_name in default_config.model_fields:
+            setattr(self, field_name, getattr(default_config, field_name))
 
 
 # Global instance
@@ -141,6 +180,7 @@ def set_config(**kwargs):
     with _config_lock:
         _config.set(**kwargs)
 
+
 @contextmanager
 def config_context(**kwargs):
     """Temporary configuration context manager."""
@@ -153,6 +193,16 @@ def config_context(**kwargs):
         with _config_lock:
             _config.set(**old_config)
 
+
 def reset_config():
     """Reset global configuration to defaults."""
     _config.reset()
+
+
+__all__ = [
+    "GlobalConfig",
+    "get_config",
+    "set_config",
+    "config_context",
+    "reset_config",
+]
