@@ -775,14 +775,204 @@ class Manager:
             if cell.metadata.get("doublet_lineage") is True:
                 if cell.markers:  # Only include if it has markers
                     lineage_markers[name] = cell.markers
-        
+
         # Fix for mouse genes: convert uppercase genes to title case if species is mouse
         if hasattr(self, '_source_file') and 'mouse' in self._source_file.lower():
             for lineage, genes in lineage_markers.items():
                 lineage_markers[lineage] = [g.title() if g.isupper() else g for g in genes]
-        
+
         log.info(f"Extracted {len(lineage_markers)} dedicated lineages for doublet detection.")
         return lineage_markers
+
+
+# =============================================================================
+# GeneSet Manager for functional signatures
+# =============================================================================
+
+
+class GeneSetManager:
+    """
+    Manages functional gene sets and signatures.
+
+    This class provides access to curated gene signatures such as:
+    - Cancer hallmarks (MSigDB)
+    - Cell cycle phases
+    - EMT and stemness signatures
+    - Therapy response signatures
+
+    Attributes:
+        _genesets: Dictionary of loaded gene sets
+        _species: Species identifier ("human", "mouse", etc.)
+    """
+
+    def __init__(self, species: str = "human"):
+        """
+        Initialize the GeneSetManager.
+
+        Args:
+            species: Species identifier
+        """
+        self._genesets: Dict[str, Dict] = {}
+        self._species = species.lower()
+        log.debug(f"Initialized GeneSetManager for species: {species}")
+
+    def load_geneset(self, name: str) -> Dict[str, List[str]]:
+        """
+        Load a gene set collection from resources.
+
+        Args:
+            name: Name of the gene set file (e.g., "cancer_hallmarks", "cell_cycle")
+
+        Returns:
+            Dictionary mapping signature names to gene lists
+
+        Raises:
+            FileNotFoundError: If the gene set file cannot be found
+        """
+        if name in self._genesets:
+            return self._genesets[name]
+
+        # Try different file patterns
+        file_patterns = [
+            f"genesets_{name}.json",
+            f"{name}_genes.json",
+            f"{name}.json",
+        ]
+
+        for pattern in file_patterns:
+            try:
+                resource_path = resources.files("scLucid").joinpath(f"resources/{pattern}")
+                if resource_path.is_file():
+                    with open(resource_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+
+                    # Extract genesets for the species
+                    if self._species in data:
+                        genesets = self._extract_genesets(data[self._species])
+                    else:
+                        # Assume flat structure
+                        genesets = self._extract_genesets(data)
+
+                    self._genesets[name] = genesets
+                    log.info(f"Loaded gene set '{name}' with {len(genesets)} signatures")
+                    return genesets
+            except (ModuleNotFoundError, FileNotFoundError):
+                continue
+
+        raise FileNotFoundError(f"Gene set '{name}' not found in resources")
+
+    def _extract_genesets(self, data: dict) -> Dict[str, List[str]]:
+        """Extract gene lists from loaded data structure."""
+        genesets = {}
+
+        for key, value in data.items():
+            if key.startswith("_"):
+                continue  # Skip metadata
+
+            if isinstance(value, list):
+                genesets[key] = value
+            elif isinstance(value, dict) and "genes" in value:
+                genesets[key] = value["genes"]
+
+        return genesets
+
+    def get_signature(self, geneset_name: str, signature_name: str) -> List[str]:
+        """
+        Get a specific gene signature.
+
+        Args:
+            geneset_name: Name of the gene set collection
+            signature_name: Name of the specific signature
+
+        Returns:
+            List of genes in the signature
+
+        Raises:
+            KeyError: If the signature is not found
+        """
+        genesets = self.load_geneset(geneset_name)
+
+        if signature_name not in genesets:
+            raise KeyError(f"Signature '{signature_name}' not found in '{geneset_name}'")
+
+        return genesets[signature_name]
+
+    def list_signatures(self, geneset_name: str) -> List[str]:
+        """
+        List all available signatures in a gene set.
+
+        Args:
+            geneset_name: Name of the gene set collection
+
+        Returns:
+            List of signature names
+        """
+        genesets = self.load_geneset(geneset_name)
+        return list(genesets.keys())
+
+    def get_all_genesets(self) -> Dict[str, Dict[str, List[str]]]:
+        """
+        Get all loaded gene sets.
+
+        Returns:
+            Dictionary of all loaded gene sets
+        """
+        return self._genesets.copy()
+
+
+def _get_cancer_markers(species: str = "human") -> Dict[str, Dict[str, List[str]]]:
+    """
+    Load cancer-type specific markers from resources.
+
+    Args:
+        species: Species identifier
+
+    Returns:
+        Dictionary mapping cancer types to marker information
+    """
+    try:
+        resource_path = resources.files("scLucid").joinpath(
+            f"resources/marker_cancer_{species}.toml"
+        )
+        with open(resource_path, "rb") as f:
+            data = tomllib.load(f)
+
+        cancer_markers = {}
+        for category, definitions in data.items():
+            for cancer_def in definitions:
+                name = cancer_def.get("name", "")
+                cancer_markers[name] = {
+                    "markers": cancer_def.get("markers", []),
+                    "color": cancer_def.get("color"),
+                    "description": cancer_def.get("description", ""),
+                }
+                # Add subtypes if present
+                if "minor" in cancer_def:
+                    for subtype in cancer_def["minor"]:
+                        subtype_name = subtype.get("name", "")
+                        cancer_markers[f"{name}_{subtype_name}"] = {
+                            "markers": subtype.get("markers", []),
+                            "color": subtype.get("color"),
+                            "description": subtype.get("description", ""),
+                        }
+
+        return cancer_markers
+    except (ModuleNotFoundError, FileNotFoundError) as e:
+        log.warning(f"Could not load cancer markers: {e}")
+        return {}
+
+
+def get_geneset_manager(species: str = "human") -> GeneSetManager:
+    """
+    Factory function to create a GeneSetManager.
+
+    Args:
+        species: Species identifier
+
+    Returns:
+        Configured GeneSetManager instance
+    """
+    return GeneSetManager(species=species)
 
 
 def get_marker_manager(

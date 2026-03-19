@@ -1,4 +1,10 @@
 {
+  "_metadata": {
+    "version": "1.1.0",
+    "last_updated": "2025-02-07",
+    "description": "Cell cycle and proliferation gene signatures",
+    "species": ["human", "mouse", "rat"]
+  },
   "human": {
     "s_genes": [
       "MCM5", "PCNA", "TYMS", "FEN1", "MCM2", "MCM4", "RRM1", "UNG", "GINS2",
@@ -15,6 +21,19 @@
       "CDC25C", "KIF2C", "RANGAP1", "NCAPD2", "DLGAP5", "CDCA2", "CDCA8",
       "ECT2", "KIF23", "HMMR", "AURKA", "PSRC1", "ANLN", "LBR", "CKAP5",
       "CENPE", "CTCF", "NEK2", "G2E3", "GAS2L3", "CBX5", "CENPA"
+    ],
+    "g1_s_genes": [
+      "CCNE1", "CCNE2", "E2F1", "MCM2", "MCM3", "MCM4", "MCM5", "CDC6",
+      "CDC45", "PCNA", "FEN1", "POLA1", "PRIM1", "RFC2", "RFC3", "RFC4",
+      "RFC5", "RPA1", "RPA2", "RPA3"
+    ],
+    "m_genes": [
+      "PRC1", "KIF11", "KIF20A", "SMC4", "NCAPG", "SPDL1", "ANLN", "PLK1",
+      "AURKB", "BIRC5", "CDC20", "CDCA3", "CKAP2", "CKAP2L", "DLGAP5"
+    ],
+    "proliferation_core": [
+      "MKI67", "PCNA", "TOP2A", "AURKA", "AURKB", "BUB1", "CDK1", "CCNB1",
+      "CCNA2", "PLK1", "CDC20", "CCNB2"
     ]
   },
   "mouse": {
@@ -33,6 +52,19 @@
       "Cdc25c", "Kif2c", "Rangap1", "Ncapd2", "Dlgap5", "Cdca2", "Cdca8",
       "Ect2", "Kif23", "Hmmr", "Aurka", "Psrc1", "Anln", "Lbr", "Ckap5",
       "Cenpe", "Ctcf", "Nek2", "G2e3", "Gas2l3", "Cbx5", "Cenpa"
+    ],
+    "g1_s_genes": [
+      "Ccne1", "Ccne2", "E2f1", "Mcm2", "Mcm3", "Mcm4", "Mcm5", "Cdc6",
+      "Cdc45", "Pcna", "Fen1", "Pola1", "Prim1", "Rfc2", "Rfc3", "Rfc4",
+      "Rfc5", "Rpa1", "Rpa2", "Rpa3"
+    ],
+    "m_genes": [
+      "Prc1", "Kif11", "Kif20a", "Smc4", "Ncapg", "Spdl1", "Anln", "Plk1",
+      "Aurkb", "Birc5", "Cdc20", "Cdca3", "Ckap2", "Ckap2l", "Dlgap5"
+    ],
+    "proliferation_core": [
+      "Mki67", "Pcna", "Top2a", "Aurka", "Aurkb", "Bub1", "Cdk1", "Ccnb1",
+      "Ccna2", "Plk1", "Cdc20", "Ccnb2"
     ]
   },
   "rat": {
@@ -51,6 +83,19 @@
       "Cdc25c", "Kif2c", "Rangap1", "Ncapd2", "Dlgap5", "Cdca2", "Cdca8",
       "Ect2", "Kif23", "Hmmr", "Aurka", "Psrc1", "Anln", "Lbr", "Ckap5",
       "Cenpe", "Ctcf", "Nek2", "G2e3", "Gas2l3", "Cbx5", "Cenpa"
+    ],
+    "g1_s_genes": [
+      "Ccne1", "Ccne2", "E2f1", "Mcm2", "Mcm3", "Mcm4", "Mcm5", "Cdc6",
+      "Cdc45", "Pcna", "Fen1", "Pola1", "Prim1", "Rfc2", "Rfc3", "Rfc4",
+      "Rfc5", "Rpa1", "Rpa2", "Rpa3"
+    ],
+    "m_genes": [
+      "Prc1", "Kif11", "Kif20a", "Smc4", "Ncapg", "Spdl1", "Anln", "Plk1",
+      "Aurkb", "Birc5", "Cdc20", "Cdca3", "Ckap2", "Ckap2l", "Dlgap5"
+    ],
+    "proliferation_core": [
+      "Mki67", "Pcna", "Top2a", "Aurka", "Aurkb", "Bub1", "Cdk1", "Ccnb1",
+      "Ccna2", "Plk1", "Cdc20", "Ccnb2"
     ]
   }
 }

@@ -1,0 +1,81 @@
+{
+  "_metadata": {
+    "version": "1.0.0",
+    "last_updated": "2025-02-07",
+    "description": "Cancer Hallmark Gene Signatures based on MSigDB Hallmarks",
+    "author": "scLucid Development Team",
+    "citation": "MSigDB Hallmark gene sets (Liberzon et al., 2015)",
+    "sources": [
+      "MSigDB Hallmark v2024.1",
+      "The Hallmarks of Cancer (Hanahan & Weinberg, 2000, 2011)"
+    ],
+    "total_signatures": 16,
+    "species": ["human"]
+  },
+  "human": {
+    "HALLMARK_APOPTOSIS": {
+      "genes": ["BAD", "BAK1", "BAX", "BCL2", "BCL2L1", "BCL2L11", "BID", "BIRC2", "CASP3", "CASP7", "CASP8", "CASP9", "DIABLO", "FAS", "FASLG", "PARP1"],
+      "description": "Programmed cell death pathway"
+    },
+    "HALLMARK_DNA_REPAIR": {
+      "genes": ["ATM", "ATR", "BRCA1", "BRCA2", "CHEK1", "CHEK2", "FANCD2", "MLH1", "MSH2", "MSH6", "PARP1", "RAD51", "TP53", "XRCC1", "XRCC5", "XRCC6"],
+      "description": "DNA damage response and repair"
+    },
+    "HALLMARK_E2F_TARGETS": {
+      "genes": ["BRCA1", "BRCA2", "CCNA2", "CCNB1", "CCNE1", "CDC6", "CDC45", "CDK1", "CDK2", "E2F1", "E2F2", "E2F3", "MCM2", "MCM3", "MCM4", "MCM5"],
+      "description": "E2F transcription factor targets, cell cycle regulation"
+    },
+    "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION": {
+      "genes": ["ACTA2", "CDH2", "COL1A1", "COL1A2", "COL3A1", "FN1", "MMP2", "MMP3", "MMP9", "SNAI1", "SNAI2", "TGFB1", "TGFBR1", "TWIST1", "VIM", "ZEB1"],
+      "description": "EMT, tumor invasion and metastasis"
+    },
+    "HALLMARK_G2M_CHECKPOINT": {
+      "genes": ["AURKA", "AURKB", "BIRC5", "BUB1", "BUB1B", "CCNA2", "CCNB1", "CCNB2", "CDC20", "CDC25C", "CDK1", "CHEK1", "CHEK2", "MKI67", "PLK1", "TOP2A"],
+      "description": "G2/M cell cycle checkpoint"
+    },
+    "HALLMARK_HYPOXIA": {
+      "genes": ["ALDOA", "ANGPTL4", "BNIP3", "CA9", "ENO1", "ERO1A", "GAPDH", "HK1", "PGK1", "P4HA1", "P4HA2", "SERPINE1", "SLC2A1", "VEGFA", "HIF1A", "EPAS1"],
+      "description": "Hypoxic response and angiogenesis"
+    },
+    "HALLMARK_INFLAMMATORY_RESPONSE": {
+      "genes": ["CCL2", "CCL5", "CCR5", "CD14", "CSF1", "CXCL1", "CXCL10", "CXCL8", "ICAM1", "IFNG", "IL1A", "IL1B", "IL6", "IRF5", "NFKB1", "TNF"],
+      "description": "Inflammatory cytokines and immune response"
+    },
+    "HALLMARK_INTERFERON_ALPHA_RESPONSE": {
+      "genes": ["IFIT1", "IFIT2", "IFIT3", "IFITM1", "IFITM3", "IRF7", "ISG15", "ISG20", "MX1", "MX2", "OAS1", "OAS2", "OAS3", "RSAD2", "STAT1", "STAT2"],
+      "description": "Type I interferon signaling"
+    },
+    "HALLMARK_INTERFERON_GAMMA_RESPONSE": {
+      "genes": ["CXCL10", "CXCL11", "GBP1", "GBP2", "IFIH1", "IFIT1", "IFIT2", "IFIT3", "IRF1", "IRF9", "ISG15", "SOCS1", "SOCS3", "STAT1", "STAT3", "TAP1"],
+      "description": "Type II interferon signaling"
+    },
+    "HALLMARK_KRAS_SIGNALING_UP": {
+      "genes": ["AKT1", "CCND1", "EGFR", "ELK1", "ERBB2", "ETS1", "GRB2", "HRAS", "KRAS", "MAP2K1", "MAPK1", "MAPK3", "MYC", "NRAS", "RAF1", "SOS1"],
+      "description": "KRAS oncogenic signaling (upregulated)"
+    },
+    "HALLMARK_MYC_TARGETS_V1": {
+      "genes": ["APEX1", "CAD", "CCNA2", "CCND1", "CCND2", "CCNE1", "CDC25A", "DCK", "FASN", "HSPD1", "HSPA4", "HSPA9", "LDHA", "MCM2", "MCM3", "MCM4"],
+      "description": "MYC oncogenic transcriptional targets"
+    },
+    "HALLMARK_MTORC1_SIGNALING": {
+      "genes": ["AKT1", "ALDOA", "BAD", "BCL2", "EIF4A1", "EIF4B", "EIF4E", "GSK3B", "HIF1A", "MTOR", "RPS6", "RPS6KB1", "TSC1", "TSC2", "VEGFA", "YY1"],
+      "description": "mTORC1 complex signaling"
+    },
+    "HALLMARK_P53_PATHWAY": {
+      "genes": ["APAF1", "ATM", "ATR", "BAX", "BBC3", "BCL2", "CASP3", "CASP9", "CCNB1", "CDKN1A", "CHEK1", "CHEK2", "FAS", "GADD45A", "MDM2", "TP53"],
+      "description": "P53 tumor suppressor pathway"
+    },
+    "HALLMARK_TNFA_SIGNALING_VIA_NFKB": {
+      "genes": ["BCL2A1", "BCL3", "CCL2", "CCL20", "CCL5", "CXCL1", "CXCL10", "CXCL2", "CXCL3", "ICAM1", "IKBKB", "NFKB1", "NFKBIA", "PTGS2", "TNF", "TNFAIP3"],
+      "description": "TNF-alpha signaling through NF-kB"
+    },
+    "HALLMARK_ANGIOGENESIS": {
+      "genes": ["ANGPT1", "ANGPT2", "COL18A1", "CXCL8", "EDN1", "FGF2", "IFNG", "IL6", "PDGFA", "PGF", "TEK", "TGFBR1", "THBS1", "VEGFA", "VEGFC", "VWF"],
+      "description": "Formation of new blood vessels"
+    },
+    "HALLMARK_PROTEIN_SECRETION": {
+      "genes": ["ARF1", "COPA", "COPB1", "COPB2", "COPG1", "GORASP2", "KDELR1", "KDELR2", "SEC23A", "SEC24A", "SEC31A", "SAR1A", "TMED2", "TMED7", "TRAPPC3", "TRAPPC6A"],
+      "description": "Protein secretion and ER-Golgi transport"
+    }
+  }
+}

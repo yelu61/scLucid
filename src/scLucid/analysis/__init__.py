@@ -1,137 +1,138 @@
-"""
-Analysis module for single-cell RNA-seq data.
+"""Analysis public API for scLucid."""
 
-This module provides functions for dimensionality reduction, clustering,
-differential expression analysis, cell type annotation, and cell type proportion statistics.
-"""
+from importlib import import_module
+from typing import Iterable
+import warnings
 
 __version__ = "1.0.0"
+__all__ = []
 
-# Import and expose key functions from submodules
-from .config import (
-    ResolutionSearchConfig,
-    ClusteringConfig,
-    AnnotationConfig,
-    ScoringConfig,
-    DifferentialConfig,
-    FilterMarkersConfig,
-    CompareGroupsConfig,
-    CompareConditionsConfig,
-    EnrichmentConfig,
-    ProportionConfig,
-    AnalysisWorkflowConfig,
+
+def _export(module: str, names: Iterable[str], *, optional: bool = False) -> bool:
+    """Import names from a submodule without breaking module import."""
+    try:
+        loaded = import_module(f"{__name__}.{module}")
+    except Exception as exc:
+        level = "optional" if optional else "required"
+        warnings.warn(
+            f"Could not import {level} analysis module '{module}': {exc}",
+            ImportWarning,
+        )
+        return False
+
+    found = False
+    for name in names:
+        if hasattr(loaded, name):
+            globals()[name] = getattr(loaded, name)
+            __all__.append(name)
+            found = True
+    return found
+
+
+_export(
+    "config",
+    [
+        "ResolutionSearchConfig",
+        "ClusteringConfig",
+        "MergeClustersConfig",
+        "AnnotationConfig",
+        "ScoringConfig",
+        "DifferentialConfig",
+        "FilterMarkersConfig",
+        "CompareGroupsConfig",
+        "CompareConditionsConfig",
+        "EnrichmentConfig",
+        "ProportionConfig",
+        "AnalysisWorkflowConfig",
+    ],
 )
-from .clustering import (
-    find_resolution,
-    cluster_cells,
-    merge_clusters,
-)
-from .annotation import (
-    score_cell_types,
-    annotate_clusters,
-    run_celltypist,
-    transfer_labels,
-    evaluate_annotation,
-    summarize_annotation_evidence,
-    apply_annotation_mapping,
-    remap_labels,
-    run_annotation
-)
-from .de_enrichment import (
-    find_markers,
-    filter_markers,
-    compare_groups,
-    compare_conditions,
-    get_conserved_markers,
-    run_enrichment,
-    summarize_markers_and_enrichment,
-    characterize_clusters,
-    visualize_markers
-)
-from .scoring import (
-    FunctionalSignatureManager,
-    score_by_gene_sets,
-    calculate_signature_matrix,
-    plot_signature_heatmap,
-    plot_delta_heatmap,
-    batch_plot_delta_heatmap,
-    plot_score_violin_with_stats,
-    batch_compare_scores,
-)
-from .proportion import (
-    plot_cell_counts,
-    plot_proportion_bar,
-    plot_diff_stats,
-    plot_composition,
-    plot_box_summary,
-    plot_proportion_shifts,
-    plot_individual_boxplots,
-    plot_proportion_heatmap,
-    plot_proportion_with_ci,
-    plot_celltype_correlation,
-    run_statistical_test,
-    compute_celltype_proportion,
-    celltype_proportion_analysis,
+_export("clustering", ["find_resolution", "cluster_cells", "merge_clusters"])
+_export(
+    "annotation",
+    [
+        "score_cell_types",
+        "annotate_clusters",
+        "run_celltypist",
+        "transfer_labels",
+        "evaluate_annotation",
+        "summarize_annotation_evidence",
+        "apply_annotation_mapping",
+        "remap_labels",
+        "run_annotation",
+    ],
 )
 
-__all__ = [
-    "ResolutionSearchConfig",
-    "ClusteringConfig",
-    "MergeClustersConfig",
-    "AnnotationConfig",
-    "ScoringConfig",
-    "DifferentialConfig",
-    "FilterMarkersConfig",
-    "CompareGroupsConfig",
-    "CompareConditionsConfig",
-    "EnrichmentConfig",
-    "ProportionConfig",
-    "AnalysisWorkflowConfig",
-    # Clustering and dimensionality reduction
-    "find_resolution",
-    "cluster_cells",
-    "merge_clusters",
-    # Annotation
-    "score_cell_types",
-    "annotate_clusters",
-    "run_celltypist",
-    "transfer_labels",
-    "evaluate_annotation",
-    "summarize_annotation_evidence",
-    "apply_annotation_mapping",
-    "remap_labels",
-    "run_annotation",
-    # Differential expression and enrichment
+# Prefer the reorganized DE package, but keep a legacy fallback.
+_de_names = [
     "find_markers",
     "filter_markers",
     "compare_groups",
     "compare_conditions",
     "get_conserved_markers",
     "run_enrichment",
+    "export_enrichment_results",
+    "batch_celltype_deg_enrichment",
     "summarize_markers_and_enrichment",
     "characterize_clusters",
     "visualize_markers",
-    # Scoring
-    "FunctionalSignatureManager",
-    "score_by_gene_sets",
-    "calculate_signature_matrix",
-    "plot_signature_heatmap",
-    "plot_delta_heatmap",
-    "batch_plot_delta_heatmap",
-    "plot_score_violin_with_stats",
-    "batch_compare_scores",
-    # Proportion (cell type composition analysis)
-    "celltype_proportion_analysis",
-    "compute_celltype_proportion",
-    "run_statistical_test",
-    "plot_cell_counts",
-    "plot_proportion_bar",
-    "plot_diff_stats",
-    "plot_composition",
-    "plot_box_summary",
-    "plot_proportion_shifts",
-    "plot_individual_boxplots",
-    "plot_proportion_heatmap",
-    "plot_proportion_with_ci",
-    "plot_celltype_correlation",
+    "plot_volcano",
+    "plot_multi_cluster_deg",
+    "ResultManager",
+    "save_results",
+    "load_results",
 ]
+if not _export("differential_expression", _de_names, optional=True):
+    _export("de_enrichment", _de_names, optional=True)
+
+_export(
+    "scoring",
+    [
+        "FunctionalSignatureManager",
+        "score_by_gene_sets",
+        "calculate_signature_matrix",
+        "plot_signature_heatmap",
+        "plot_delta_heatmap",
+        "batch_plot_delta_heatmap",
+        "plot_score_violin_with_stats",
+        "batch_compare_scores",
+    ],
+)
+_export(
+    "workflow",
+    [
+        "run_standard_analysis",
+        "run_custom_analysis",
+        "compare_clustering_resolutions",
+        "AnalysisWorkflowError",
+        "PartialAnalysisResult",
+    ],
+)
+
+# Proportion analysis (reorganized submodule)
+_export(
+    "proportion",
+    [
+        "analyze_celltype_proportion",
+        "analyze_all_methods",
+        "celltype_proportion_analysis",
+        "ProportionMethod",
+        "recommend_method",
+        "compare_methods",
+        "ProportionConfig",
+        "MethodSelectionConfig",
+        "pb_analysis",
+        "compute_celltype_proportion",
+        "run_statistical_test",
+        "export_analysis_data",
+        "run_sccoda",
+        "plot_cell_counts",
+        "plot_proportion_bar",
+        "plot_box_summary",
+        "plot_proportion_heatmap",
+        "plot_celltype_correlation",
+        "plot_effect_size_volcano",
+        "plot_proportion_timeseries",
+        "plot_batch_effect",
+    ],
+    optional=True,
+)

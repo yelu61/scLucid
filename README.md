@@ -21,7 +21,9 @@ The toolkit's philosophy is to balance ease-of-use for standard workflows with d
     * Cell-Cell Communication (`CellChat`, `CellPhoneDB`)
     * Bulk Deconvolution (`BayesPrism`, `DWLS`)
 * **📊 Publication-Quality Visualizations**: A rich plotting library to generate stunning and informative figures for every step of the analysis.
-* **🔄 Reproducible Science**: A configuration-driven approach using `dataclasses` ensures that every step of your analysis is explicit, transparent, and reproducible.
+* **🎨 Academic Journal Font Styles**: Pre-configured font styles for top journals - Nature (Arial), Cell (Helvetica), and Traditional (Times New Roman).
+* **🔄 Reproducible Science**: A configuration-driven approach using **Pydantic** ensures automatic validation, type safety, and reproducibility with JSON serialization.
+* **🔌 Extensible Plugin Architecture**: Abstract base classes and factory pattern allow you to create custom analysis plugins without modifying core code. See [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) for details.
 
 ### Installation
 
@@ -59,18 +61,20 @@ Here is a minimal example of a complete workflow.
 
 ```python
 import scLucid as scl # It is common to create a short alias
-from scLucid.preprocess import PreprocessingConfig
+from scLucid.preprocess import WorkflowConfig
 from scLucid.analysis import ClusteringConfig, AnnotationConfig
 
 # --- 1. Load Data (assuming adata is already loaded) ---
-# adata = scl.utils.load_10x_data(...) 
+# adata = scl.utils.load_10x_data(...)
 
 # --- 2. Run Quality Control ---
 adata_qc = scl.qc.run_standard_qc(adata, species="human")
 
 # --- 3. Run Preprocessing ---
 # This single function handles normalization, HVG selection, scaling, PCA, and Harmony integration
-prep_config = PreprocessingConfig(integration_method="harmony", batch_key="sampleID")
+prep_config = WorkflowConfig(
+    integration={"method": "harmony", "batch_key": "sampleID"}
+)
 adata_prep = scl.preprocess.run_preprocessing(adata_qc, config=prep_config)
 
 # --- 4. Run Clustering & Annotation ---
@@ -87,12 +91,27 @@ anno_config = AnnotationConfig(
 adata_final = scl.analysis.run_annotation(adata_clustered, config=anno_config)
 
 # --- 5. Visualize Final Results ---
+# Set publication-ready font style for your target journal
+from scLucid import FONT_NATURE, FONT_CELL, FONT_TRADITIONAL
+scl.set_figure_params(dpi=300, font_style=FONT_NATURE)  # For Nature/Science
+
 scl.utils.plot_embedding(adata_final, color_by="cell_type")
+
+# Save with embedded fonts for publication
+import matplotlib.pyplot as plt
+plt.savefig("results.pdf", dpi=600, bbox_inches="tight")
 ```
 
 ### Documentation
 
-For detailed tutorials, how-to guides, and the full API reference, please see our documentation at [**Your Documentation URL Here**].
+For detailed tutorials, how-to guides, and the full API reference:
+
+* **Plugin Development**: [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) - Create custom analysis plugins
+* **Naming Conventions**: [Naming Conventions](docs/NAMING_CONVENTIONS.md) - Code style guidelines
+* **OpenSpec Specifications**: [openspec/specs/](openspec/specs/) - Technical specifications
+* **Full Documentation**: [**Your Documentation URL Here**](docs/) (Under construction)
+
+For quick examples, see the `examples/` directory.
 
 ### Contributing
 

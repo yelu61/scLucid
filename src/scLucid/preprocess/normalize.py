@@ -5,7 +5,6 @@ This module provides methods for normalizing raw count data and regressing out
 unwanted sources of variation, preparing the data for downstream analysis.
 """
 
-import dataclasses
 import logging
 from pathlib import Path
 from typing import List, Optional, Union
@@ -211,13 +210,17 @@ def normalize_data(
     if config is None:
         active_config = NormalizationConfig()
     else:
-        active_config = dataclasses.replace(config)
+        # Create a copy of the config to avoid modifying the original
+        # Filter kwargs to only include valid fields
+        valid_fields = set(config.model_fields.keys())
+        update_dict = {k: v for k, v in kwargs.items() if k in valid_fields}
+        active_config = config.model_copy(update=update_dict)
 
     # Apply overrides from kwargs, making the function highly interactive
     for key, value in kwargs.items():
-        if hasattr(active_config, key):
+        if key in active_config.model_fields:
             setattr(active_config, key, value)
-        else:
+        elif key != "force":  # 'force' is handled separately
             log.warning(f"Ignoring unknown normalization parameter: '{key}'")
 
     # --- 2. Extract parameters from the final config ---
@@ -342,7 +345,7 @@ def normalize_data(
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
         "normalization"
     ] = {
-        "params": dataclasses.asdict(active_config),
+        "params": active_config.to_dict(),  # Pydantic's built-in serialization
         "input_stats": stats_before,
         "output_stats": stats_after,
         "scanpy_version": getattr(sc, "__version__", "unknown"),

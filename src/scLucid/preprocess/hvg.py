@@ -7,7 +7,6 @@ gene-type exclusion, automatic reporting, and large data support.
 """
 
 import logging
-from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
@@ -204,7 +203,7 @@ def _compute_hvg_per_sample_parallel(
     adata: AnnData,
     sample_key: str,
     n_top_genes: int,
-    flavor: str = "seurat_v3",
+    flavor: str = "seurat",
     span: Optional[float] = None,
     n_jobs: int = -1,
     min_cells_per_sample: int = 50,
@@ -482,7 +481,7 @@ def _identify_sample_specific_genes_parallel(
             top_genes = marker_genes_df[sample].head(3).tolist()
             log.info(f"  {sample}: {', '.join(top_genes)}")
 
-        return sample_specific_mask.values
+        return sample_specific_mask
 
     except Exception as e:
         log.error(f"Sample-specific gene identification failed: {e}")
@@ -778,7 +777,9 @@ def find_hvgs(
     if config is None:
         active_config = HVGConfig()
     else:
-        active_config = replace(config)  # Use a copy
+        # Create a copy of config and apply kwargs
+
+        active_config = config.model_copy()
 
     # Apply overrides from kwargs
     for key, value in kwargs.items():
@@ -1019,7 +1020,7 @@ def find_hvgs(
 
     # --- Store metadata in .uns ---
     # Use a helper function to ensure the dictionary is savable
-    savable_params = _to_savable_dict(asdict(active_config))
+    savable_params = _to_savable_dict(active_config.to_dict())  # Pydantic's built-in serialization
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg"] = {
         "output_key": output_key,
         "method": method,

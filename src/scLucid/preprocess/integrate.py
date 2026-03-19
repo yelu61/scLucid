@@ -6,7 +6,6 @@ methods: Harmony, Scanorama, scVI, BBKNN, ComBat. It ensures consistent API,
 robust logging, and complete traceability for reproducible single-cell workflows.
 """
 
-import dataclasses
 import logging
 logging.getLogger("harmonypy").setLevel(logging.ERROR)
 from pathlib import Path
@@ -587,7 +586,9 @@ def batch_correction(
     if config is None:
         active_config = IntegrationConfig()
     else:
-        active_config = dataclasses.replace(config)
+        # Create a copy of config and apply kwargs
+
+        active_config = config.model_copy()
 
     for key, value in kwargs.items():
         if hasattr(active_config, key):
@@ -683,7 +684,7 @@ def batch_correction(
 
     # --- 6. Store metadata and plot after state ---
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["integration"] = {
-        "params": dataclasses.asdict(active_config),
+        "params": active_config.to_dict(),  # Pydantic's built-in serialization
         "output_key": output_key,
     }
 

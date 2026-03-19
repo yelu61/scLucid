@@ -8,7 +8,6 @@ mutually exclusive lineage marker co-expression.
 
 import gc
 import logging
-from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Union
 
@@ -536,10 +535,19 @@ def _run_heuristic(
         # top_two_scores 包含了 lineage names，假设你修改了逻辑让它返回 Name 而不是 Score
         # 或者在这里遍历 whitelist
         for (lin1, lin2) in cfg.ignore_coexpression_pairs:
-            # 找到同时高表达 lin1 和 lin2 的细胞，将其 heuristic_score 强制置 0
-            mask = (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
-            heuristic_confidence_score[mask] = 0.0
-            log.info(f"Ignoring co-expression of {lin1} + {lin2} in {mask.sum()} cells (Allowlist).")
+            # 检查谱系是否存在于lineage_scores_df中
+            if lin1 in lineage_scores_df.columns and lin2 in lineage_scores_df.columns:
+                # 找到同时高表达 lin1 和 lin2 的细胞，将其 heuristic_score 强制置 0
+                mask = (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
+                heuristic_confidence_score[mask] = 0.0
+                log.info(f"Ignoring co-expression of {lin1} + {lin2} in {mask.sum()} cells (Allowlist).")
+            else:
+                missing = []
+                if lin1 not in lineage_scores_df.columns:
+                    missing.append(lin1)
+                if lin2 not in lineage_scores_df.columns:
+                    missing.append(lin2)
+                log.debug(f"Skipping co-expression pair ({lin1}, {lin2}) - lineages not found: {missing}")
             
     adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault(
         "doublet_params", {}
@@ -1108,7 +1116,7 @@ def predict_doublets(
     base_config = DoubletConfig()
 
     if config is not None:
-        config_dict = asdict(config)
+        config_dict = config.to_dict()  # Pydantic's built-in serialization
         for key, value in config_dict.items():
             if hasattr(base_config, key):
                 setattr(base_config, key, value)
@@ -1121,7 +1129,7 @@ def predict_doublets(
                 log.warning(f"Unknown parameter '{key}' ignored.")
 
     cfg = base_config
-    cfg.validate()
+    # Pydantic configs validate automatically
     log.info("--- Running Final Doublet Prediction Workflow ---")
 
     # Validate input data

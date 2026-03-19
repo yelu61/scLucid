@@ -8,7 +8,6 @@ This module provides:
 - Standardized config dataclasses, logging, and results traceability.
 """
 
-import dataclasses
 import logging
 from pathlib import Path
 from typing import Optional, Literal
@@ -246,7 +245,7 @@ def find_resolution(
     if config is None:
         active_config = ResolutionSearchConfig()
     else:
-        active_config = dataclasses.replace(config)
+        active_config = config.model_copy()
     for key, value in kwargs.items():
         if hasattr(active_config, key):
             setattr(active_config, key, value)
@@ -441,7 +440,7 @@ def cluster_cells(
     if config is None:
         active_config = ClusteringConfig()
     else:
-        active_config = dataclasses.replace(config)
+        active_config = config.model_copy()
     for key, value in kwargs.items():
         if hasattr(active_config, key):
             setattr(active_config, key, value)
@@ -593,7 +592,7 @@ def merge_clusters(
     if config is None:
         active_config = MergeClustersConfig()
     else:
-        active_config = dataclasses.replace(config)
+        active_config = config.model_copy()
     for key, value in kwargs.items():
         if hasattr(active_config, key):
             setattr(active_config, key, value)

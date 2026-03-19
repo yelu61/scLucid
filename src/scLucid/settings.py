@@ -71,6 +71,38 @@ _THEMES = {
     },
 }
 
+# --- Academic Font Style Definitions ---
+# 三种学术期刊常用的字体风格
+_ACADEMIC_FONT_STYLES = {
+    "nature": {
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "DejaVu Sans", "Helvetica"],
+        "font.style": "normal",
+        "font.variant": "normal",
+        "font.weight": "normal",
+        "font.stretch": "normal",
+        "description": "Nature/Science style: Clean sans-serif Arial font",
+    },
+    "cell": {
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
+        "font.style": "normal",
+        "font.variant": "normal",
+        "font.weight": "medium",
+        "font.stretch": "normal",
+        "description": "Cell Press style: Classic Helvetica font",
+    },
+    "traditional": {
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "DejaVu Serif", "Times"],
+        "font.style": "normal",
+        "font.variant": "normal",
+        "font.weight": "normal",
+        "font.stretch": "normal",
+        "description": "Traditional academic: Classic Times New Roman serif font",
+    },
+}
+
 _DEFAULT_STYLES = {
     # Figure properties
     "figure.dpi": 100,
@@ -190,6 +222,7 @@ def set_figure_params(
     style: Optional[str] = None,
     style_dict: Optional[Dict[str, Any]] = None,
     color_theme: str = "default",
+    font_style: Optional[str] = None,
 ) -> None:
     """
     Set global plotting parameters for matplotlib and scanpy.
@@ -201,6 +234,11 @@ def set_figure_params(
         style (str): Matplotlib style to use (e.g., 'default', 'classic', 'seaborn-v0_8').
         style_dict (dict): Custom style parameters to override defaults.
         color_theme (str): Color theme to use. Options: 'default', 'dark', 'seaborn'.
+        font_style (str): Academic font style to use. Options:
+            - 'nature': Nature/Science style (Arial, clean sans-serif)
+            - 'cell': Cell Press style (Helvetica, classic sans-serif)
+            - 'traditional': Traditional academic (Times New Roman, serif)
+            - None: Use default font settings
     """
     log.info("Applying global plotting settings...")
 
@@ -211,6 +249,20 @@ def set_figure_params(
             f"Available: {list(_THEMES.keys())}"
         )
         color_theme = "default"
+
+    # Validate and apply font_style
+    if font_style is not None:
+        if font_style not in _ACADEMIC_FONT_STYLES:
+            log.warning(
+                f"Font style '{font_style}' not recognized. Using default font. "
+                f"Available academic styles: {list(_ACADEMIC_FONT_STYLES.keys())}"
+            )
+            font_style = None
+        else:
+            log.info(
+                f"Applying academic font style: '{font_style}' - "
+                f"{_ACADEMIC_FONT_STYLES[font_style]['description']}"
+            )
 
     # Configure scanpy directly to avoid recursion issues
     _configure_scanpy_directly(
@@ -232,6 +284,13 @@ def set_figure_params(
             )
             plt.style.use("default")
 
+    # Apply academic font style if specified
+    if font_style:
+        font_config = _ACADEMIC_FONT_STYLES[font_style]
+        # Remove description field (not a matplotlib parameter)
+        font_params = {k: v for k, v in font_config.items() if k != "description"}
+        applied_styles.update(font_params)
+
     # Update with selected color theme
     applied_styles.update(_THEMES[color_theme])
     applied_styles["figure.figsize"] = figsize
@@ -244,7 +303,8 @@ def set_figure_params(
         log.info(f"Applied custom style dict: {style_dict}")
 
     plt.rcParams.update(applied_styles)
-    
+
+    # Set font type for PDF/EPS output to embed fonts (avoid Type 3 fonts)
     mpl.rcParams['pdf.fonttype'] = 42
     mpl.rcParams['ps.fonttype'] = 42
 
@@ -260,7 +320,8 @@ def set_figure_params(
     except Exception as e:
         log.debug(f"Could not set IPython display format automatically: {e}")
 
-    log.info(f"Global plotting settings applied with '{color_theme}' color theme.")
+    font_info = f" '{font_style}' font style" if font_style else " default font"
+    log.info(f"Global plotting settings applied with '{color_theme}' color theme and{font_info}.")
 
 
 def reset_figure_params() -> None:

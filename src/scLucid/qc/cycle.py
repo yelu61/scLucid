@@ -119,6 +119,15 @@ def _load_cell_cycle_genes() -> Dict[str, Dict[str, List[str]]]:
 SPECIES_GENES = _load_cell_cycle_genes()
 
 
+def _get_available_species() -> List[str]:
+    """Return species keys that have both S and G2M gene lists."""
+    available = []
+    for species, genes in SPECIES_GENES.items():
+        if isinstance(genes, dict) and "s_genes" in genes and "g2m_genes" in genes:
+            available.append(species)
+    return available
+
+
 def _detect_species(adata: AnnData) -> str:
     """
     Attempts to automatically detect the species based on gene presence.
@@ -132,7 +141,7 @@ def _detect_species(adata: AnnData) -> str:
     # Check for each species
     detection_scores = {}
 
-    for species in SPECIES_GENES:
+    for species in _get_available_species():
         # Count how many of the S and G2M genes are present
         s_genes = SPECIES_GENES[species]["s_genes"]
         g2m_genes = SPECIES_GENES[species]["g2m_genes"]
@@ -152,9 +161,11 @@ def _detect_species(adata: AnnData) -> str:
         )
 
     # --- Check for ambiguity between top two species ---
-    sorted_scores = sorted(
-        detection_scores.items(), key=lambda item: item[1], reverse=True
-    )
+    if not detection_scores:
+        log.warning("No valid species definitions found in cell cycle gene resource.")
+        return "unknown"
+
+    sorted_scores = sorted(detection_scores.items(), key=lambda item: item[1], reverse=True)
     best_species, best_score = sorted_scores[0]
 
     if len(sorted_scores) > 1:
@@ -334,11 +345,12 @@ def _get_validated_genes(
         s_genes_list, g2m_genes_list = s_genes, g2m_genes
     else:
         # If species is not valid, attempt auto-detection.
-        if species not in SPECIES_GENES:
+        available_species = _get_available_species()
+        if species not in available_species:
             log.warning(f"Unknown species: '{species}'. Attempting auto-detection.")
             detected_species = _detect_species(adata)
             if detected_species == "unknown":
-                available = ", ".join(SPECIES_GENES.keys())
+                available = ", ".join(available_species)
                 raise ValueError(
                     f"Unknown species: '{species}' and auto-detection failed. Valid options: {available}"
                 )

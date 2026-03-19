@@ -1,61 +1,110 @@
-"""
-Quality Control (QC) module for scLucid.
+"""Quality control public API for scLucid."""
 
-This module provides a complete workflow for single-cell data quality control,
-from metric calculation to filtering and reporting.
-"""
+from importlib import import_module
+from typing import Iterable
+import warnings
 
-# --- Import Configuration Classes ---
-# Make the config objects directly accessible to the user, e.g., sclucid.qc.QCThresholds
-from .config import MetricsReportingConfig, QCThresholds, MarkerConfig, DoubletConfig, MarkingConfig, FilterConfig, QCWorkflowConfig
+__all__ = []
 
-# --- Import Core Functions ---
-from .metrics import calculate_qc_metric
-from .cycle import score_cell_cycle
-from .doublet import (
-    generate_doublet_rates,
-    create_custom_marker_dict,
-    predict_doublets,
-    predict_doublets_with_profiling
+
+def _export(module: str, names: Iterable[str], *, optional: bool = False) -> bool:
+    """Import names from a submodule without breaking package import."""
+    try:
+        loaded = import_module(f"{__name__}.{module}")
+    except Exception as exc:
+        level = "optional" if optional else "required"
+        warnings.warn(
+            f"Could not import {level} QC module '{module}': {exc}",
+            ImportWarning,
+        )
+        return False
+
+    found = False
+    for name in names:
+        if hasattr(loaded, name):
+            globals()[name] = getattr(loaded, name)
+            __all__.append(name)
+            found = True
+    return found
+
+
+# Configuration
+_export(
+    "config",
+    [
+        "MetricsReportingConfig",
+        "QCThresholds",
+        "MarkerConfig",
+        "DoubletConfig",
+        "MarkingConfig",
+        "FilterConfig",
+        "QCWorkflowConfig",
+    ],
 )
-from .filtering import (
-    suggest_qc_thresholds,
-    identify_outliers,
-    generate_qc_report,
-    mark_low_quality_cell,
-    mark_low_quality_cells_adaptive,
-    filter_cells,
+
+# Core
+_export("metrics", ["calculate_qc_metric"])
+_export("cycle", ["score_cell_cycle"])
+_export(
+    "doublet",
+    [
+        "generate_doublet_rates",
+        "create_custom_marker_dict",
+        "predict_doublets",
+        "predict_doublets_with_profiling",
+    ],
+)
+_export(
+    "filtering",
+    [
+        "suggest_qc_thresholds",
+        "identify_outliers",
+        "generate_qc_report",
+        "mark_low_quality_cell",
+        "mark_low_quality_cells_adaptive",
+        "filter_cells",
+    ],
 )
 
-# --- Import High-Level Workflow Functions ---
-from .workflow import run_advanced_qc, run_standard_qc
+# Extended QC
+_export(
+    "adaptive_threshold",
+    ["AdaptiveThresholdLearner", "MultiMetricAdaptiveLearner"],
+    optional=True,
+)
+_export(
+    "reporting",
+    ["EnhancedQCReport", "generate_qc_html_report", "InteractiveReportGenerator"],
+    optional=True,
+)
+_export("workflow", ["run_advanced_qc", "run_standard_qc"])
 
-# --- Define Public API for the Module ---
-__all__ = [
-    # Configuration Classes
-    "MetricsReportingConfig",
-    "QCThresholds",
-    "MarkerConfig",
-    "DoubletConfig",
-    "MarkingConfig",
-    "FilterConfig",
-    "QCWorkflowConfig",
-    
-    # Core Functions
-    "calculate_qc_metric",
-    "score_cell_cycle",
-    "generate_doublet_rates",
-    "create_custom_marker_dict",
-    "predict_doublets",
-    "predict_doublets_with_profiling",
-    "suggest_qc_thresholds",
-    "identify_outliers",
-    "mark_low_quality_cell",
-    "mark_low_quality_cells_adaptive",
-    "filter_cells",
-    "generate_qc_report",
-    
-    # Workflow Functions
-    "run_standard_qc",
-    "run_advanced_qc",
-]
+# Intelligent QC
+_export(
+    "intelligent_qc",
+    [
+        "IntelligentQCRecommender",
+        "recommend_intelligent_qc",
+        "QCRecommendation",
+        "ThresholdRecommendation",
+        "StrategyType",
+    ],
+    optional=True,
+)
+_export(
+    "strategy_decision_tree",
+    ["QCStrategyDecisionTree", "recommend_qc_strategy"],
+    optional=True,
+)
+
+# Optional interactive dashboard
+_export(
+    "interactive",
+    [
+        "InteractiveQCExplorer",
+        "InteractiveQCPlotter",
+        "create_interactive_dashboard",
+        "interactive_filter_preview",
+    ],
+    optional=True,
+)

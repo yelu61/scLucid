@@ -12,6 +12,7 @@ from .config import (
     IntegrationConfig,
     NeighborsConfig,
     NormalizationConfig,
+    PreprocessingWorkflowConfig,
     ScalingConfig,
     WorkflowConfig,
 )
@@ -31,12 +32,43 @@ from .normalize import normalize_data, plot_normalization_effect
 from .scale import plot_scaling_effect, regress_out, scale_data
 
 # --- High-Level Workflow ---
-from .workflow import run_preprocessing
+from .workflow import (
+    WORKFLOW_STEPS,
+    PartialWorkflowResult,
+    WorkflowError,
+    run_preprocessing,
+)
+
+# --- Backend Abstraction ---
+from .backend import (
+    PreprocessingBackend,
+    ScanpyBackend,
+    RapidsBackend,
+    get_backend,
+    set_backend,
+    list_available_backends,
+)
+
+# --- Intelligent Preprocessing ---
+from .intelligent import (
+    BatchCorrectionRecommendation,
+    DataProfile,
+    HVGRecommendation,
+    IntelligentPreprocessConfig,
+    IntelligentPreprocessRecommender,
+    NeighborsRecommendation,
+    PCARecommendation,
+    PreprocessingStrategy,
+    ResolutionRecommendation,
+    recommend_intelligent_preprocessing,
+    run_intelligent_preprocessing,
+)
 
 # --- Public API Definition ---
 __all__ = [
     # Configuration
     "WorkflowConfig",
+    "PreprocessingWorkflowConfig",
     "NormalizationConfig",
     "HVGConfig",
     "ScalingConfig",
@@ -45,6 +77,9 @@ __all__ = [
     "GraphConfig",
     # Workflow
     "run_preprocessing",
+    "WORKFLOW_STEPS",
+    "WorkflowError",
+    "PartialWorkflowResult",
     # Core Functions
     "normalize_data",
     "regress_out",
@@ -52,6 +87,13 @@ __all__ = [
     "select_hvg_sets",
     "scale_data",
     "batch_correction",
+    # Backend
+    "PreprocessingBackend",
+    "ScanpyBackend",
+    "RapidsBackend",
+    "get_backend",
+    "set_backend",
+    "list_available_backends",
     # Plotting & Evaluation
     "plot_normalization_effect",
     "plot_hvg_metrics",
@@ -60,4 +102,16 @@ __all__ = [
     "evaluate_hvg_stability",
     "evaluate_integration",
     "optimize_neighbors_pcs",
+    # Intelligent Preprocessing
+    "IntelligentPreprocessConfig",
+    "IntelligentPreprocessRecommender",
+    "PreprocessingStrategy",
+    "DataProfile",
+    "HVGRecommendation",
+    "PCARecommendation",
+    "NeighborsRecommendation",
+    "ResolutionRecommendation",
+    "BatchCorrectionRecommendation",
+    "recommend_intelligent_preprocessing",
+    "run_intelligent_preprocessing",
 ]

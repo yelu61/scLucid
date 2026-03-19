@@ -42,6 +42,7 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "scikit-learn",
+    "pydantic>=2.0", # Configuration validation and serialization
     "rich",          # For pretty printing, used by marker_manager
     "tomli",         # For reading .toml marker files
     "adjustText",    # For non-overlapping plot labels
@@ -64,11 +65,11 @@ analysis = [
     "networkx",      # For merge_clusters in analysis/cluster.py
 ]
 
-# Dependencies for the advanced `tools` module
+# Dependencies for the advanced `tools` module (R-free)
 tools = [
     "infercnvpy",    # For CNV analysis
     "scvelo",        # For RNA velocity analysis
-    "rpy2",          # The bridge for all R-based tools
+    # "rpy2",        # REMOVED: R bridge no longer needed (Python-native tools)
     "sccoda",        # For compositional analysis
     "pyscenic",      # For SCENIC workflow (GRN inference)
     "loompy",        # Required for SCENIC data format
@@ -80,6 +81,9 @@ tools = [
     "combat",        # For ComBat batch correction
     "triku",         # For Triku HVG selection
     "squidpy",       # For spatial analysis functions
+    # Python-native implementations (replacing R tools)
+    # "pyBayesPrism",  # Included in package
+    # "pyDWLS",        # Included in package
 ]
 
 # A convenience group to install everything
@@ -90,7 +94,10 @@ all = [
 
 # Dependencies for developers (e.g., for running tests)
 dev = [
-    "pytest",
+    "pytest>=7.0",
+    "pytest-cov",
+    "pytest-benchmark>=4.0",
+    "pytest-mock",
     "pre-commit",
     "black",
 ]
