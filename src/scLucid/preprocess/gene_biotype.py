@@ -1,8 +1,9 @@
 """
-Gene biotype annotation and filtering for single-cell RNA-seq data.
+Gene biotype annotation and filtering for single-cell RNA-seq preprocessing.
 
 This module provides utilities to annotate genes with their biotypes
-(protein-coding, lncRNA, etc.) and enables biotype-aware QC and analysis.
+(protein-coding, lncRNA, etc.) and enables biotype-aware feature filtering
+before downstream analysis.
 """
 
 import logging
@@ -237,10 +238,10 @@ def _match_genes_to_biotypes(
     # Direct match on gene_name
     gene_to_biotype = biotype_df.set_index("gene_name")["biotype"].to_dict()
 
-    biotypes = gene_names.map(gene_to_biotype)
+    biotypes = pd.Series(gene_names.map(gene_to_biotype), index=gene_names, dtype="object")
 
-    # Try matching on gene_id for genes with Ensembl IDs
-    if fuzzy_match:
+    # Try matching on gene_id for genes with Ensembl IDs when available.
+    if fuzzy_match and "gene_id" in biotype_df.columns:
         unmatched = biotypes.isna()
         if unmatched.sum() > 0:
             log.info(
@@ -248,7 +249,7 @@ def _match_genes_to_biotypes(
             )
 
             gene_id_to_biotype = biotype_df.set_index("gene_id")["biotype"].to_dict()
-            biotypes[unmatched] = gene_names[unmatched].map(gene_id_to_biotype)
+            biotypes.loc[unmatched] = gene_names[unmatched].map(gene_id_to_biotype)
 
     matched_count = (~biotypes.isna()).sum()
     match_rate = matched_count / len(gene_names) * 100
@@ -400,7 +401,7 @@ def annotate_gene_biotypes(
         log.info(f"  {recommended} {biotype}: {count} ({pct:.1f}%)")
 
     # Store metadata
-    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["gene_biotypes"] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["gene_biotypes"] = {
         "method": method,
         "species": species,
         "n_genes_annotated": (~adata.var["biotype"].isna()).sum(),

@@ -89,6 +89,42 @@ def test_qc_with_adaptive_thresholds():
         assert value >= 0
 
 
+def test_standard_qc_creates_single_sample_key_when_missing():
+    """QC workflow should gracefully fall back to another sample column when present."""
+    adata = _make_qc_test_adata()
+    if "sampleID" in adata.obs:
+        del adata.obs["sampleID"]
+
+    config = _workflow_config_for_tests()
+    config.doublet_config.run_algorithm = False
+
+    adata_qc = qc.run_standard_qc(adata, config=config, show_progress=False)
+
+    assert "batch" in adata_qc.obs.columns
+    assert adata_qc.obs["batch"].nunique() == 1
+    context = adata_qc.uns["sclucid"]["qc"]["context"]["data"]
+    warnings = adata_qc.uns["sclucid"]["qc"]["warnings"]["data"]
+    assert context["sample_key"] == "batch"
+    assert any("using detected obs column 'batch'" in w for w in warnings)
+
+
+def test_standard_qc_auto_detects_existing_sample_column():
+    """Workflow should use common alternate sample columns before fabricating one."""
+    adata = _make_qc_test_adata()
+    adata.obs["orig.ident"] = adata.obs["sampleID"].astype(str)
+    del adata.obs["sampleID"]
+
+    config = _workflow_config_for_tests()
+    config.doublet_config.run_algorithm = False
+
+    adata_qc = qc.run_standard_qc(adata, config=config, show_progress=False)
+
+    context = adata_qc.uns["sclucid"]["qc"]["context"]["data"]
+    warnings = adata_qc.uns["sclucid"]["qc"]["warnings"]["data"]
+    assert context["sample_key"] == "orig.ident"
+    assert all("synthetic single-sample labels" not in warning for warning in warnings)
+
+
 def test_qc_html_report(tmp_path):
     """Test HTML report generation."""
     from scLucid.qc import generate_qc_html_report
@@ -106,6 +142,20 @@ def test_qc_html_report(tmp_path):
 
     assert output_file.exists()
     assert output_file.stat().st_size > 0
+
+
+def test_generate_qc_report_exports_summary_bundle(tmp_path):
+    """Workflow report generation should produce structured review artifacts."""
+    adata = _make_qc_test_adata()
+    config = _workflow_config_for_tests(save_dir=str(tmp_path))
+    config.doublet_config.run_algorithm = False
+
+    qc.run_standard_qc(adata, config=config, show_progress=False)
+
+    report_dir = tmp_path / "report"
+    assert (report_dir / "qc_summary.json").exists()
+    assert (report_dir / "qc_summary.md").exists()
+    assert (report_dir / "qc_report.html").exists()
 
 
 class TestQCWorkflowErrorRecovery:

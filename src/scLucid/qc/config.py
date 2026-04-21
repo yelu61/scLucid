@@ -160,6 +160,10 @@ class DoubletConfig(SclucidBaseConfig):
     )
     algorithm_weight: float = Field(default=0.7, ge=0, le=1)
     expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = Field(default=None)
+    score_threshold: Optional[float] = Field(
+        default=None,
+        description="Optional direct doublet-score threshold. When set, overrides expected_doublet_rate quantile-based threshold.",
+    )
     random_state: int = Field(default=61)
     plot_summary: bool = Field(default=True)
     plot_bar: bool = Field(default=True)
@@ -304,6 +308,15 @@ class QCWorkflowConfig(WorkflowConfigBase):
     sample_key: str = Field(default="sampleID", description="Column for sample identification")
     species: str = Field(default="human", description="Species for analysis")
     tissue: Optional[str] = Field(default=None, description="Tissue context for markers")
+    tissue_type: Optional[str] = Field(
+        default=None, description="Tissue type hint passed to recommender (e.g., 'lung_tumor')."
+    )
+    threshold_mode: Literal["hierarchical", "pooled", "independent"] = Field(
+        default="hierarchical", description="Multi-sample threshold policy."
+    )
+    use_recommendations: bool = Field(
+        default=True, description="Run intelligent QC recommendation and apply to thresholds."
+    )
     # Note: save_dir is inherited from SclucidBaseConfig, used for results output
 
     # Performance parameters

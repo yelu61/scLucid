@@ -6,14 +6,15 @@ Tests the complete preprocessing pipeline from counts to UMAP.
 
 import pytest
 import numpy as np
+import pandas as pd
 from anndata import AnnData
 
 import sys
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
-import scLucid as scl
 from scLucid.preprocess import run_preprocessing
 from scLucid.preprocess.config import WorkflowConfig, NormalizationConfig
+from scLucid.preprocess.gene_biotype import annotate_gene_biotypes, filter_genes_by_biotype
 
 # Import synthetic data fixtures
 from tests.fixtures.synthetic_data import (
@@ -196,6 +197,81 @@ class TestPreprocessingWorkflow:
         # Check UMAP
         assert "X_umap" in result.obsm
         assert result.obsm["X_umap"].shape == (result.n_obs, 2)
+
+    def test_gene_biotype_annotation_and_filtering_live_under_preprocess(self, minimal_adata):
+        """Gene biotype utilities should store metadata under preprocess, not QC."""
+        adata = minimal_adata.copy()
+        adata.var_names = np.array(
+            ["GAPDH", "MALAT1", "RPLP0", "MT-CO1", "IGHG1", "TRAC"] + [f"GENE{i}" for i in range(adata.n_vars - 6)]
+        )
+        custom_df = pd.DataFrame(
+            {
+                "gene_name": ["GAPDH", "MALAT1", "RPLP0", "MT-CO1", "IGHG1", "TRAC"],
+                "biotype": [
+                    "protein_coding",
+                    "lncRNA",
+                    "protein_coding",
+                    "protein_coding",
+                    "IG_C_gene",
+                    "TR_C_gene",
+                ],
+            }
+        )
+
+        adata = annotate_gene_biotypes(adata, biotype_df=custom_df, method="custom")
+        assert "preprocess" in adata.uns["sclucid"]
+        assert "gene_biotypes" in adata.uns["sclucid"]["preprocess"]
+        assert "qc" not in adata.uns["sclucid"] or "gene_biotypes" not in adata.uns["sclucid"].get("qc", {})
+
+        filtered = filter_genes_by_biotype(adata, keep_biotypes=["protein_coding"], copy=True)
+        assert filtered is not None
+        assert (filtered.var["biotype_category"] == "protein_coding").all()
+
+    def test_workflow_run_flags_are_honored(self, minimal_adata):
+        """Workflow-level run_* flags should disable optional downstream steps."""
+        config = _workflow_config_for_tests()
+        config.run_regression = False
+        config.run_scaling = False
+        config.run_pca = False
+        config.run_neighbors = False
+        config.run_integration = False
+
+        result = run_preprocessing(minimal_adata, config=config)
+
+        preprocess_meta = result.uns["sclucid"]["preprocess"]
+        assert preprocess_meta["steps_executed"] == [
+            "normalization",
+            "set_raw",
+            "hvg_selection",
+            "subset_hvg",
+        ]
+        assert config.scaling.vars_to_regress == ["total_counts", "pct_counts_mt"]
+        assert "regressed" not in result.layers
+        assert "scaled" not in result.layers
+        assert "X_pca" not in result.obsm
+        assert "X_umap" not in result.obsm
+        assert "regress_inline" not in preprocess_meta
+
+    def test_workflow_honors_custom_layer_names(self, minimal_adata):
+        """Workflow should use top-level layer naming consistently across steps."""
+        config = _workflow_config_for_tests()
+        config.run_pca = False
+        config.run_neighbors = False
+        config.normalized_layer = "lognorm"
+        config.regressed_layer = "resid"
+        config.scaled_layer = "zscore"
+
+        result = run_preprocessing(minimal_adata, config=config)
+
+        assert "lognorm" in result.layers
+        assert "resid" in result.layers
+        assert "zscore" in result.layers
+        assert result.raw is not None
+        assert result.raw.shape[1] >= result.n_vars
+        assert result.uns["sclucid"]["preprocess"]["normalization"]["output_layer"] == "lognorm"
+        assert result.uns["sclucid"]["preprocess"]["regress"]["output_layer"] == "resid"
+        assert result.uns["sclucid"]["preprocess"]["scaling"]["output_layer"] == "zscore"
+        assert "regress_inline" not in result.uns["sclucid"]["preprocess"]
 
 
 @pytest.mark.integration

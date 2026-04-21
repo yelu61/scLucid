@@ -16,14 +16,15 @@ from .scoring import (
 )
 
 from .classification import (
-    classify_malignant_status,
-    distinguish_tumor_normal,
-    MalignantClassifier,
+    classify_malignant_cells,
+    score_malignancy_potential,
+    MalignancyClassifier,
 )
 
 from .stemness import (
-    calculate_stemness_index,
+    calculate_stemness_score,
     identify_cancer_stem_cells,
+    compare_stemness_between_groups,
     StemnessAnalyzer,
 )
 
@@ -32,10 +33,11 @@ __all__ = [
     "calculate_proliferation_index",
     "estimate_metastatic_potential",
     "MalignancyScorer",
-    "classify_malignant_status",
-    "distinguish_tumor_normal",
-    "MalignantClassifier",
-    "calculate_stemness_index",
+    "classify_malignant_cells",
+    "score_malignancy_potential",
+    "MalignancyClassifier",
+    "calculate_stemness_score",
     "identify_cancer_stem_cells",
+    "compare_stemness_between_groups",
     "StemnessAnalyzer",
 ]

@@ -979,18 +979,20 @@ def get_marker_manager(
     species: str,
     tissue: Optional[str] = None,
     states: Optional[List[str]] = None,
+    cancer_type: Optional[str] = None,
     case_sensitive: bool = True,
 ) -> Manager:
     """
-    Factory function to build a Manager by combining base, tissue, and state markers.
+    Factory function to build a Manager by combining base, tissue, state, and cancer markers.
 
-    This function creates a comprehensive marker manager by layering tissue-specific
-    and cell state-specific markers on top of the base markers for a species.
+    This function creates a comprehensive marker manager by layering tissue-specific,
+    cell state-specific, and cancer-specific markers on top of the base markers for a species.
 
     Args:
         species: The species ('human', 'mouse', etc.)
         tissue: The tissue name, corresponding to a top-level key in the tissue-specific file
         states: A list of cell states, corresponding to keys in the cell-state file
+        cancer_type: Cancer type name, corresponding to a top-level key in the cancer marker file
         case_sensitive: Whether gene names should be case-sensitive
 
     Returns:
@@ -1067,6 +1069,21 @@ def get_marker_manager(
 
             except FileNotFoundError as e:
                 log.warning(f"Could not load cell state markers: {str(e)}")
+
+        # Add cancer-specific markers if specified
+        if cancer_type:
+            try:
+                mgr_cancer = Manager(
+                    f"cancer_{species}",
+                    root_key=cancer_type,
+                    case_sensitive=case_sensitive,
+                )
+                mgr.merge_from(mgr_cancer)
+                log.info(f"Merged cancer markers for '{cancer_type}'")
+            except (FileNotFoundError, KeyError) as e:
+                log.warning(
+                    f"Could not load cancer markers for '{cancer_type}': {str(e)}"
+                )
 
         log.info(f"Manager built successfully with {len(mgr.CELLS)} cell types")
         return mgr

@@ -683,8 +683,14 @@ def batch_correction(
         )
 
     # --- 6. Store metadata and plot after state ---
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["integration"] = {
-        "params": active_config.to_dict(),  # Pydantic's built-in serialization
+    integration_meta = adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
+        "integration", {}
+    )
+    integration_meta["workflow"] = {
+        "params": active_config.to_dict(),
+        "method": method,
+        "batch_key": batch_key,
+        "use_rep": use_rep,
         "output_key": output_key,
     }
 

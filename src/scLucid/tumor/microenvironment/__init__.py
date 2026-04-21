@@ -16,15 +16,17 @@ from .deconvolution import (
 )
 
 from .interaction import (
-    analyze_cell_interactions,
-    calculate_communication_strength,
     InteractionAnalyzer,
+    analyze_cell_interactions,
+    find_dominant_interactions,
+    score_immune_interactions,
 )
 
 from .ecosystem import (
-    score_tme_ecosystem,
-    identify_ecosystem_types,
-    EcosystemClassifier,
+    EcosystemAnalyzer,
+    analyze_ecosystem_composition,
+    calculate_tumor_microenvironment_score,
+    compare_ecosystems,
 )
 
 __all__ = [
@@ -32,10 +34,12 @@ __all__ = [
     "estimate_stromal_content",
     "analyze_immune_infiltration",
     "TMEProfiler",
-    "analyze_cell_interactions",
-    "calculate_communication_strength",
     "InteractionAnalyzer",
-    "score_tme_ecosystem",
-    "identify_ecosystem_types",
-    "EcosystemClassifier",
+    "analyze_cell_interactions",
+    "find_dominant_interactions",
+    "score_immune_interactions",
+    "EcosystemAnalyzer",
+    "analyze_ecosystem_composition",
+    "calculate_tumor_microenvironment_score",
+    "compare_ecosystems",
 ]

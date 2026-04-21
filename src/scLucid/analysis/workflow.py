@@ -148,9 +148,9 @@ def run_standard_analysis(
     # Define workflow steps
     workflow_steps = [
         ("clustering", config.clustering is not None),
-        ("markers", config.find_markers),
+        ("markers", getattr(config, "find_markers", True)),
         ("annotation", config.annotation is not None),
-        ("characterization", config.characterize),
+        ("characterization", getattr(config, "characterize", True)),
     ]
 
     # Filter to only enabled steps and skip completed ones
@@ -170,6 +170,11 @@ def run_standard_analysis(
     current_step = None
     successful_steps: List[str] = []
 
+    # Determine cluster key from config
+    from .config import ClusteringConfig
+    cluster_config = config.clustering if isinstance(config.clustering, ClusteringConfig) else ClusteringConfig(**config.clustering)
+    cluster_key = cluster_config.key_added or f"{cluster_config.method}_clusters"
+
     try:
         for step_name in step_iterator:
             current_step = step_name
@@ -177,11 +182,8 @@ def run_standard_analysis(
             # Step 1: Clustering
             if step_name == "clustering":
                 log.info("Step: Clustering")
-                from .config import ClusteringConfig
-
-                cluster_config = config.clustering if isinstance(config.clustering, ClusteringConfig) else ClusteringConfig(**config.clustering)
                 adata = cluster_cells(adata, cluster_config)
-                log.info(f"  Clustering complete: {adata.obs['leiden'].nunique()} clusters")
+                log.info(f"  Clustering complete: {adata.obs[cluster_key].nunique()} clusters")
                 successful_steps.append(step_name)
 
             # Step 2: Marker genes
@@ -190,7 +192,7 @@ def run_standard_analysis(
                 from .config import DifferentialConfig
 
                 marker_config = DifferentialConfig(
-                    groupby="leiden",
+                    groupby=cluster_key,
                     method=config.marker_method if hasattr(config, 'marker_method') else "wilcoxon"
                 )
                 markers = find_markers(adata, marker_config)
@@ -200,7 +202,13 @@ def run_standard_analysis(
             # Step 3: Annotation
             elif step_name == "annotation":
                 log.info("Step: Cell type annotation")
-                adata = run_annotation(adata, **config.annotation if isinstance(config.annotation, dict) else {})
+                from .config import AnnotationConfig
+                if isinstance(config.annotation, AnnotationConfig):
+                    adata = run_annotation(adata, config=config.annotation)
+                elif isinstance(config.annotation, dict):
+                    adata = run_annotation(adata, config=AnnotationConfig(**config.annotation))
+                else:
+                    adata = run_annotation(adata, config=AnnotationConfig())
                 n_annotated = adata.obs['cell_type'].notna().sum() if 'cell_type' in adata.obs else 0
                 log.info(f"  Annotated {n_annotated}/{len(adata)} cells")
                 successful_steps.append(step_name)
@@ -211,8 +219,7 @@ def run_standard_analysis(
                 try:
                     adata = characterize_clusters(
                         adata,
-                        groupby="leiden",
-                        save_path=config.save_dir
+                        groupby=cluster_key,
                     )
                     log.info("  Characterization complete")
                     successful_steps.append(step_name)

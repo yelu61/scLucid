@@ -104,6 +104,17 @@ class ThresholdRecommendation:
     confidence: float
     evidence: Dict[str, Any]
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to a JSON-serializable dictionary."""
+        return {
+            "threshold": self.threshold,
+            "ci_lower": self.ci_lower,
+            "ci_upper": self.ci_upper,
+            "confidence": self.confidence,
+            "method": self.method,
+            "evidence": self.evidence,
+        }
+
 
 @dataclass
 class QCRecommendation:
@@ -145,25 +156,15 @@ class QCRecommendation:
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
-            'min_genes': {
-                'threshold': self.min_genes.threshold,
-                'ci_lower': self.min_genes.ci_lower,
-                'ci_upper': self.min_genes.ci_upper,
-                'confidence': self.min_genes.confidence,
-                'method': self.min_genes.method
-            },
-            'max_mt_percent': {
-                'threshold': self.max_mt_percent.threshold,
-                'ci_lower': self.max_mt_percent.ci_lower,
-                'ci_upper': self.max_mt_percent.ci_upper,
-                'confidence': self.max_mt_percent.confidence,
-                'method': self.max_mt_percent.method
-            },
-            'overall_strategy': self.overall_strategy.value,
-            'overall_confidence': self.overall_confidence,
-            'data_quality_score': self.data_quality_score,
-            'concerns': self.concerns,
-            'tumor_specific_considerations': self.tumor_specific_considerations
+            "min_genes": self.min_genes.to_dict(),
+            "max_mt_percent": self.max_mt_percent.to_dict(),
+            "doublet_threshold": self.doublet_threshold.to_dict(),
+            "n_counts": self.n_counts.to_dict(),
+            "overall_strategy": self.overall_strategy.value,
+            "overall_confidence": self.overall_confidence,
+            "data_quality_score": self.data_quality_score,
+            "concerns": self.concerns,
+            "tumor_specific_considerations": self.tumor_specific_considerations,
         }
 
 

@@ -42,6 +42,12 @@ from .advanced_plots import (
     plot_differential_abundance,
 )
 
+# Annotation evidence plots
+from .annotation_plots import (
+    plot_annotation_evidence_panel,
+    export_annotation_report,
+)
+
 # Define what should be accessible when a user does `from scLucid.plotting import *`
 __all__ = [
     "plot_embedding",
@@ -57,4 +63,6 @@ __all__ = [
     "plot_feature_correlation",
     "plot_coexpression",
     "plot_differential_abundance",
+    "plot_annotation_evidence_panel",
+    "export_annotation_report",
 ]

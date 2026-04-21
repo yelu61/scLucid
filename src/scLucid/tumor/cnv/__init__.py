@@ -17,16 +17,16 @@ from .infercnv import (
 )
 
 from .clone_analysis import (
-    construct_phylogeny,
+    infer_clonal_phylogeny,
     calculate_clonal_diversity,
-    track_clonal_evolution,
-    CloneTracker,
+    identify_clones as identify_clones_from_cnv,
+    CloneAnalyzer,
 )
 
 from .cnv_signature import (
     extract_cnv_signatures,
-    classify_cnv_pattern,
-    CNVDictionary,
+    assign_cnv_signature,
+    CNVSigExtractor,
 )
 
 __all__ = [
@@ -35,11 +35,11 @@ __all__ = [
     "identify_clones",
     "calculate_cnv_score",
     "CNVAnalyzer",
-    "construct_phylogeny",
+    "infer_clonal_phylogeny",
     "calculate_clonal_diversity",
-    "track_clonal_evolution",
-    "CloneTracker",
+    "identify_clones_from_cnv",
+    "CloneAnalyzer",
     "extract_cnv_signatures",
-    "classify_cnv_pattern",
-    "CNVDictionary",
+    "assign_cnv_signature",
+    "CNVSigExtractor",
 ]

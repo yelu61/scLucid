@@ -58,6 +58,23 @@ Complete preprocessing workflow demonstrating:
 - Configurable HVG parameters (method, n_top_genes, min/max mean)
 - Optional batch correction with multiple methods (Harmony, Scanorama, BBKNN)
 
+### 4. annotation_report.py
+**Annotation review report export**
+
+End-to-end example focused on annotation audit and publication-grade review output:
+- Hybrid annotation with marker evidence and CellTypist
+- Automatic review report export in both PNG and PDF
+- Sidecar JSON and Markdown summaries for manual review and pipeline logging
+
+**Use case**: Final annotation review before downstream tumor interpretation
+**Data requirements**: Clustered dataset with UMAP-ready embedding or enough preprocessing to compute one
+**Runtime**: ~5-10 minutes depending on annotation backend
+
+**Key features**:
+- Uses `AnnotationConfig(report=True)` for automatic report export
+- Demonstrates `export_annotation_report()` with multi-format output
+- Writes reviewer-facing `.md` and machine-readable `.json` sidecars
+
 ## Running the Examples
 
 ### Prerequisites
@@ -85,6 +102,9 @@ python qc_pipeline.py
 
 # Run preprocessing only
 python preprocessing.py
+
+# Run annotation report export
+python annotation_report.py
 ```
 
 ### Using Your Own Data

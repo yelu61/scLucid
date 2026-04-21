@@ -31,6 +31,10 @@ from .advanced_plots import (
     plot_coexpression,
     plot_differential_abundance,
 )
+from .annotation_plots import (
+    plot_annotation_evidence_panel,
+    export_annotation_report,
+)
 
 __all__ = [
     "plot_embedding",
@@ -47,4 +51,6 @@ __all__ = [
     "plot_feature_correlation",
     "plot_coexpression",
     "plot_differential_abundance",
+    "plot_annotation_evidence_panel",
+    "export_annotation_report",
 ]

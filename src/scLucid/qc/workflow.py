@@ -7,7 +7,7 @@ quality control analysis using all components of the package.
 
 import logging
 from pathlib import Path
-from typing import Optional, Tuple, List, Any, Iterable, TypeVar, Literal
+from typing import Dict, Optional, Tuple, List, Any, Iterable, TypeVar, Literal
 
 from anndata import AnnData
 import numpy as np
@@ -15,6 +15,7 @@ import numpy as np
 from .config import QCWorkflowConfig
 from .doublet import predict_doublets
 from .filtering import (
+    AdaptiveThresholdCalculator,
     filter_cells,
     generate_qc_report,
     mark_low_quality_cell,
@@ -22,6 +23,7 @@ from .filtering import (
 from .metrics import calculate_qc_metric
 from ..utils import (
     get_progress_bar,
+    save_result,
     save_workflow_result,
     WorkflowError,
     PartialResultManager,
@@ -92,6 +94,109 @@ def _setup_workflow(
     return adata, results_path
 
 
+def _prepare_runtime_qc_config(
+    config: Optional[QCWorkflowConfig],
+    tissue_type: str,
+) -> QCWorkflowConfig:
+    """
+    Build a runtime config copy for workflow execution.
+
+    Workflow entrypoints should never mutate the caller's config object. This helper
+    centralizes the deep-copy behavior and fills in default tissue context only on
+    the runtime copy.
+    """
+    runtime_config = config.model_copy(deep=True) if config is not None else QCWorkflowConfig()
+    if runtime_config.tissue_type is None:
+        runtime_config.tissue_type = tissue_type
+    return runtime_config
+
+
+def _ensure_sample_key(
+    adata: AnnData,
+    config: QCWorkflowConfig,
+    warnings_list: Optional[List[str]] = None,
+) -> None:
+    """
+    Ensure the configured sample key exists in adata.obs.
+
+    Real single-sample datasets often arrive without a batch/sample column. In that
+    case we create a synthetic single-sample label so the rest of the QC stack can
+    continue to use a uniform multi-sample-aware code path.
+    """
+    if config.sample_key in adata.obs.columns:
+        return
+
+    candidate_keys = [
+        "sampleID",
+        "sample",
+        "Sample",
+        "orig.ident",
+        "orig_ident",
+        "patient",
+        "patient_id",
+        "donor",
+        "donor_id",
+        "batch",
+        "Batch",
+    ]
+    for candidate in candidate_keys:
+        if candidate in adata.obs.columns:
+            original_key = config.sample_key
+            config.sample_key = candidate
+            msg = (
+                f"Sample key '{original_key}' not found; using detected obs column "
+                f"'{candidate}' for sample-aware QC."
+            )
+            log.info(msg)
+            if warnings_list is not None:
+                warnings_list.append(msg)
+            return
+
+    synthetic_sample = "sample_1"
+    adata.obs[config.sample_key] = synthetic_sample
+    msg = (
+        f"Sample key '{config.sample_key}' not found in adata.obs; "
+        f"created synthetic single-sample labels ('{synthetic_sample}')."
+    )
+    log.info(msg)
+    if warnings_list is not None:
+        warnings_list.append(msg)
+
+
+def _add_tumor_aware_flags(
+    adata: AnnData,
+    tissue_type: str,
+) -> None:
+    """
+    Store tumor-aware QC flags when tissue_type indicates tumor/cancer.
+
+    Tumor tissues often have elevated mitochondrial content and other
+    characteristics that should be flagged rather than aggressively filtered.
+    """
+    if not tissue_type or "tumor" not in tissue_type.lower() and "cancer" not in tissue_type.lower():
+        return
+
+    flags: Dict[str, Any] = {"tissue_type": tissue_type, "tumor_aware_enabled": True}
+
+    if "pct_counts_mt" in adata.obs.columns:
+        mt_values = adata.obs["pct_counts_mt"].values
+        high_mt_frac = float(np.mean(mt_values > 10.0))
+        flags["high_mt_population_flagged"] = high_mt_frac > 0.25
+        flags["mean_pct_counts_mt"] = float(np.mean(mt_values))
+        flags["fraction_mt_above_10pct"] = high_mt_frac
+
+    if "pct_counts_ribo" in adata.obs.columns:
+        ribo_values = adata.obs["pct_counts_ribo"].values
+        flags["mean_pct_counts_ribo"] = float(np.mean(ribo_values))
+
+    flags["note"] = (
+        "Tumor-aware QC active: elevated mitochondrial content is flagged "
+        "rather than hard-filtered. Review thresholds manually."
+    )
+    save_result(adata, "qc", "tumor_aware_flags", flags)
+    log.info(f"Tumor-aware QC flags stored: {list(flags.keys())}")
+
+
 def _process_sample_qc(
     sample_adata: AnnData,
     config: QCWorkflowConfig,
@@ -138,7 +243,7 @@ def _process_sample_qc(
 def _process_sample_doublet(
     sample_adata: AnnData,
     config: QCWorkflowConfig,
-    save_dir: str,
+    save_dir: Optional[str],
     sample_name: str,
 ) -> AnnData:
     """
@@ -147,7 +252,7 @@ def _process_sample_doublet(
     Args:
         sample_adata: AnnData object for a single sample
         config: QC workflow configuration
-        save_dir: Directory to save doublet results
+        save_dir: Directory to save doublet results. If None, no files are saved.
         sample_name: Name of the sample
 
     Returns:
@@ -155,12 +260,15 @@ def _process_sample_doublet(
     """
     # Update config save dir for this sample
     doublet_config = config.doublet_config
-    doublet_config.save_dir = str(Path(save_dir) / sample_name)
+    if save_dir is not None:
+        doublet_config.save_dir = str(Path(save_dir) / sample_name)
+    else:
+        doublet_config.save_dir = None
 
     sample_adata = predict_doublets(
         sample_adata,
         config=doublet_config,
-        sample_key=None,  # Single sample
+        sample_key=config.sample_key,
     )
 
     return sample_adata
@@ -180,29 +288,11 @@ def _merge_sample_results(
     Returns:
         Merged AnnData object
     """
-    # Create a mapping from obs_name to row index
-    obs_to_idx = {name: i for i, name in enumerate(original_obs_names)}
+    import anndata as ad
 
-    # Initialize merged object
-    merged_adata = sample_results[0][1].copy()
+    sample_adatas = [sample_adata for _, sample_adata in sample_results]
+    merged_adata = ad.concat(sample_adatas, merge="same")
     merged_adata = merged_adata[original_obs_names].copy()
-
-    # Merge QC metrics from each sample
-    for sample_name, sample_adata in sample_results:
-        # Get indices for this sample
-        sample_idx = [i for i, name in enumerate(original_obs_names) if name in sample_adata.obs_names]
-
-        # Merge each QC metric column
-        for col in sample_adata.obs.columns:
-            if col not in merged_adata.obs:
-                # Initialize column
-                merged_adata.obs[col] = np.nan
-
-            # Copy values for this sample's cells
-            for i, obs_name in enumerate(sample_adata.obs_names):
-                if obs_name in obs_to_idx:
-                    merged_adata.obs.loc[obs_name, col] = sample_adata.obs.loc[obs_name, col]
-
     return merged_adata
 
 
@@ -273,12 +363,179 @@ def _safe_parallel_process(
     return results
 
 
+def _is_tumor_aware(tissue_type: Optional[str]) -> bool:
+    if not tissue_type:
+        return False
+    return "tumor" in tissue_type.lower() or "cancer" in tissue_type.lower()
+
+
+def _apply_qc_recommendations(
+    config: QCWorkflowConfig,
+    recommendation: Any,
+) -> Tuple[QCWorkflowConfig, QCWorkflowConfig]:
+    """Apply intelligent QC recommendation fields to a deep copy of the config.
+
+    Returns:
+        Tuple of (applied_config, original_config_snapshot).
+        Only fields that were not explicitly set by the user are filled from recommendation.
+    """
+    # Deep copy to avoid mutating the caller's original config
+    original = config.model_copy(deep=True)
+    if recommendation is None:
+        return original, original
+
+    applied = config.model_copy(deep=True)
+    rec_dict = recommendation.to_dict() if hasattr(recommendation, "to_dict") else {}
+
+    def _is_user_set(obj, field_name: str) -> bool:
+        return field_name in getattr(obj, "model_fields_set", set())
+
+    # min_genes -> marking_config.thresholds.min_genes
+    min_genes_rec = rec_dict.get("min_genes")
+    if isinstance(min_genes_rec, dict) and min_genes_rec.get("threshold") is not None:
+        if not (
+            _is_user_set(applied, "marking_config")
+            and _is_user_set(applied.marking_config, "thresholds")
+            and _is_user_set(applied.marking_config.thresholds, "min_genes")
+        ):
+            applied.marking_config.thresholds.min_genes = int(min_genes_rec["threshold"])
+
+    # max_mt_percent -> marking_config.thresholds.pc_mt
+    mt_rec = rec_dict.get("max_mt_percent")
+    if isinstance(mt_rec, dict) and mt_rec.get("threshold") is not None:
+        if not (
+            _is_user_set(applied, "marking_config")
+            and _is_user_set(applied.marking_config, "thresholds")
+            and _is_user_set(applied.marking_config.thresholds, "pc_mt")
+        ):
+            applied.marking_config.thresholds.pc_mt = float(mt_rec["threshold"])
+
+    # n_counts -> marking_config.thresholds.min_counts
+    counts_rec = rec_dict.get("n_counts")
+    if isinstance(counts_rec, dict) and counts_rec.get("threshold") is not None:
+        if not (
+            _is_user_set(applied, "marking_config")
+            and _is_user_set(applied.marking_config, "thresholds")
+            and _is_user_set(applied.marking_config.thresholds, "min_counts")
+        ):
+            applied.marking_config.thresholds.min_counts = int(counts_rec["threshold"])
+
+    # doublet_threshold -> doublet_config.score_threshold
+    doublet_rec = rec_dict.get("doublet_threshold")
+    if (
+        isinstance(doublet_rec, dict)
+        and doublet_rec.get("threshold") is not None
+        and doublet_rec.get("confidence", 0) > 0
+        and doublet_rec.get("method") != "no_doublet_scores"
+    ):
+        if not (
+            _is_user_set(applied, "doublet_config")
+            and _is_user_set(applied.doublet_config, "score_threshold")
+        ):
+            applied.doublet_config.score_threshold = float(doublet_rec["threshold"])
+
+    return applied, original
+
+
+def _compute_sample_thresholds(
+    adata: AnnData,
+    config: QCWorkflowConfig,
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Compute per-sample adaptive thresholds when hierarchical/independent mode is active."""
+    warnings: List[str] = []
+    sample_thresholds: Dict[str, Any] = {}
+    try:
+        calculator = AdaptiveThresholdCalculator(adata, config.sample_key)
+        metrics_to_compute = ["n_genes_by_counts", "total_counts", "pct_counts_mt"]
+        for metric in metrics_to_compute:
+            try:
+                thresholds = calculator._suggest_adaptive_thresholds(
+                    metric, method=config.threshold_mode, percentile=95.0
+                )
+                for sample, th in thresholds.items():
+                    sample_thresholds.setdefault(sample, {})[metric] = th
+            except Exception as e:
+                warnings.append(f"Adaptive threshold calculation failed for {metric}: {e}")
+    except Exception as e:
+        warnings.append(f"AdaptiveThresholdCalculator initialization failed: {e}")
+    return sample_thresholds, warnings
+
+
+def _diff_qc_recommendations(
+    recommendation: Any,
+    original_config: QCWorkflowConfig,
+) -> Dict[str, Any]:
+    """Compare recommended values against the original user config.
+
+    This captures genuine user-vs-recommendation divergence.
+    """
+    if recommendation is None:
+        return {}
+    diffs: Dict[str, Any] = {}
+    rec_dict = recommendation.to_dict() if hasattr(recommendation, "to_dict") else {}
+    cfg_dict = original_config.to_dict()
+
+    mapping = {
+        "min_genes": ("marking_config", "thresholds", "min_genes"),
+        "max_mt_percent": ("marking_config", "thresholds", "pc_mt"),
+        "n_counts": ("marking_config", "thresholds", "min_counts"),
+        "doublet_threshold": ("doublet_config", "score_threshold"),
+    }
+
+    for param_name, path in mapping.items():
+        rec_val = None
+        param_rec = rec_dict.get(param_name)
+        if isinstance(param_rec, dict):
+            rec_val = param_rec.get("threshold")
+
+        actual_val = cfg_dict
+        for key in path:
+            if isinstance(actual_val, dict):
+                actual_val = actual_val.get(key)
+            else:
+                actual_val = None
+                break
+
+        if rec_val is not None and actual_val is not None and rec_val != actual_val:
+            diffs[param_name] = {"recommended": rec_val, "actual": actual_val}
+
+    return diffs
+
+
+def _store_qc_trace(
+    adata: AnnData,
+    config: QCWorkflowConfig,
+    original_config: QCWorkflowConfig,
+    recommendation: Any,
+    sample_thresholds: Dict[str, Any],
+    filtering_summary: Dict[str, Any],
+    warnings: List[str],
+) -> None:
+    """Store unified QC trace under adata.uns['sclucid']['qc']."""
+    n_samples = int(adata.obs[config.sample_key].nunique()) if config.sample_key in adata.obs else 1
+    save_result(adata, "qc", "context", {
+        "sample_key": config.sample_key,
+        "threshold_mode": config.threshold_mode,
+        "n_samples": n_samples,
+        "tissue_type": config.tissue_type,
+        "use_recommendations": config.use_recommendations,
+    })
+    if recommendation is not None:
+        save_result(adata, "qc", "recommendation", recommendation.to_dict())
+    save_result(adata, "qc", "original_config", original_config.to_dict())
+    save_result(adata, "qc", "applied_config", config.to_dict())
+    save_result(adata, "qc", "user_overrides", _diff_qc_recommendations(recommendation, original_config))
+    save_result(adata, "qc", "sample_thresholds", sample_thresholds)
+    save_result(adata, "qc", "filtering_summary", filtering_summary)
+    save_result(adata, "qc", "warnings", warnings)
+
+
 def _run_qc_workflow(
     adata: AnnData,
     config: QCWorkflowConfig,
     results_path: Optional[Path],
     show_progress: bool = True,
-) -> AnnData:
+) -> Tuple[AnnData, Any, Dict[str, Any], List[str]]:
     """
     Run QC workflow.
 
@@ -289,8 +546,48 @@ def _run_qc_workflow(
         show_progress: Whether to show progress bars for multi-sample processing
 
     Returns:
-        AnnData object with QC completed
+        Tuple of (AnnData object with QC completed, recommendation, sample_thresholds, warnings)
     """
+    warnings_list: List[str] = []
+    recommendation = None
+    sample_thresholds: Dict[str, Any] = {}
+
+    active_tissue_type = config.tissue_type or "auto"
+
+    _ensure_sample_key(adata, config, warnings_list)
+
+    # Snapshot the original user config before any modifications
+    original_config = config.model_copy(deep=True)
+
+    # --- 0. Recommendation & threshold policy ---
+    if config.use_recommendations:
+        try:
+            from .intelligent_qc import recommend_intelligent_qc
+            recommendation = recommend_intelligent_qc(adata, tissue_type=active_tissue_type)
+            config, original_config = _apply_qc_recommendations(config, recommendation)
+            log.info("Intelligent QC recommendations applied to config.")
+        except Exception as e:
+            msg = f"Intelligent QC recommendation failed: {e}"
+            warnings_list.append(msg)
+            log.warning(msg)
+
+    n_samples = int(adata.obs[config.sample_key].nunique()) if config.sample_key in adata.obs else 1
+    if n_samples > 1 and config.threshold_mode != "pooled":
+        sample_thresholds, policy_warnings = _compute_sample_thresholds(adata, config)
+        warnings_list.extend(policy_warnings)
+        if sample_thresholds:
+            log.info(f"Computed {config.threshold_mode} per-sample thresholds for {len(sample_thresholds)} samples.")
+
+    # Tumor-aware filtering adjustment
+    if _is_tumor_aware(active_tissue_type):
+        if "outlier_mt" in config.filter_config.criteria_to_filter:
+            config.filter_config.criteria_to_filter = [
+                c for c in config.filter_config.criteria_to_filter if c != "outlier_mt"
+            ]
+            msg = "Tumor-aware QC: outlier_mt excluded from filtering criteria."
+            warnings_list.append(msg)
+            log.info(msg)
+
     # --- 1. QC metric calculation ---
     samples = adata.obs[config.sample_key].unique()
 
@@ -334,43 +631,44 @@ def _run_qc_workflow(
             )
 
     # --- 2. Doublet detection ---
-    if results_path is not None:
-        config.doublet_config.save_dir = str(results_path / "doublet")
+    if config.doublet_config.run_algorithm or config.doublet_config.use_heuristics:
+        if results_path is not None:
+            config.doublet_config.save_dir = str(results_path / "doublet")
 
-    if config.use_parallel and config.n_jobs != 1 and len(samples) > 1:
-        # Parallel doublet detection with error handling
-        results = _safe_parallel_process(
-            process_func=lambda data, cfg, name: _process_sample_doublet(
-                data, cfg, config.doublet_config.save_dir, name
-            ),
-            samples=list(samples),
-            sample_data_func=lambda s: adata[adata.obs[config.sample_key] == s].copy(),
-            config=config,
-            n_jobs=config.n_jobs,
-            step_name="doublet detection",
-            show_progress=show_progress,
-        )
+        if config.use_parallel and config.n_jobs != 1 and len(samples) > 1:
+            # Parallel doublet detection with error handling
+            results = _safe_parallel_process(
+                process_func=lambda data, cfg, name: _process_sample_doublet(
+                    data, cfg, config.doublet_config.save_dir, name
+                ),
+                samples=list(samples),
+                sample_data_func=lambda s: adata[adata.obs[config.sample_key] == s].copy(),
+                config=config,
+                n_jobs=config.n_jobs,
+                step_name="doublet detection",
+                show_progress=show_progress,
+            )
 
-        # Filter out failed samples
-        successful_results = [(s, r) for s, r in results if r is not None]
-        if not successful_results:
-            raise RuntimeError("All samples failed doublet detection")
+            # Filter out failed samples
+            successful_results = [(s, r) for s, r in results if r is not None]
+            if not successful_results:
+                raise RuntimeError("All samples failed doublet detection")
 
-        if len(successful_results) < len(results):
-            log.warning(f"Proceeding with {len(successful_results)}/{len(results)} successful samples for doublet detection")
+            if len(successful_results) < len(results):
+                log.warning(f"Proceeding with {len(successful_results)}/{len(results)} successful samples for doublet detection")
 
-        # Merge doublet predictions
-        adata = _merge_sample_results(
-            successful_results,
-            adata.obs_names.tolist(),
-        )
-    else:
-        # Standard doublet detection
-        adata = predict_doublets(
-            adata,
-            config=config.doublet_config,
-            sample_key=config.sample_key,
-        )
+            # Merge doublet predictions
+            adata = _merge_sample_results(
+                successful_results,
+                adata.obs_names.tolist(),
+            )
+        else:
+            # Standard doublet detection
+            adata = predict_doublets(
+                adata,
+                config=config.doublet_config,
+                sample_key=config.sample_key,
+            )
 
     # --- 3. Low-quality cell marking ---
     if results_path is not None:
@@ -379,9 +677,10 @@ def _run_qc_workflow(
         adata,
         config=config.marking_config,
         sample_key=config.sample_key,
+        sample_thresholds=sample_thresholds,
     )
 
-    return adata
+    return adata, config, recommendation, sample_thresholds, warnings_list, original_config
 
 
 def run_standard_qc(
@@ -389,6 +688,7 @@ def run_standard_qc(
     config: Optional[QCWorkflowConfig] = None,
     overwrite: bool = False,
     *,
+    tissue_type: str = "unknown",
     show_progress: bool = True,
     # Error recovery
     error_recovery: bool = False,
@@ -446,7 +746,7 @@ def run_standard_qc(
     """
     if config is None:
         log.info("No QCWorkflowConfig provided, using standard defaults.")
-        config = QCWorkflowConfig()
+    runtime_config = _prepare_runtime_qc_config(config, tissue_type)
 
     # Validate error recovery settings
     if error_recovery and on_error == "save" and not recovery_save_dir:
@@ -462,7 +762,7 @@ def run_standard_qc(
     else:
         adata = adata_in.copy()
 
-    adata, results_path = _setup_workflow(adata, config.save_dir, overwrite)
+    adata, results_path = _setup_workflow(adata, runtime_config.save_dir, overwrite)
 
     log.info("=" * 60)
     log.info("=== Starting Standard QC Workflow ===")
@@ -479,20 +779,39 @@ def run_standard_qc(
         if "qc_metrics" not in completed_steps:
             current_step = "qc_metrics"
             log.info("Step: QC Metrics Calculation")
-            adata = _run_qc_workflow(adata, config, results_path, show_progress=show_progress)
+            adata, applied_config, recommendation, sample_thresholds, qc_warnings, original_config = _run_qc_workflow(
+                adata, runtime_config, results_path, show_progress=show_progress
+            )
+            _add_tumor_aware_flags(adata, applied_config.tissue_type or tissue_type)
             successful_steps.append("qc_metrics")
         else:
             log.info("Step: QC Metrics (already completed, skipping)")
+            applied_config = runtime_config
+            recommendation = None
+            sample_thresholds = {}
+            qc_warnings = []
+            original_config = runtime_config.model_copy(deep=True)
 
         # --- Step 2: Filtering ---
         if "filtering" not in completed_steps:
             current_step = "filtering"
             log.info("Step: Cell Filtering")
-            adata_filtered = filter_cells(adata, config=config.filter_config, copy=True)
+            adata_filtered = filter_cells(adata, config=applied_config.filter_config, copy=True)
             successful_steps.append("filtering")
         else:
             log.info("Step: Filtering (already completed, using cached)")
             adata_filtered = adata
+
+        filtering_summary = adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
+        _store_qc_trace(
+            adata_filtered,
+            applied_config,
+            original_config,
+            recommendation,
+            sample_thresholds,
+            filtering_summary,
+            qc_warnings,
+        )
 
         # --- Step 3: Reporting ---
         if results_path is not None and "reporting" not in completed_steps:
@@ -501,7 +820,7 @@ def run_standard_qc(
             generate_qc_report(
                 adata_filtered,
                 save_dir=results_path / "report",
-                sample_key=config.sample_key,
+                sample_key=applied_config.sample_key,
                 adata_before=adata,
             )
             successful_steps.append("reporting")
@@ -521,7 +840,7 @@ def run_standard_qc(
                 failed_step=current_step,
                 error_message=str(e),
             )
-            manager.save(adata, checkpoint, config)
+            manager.save(adata, checkpoint, applied_config if 'applied_config' in locals() else runtime_config)
 
             if on_error == "save":
                 log.warning(f"QC failed but partial results saved to: {save_dir}")
@@ -536,7 +855,7 @@ def run_standard_qc(
         module="qc",
         workflow_name="standard",
         steps=successful_steps,
-        config=config.to_dict()
+        config=applied_config.to_dict()
     )
 
     log.info("=" * 60)
@@ -552,6 +871,7 @@ def run_advanced_qc(
     config: QCWorkflowConfig,
     overwrite: bool = False,
     *,
+    tissue_type: str = "unknown",
     show_progress: bool = True,
     # Error recovery
     error_recovery: bool = False,
@@ -584,6 +904,8 @@ def run_advanced_qc(
     Returns:
         Filtered AnnData object after QC.
     """
+    runtime_config = _prepare_runtime_qc_config(config, tissue_type)
+
     # Validate error recovery settings
     if error_recovery and on_error == "save" and not recovery_save_dir:
         raise ValueError("recovery_save_dir is required when error_recovery=True and on_error='save'")
@@ -598,7 +920,7 @@ def run_advanced_qc(
     else:
         adata = adata_in.copy()
 
-    adata, results_path = _setup_workflow(adata, config.save_dir, overwrite)
+    adata, results_path = _setup_workflow(adata, runtime_config.save_dir, overwrite)
 
     log.info("=" * 60)
     log.info("=== Starting Advanced QC Workflow ===")
@@ -618,20 +940,39 @@ def run_advanced_qc(
         if "qc_metrics" not in completed_steps:
             current_step = "qc_metrics"
             log.info("Step: QC Metrics Calculation")
-            adata = _run_qc_workflow(adata, config, results_path, show_progress=show_progress)
+            adata, applied_config, recommendation, sample_thresholds, qc_warnings, original_config = _run_qc_workflow(
+                adata, runtime_config, results_path, show_progress=show_progress
+            )
+            _add_tumor_aware_flags(adata, applied_config.tissue_type or tissue_type)
             successful_steps.append("qc_metrics")
         else:
             log.info("Step: QC Metrics (already completed, skipping)")
+            applied_config = runtime_config
+            recommendation = None
+            sample_thresholds = {}
+            qc_warnings = []
+            original_config = runtime_config.model_copy(deep=True)
 
         # --- Step 2: Filtering ---
         if "filtering" not in completed_steps:
             current_step = "filtering"
             log.info("Step: Cell Filtering")
-            adata_filtered = filter_cells(adata, config=config.filter_config, copy=True)
+            adata_filtered = filter_cells(adata, config=applied_config.filter_config, copy=True)
             successful_steps.append("filtering")
         else:
             log.info("Step: Filtering (already completed, using cached)")
             adata_filtered = adata
+
+        filtering_summary = adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
+        _store_qc_trace(
+            adata_filtered,
+            applied_config,
+            original_config,
+            recommendation,
+            sample_thresholds,
+            filtering_summary,
+            qc_warnings,
+        )
 
         # --- Step 3: Reporting ---
         if results_path is not None and "reporting" not in completed_steps:
@@ -640,7 +981,7 @@ def run_advanced_qc(
             generate_qc_report(
                 adata_filtered,
                 save_dir=results_path / "report",
-                sample_key=config.sample_key,
+                sample_key=applied_config.sample_key,
                 adata_before=adata,
             )
             successful_steps.append("reporting")
@@ -660,7 +1001,7 @@ def run_advanced_qc(
                 failed_step=current_step,
                 error_message=str(e),
             )
-            manager.save(adata, checkpoint, config)
+            manager.save(adata, checkpoint, applied_config if 'applied_config' in locals() else runtime_config)
 
             if on_error == "save":
                 log.warning(f"QC failed but partial results saved to: {save_dir}")
@@ -675,7 +1016,7 @@ def run_advanced_qc(
         module="qc",
         workflow_name="advanced",
         steps=successful_steps,
-        config=config.to_dict()
+        config=applied_config.to_dict()
     )
 
     log.info("=" * 60)

@@ -156,9 +156,26 @@ def optimize_neighbors_pcs(
     if not active_config.n_neighbors_list or not active_config.n_pcs_list:
         raise ValueError("n_neighbors_list and n_pcs_list cannot be empty.")
 
+    rep = adata.obsm[active_config.use_rep]
+    max_valid_pcs = rep.shape[1]
+    valid_n_pcs = sorted({int(p) for p in active_config.n_pcs_list if 1 <= int(p) <= max_valid_pcs})
+    if not valid_n_pcs:
+        raise ValueError(
+            f"No valid n_pcs values remain for representation '{active_config.use_rep}' with {max_valid_pcs} dimensions."
+        )
+
+    max_valid_neighbors = max(2, adata.n_obs - 1)
+    valid_n_neighbors = sorted(
+        {int(n) for n in active_config.n_neighbors_list if 2 <= int(n) <= max_valid_neighbors}
+    )
+    if not valid_n_neighbors:
+        raise ValueError(
+            f"No valid n_neighbors values remain for dataset with {adata.n_obs} cells."
+        )
+
     log.info("Starting grid search for n_neighbors and n_pcs...")
     log.info(
-        f"Testing {len(active_config.n_neighbors_list)} neighbor values and {len(active_config.n_pcs_list)} PC values."
+        f"Testing {len(valid_n_neighbors)} neighbor values and {len(valid_n_pcs)} PC values."
     )
 
     # --- 3. Prepare data (subsampling) ---
@@ -174,7 +191,7 @@ def optimize_neighbors_pcs(
 
     # --- 4. Run grid search in parallel ---
     param_combinations = [
-        (n, p) for n in active_config.n_neighbors_list for p in active_config.n_pcs_list
+        (n, p) for n in valid_n_neighbors for p in valid_n_pcs
     ]
 
     try:
@@ -203,6 +220,26 @@ def optimize_neighbors_pcs(
         log.info("=" * 30)
     else:
         log.warning("Grid search yielded no valid results.")
+
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "neighbors_optimization"
+    ] = {
+        "use_rep": active_config.use_rep,
+        "subsample": active_config.subsample,
+        "n_jobs": active_config.n_jobs,
+        "tested_n_neighbors": valid_n_neighbors,
+        "tested_n_pcs": valid_n_pcs,
+        "n_results": int(len(df_results)),
+        "best_params": (
+            {
+                "n_neighbors": int(best_params["n_neighbors"]),
+                "n_pcs": int(best_params["n_pcs"]),
+                "silhouette_score": float(best_params["silhouette_score"]),
+            }
+            if not df_results.empty
+            else None
+        ),
+    }
 
     # --- 6. Save results and plot ---
     if save_dir:
