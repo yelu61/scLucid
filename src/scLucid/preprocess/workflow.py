@@ -8,7 +8,7 @@ fine-grained step control, backend abstraction, progress tracking, and error rec
 import logging
 import traceback
 from pathlib import Path
-from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 import scanpy as sc
 from anndata import AnnData
@@ -60,6 +60,8 @@ def run_preprocessing(
     # Memory optimization
     inplace: bool = False,
     keep_intermediate_layers: bool = True,
+    # Tumor-aware hint
+    tissue_type: str = "unknown",
     # Progress tracking
     show_progress: bool = True,
     progress_desc: str = "Preprocessing",
@@ -148,8 +150,7 @@ def run_preprocessing(
         ...     keep_intermediate_layers=False
         ... )
     """
-    if config is None:
-        config = WorkflowConfig()
+    active_config = _prepare_workflow_config(config)
 
     # Validate error recovery settings
     if error_recovery and on_error == "save" and not recovery_save_dir:
@@ -164,7 +165,7 @@ def run_preprocessing(
         log.info(f"Resumed from partial results. Completed steps: {completed_steps}")
 
     # Validate step names
-    steps_to_run = _resolve_steps(steps, skip_steps)
+    steps_to_run = _resolve_steps(steps, skip_steps, active_config)
     invalid_steps = set(steps_to_run) - set(WORKFLOW_STEPS)
     if invalid_steps:
         raise ValueError(
@@ -197,8 +198,8 @@ def run_preprocessing(
 
     # Handle save_dir priority: explicit > config > deprecated results_dir
     effective_save_dir = save_dir
-    if effective_save_dir is None and config and config.save_dir:
-        effective_save_dir = config.save_dir
+    if effective_save_dir is None and active_config.save_dir:
+        effective_save_dir = active_config.save_dir
     if results_dir is not None:
         log.warning("results_dir is deprecated. Use save_dir or config.save_dir instead.")
         effective_save_dir = results_dir
@@ -226,7 +227,7 @@ def run_preprocessing(
                     adata, "normalization", custom_pre_step, custom_post_step,
                     lambda a: normalize_data(
                         a,
-                        config=config.normalization,
+                        config=active_config.normalization,
                         force=force,
                         save_dir=str(results_path / "normalization") if results_path else None,
                     ),
@@ -237,28 +238,28 @@ def run_preprocessing(
             elif step_name == "set_raw":
                 adata = _run_step(
                     adata, "set_raw", custom_pre_step, custom_post_step,
-                    lambda a: _set_raw_layer(a, config),
+                    lambda a: _set_raw_layer(a, active_config),
                 )
                 successful_steps.append(step_name)
 
             # --- 3. Regression (Optional) ---
             elif step_name == "regression":
-                if config.scaling.vars_to_regress:
+                if active_config.scaling.vars_to_regress:
                     adata = _run_step(
                         adata, "regression", custom_pre_step, custom_post_step,
                         lambda a: regress_out(
                             a,
-                            config=config.scaling,
-                            input_layer=config.normalized_layer,
-                            output_layer=config.regressed_layer,
+                            config=active_config.scaling,
+                            input_layer=active_config.normalized_layer,
+                            output_layer=active_config.regressed_layer,
                         ),
                     )
                     successful_steps.append(step_name)
 
                     # Optionally clean up normalized layer to save memory
-                    if not keep_intermediate_layers and config.normalized_layer in adata.layers:
-                        del adata.layers[config.normalized_layer]
-                        log.info(f"Removed intermediate layer: {config.normalized_layer}")
+                    if not keep_intermediate_layers and active_config.normalized_layer in adata.layers:
+                        del adata.layers[active_config.normalized_layer]
+                        log.info(f"Removed intermediate layer: {active_config.normalized_layer}")
                 else:
                     log.info("Step: Skipping regression (no vars_to_regress).")
                     successful_steps.append(step_name)
@@ -269,8 +270,8 @@ def run_preprocessing(
                     adata, "hvg_selection", custom_pre_step, custom_post_step,
                     lambda a: find_hvgs(
                         a,
-                        config=config.hvg,
-                        input_layer=config.regressed_layer if config.scaling.vars_to_regress else config.normalized_layer,
+                        config=active_config.hvg,
+                        input_layer=_get_hvg_input_layer(a, active_config),
                         force=force,
                         save_dir=str(results_path / "hvg") if results_path else None,
                     ),
@@ -281,7 +282,7 @@ def run_preprocessing(
             elif step_name == "subset_hvg":
                 adata = _run_step(
                     adata, "subset_hvg", custom_pre_step, custom_post_step,
-                    lambda a: _subset_to_hvgs(a, config, keep_intermediate_layers),
+                    lambda a: _subset_to_hvgs(a, active_config, keep_intermediate_layers),
                 )
                 successful_steps.append(step_name)
 
@@ -289,7 +290,7 @@ def run_preprocessing(
             elif step_name == "scaling":
                 adata = _run_step(
                     adata, "scaling", custom_pre_step, custom_post_step,
-                    lambda a: scale_data(a, config=config.scaling),
+                    lambda a: _run_scaling_step(a, active_config),
                 )
                 successful_steps.append(step_name)
 
@@ -297,18 +298,18 @@ def run_preprocessing(
             elif step_name == "pca":
                 adata = _run_step(
                     adata, "pca", custom_pre_step, custom_post_step,
-                    lambda a: _run_pca(a, config, results_path),
+                    lambda a: _run_pca(a, active_config, results_path),
                 )
                 successful_steps.append(step_name)
 
             # --- 8. Integration/Batch Correction ---
             elif step_name == "batch_correction":
-                if config.integration.method and config.integration.batch_key:
+                if active_config.integration.method and active_config.integration.batch_key:
                     adata = _run_step(
                         adata, "batch_correction", custom_pre_step, custom_post_step,
                         lambda a: batch_correction(
                             a,
-                            config=config.integration,
+                            config=active_config.integration,
                             save_dir=str(results_path / "integration") if results_path else None,
                         ),
                     )
@@ -321,7 +322,7 @@ def run_preprocessing(
             elif step_name == "neighbors_umap":
                 adata = _run_step(
                     adata, "neighbors_umap", custom_pre_step, custom_post_step,
-                    lambda a: _run_neighbors_umap(a, config, results_path),
+                    lambda a: _run_neighbors_umap(a, active_config, results_path),
                 )
                 successful_steps.append(step_name)
 
@@ -339,7 +340,7 @@ def run_preprocessing(
                 failed_step=current_step,
                 error_message=str(e),
             )
-            manager.save(adata, checkpoint, config)
+            manager.save(adata, checkpoint, active_config)
 
             if on_error == "save":
                 log.warning(f"Workflow failed but partial results saved to: {save_dir}")
@@ -351,8 +352,19 @@ def run_preprocessing(
     # Store final config
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
         "workflow_config"
-    ] = config.to_dict()
+    ] = active_config.to_dict()
     adata.uns["sclucid"]["preprocess"]["steps_executed"] = successful_steps
+
+    # Tumor-aware preprocessing notes
+    if tissue_type and ("tumor" in tissue_type.lower() or "cancer" in tissue_type.lower()):
+        tumor_notes: Dict[str, Any] = {"tissue_type": tissue_type, "tumor_aware_enabled": True}
+        if active_config.integration.method and active_config.integration.batch_key:
+            tumor_notes["batch_correction_note"] = (
+                "Batch correction is enabled. For tumor data, review whether "
+                "inter-tumor heterogeneity is being over-corrected."
+            )
+        adata.uns["sclucid"]["preprocess"]["tumor_aware_notes"] = tumor_notes
+        log.info(f"Tumor-aware preprocessing notes stored: {list(tumor_notes.keys())}")
 
     log.info("=" * 60)
     log.info("=== Preprocessing Workflow Complete! ===")
@@ -363,7 +375,8 @@ def run_preprocessing(
 
 def _resolve_steps(
     steps: Optional[Sequence[str]],
-    skip_steps: Optional[Sequence[str]]
+    skip_steps: Optional[Sequence[str]],
+    config: Optional[WorkflowConfig] = None,
 ) -> List[str]:
     """Resolve which steps to run based on steps and skip_steps parameters."""
     if steps is not None and skip_steps is not None:
@@ -375,7 +388,34 @@ def _resolve_steps(
     if skip_steps is not None:
         return [s for s in WORKFLOW_STEPS if s not in skip_steps]
 
-    return WORKFLOW_STEPS
+    if config is None:
+        return WORKFLOW_STEPS
+
+    disabled_steps = set()
+    if not config.run_regression:
+        disabled_steps.add("regression")
+    if not config.run_scaling:
+        disabled_steps.add("scaling")
+    if not config.run_pca:
+        disabled_steps.add("pca")
+    if not config.run_integration:
+        disabled_steps.add("batch_correction")
+    if not config.run_neighbors:
+        disabled_steps.add("neighbors_umap")
+
+    return [step for step in WORKFLOW_STEPS if step not in disabled_steps]
+
+
+def _prepare_workflow_config(config: Optional[WorkflowConfig]) -> WorkflowConfig:
+    """Create an isolated workflow config with authoritative workflow layer names."""
+    active_config = WorkflowConfig() if config is None else config.model_copy(deep=True)
+    active_config.normalization = active_config.normalization.model_copy(
+        update={
+            "input_layer": active_config.counts_layer,
+            "output_layer": active_config.normalized_layer,
+        }
+    )
+    return active_config
 
 
 def _run_step(
@@ -400,6 +440,42 @@ def _run_step(
         adata = custom_post(adata, step_name)
 
     return adata
+
+
+def _get_hvg_input_layer(adata: AnnData, config: WorkflowConfig) -> str:
+    """Choose the best available layer for HVG calculation."""
+    if config.normalized_layer in adata.layers:
+        return config.normalized_layer
+    if config.regressed_layer in adata.layers:
+        log.warning(
+            f"Normalized layer '{config.normalized_layer}' not found; falling back to '{config.regressed_layer}' for HVG selection."
+        )
+        return config.regressed_layer
+    return config.normalized_layer
+
+
+def _get_preferred_expression_layer(
+    adata: AnnData,
+    preferred_layers: Sequence[str],
+) -> Optional[str]:
+    """Return the first available layer from a preference-ordered list."""
+    for layer in preferred_layers:
+        if layer in adata.layers:
+            return layer
+    return None
+
+
+def _run_scaling_step(adata: AnnData, config: WorkflowConfig) -> AnnData:
+    """Scale the appropriate workflow layer without re-running inline regression."""
+    scaling_input_layer = _get_preferred_expression_layer(
+        adata,
+        [config.regressed_layer, config.normalized_layer],
+    )
+    if scaling_input_layer is not None:
+        adata.X = adata.layers[scaling_input_layer].copy()
+
+    scaling_config = config.scaling.model_copy(update={"regress_in_scale": False})
+    return scale_data(adata, config=scaling_config, output_layer=config.scaled_layer)
 
 
 def _set_raw_layer(adata: AnnData, config: WorkflowConfig) -> AnnData:
@@ -458,8 +534,21 @@ def _run_pca(
     results_path: Optional[Path],
 ) -> AnnData:
     """Run PCA and optionally save variance plot."""
-    log.info(f"PCA (using {config.graph.n_pcs} components)")
-    sc.tl.pca(adata, n_comps=config.graph.n_pcs)
+    pca_input_layer = _get_preferred_expression_layer(
+        adata,
+        [config.scaled_layer, config.regressed_layer, config.normalized_layer],
+    )
+    if pca_input_layer is not None:
+        adata.X = adata.layers[pca_input_layer].copy()
+
+    max_valid_pcs = max(1, min(adata.n_obs, adata.n_vars) - 1)
+    n_comps = min(config.graph.n_pcs, max_valid_pcs)
+    if n_comps != config.graph.n_pcs:
+        log.info(
+            f"PCA requested {config.graph.n_pcs} components but data supports {n_comps}; clipping to valid range."
+        )
+    log.info(f"PCA (using {n_comps} components)")
+    sc.tl.pca(adata, n_comps=n_comps)
 
     if results_path:
         try:
@@ -481,11 +570,17 @@ def _run_neighbors_umap(
     results_path: Optional[Path],
 ) -> AnnData:
     """Run neighbors and UMAP."""
+    if "X_pca" not in adata.obsm:
+        raise KeyError("X_pca not found in adata.obsm. Run PCA first or provide a precomputed PCA embedding.")
+
+    effective_n_pcs = min(config.graph.n_pcs, adata.obsm["X_pca"].shape[1])
+    effective_n_neighbors = min(config.graph.n_neighbors, max(2, adata.n_obs - 1))
+
     log.info("Neighbors graph and UMAP")
     sc.pp.neighbors(
         adata,
-        n_pcs=config.graph.n_pcs,
-        n_neighbors=config.graph.n_neighbors,
+        n_pcs=effective_n_pcs,
+        n_neighbors=effective_n_neighbors,
         use_rep="X_pca",
     )
     sc.tl.umap(adata)

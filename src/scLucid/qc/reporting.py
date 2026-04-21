@@ -6,7 +6,9 @@ with embedded visualizations and recommendations.
 """
 
 import logging
+import json
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -84,7 +86,9 @@ class EnhancedQCReport:
 
     def _gather_report_data(self, include_plots: bool = True) -> Dict[str, Any]:
         """Gather all data for the report."""
+        qc_trace = self._get_qc_trace()
         data = {
+            'trace': qc_trace,
             'metadata': self._get_metadata(),
             'summary': self._get_summary_statistics(),
             'metrics': self._get_metrics_summary(),
@@ -95,14 +99,33 @@ class EnhancedQCReport:
         }
         return data
 
+    def _get_qc_trace(self) -> Dict[str, Any]:
+        """Safely read the unified QC trace."""
+        return self.adata.uns.get("sclucid", {}).get("qc", {})
+
+    @staticmethod
+    def _extract_data(value: Any, default: Any) -> Any:
+        if isinstance(value, dict) and "data" in value:
+            return value.get("data", default)
+        return value if value is not None else default
+
     def _get_metadata(self) -> Dict[str, Any]:
         """Get report metadata."""
+        qc_trace = self._get_qc_trace()
+        context = self._extract_data(qc_trace.get("context"), {})
+        recommendation = self._extract_data(qc_trace.get("recommendation"), {})
         return {
             'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'n_cells_after': self.adata.n_obs,
             'n_cells_before': self.adata_before.n_obs,
             'n_genes': self.adata.n_vars,
             'retention_rate': self.adata.n_obs / self.adata_before.n_obs,
+            'sample_key': context.get("sample_key"),
+            'n_samples': context.get("n_samples"),
+            'threshold_mode': context.get("threshold_mode"),
+            'tissue_type': context.get("tissue_type"),
+            'strategy': recommendation.get("overall_strategy"),
+            'overall_confidence': recommendation.get("overall_confidence"),
         }
 
     def _get_summary_statistics(self) -> Dict[str, Any]:
@@ -123,6 +146,8 @@ class EnhancedQCReport:
         for metric in qc_metrics:
             if metric in self.adata.obs:
                 values = self.adata.obs[metric].values
+                if len(values) == 0:
+                    continue
                 stats[metric] = {
                     'mean': float(np.mean(values)),
                     'median': float(np.median(values)),
@@ -142,6 +167,8 @@ class EnhancedQCReport:
                 continue
 
             values = self.adata.obs[metric].values
+            if len(values) == 0:
+                continue
             summary.append({
                 'name': metric,
                 'mean': float(np.mean(values)),
@@ -153,21 +180,30 @@ class EnhancedQCReport:
 
     def _get_filtering_summary(self) -> Dict[str, Any]:
         """Get filtering summary."""
-        n_before = self.adata_before.n_obs
-        n_after = self.adata.n_obs
-        n_removed = n_before - n_after
+        qc_trace = self._get_qc_trace()
+        filtering_results = self._extract_data(qc_trace.get("filtering_summary"), {})
+        n_before = int(filtering_results.get("initial_cells", self.adata_before.n_obs))
+        n_after = int(filtering_results.get("final_cells", self.adata.n_obs))
+        n_removed = int(filtering_results.get("removed_cells", n_before - n_after))
 
         return {
             'n_before': n_before,
             'n_after': n_after,
             'n_removed': n_removed,
-            'retention_rate': n_after / n_before,
-            'removal_rate': n_removed / n_before,
+            'retention_rate': n_after / n_before if n_before else 0.0,
+            'removal_rate': n_removed / n_before if n_before else 0.0,
+            'criteria_used': filtering_results.get("criteria_used", []),
+            'combination_logic': filtering_results.get("combination_logic"),
+            'criteria_counts': filtering_results.get("criteria_counts", {}),
         }
 
     def _get_recommendations(self) -> List[Dict[str, str]]:
         """Generate QC recommendations."""
         recommendations = []
+        qc_trace = self._get_qc_trace()
+        recommendation_trace = self._extract_data(qc_trace.get("recommendation"), {})
+        warnings = self._extract_data(qc_trace.get("warnings"), [])
+        tumor_flags = self._extract_data(qc_trace.get("tumor_aware_flags"), {})
 
         # Check filtering rate
         retention_rate = self.adata.n_obs / self.adata_before.n_obs
@@ -208,6 +244,37 @@ class EnhancedQCReport:
                     'message': f'Low median gene count ({np.median(gene_counts):.0}). Possible low-quality data.',
                 })
 
+        for concern in recommendation_trace.get("concerns", []):
+            recommendations.append({
+                'category': 'Recommendation Engine',
+                'severity': 'warning',
+                'message': concern,
+            })
+
+        for consideration in recommendation_trace.get("tumor_specific_considerations", []):
+            recommendations.append({
+                'category': 'Tumor Context',
+                'severity': 'info',
+                'message': consideration,
+            })
+
+        if tumor_flags.get("tumor_aware_enabled"):
+            recommendations.append({
+                'category': 'Tumor-aware QC',
+                'severity': 'info',
+                'message': tumor_flags.get(
+                    "note",
+                    "Tumor-aware QC is enabled; flagged populations should be reviewed before hard filtering.",
+                ),
+            })
+
+        for warning in warnings:
+            recommendations.append({
+                'category': 'Workflow Warning',
+                'severity': 'warning',
+                'message': warning,
+            })
+
         return recommendations
 
     def _get_plot_data(self) -> Dict[str, Any]:
@@ -227,6 +294,11 @@ class EnhancedQCReport:
     def _get_table_data(self) -> Dict[str, Any]:
         """Get data for tables."""
         tables = {}
+        qc_trace = self._get_qc_trace()
+        recommendation = self._extract_data(qc_trace.get("recommendation"), {})
+        filtering = self._extract_data(qc_trace.get("filtering_summary"), {})
+        sample_thresholds = self._extract_data(qc_trace.get("sample_thresholds"), {})
+        overrides = self._extract_data(qc_trace.get("user_overrides"), {})
 
         # Summary statistics table
         summary_data = []
@@ -253,6 +325,48 @@ class EnhancedQCReport:
 
         tables['metrics'] = qc_metrics_data
 
+        recommendation_rows = []
+        for name in ["min_genes", "n_counts", "max_mt_percent", "doublet_threshold"]:
+            rec = recommendation.get(name)
+            if not isinstance(rec, dict):
+                continue
+            recommendation_rows.append({
+                'Parameter': name,
+                'Threshold': f"{rec.get('threshold')}",
+                'CI': f"{rec.get('ci_lower')} - {rec.get('ci_upper')}",
+                'Confidence': f"{float(rec.get('confidence', 0.0)):.2f}",
+                'Method': rec.get('method', ''),
+            })
+        tables["recommendations"] = recommendation_rows
+
+        filtering_rows = []
+        for criterion, count in filtering.get("criteria_counts", {}).items():
+            filtering_rows.append({
+                "Criterion": criterion,
+                "Flagged Cells": str(count),
+            })
+        tables["filtering"] = filtering_rows
+
+        threshold_rows = []
+        for sample_id, metrics in sample_thresholds.items():
+            for metric_name, bounds in metrics.items():
+                threshold_rows.append({
+                    "Sample": sample_id,
+                    "Metric": metric_name,
+                    "Lower": f"{bounds.get('lower')}",
+                    "Upper": f"{bounds.get('upper')}",
+                })
+        tables["sample_thresholds"] = threshold_rows
+
+        override_rows = []
+        for name, values in overrides.items():
+            override_rows.append({
+                "Parameter": name,
+                "Recommended": f"{values.get('recommended')}",
+                "User Config": f"{values.get('actual')}",
+            })
+        tables["overrides"] = override_rows
+
         return tables
 
     def _generate_html(
@@ -269,6 +383,8 @@ class EnhancedQCReport:
         filtering = data['filtering']
         recommendations = data.get('recommendations', [])
         tables = data.get('tables', {})
+        trace = data.get("trace", {})
+        warnings = self._extract_data(trace.get("warnings"), [])
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -284,25 +400,27 @@ class EnhancedQCReport:
         }}
 
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
             line-height: 1.6;
-            color: #333;
-            background-color: #f8f9fa;
+            color: #1f2a2e;
+            background:
+                radial-gradient(circle at top left, rgba(186, 218, 209, 0.35), transparent 30%),
+                linear-gradient(180deg, #f4f1e8 0%, #eef3f2 100%);
         }}
 
         .container {{
-            max-width: 1200px;
+            max-width: 1240px;
             margin: 0 auto;
             padding: 20px;
         }}
 
         .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(135deg, #274c4d 0%, #486b5c 100%);
+            color: #f6f3ec;
             padding: 40px;
-            border-radius: 10px;
+            border-radius: 18px;
             margin-bottom: 30px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(39, 76, 77, 0.18);
         }}
 
         .header h1 {{
@@ -316,22 +434,23 @@ class EnhancedQCReport:
         }}
 
         .section {{
-            background: white;
+            background: rgba(255, 255, 255, 0.92);
             padding: 30px;
             margin-bottom: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-radius: 18px;
+            box-shadow: 0 10px 24px rgba(32, 43, 45, 0.08);
+            border: 1px solid rgba(39, 76, 77, 0.08);
         }}
 
         .section h2 {{
-            color: #667eea;
-            border-bottom: 3px solid #667eea;
+            color: #274c4d;
+            border-bottom: 3px solid #88a99b;
             padding-bottom: 10px;
             margin-bottom: 20px;
         }}
 
         .section h3 {{
-            color: #764ba2;
+            color: #6a4e33;
             margin-top: 25px;
             margin-bottom: 15px;
         }}
@@ -344,11 +463,12 @@ class EnhancedQCReport:
         }}
 
         .stat-card {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(135deg, #faf7f0 0%, #e8f0ed 100%);
+            color: #274c4d;
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 14px;
             text-align: center;
+            border: 1px solid rgba(39, 76, 77, 0.08);
         }}
 
         .stat-card .value {{
@@ -369,8 +489,8 @@ class EnhancedQCReport:
         }}
 
         table th {{
-            background: #667eea;
-            color: white;
+            background: #274c4d;
+            color: #f9f7f0;
             padding: 12px;
             text-align: left;
             font-weight: 600;
@@ -393,13 +513,13 @@ class EnhancedQCReport:
         }}
 
         .recommendation.warning {{
-            background: #fff3cd;
-            border-left-color: #ffc107;
+            background: #fff2e0;
+            border-left-color: #c17b2f;
         }}
 
         .recommendation.info {{
-            background: #d1ecf1;
-            border-left-color: #17a2b8;
+            background: #e6f1ef;
+            border-left-color: #3f7d7a;
         }}
 
         .recommendation.success {{
@@ -416,12 +536,12 @@ class EnhancedQCReport:
         }}
 
         .badge.warning {{
-            background: #ffc107;
-            color: #000;
+            background: #c17b2f;
+            color: #fff;
         }}
 
         .badge.info {{
-            background: #17a2b8;
+            background: #3f7d7a;
             color: #fff;
         }}
 
@@ -433,7 +553,7 @@ class EnhancedQCReport:
         .footer {{
             text-align: center;
             padding: 20px;
-            color: #6c757d;
+            color: #5f6c70;
         }}
     </style>
 </head>
@@ -448,7 +568,7 @@ class EnhancedQCReport:
         </div>
 
         <div class="section">
-            <h2>Summary Statistics</h2>
+            <h2>Executive Summary</h2>
             <div class="stat-grid">
                 <div class="stat-card">
                     <div class="value">{metadata['n_cells_after']:,}</div>
@@ -467,6 +587,9 @@ class EnhancedQCReport:
                     <div class="label">Cells Removed</div>
                 </div>
             </div>
+            <p><strong>QC strategy</strong>: {escape(str(metadata.get('strategy') or 'not available'))} |
+               <strong>Threshold mode</strong>: {escape(str(metadata.get('threshold_mode') or 'not available'))} |
+               <strong>Tissue type</strong>: {escape(str(metadata.get('tissue_type') or 'not available'))}</p>
         </div>
 
         <div class="section">
@@ -480,13 +603,21 @@ class EnhancedQCReport:
         # Add metrics table
         if 'metrics' in tables:
             html += self._generate_table('QC Metrics', tables['metrics'])
+        if tables.get('recommendations'):
+            html += self._generate_table('Recommended Thresholds', tables['recommendations'])
+        if tables.get('filtering'):
+            html += self._generate_table('Filtering Criteria Summary', tables['filtering'])
+        if tables.get('sample_thresholds'):
+            html += self._generate_table('Per-sample Thresholds', tables['sample_thresholds'])
+        if tables.get('overrides'):
+            html += self._generate_table('User Overrides', tables['overrides'])
 
         # Add recommendations
         html += """
         </div>
 
         <div class="section">
-            <h2>Recommendations</h2>
+            <h2>Interpretation And Warnings</h2>
 """
 
         if recommendations:
@@ -494,18 +625,24 @@ class EnhancedQCReport:
                 severity_class = rec['severity']
                 html += f"""
             <div class="recommendation {severity_class}">
-                <strong>{rec['category']}:</strong> <span class="badge {severity_class}">{rec['severity'].upper()}</span><br>
-                {rec['message']}
+                <strong>{escape(rec['category'])}:</strong> <span class="badge {severity_class}">{escape(rec['severity'].upper())}</span><br>
+                {escape(rec['message'])}
             </div>
 """
         else:
             html += "<p>No specific recommendations. Your data looks good!</p>"
 
+        if warnings:
+            html += "<h3>Workflow warnings</h3><ul>"
+            for warning in warnings:
+                html += f"<li>{escape(str(warning))}</li>"
+            html += "</ul>"
+
         html += f"""
         </div>
 
         <div class="footer">
-            <p>Generated by scLucid - A Comprehensive System for Single-Cell Analysis</p>
+            <p>Generated by scLucid QC</p>
             <p>Report generated on {metadata['date']}</p>
         </div>
     </div>

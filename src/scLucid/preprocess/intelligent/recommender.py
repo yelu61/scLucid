@@ -662,6 +662,7 @@ class IntelligentPreprocessRecommender:
                 confidence=confidence,
                 evidence={
                     "n_batches": n_batches,
+                    "batch_key": batch_key,
                     "pc_r2_scores": r2_scores,
                     "mean_r2": float(mean_r2),
                 },
@@ -674,7 +675,7 @@ class IntelligentPreprocessRecommender:
                 severity_score=0.0,
                 recommended_method=None,
                 confidence=0.0,
-                evidence={"error": str(e)},
+                evidence={"batch_key": batch_key, "error": str(e)},
             )
 
     # --- Helper methods ---
@@ -969,5 +970,14 @@ def run_intelligent_preprocessing(
     adata_processed = run_preprocessing(
         adata, config=config, results_dir=save_dir
     )
+
+    adata_processed.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "intelligent_recommendation"
+    ] = {
+        "batch_key": batch_key,
+        "apply_recommendations": apply_recommendations,
+        "strategy": strategy.to_dict(),
+        "applied_config": config.to_dict() if hasattr(config, "to_dict") else None,
+    }
 
     return adata_processed, strategy

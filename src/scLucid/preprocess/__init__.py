@@ -48,6 +48,12 @@ from .backend import (
     set_backend,
     list_available_backends,
 )
+from .gene_biotype import (
+    annotate_gene_biotypes,
+    filter_genes_by_biotype,
+    get_biotype_statistics,
+    recommend_biotype_strategy,
+)
 
 # --- Intelligent Preprocessing ---
 from .intelligent import (
@@ -87,6 +93,10 @@ __all__ = [
     "select_hvg_sets",
     "scale_data",
     "batch_correction",
+    "annotate_gene_biotypes",
+    "filter_genes_by_biotype",
+    "get_biotype_statistics",
+    "recommend_biotype_strategy",
     # Backend
     "PreprocessingBackend",
     "ScanpyBackend",

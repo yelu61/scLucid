@@ -107,6 +107,7 @@ def _merge_doublet_predictions(
     strategy: str = "weighted_average",
     algo_weight: float = 0.6,
     expected_rate: Optional[Union[float, Dict[str, float]]] = 0.1,
+    score_threshold: Optional[float] = None,
 ) -> pd.Series:
     """
     Merge algorithmic and heuristic doublet scores for a final, more robust prediction.
@@ -149,19 +150,25 @@ def _merge_doublet_predictions(
     if final_score.max() > 0:
         final_score /= final_score.max()
 
-    if expected_rate is None:
-        log.warning(
-            "expected_doublet_rate is None, using a default of 0.1 for thresholding."
+    if score_threshold is not None:
+        threshold = score_threshold
+        log.info(
+            f"Using user-provided doublet score threshold of {threshold:.3f} for merged predictions."
         )
-        expected_rate = 0.1
+    else:
+        if expected_rate is None:
+            log.warning(
+                "expected_doublet_rate is None, using a default of 0.1 for thresholding."
+            )
+            expected_rate = 0.1
 
-    if isinstance(expected_rate, dict):  # Handle per-sample rates by taking the mean
-        expected_rate = np.mean(list(expected_rate.values()))
+        if isinstance(expected_rate, dict):  # Handle per-sample rates by taking the mean
+            expected_rate = np.mean(list(expected_rate.values()))
 
-    threshold = final_score.quantile(1 - expected_rate)
-    log.info(
-        f"Using a final score threshold of {threshold:.3f} based on expected doublet rate for merged predictions."
-    )
+        threshold = final_score.quantile(1 - expected_rate)
+        log.info(
+            f"Using a final score threshold of {threshold:.3f} based on expected doublet rate for merged predictions."
+        )
 
     return final_score > threshold
 
@@ -1220,6 +1227,7 @@ def predict_doublets(
         strategy=cfg.merge_strategy,
         expected_rate=cfg.expected_doublet_rate,
         algo_weight=cfg.algorithm_weight,
+        score_threshold=cfg.score_threshold,
     )
     adata.obs[FINAL_PRED_COL] = merged_pred
 
@@ -1231,6 +1239,7 @@ def predict_doublets(
             "merge_strategy": cfg.merge_strategy,
             "algorithm_weight": cfg.algorithm_weight,
             "expected_doublet_rate": cfg.expected_doublet_rate,
+            "score_threshold": cfg.score_threshold,
             "method": cfg.method,
         }
     )

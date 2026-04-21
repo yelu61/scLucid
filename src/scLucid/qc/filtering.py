@@ -5,10 +5,11 @@ This module provides marking, filtering, and reporting functions for low-quality
 cells, doublets, and custom outliers, with flexible logic and clear outputs.
 """
 
+import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -202,9 +203,19 @@ class AdaptiveThresholdCalculator:
                 # Calculate thresholds from adjusted distribution
                 z_score = stats.norm.ppf(percentile / 100)
 
+                lower = adjusted_mean - z_score * adjusted_std
+                upper = adjusted_mean + z_score * adjusted_std
+
+                # Domain-aware clipping
+                if metric in ("n_genes_by_counts", "total_counts"):
+                    lower = max(0.0, lower)
+                elif metric.startswith("pct_counts_") or metric in ("pct_counts_mt", "pct_counts_hb", "pct_counts_ribo"):
+                    lower = max(0.0, lower)
+                    upper = min(100.0, upper)
+
                 thresholds[batch] = {
-                    "lower": adjusted_mean - z_score * adjusted_std,
-                    "upper": adjusted_mean + z_score * adjusted_std,
+                    "lower": lower,
+                    "upper": upper,
                     "method": "hierarchical",
                     "shrinkage_factor": shrinkage,
                     "n_cells": n_batch,
@@ -960,7 +971,7 @@ def identify_outliers(
 
     if sample_key and sample_key in adata.obs.columns:
         log.info(f"Identifying outliers per group in '{sample_key}'...")
-        for sample_id, group_df in adata.obs.groupby(sample_key):
+        for sample_id, group_df in adata.obs.groupby(sample_key, observed=False):
             group_outliers = _identify_outliers_subset(
                 group_df, metrics, nmads, group_name=str(sample_id)
             )
@@ -984,6 +995,7 @@ def mark_low_quality_cell(
     adata: AnnData,
     sample_key: str = "sampleID",
     config: Optional[MarkingConfig] = None,
+    sample_thresholds: Optional[Dict[str, Dict[str, Any]]] = None,
     **kwargs,
 ) -> AnnData:
     """
@@ -1053,27 +1065,54 @@ def mark_low_quality_cell(
     # === THRESHOLD CHECKS ===
 
     # Gene count thresholds
-    adata.obs["outlier_min_genes"] = _safe_threshold_check(
-        adata.obs["n_genes_by_counts"], thresholds.min_genes, "<", "min_genes"
-    )
+    if sample_thresholds and "n_genes_by_counts" in next(iter(sample_thresholds.values()), {}):
+        outlier_min_genes = pd.Series(False, index=adata.obs_names)
+        for sample, idx in sample_indices.items():
+            st = sample_thresholds.get(sample, {}).get("n_genes_by_counts", {})
+            th = st.get("lower")
+            if th is not None:
+                outlier_min_genes.loc[idx] = adata.obs.loc[idx, "n_genes_by_counts"] < th
+        adata.obs["outlier_min_genes"] = outlier_min_genes
+    else:
+        adata.obs["outlier_min_genes"] = _safe_threshold_check(
+            adata.obs["n_genes_by_counts"], thresholds.min_genes, "<", "min_genes"
+        )
 
     adata.obs["outlier_max_genes"] = _safe_threshold_check(
         adata.obs["n_genes_by_counts"], thresholds.max_genes, ">", "max_genes"
     )
 
     # Total count thresholds
-    adata.obs["outlier_min_counts"] = _safe_threshold_check(
-        adata.obs["total_counts"], thresholds.min_counts, "<", "min_counts"
-    )
+    if sample_thresholds and "total_counts" in next(iter(sample_thresholds.values()), {}):
+        outlier_min_counts = pd.Series(False, index=adata.obs_names)
+        for sample, idx in sample_indices.items():
+            st = sample_thresholds.get(sample, {}).get("total_counts", {})
+            th = st.get("lower")
+            if th is not None:
+                outlier_min_counts.loc[idx] = adata.obs.loc[idx, "total_counts"] < th
+        adata.obs["outlier_min_counts"] = outlier_min_counts
+    else:
+        adata.obs["outlier_min_counts"] = _safe_threshold_check(
+            adata.obs["total_counts"], thresholds.min_counts, "<", "min_counts"
+        )
 
     adata.obs["outlier_max_counts"] = _safe_threshold_check(
         adata.obs["total_counts"], thresholds.max_counts, ">", "max_counts"
     )
 
     # Mitochondrial percentage threshold
-    adata.obs["outlier_mt"] = _safe_threshold_check(
-        adata.obs["pct_counts_mt"], thresholds.pc_mt, ">", "mitochondrial_percentage"
-    )
+    if sample_thresholds and "pct_counts_mt" in next(iter(sample_thresholds.values()), {}):
+        outlier_mt = pd.Series(False, index=adata.obs_names)
+        for sample, idx in sample_indices.items():
+            st = sample_thresholds.get(sample, {}).get("pct_counts_mt", {})
+            th = st.get("upper")
+            if th is not None:
+                outlier_mt.loc[idx] = adata.obs.loc[idx, "pct_counts_mt"] > th
+        adata.obs["outlier_mt"] = outlier_mt
+    else:
+        adata.obs["outlier_mt"] = _safe_threshold_check(
+            adata.obs["pct_counts_mt"], thresholds.pc_mt, ">", "mitochondrial_percentage"
+        )
 
     # Hemoglobin percentage threshold (if available)
     if "pct_counts_hb" in adata.obs.columns:
@@ -1163,6 +1202,7 @@ def mark_low_quality_cell(
 
     adata.uns["sclucid"]["qc"]["marking_params"] = {
         "thresholds": thresholds.to_dict(),
+        "sample_thresholds": sample_thresholds if sample_thresholds else {},
     }
 
     # === SUMMARY STATISTICS ===
@@ -1651,5 +1691,79 @@ def generate_qc_report(
 
         outlier_df = pd.DataFrame(outlier_summary)
         outlier_df.to_csv(Path(save_dir) / "outlier_summary.csv", index=False)
+
+    qc_trace = adata.uns.get("sclucid", {}).get("qc", {})
+    trace_context = qc_trace.get("context", {}).get("data", {})
+    trace_recommendation = qc_trace.get("recommendation", {}).get("data", {})
+    trace_warnings = qc_trace.get("warnings", {}).get("data", [])
+    trace_filtering = qc_trace.get("filtering_summary", {}).get("data", {})
+    trace_thresholds = qc_trace.get("sample_thresholds", {}).get("data", {})
+    trace_tumor_flags = qc_trace.get("tumor_aware_flags", {}).get("data", {})
+
+    report_summary = {
+        "dataset_shape_after": [adata.n_obs, adata.n_vars],
+        "dataset_shape_before": [adata_before.n_obs, adata_before.n_vars] if adata_before is not None else None,
+        "context": trace_context,
+        "recommendation": trace_recommendation,
+        "filtering_summary": trace_filtering,
+        "tumor_aware_flags": trace_tumor_flags,
+        "warnings": trace_warnings,
+        "sample_thresholds": trace_thresholds,
+    }
+    (Path(save_dir) / "qc_summary.json").write_text(
+        json.dumps(report_summary, indent=2, default=str)
+    )
+
+    md_lines = [
+        "# QC Summary",
+        "",
+        f"- **Cells before**: {adata_before.n_obs if adata_before is not None else 'NA'}",
+        f"- **Cells after**: {adata.n_obs}",
+        f"- **Genes**: {adata.n_vars}",
+        f"- **Threshold mode**: {trace_context.get('threshold_mode', 'NA')}",
+        f"- **Strategy**: {trace_recommendation.get('overall_strategy', 'NA')}",
+        f"- **Overall confidence**: {trace_recommendation.get('overall_confidence', 'NA')}",
+        f"- **Tissue type**: {trace_context.get('tissue_type', 'NA')}",
+        "",
+        "## Filtering",
+        "",
+        f"- **Criteria used**: {', '.join(trace_filtering.get('criteria_used', [])) if trace_filtering else 'NA'}",
+        f"- **Removed cells**: {trace_filtering.get('removed_cells', 'NA')}",
+        f"- **Removed fraction**: {trace_filtering.get('removed_fraction', 'NA')}",
+        "",
+        "## Concerns",
+        "",
+    ]
+
+    concerns = trace_recommendation.get("concerns", []) if trace_recommendation else []
+    if concerns:
+        md_lines.extend([f"- {concern}" for concern in concerns])
+    else:
+        md_lines.append("- None")
+
+    md_lines.extend(["", "## Warnings", ""])
+    if trace_warnings:
+        md_lines.extend([f"- {warning}" for warning in trace_warnings])
+    else:
+        md_lines.append("- None")
+
+    if trace_tumor_flags:
+        md_lines.extend(["", "## Tumor-aware Flags", "", "```json"])
+        md_lines.append(json.dumps(trace_tumor_flags, indent=2, default=str))
+        md_lines.append("```")
+
+    (Path(save_dir) / "qc_summary.md").write_text("\n".join(md_lines))
+
+    try:
+        from .reporting import generate_qc_html_report
+
+        generate_qc_html_report(
+            adata,
+            output_path=str(Path(save_dir) / "qc_report.html"),
+            adata_before=adata_before,
+            title="scLucid Quality Control Report",
+        )
+    except Exception as exc:
+        log.warning(f"Enhanced QC HTML report generation skipped: {exc}")
 
     log.info("QC report generation completed")

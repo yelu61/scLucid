@@ -2,6 +2,7 @@
 Data classes for intelligent preprocessing recommendations.
 """
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
@@ -298,33 +299,30 @@ class PreprocessingStrategy:
         Returns:
             PreprocessingWorkflowConfig with recommended parameters
         """
-        from ..config import (
-            HVGConfig, GraphConfig, IntegrationConfig, PreprocessingWorkflowConfig,
-            ScalingConfig
-        )
+        from ..config import PreprocessingWorkflowConfig
 
         if base_config is None:
             config = PreprocessingWorkflowConfig()
+        elif hasattr(base_config, "model_copy"):
+            config = base_config.model_copy(deep=True)
         else:
-            import dataclasses
-            config = dataclasses.replace(base_config)
+            config = copy.deepcopy(base_config)
 
         # Apply HVG recommendation
-        config.hvg = HVGConfig(
-            n_top_genes=self.hvg.n_top_genes,
-            flavor=config.hvg.flavor,
+        config.hvg = config.hvg.model_copy(
+            update={"n_top_genes": self.hvg.n_top_genes}
         )
 
         # Apply PCA/Graph recommendation
-        config.graph = GraphConfig(
-            n_pcs=self.neighbors.n_pcs,
-            n_neighbors=self.neighbors.n_neighbors,
+        config.graph = config.graph.model_copy(
+            update={
+                "n_pcs": self.neighbors.n_pcs,
+                "n_neighbors": self.neighbors.n_neighbors,
+            }
         )
 
         # Apply resolution recommendation
-        config.scaling = ScalingConfig(
-            max_value=config.scaling.max_value,
-        )
+        config.scaling = config.scaling.model_copy()
 
         # Store resolution in uns for later use
         if not hasattr(config, '_resolution'):
@@ -333,8 +331,12 @@ class PreprocessingStrategy:
         # Apply batch correction recommendation
         if self.batch_correction and self.batch_correction.needs_correction:
             config.run_integration = True
-            config.integration = IntegrationConfig(
-                method=self.batch_correction.recommended_method or "harmony",
+            batch_key = self.batch_correction.evidence.get("batch_key")
+            config.integration = config.integration.model_copy(
+                update={
+                    "method": self.batch_correction.recommended_method or "harmony",
+                    "batch_key": batch_key or config.integration.batch_key,
+                }
             )
         else:
             config.run_integration = False

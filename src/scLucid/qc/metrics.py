@@ -86,7 +86,7 @@ def _export_qc_stats(
         return {}
 
     # Calculate per-sample and global statistics
-    sample_stats = adata.obs.groupby(sample_key)[metrics].describe()
+    sample_stats = adata.obs.groupby(sample_key, observed=False)[metrics].describe()
     global_stats = adata.obs[metrics].describe().T
 
     if outdir:
@@ -131,7 +131,7 @@ def _detect_qc_outliers(
 
     # Mitochondrial percentage warning
     if "pct_counts_mt" in adata.obs.columns:
-        mt_stats = adata.obs.groupby(sample_key)["pct_counts_mt"].mean()
+        mt_stats = adata.obs.groupby(sample_key, observed=False)["pct_counts_mt"].mean()
         for s, v in mt_stats.items():
             if v > 15:
                 warn(
@@ -144,7 +144,7 @@ def _detect_qc_outliers(
         if col in adata.obs.columns:
             m = re.search(r"pct_counts_in_top_(\d+)_genes", col)
             top_n = int(m.group(1)) if m else "N"
-            top_gene_stats = adata.obs.groupby(sample_key)[col].mean()
+            top_gene_stats = adata.obs.groupby(sample_key, observed=False)[col].mean()
             for s, v in top_gene_stats.items():
                 if v > 60:
                     warn(
@@ -155,7 +155,7 @@ def _detect_qc_outliers(
 
     # Detected gene number warning
     if "n_genes_by_counts" in adata.obs.columns:
-        gene_stats = adata.obs.groupby(sample_key)["n_genes_by_counts"].median()
+        gene_stats = adata.obs.groupby(sample_key, observed=False)["n_genes_by_counts"].median()
         for s, v in gene_stats.items():
             if v < 1000:
                 warn(
@@ -291,15 +291,15 @@ def _plot_top_genes_distribution(
 
     # Calculate summary statistics on full dataset
     if sample_key in adata.obs.columns:
-        stats = adata.obs.groupby(sample_key)[percent_top_col].describe()
+        stats = adata.obs.groupby(sample_key, observed=False)[percent_top_col].describe()
         log.info(f"Summary statistics for {percent_top_col} by sample:\n{stats}")
 
         # For each threshold, calculate percentage of cells above it
         for threshold in thresholds:
-            counts = adata.obs.groupby(sample_key)[percent_top_col].apply(
+            counts = adata.obs.groupby(sample_key, observed=False)[percent_top_col].apply(
                 lambda x: (x > threshold).sum()
             )
-            percentages = counts / adata.obs.groupby(sample_key).size() * 100
+            percentages = counts / adata.obs.groupby(sample_key, observed=False).size() * 100
             threshold_stats = pd.DataFrame(
                 {"counts": counts, "percentage": percentages}
             )
@@ -585,9 +585,9 @@ def _plot_qc_scatter(
 def _get_default_gene_patterns() -> Dict[str, str]:
     """Get default gene patterns for standard gene sets."""
     return {
-        "mt": r"^(MT|Mt|mt)-",
-        "ribo": r"^(RP[SL]|Rp[sl])",
-        "hb": r"^(HB|hb)[^(P|p)]",
+        "mt": r"^(?:MT|Mt|mt)-",
+        "ribo": r"^(?:RP[SL]|Rp[sl])",
+        "hb": r"^(?:HB|hb)[^Pp]",
     }
 
 

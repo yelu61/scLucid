@@ -40,6 +40,37 @@ __all__ = [
 
 
 # --- Helper Functions ---#
+def _get_hvg_input_matrix(adata: AnnData, input_layer: str):
+    """Resolve HVG input matrix from the requested layer."""
+    if input_layer == "X":
+        return adata.X
+    if input_layer in adata.layers:
+        return adata.layers[input_layer]
+    available = list(adata.layers.keys())
+    raise KeyError(
+        f"Layer '{input_layer}' not found in adata.layers. Available layers: {available or '[]'}"
+    )
+
+
+def _validate_hvg_input_matrix(X, input_layer: str, method: str) -> None:
+    """Validate that HVG input is compatible with the chosen method."""
+    if X.shape[0] == 0 or X.shape[1] == 0:
+        raise ValueError(f"HVG input layer '{input_layer}' is empty with shape {X.shape}.")
+
+    values = X.data if scipy.sparse.issparse(X) else np.asarray(X)
+    if not np.all(np.isfinite(values)):
+        raise ValueError(
+            f"HVG input layer '{input_layer}' contains NaN or Inf values."
+        )
+
+    min_val = X.min() if scipy.sparse.issparse(X) else np.min(values)
+    if min_val < 0:
+        raise ValueError(
+            f"HVG input layer '{input_layer}' contains negative values. "
+            f"Method '{method}' expects non-negative normalized expression, not regressed/scaled residuals."
+        )
+
+
 def _diagnose_input_for_hvg(X, max_n=10000):
     """Compute and log basic statistics for the input matrix (dense or sparse)."""
     n_cells, n_genes = X.shape
@@ -811,7 +842,8 @@ def find_hvgs(
     )
 
     log.info(f"[HVG] Diagnosing input data from layer '{input_layer}' ...")
-    X = adata.layers.get(input_layer, adata.X)
+    X = _get_hvg_input_matrix(adata, input_layer)
+    _validate_hvg_input_matrix(X, input_layer, method)
     stats = _diagnose_input_for_hvg(X)
 
     if output_key in adata.var and not force:
@@ -1024,6 +1056,7 @@ def find_hvgs(
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg"] = {
         "output_key": output_key,
         "method": method,
+        "input_layer": input_layer,
         "params": savable_params,
         "n_hvg": n_hvg,
         "input_stats": stats,

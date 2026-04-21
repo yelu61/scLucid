@@ -42,6 +42,7 @@ VALID_MODULES = {
     "scenic",
     "tools",
     "checkpoint",
+    "tumor",
 }
 
 

@@ -5,7 +5,9 @@ manual/AI mapping import, and annotation evaluation.
 """
 
 import logging
-from typing import Dict, Literal, Optional, Union
+from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,6 +35,65 @@ __all__ = [
 
 
 # --------------------- Helper Functions -----------------------
+
+def _get_default_compartment_map() -> Dict[str, str]:
+    """Return a default compartment mapper for common cell type labels."""
+    return {
+        # Tumor / malignant
+        "Malignant": "tumor",
+        "Tumor": "tumor",
+        "Cancer": "tumor",
+        "Carcinoma": "tumor",
+        "Epithelial": "tumor",
+        "Pan-Cancer": "tumor",
+        "LUAD": "tumor",
+        "LUSC": "tumor",
+        "SCLC": "tumor",
+        # Immune
+        "T cells": "immune",
+        "B cells": "immune",
+        "NK cells": "immune",
+        "Macrophage": "immune",
+        "Monocyte": "immune",
+        "DC": "immune",
+        "Neutrophil": "immune",
+        "Mast": "immune",
+        "Plasma": "immune",
+        # Stromal
+        "Fibroblast": "stromal",
+        "Endothelial": "stromal",
+        "Pericyte": "stromal",
+        "Smooth muscle": "stromal",
+        "Stromal": "stromal",
+        # Uncertain
+        "Unknown": "uncertain",
+        "Unassigned": "uncertain",
+    }
+
+
+def _map_compartments(
+    labels: pd.Series,
+    compartment_map: Optional[Dict[str, str]] = None,
+) -> pd.Series:
+    """Map cell type labels to broad compartments (tumor/immune/stromal/uncertain/mixed)."""
+    if compartment_map is None:
+        compartment_map = _get_default_compartment_map()
+
+    def _map_label(label: str) -> str:
+        if pd.isna(label):
+            return "uncertain"
+        label_str = str(label)
+        # Exact match first
+        if label_str in compartment_map:
+            return compartment_map[label_str]
+        # Partial match fallback
+        for key, compartment in compartment_map.items():
+            if key.lower() in label_str.lower():
+                return compartment
+        return "uncertain"
+
+    mapped = labels.apply(_map_label)
+    return mapped
 def _read_table_file(path: str) -> pd.DataFrame:
     """
     Read a tabular mapping file with robust handling:
@@ -355,6 +416,332 @@ def annotate_clusters(
             sc.tl.umap(adata)
         sc.pl.umap(adata, color=[cluster_key, key_added], wspace=0.4)
     return adata
+
+
+def _get_celltypist_label_series(
+    adata: AnnData,
+    key_prefix: str = "celltypist",
+) -> tuple[pd.Series, pd.Series, str]:
+    """Return the preferred CellTypist label series and confidence scores."""
+    majority_key = f"{key_prefix}_majority_voting"
+    predicted_key = f"{key_prefix}_predicted_labels"
+    conf_key = f"{key_prefix}_conf_score"
+
+    if majority_key in adata.obs.columns:
+        label_key = majority_key
+    elif predicted_key in adata.obs.columns:
+        label_key = predicted_key
+    else:
+        raise KeyError(
+            f"CellTypist results not found for prefix '{key_prefix}'. "
+            f"Expected '{majority_key}' or '{predicted_key}'."
+        )
+
+    labels = adata.obs[label_key].astype(str)
+    confidences = (
+        pd.to_numeric(adata.obs[conf_key], errors="coerce")
+        if conf_key in adata.obs.columns
+        else pd.Series(1.0, index=adata.obs.index, dtype=float)
+    )
+    return labels, confidences, label_key
+
+
+def _build_celltypist_cluster_mapping(
+    adata: AnnData,
+    cluster_key: str,
+    *,
+    key_prefix: str = "celltypist",
+    min_confidence: float = 0.5,
+) -> tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
+    """Aggregate CellTypist predictions to cluster-level labels."""
+    labels, confidences, label_key = _get_celltypist_label_series(
+        adata, key_prefix=key_prefix
+    )
+    mapping: Dict[str, str] = {}
+    stats: Dict[str, Dict[str, float]] = {}
+
+    cluster_labels = adata.obs[cluster_key].astype(str)
+    for cluster in sorted(cluster_labels.unique(), key=str):
+        mask = cluster_labels == str(cluster)
+        cluster_pred = labels.loc[mask]
+        cluster_conf = confidences.loc[mask]
+        cluster_pred = cluster_pred[cluster_pred.notna() & (cluster_pred != "nan")]
+
+        if cluster_pred.empty:
+            mapping[str(cluster)] = "Unknown"
+            stats[str(cluster)] = {
+                "mean_conf_score": 0.0,
+                "majority_fraction": 0.0,
+                "label_source": label_key,
+            }
+            continue
+
+        counts = Counter(cluster_pred.tolist())
+        best_label, best_count = counts.most_common(1)[0]
+        majority_fraction = best_count / max(1, len(cluster_pred))
+        mean_conf = float(cluster_conf.mean()) if len(cluster_conf) else majority_fraction
+
+        mapping[str(cluster)] = (
+            best_label if mean_conf >= min_confidence else "Unknown"
+        )
+        stats[str(cluster)] = {
+            "mean_conf_score": mean_conf,
+            "majority_fraction": float(majority_fraction),
+            "label_source": label_key,
+        }
+
+    return mapping, stats
+
+
+def _combine_marker_and_celltypist_mappings(
+    marker_mapping: Dict[str, str],
+    celltypist_mapping: Dict[str, str],
+    celltypist_stats: Dict[str, Dict[str, float]],
+    *,
+    min_celltypist_confidence: float = 0.7,
+) -> tuple[Dict[str, str], Dict[str, Dict[str, Union[str, float]]]]:
+    """Resolve final labels from marker-based and CellTypist evidence."""
+    final_mapping: Dict[str, str] = {}
+    audit: Dict[str, Dict[str, Union[str, float]]] = {}
+
+    all_clusters = sorted(set(marker_mapping) | set(celltypist_mapping), key=str)
+    for cluster in all_clusters:
+        marker_label = marker_mapping.get(cluster, "Unknown")
+        celltypist_label = celltypist_mapping.get(cluster, "Unknown")
+        stats = celltypist_stats.get(cluster, {})
+        mean_conf = float(stats.get("mean_conf_score", 0.0))
+        majority_fraction = float(stats.get("majority_fraction", 0.0))
+
+        if (
+            marker_label != "Unknown"
+            and celltypist_label != "Unknown"
+            and marker_label == celltypist_label
+        ):
+            final_label = marker_label
+            decision = "agreement"
+        elif celltypist_label != "Unknown" and mean_conf >= min_celltypist_confidence:
+            final_label = celltypist_label
+            decision = "celltypist_high_confidence"
+        elif marker_label != "Unknown":
+            final_label = marker_label
+            decision = "marker_fallback"
+        elif celltypist_label != "Unknown" and majority_fraction >= 0.6:
+            final_label = celltypist_label
+            decision = "celltypist_majority_fallback"
+        else:
+            final_label = "Unknown"
+            decision = "insufficient_evidence"
+
+        final_mapping[cluster] = final_label
+        audit[cluster] = {
+            "marker_label": marker_label,
+            "celltypist_label": celltypist_label,
+            "final_label": final_label,
+            "decision": decision,
+            "mean_conf_score": mean_conf,
+            "majority_fraction": majority_fraction,
+        }
+
+    return final_mapping, audit
+
+
+def _sigmoid_score(value: float) -> float:
+    """Map an unbounded evidence score onto [0, 1]."""
+    clipped = float(np.clip(value, -20.0, 20.0))
+    return float(1.0 / (1.0 + np.exp(-clipped)))
+
+
+def _collect_marker_score_evidence(
+    adata: AnnData,
+    cluster_key: str,
+    annotation_key: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Summarize marker-score evidence per cluster when score columns exist."""
+    score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
+    if not score_cols or cluster_key not in adata.obs.columns or annotation_key not in adata.obs.columns:
+        return {}
+
+    means = adata.obs.groupby(cluster_key)[score_cols].mean()
+    evidence: Dict[str, Dict[str, Any]] = {}
+    for cluster in means.index:
+        cluster_str = str(cluster)
+        assigned_labels = adata.obs.loc[
+            adata.obs[cluster_key].astype(str) == cluster_str, annotation_key
+        ].astype(str)
+        if assigned_labels.empty:
+            continue
+        assigned_label = assigned_labels.value_counts().index[0]
+        assigned_score_col = f"{assigned_label}_score"
+        row = means.loc[cluster]
+
+        top_score_col = row.idxmax()
+        top_label = top_score_col[:-6] if top_score_col.endswith("_score") else top_score_col
+        top_score = float(row[top_score_col])
+        assigned_score = float(row[assigned_score_col]) if assigned_score_col in row.index else np.nan
+
+        if assigned_score_col in row.index:
+            best_other = row.drop(labels=[assigned_score_col], errors="ignore").max()
+            best_other = float(best_other) if pd.notna(best_other) else 0.0
+            margin = assigned_score - best_other
+            confidence = 0.7 * _sigmoid_score(assigned_score) + 0.3 * _sigmoid_score(margin)
+        else:
+            margin = np.nan
+            confidence = np.nan
+
+        evidence[cluster_str] = {
+            "assigned_label": assigned_label,
+            "top_marker_label": top_label,
+            "top_marker_score": top_score,
+            "assigned_marker_score": assigned_score,
+            "marker_margin": float(margin) if pd.notna(margin) else np.nan,
+            "marker_confidence": float(confidence) if pd.notna(confidence) else np.nan,
+        }
+    return evidence
+
+
+def _build_annotation_evidence_summary(
+    adata: AnnData,
+    cluster_key: str,
+    annotation_key: str,
+    *,
+    params: Optional[Dict[str, Any]] = None,
+) -> pd.DataFrame:
+    """Build a unified cluster-level evidence summary for annotation outputs."""
+    if cluster_key not in adata.obs.columns:
+        raise KeyError(f"'{cluster_key}' not found in adata.obs.")
+    if annotation_key not in adata.obs.columns:
+        raise KeyError(f"'{annotation_key}' not found in adata.obs.")
+
+    cluster_series = adata.obs[cluster_key].astype(str)
+    annotation_series = adata.obs[annotation_key].astype(str)
+    marker_evidence = _collect_marker_score_evidence(adata, cluster_key, annotation_key)
+
+    celltypist_mapping: Dict[str, str] = {}
+    celltypist_stats: Dict[str, Dict[str, float]] = {}
+    if (
+        "celltypist_majority_voting" in adata.obs.columns
+        or "celltypist_predicted_labels" in adata.obs.columns
+    ):
+        try:
+            celltypist_mapping, celltypist_stats = _build_celltypist_cluster_mapping(
+                adata,
+                cluster_key,
+                min_confidence=0.0,
+            )
+        except Exception:
+            celltypist_mapping, celltypist_stats = {}, {}
+
+    hybrid_audit = {}
+    if params is not None:
+        hybrid_audit = {
+            str(k): v for k, v in params.get("hybrid_audit", {}).items()
+        }
+
+    rows = []
+    for cluster in sorted(cluster_series.unique(), key=str):
+        mask = cluster_series == str(cluster)
+        cluster_labels = annotation_series.loc[mask]
+        label_counts = cluster_labels.value_counts()
+        assigned_label = str(label_counts.index[0]) if not label_counts.empty else "Unknown"
+        label_purity = float(label_counts.iloc[0] / max(1, label_counts.sum())) if not label_counts.empty else 0.0
+
+        cluster_marker = marker_evidence.get(str(cluster), {})
+        celltypist_label = celltypist_mapping.get(str(cluster), "Unknown")
+        ct_stats = celltypist_stats.get(str(cluster), {})
+        ct_mean_conf = float(ct_stats.get("mean_conf_score", np.nan))
+        ct_majority_fraction = float(ct_stats.get("majority_fraction", np.nan))
+        ct_agreement = (
+            float(celltypist_label == assigned_label)
+            if celltypist_label != "Unknown"
+            else np.nan
+        )
+
+        confidence_parts = [label_purity]
+        marker_conf = cluster_marker.get("marker_confidence", np.nan)
+        if pd.notna(marker_conf):
+            confidence_parts.append(float(marker_conf))
+
+        if pd.notna(ct_mean_conf) or pd.notna(ct_majority_fraction):
+            ct_component_parts = [
+                value
+                for value in [ct_mean_conf, ct_majority_fraction]
+                if pd.notna(value)
+            ]
+            ct_component = float(np.mean(ct_component_parts)) if ct_component_parts else np.nan
+            if pd.notna(ct_component):
+                if pd.notna(ct_agreement):
+                    ct_component = 0.7 * ct_component + 0.3 * float(ct_agreement)
+                confidence_parts.append(float(ct_component))
+
+        annotation_confidence = float(np.mean(confidence_parts)) if confidence_parts else 0.0
+        evidence_sources = ["cluster_purity"]
+        if pd.notna(marker_conf):
+            evidence_sources.append("marker_scores")
+        if pd.notna(ct_mean_conf) or pd.notna(ct_majority_fraction):
+            evidence_sources.append("celltypist")
+
+        hybrid_info = hybrid_audit.get(str(cluster), {})
+        rows.append(
+            {
+                "cluster": str(cluster),
+                "assigned_label": assigned_label,
+                "n_cells": int(mask.sum()),
+                "label_purity": label_purity,
+                "marker_label": cluster_marker.get("top_marker_label"),
+                "assigned_marker_score": cluster_marker.get("assigned_marker_score"),
+                "marker_margin": cluster_marker.get("marker_margin"),
+                "marker_confidence": marker_conf,
+                "celltypist_label": None if celltypist_label == "Unknown" else celltypist_label,
+                "celltypist_mean_confidence": ct_mean_conf,
+                "celltypist_majority_fraction": ct_majority_fraction,
+                "celltypist_agreement": ct_agreement,
+                "hybrid_decision": hybrid_info.get("decision"),
+                "annotation_confidence": annotation_confidence,
+                "evidence_sources": ",".join(evidence_sources),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _store_annotation_evidence_summary(
+    adata: AnnData,
+    cluster_key: str,
+    annotation_key: str,
+    *,
+    params: Optional[Dict[str, Any]] = None,
+) -> pd.DataFrame:
+    """Persist a standardized annotation evidence summary and cluster confidence."""
+    summary_df = _build_annotation_evidence_summary(
+        adata,
+        cluster_key,
+        annotation_key,
+        params=params,
+    )
+    annotation_ns = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("annotation", {})
+    )
+    annotation_ns[f"{annotation_key}_evidence"] = summary_df
+    annotation_ns[f"{annotation_key}_evidence_params"] = sanitize_for_hdf5(
+        {
+            "cluster_key": cluster_key,
+            "annotation_key": annotation_key,
+            "n_clusters": int(summary_df.shape[0]),
+            "columns": summary_df.columns.tolist(),
+        }
+    )
+
+    cluster_conf_map = summary_df.set_index("cluster")["annotation_confidence"].to_dict()
+    adata.obs[f"{annotation_key}_cluster_confidence"] = (
+        adata.obs[cluster_key].astype(str).map(cluster_conf_map).astype(float)
+    )
+    if f"{annotation_key}_confidence" not in adata.obs.columns:
+        adata.obs[f"{annotation_key}_confidence"] = adata.obs[
+            f"{annotation_key}_cluster_confidence"
+        ]
+    return summary_df
 
 
 # --------------------- CellTypist/Transfer --------------------
@@ -848,26 +1235,151 @@ def run_annotation(
     """
     Full annotation workflow: scoring -> auto annotation -> results in .obs/.uns.
     """
+    use_raw = adata.raw is not None
     mgr = get_marker_manager(species=config.marker_species, tissue=config.marker_tissue)
-    mgr.intersect_with(adata.raw if adata.raw is not None else adata)
+    mgr.intersect_with(adata.raw if use_raw else adata)
 
-    if config.run_celltypist:
+    if config.run_celltypist or config.final_method in {"celltypist", "hybrid"}:
         adata = run_celltypist(adata, model=config.celltypist_model)
 
-    if config.run_scoring:
+    if config.run_scoring and config.final_method != "celltypist":
         # Use raw for scoring by default
-        adata = score_cell_types(adata, marker_config=mgr, use_raw=True)
+        adata = score_cell_types(adata, marker_config=mgr, use_raw=use_raw, layer=None if use_raw else None)
 
-    adata = annotate_clusters(
+    params_for_summary: Dict[str, Any] = {}
+    if config.final_method in {"max_score", "enrichment", "combined"}:
+        adata = annotate_clusters(
+            adata,
+            cluster_key=config.cluster_key,
+            marker_config=mgr,
+            method=config.final_method,
+            key_added=config.key_added,
+            min_score=config.min_confidence,
+            use_raw=use_raw,
+            plot=config.plot,
+        )
+        params_for_summary = (
+            adata.uns.get("sclucid", {})
+            .get("analysis", {})
+            .get("annotation", {})
+            .get(f"{config.key_added}_params", {})
+        )
+    elif config.final_method == "celltypist":
+        labels, confidences, label_key = _get_celltypist_label_series(adata)
+        final_labels = labels.where(confidences >= config.celltypist_confidence_threshold, "Unknown")
+        adata.obs[config.key_added] = pd.Categorical(final_labels)
+        adata.obs[f"{config.key_added}_confidence"] = confidences.astype(float)
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
+            "annotation", {}
+        )
+        adata.uns["sclucid"]["analysis"]["annotation"][f"{config.key_added}_params"] = (
+            sanitize_for_hdf5(
+                {
+                    "method": "celltypist",
+                    "label_source": label_key,
+                    "confidence_threshold": config.celltypist_confidence_threshold,
+                }
+            )
+        )
+        params_for_summary = (
+            adata.uns.get("sclucid", {})
+            .get("analysis", {})
+            .get("annotation", {})
+            .get(f"{config.key_added}_params", {})
+        )
+    elif config.final_method == "hybrid":
+        marker_key = f"{config.key_added}_marker"
+        adata = annotate_clusters(
+            adata,
+            cluster_key=config.cluster_key,
+            marker_config=mgr,
+            method=config.marker_method,
+            key_added=marker_key,
+            min_score=config.min_confidence,
+            use_raw=use_raw,
+            plot=False,
+        )
+        marker_params = (
+            adata.uns.get("sclucid", {})
+            .get("analysis", {})
+            .get("annotation", {})
+            .get(f"{marker_key}_params", {})
+        )
+        marker_mapping = {
+            str(k): str(v)
+            for k, v in marker_params.get("mapping", {}).items()
+        }
+        celltypist_mapping, celltypist_stats = _build_celltypist_cluster_mapping(
+            adata,
+            config.cluster_key,
+            min_confidence=config.celltypist_confidence_threshold,
+        )
+        final_mapping, hybrid_audit = _combine_marker_and_celltypist_mappings(
+            marker_mapping,
+            celltypist_mapping,
+            celltypist_stats,
+            min_celltypist_confidence=config.celltypist_confidence_threshold,
+        )
+        cluster_codes = adata.obs[config.cluster_key].astype(str)
+        adata.obs[config.key_added] = pd.Categorical(
+            cluster_codes.map(final_mapping).fillna("Unknown")
+        )
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
+            "annotation", {}
+        )
+        adata.uns["sclucid"]["analysis"]["annotation"][f"{config.key_added}_params"] = (
+            sanitize_for_hdf5(
+                {
+                    "method": "hybrid",
+                    "marker_method": config.marker_method,
+                    "confidence_threshold": config.celltypist_confidence_threshold,
+                    "mapping": final_mapping,
+                    "hybrid_audit": hybrid_audit,
+                }
+            )
+        )
+        params_for_summary = (
+            adata.uns.get("sclucid", {})
+            .get("analysis", {})
+            .get("annotation", {})
+            .get(f"{config.key_added}_params", {})
+        )
+        if config.plot:
+            if "X_umap" not in adata.obsm:
+                sc.tl.umap(adata)
+            sc.pl.umap(adata, color=[config.cluster_key, marker_key, config.key_added], wspace=0.4)
+    else:
+        raise ValueError(f"Unknown annotation method: {config.final_method}")
+
+    _store_annotation_evidence_summary(
         adata,
-        cluster_key=config.cluster_key,
-        marker_config=mgr,
-        method=config.final_method,
-        key_added=config.key_added,
-        min_score=config.min_confidence,
-        use_raw=True,
-        plot=config.plot,
+        config.cluster_key,
+        config.key_added,
+        params=params_for_summary,
     )
+
+    # Map annotated labels to broad compartments for tumor-aware analysis
+    adata.obs["cell_compartment"] = _map_compartments(
+        adata.obs[config.key_added],
+        compartment_map=config.compartment_map,
+    )
+
+    if config.report and config.save_dir:
+        from ..plotting import export_annotation_report
+
+        report_path = Path(config.save_dir) / f"{config.key_added}_annotation_report.png"
+        try:
+            export_annotation_report(
+                adata,
+                annotation_key=config.key_added,
+                cluster_key=config.cluster_key,
+                save=str(report_path),
+                export_formats=("png", "pdf"),
+                write_sidecars=True,
+                show=False,
+            )
+        except Exception as exc:
+            log.warning(f"Failed to export annotation report: {exc}")
 
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "annotation", {}

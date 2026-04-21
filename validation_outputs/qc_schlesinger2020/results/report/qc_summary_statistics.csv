@@ -1,0 +1,2 @@
+sample,n_cells,total_counts_mean,total_counts_median,total_counts_std,n_genes_by_counts_mean,n_genes_by_counts_median,n_genes_by_counts_std,pct_counts_mt_mean,pct_counts_mt_median,pct_counts_mt_std
+GSM4293555,5889,6572.481236203091,3775.0,8522.71428633014,1633.5206316861945,1312.0,1223.6188638368455,4.705665780904736,3.2197853476434903,5.359971841509942

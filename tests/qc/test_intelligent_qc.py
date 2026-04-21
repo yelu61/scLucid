@@ -135,6 +135,19 @@ class TestIntelligentQCRecommender:
         assert 0 <= result.overall_confidence <= 1
         assert 0 <= result.data_quality_score <= 100
 
+    def test_recommendation_to_dict_preserves_all_thresholds(self, sample_adata_with_qc):
+        """Serialized recommendation should retain every executable threshold."""
+        recommender = IntelligentQCRecommender()
+
+        result = recommender.recommend(sample_adata_with_qc, tissue_type="normal", plot=False)
+        payload = result.to_dict()
+
+        for key in ["min_genes", "max_mt_percent", "n_counts", "doublet_threshold"]:
+            assert key in payload
+            assert "threshold" in payload[key]
+            assert "confidence" in payload[key]
+            assert "evidence" in payload[key]
+
 
 # =============================================================================
 # Test Different Strategies

@@ -35,6 +35,7 @@ preprocess = _import_optional("preprocess")
 analysis = _import_optional("analysis")
 plotting = _import_optional("plotting")
 utils = _import_optional("utils")
+recommendation = _import_optional("recommendation")
 tools = _import_optional(
     "tools",
     hint="Install with 'pip install sclucid[tools]' to use advanced features",
@@ -53,6 +54,7 @@ al = analysis
 tl = tools
 ut = utils
 pl = plotting
+rc = recommendation
 
 # --- Configuration and Settings ---
 try:
@@ -102,6 +104,8 @@ run_advanced_qc = None
 run_preprocessing = None
 run_annotation = None
 characterize_clusters = None
+recommend_analysis_parameters = None
+run_tumor_analysis = None
 
 _qc_workflow = _import_optional("qc.workflow")
 if _qc_workflow is not None:
@@ -116,6 +120,15 @@ if analysis is not None:
     run_annotation = getattr(analysis, "run_annotation", None)
     characterize_clusters = getattr(analysis, "characterize_clusters", None)
 
+if recommendation is not None:
+    recommend_analysis_parameters = getattr(
+        recommendation, "recommend_analysis_parameters", None
+    )
+
+_tumor_workflow = _import_optional("tumor.workflow")
+if _tumor_workflow is not None:
+    run_tumor_analysis = getattr(_tumor_workflow, "run_tumor_analysis", None)
+
 __all__ = [
     "pp",
     "al",
@@ -128,6 +141,7 @@ __all__ = [
     "tools",
     "plotting",
     "utils",
+    "recommendation",
     "setup_logging",
     "set_figure_params",
     "reset_figure_params",
@@ -139,6 +153,7 @@ __all__ = [
     "run_preprocessing",
     "run_annotation",
     "characterize_clusters",
+    "recommend_analysis_parameters",
     "get_config",
     "set_config",
     "reset_config",
@@ -150,4 +165,5 @@ __all__ = [
     "ProportionAnalysisMethod",
     "AnalysisStepFactory",
     "launch_web_app",
+    "rc",
 ]

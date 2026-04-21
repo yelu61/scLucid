@@ -91,20 +91,3 @@ _export(
     ],
     optional=True,
 )
-_export(
-    "strategy_decision_tree",
-    ["QCStrategyDecisionTree", "recommend_qc_strategy"],
-    optional=True,
-)
-
-# Optional interactive dashboard
-_export(
-    "interactive",
-    [
-        "InteractiveQCExplorer",
-        "InteractiveQCPlotter",
-        "create_interactive_dashboard",
-        "interactive_filter_preview",
-    ],
-    optional=True,
-)

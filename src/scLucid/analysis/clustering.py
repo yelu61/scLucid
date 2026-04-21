@@ -352,15 +352,18 @@ def find_resolution(
     if auto_select and not eval_df.empty:
         recommended_res = _auto_select_resolution(eval_df, strategy=selection_strategy)
         log.info(f"🎯 Auto-selected resolution: {recommended_res:.3f}")
-    
+
     # Store recommendation
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
+        "clustering", {}
+    ).setdefault("resolution_search", {})
     adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"].update({
         "recommended_resolution": recommended_res,
         "selection_strategy": selection_strategy,
     })
 
     # Plotting
-    if active_config.plot and not eval_df.empty:
+    if getattr(active_config, "plot", False) and not eval_df.empty:
         metrics_to_plot = [
             m
             for m in ["silhouette", "marker_abundance", "stability"]
@@ -408,7 +411,7 @@ def find_resolution(
         axes[-1].set_xlabel("Resolution")
         plt.tight_layout(rect=[0, 0.03, 1, 0.96])
 
-        if active_config.save_dir:
+        if getattr(active_config, "save_dir", None):
             save_path = Path(active_config.save_dir)
             save_path.mkdir(parents=True, exist_ok=True)
             figure_path = save_path / "resolution_search_guide.png"

@@ -202,14 +202,15 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
             ...     "save_dir": "./results"
             ... })
         """
+        config_data = dict(simple_config)
         kwargs = {}
 
         # Extract normalization parameters
         norm_params = {}
         for key in ["method", "target_sum", "exclude_highly_expressed"]:
             config_key = f"normalization_{key}"
-            if config_key in simple_config:
-                norm_params[key] = simple_config.pop(config_key)
+            if config_key in config_data:
+                norm_params[key] = config_data.pop(config_key)
         if norm_params:
             kwargs["normalization"] = NormalizationConfig(**norm_params)
 
@@ -217,8 +218,8 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         hvg_params = {}
         for key in ["method", "n_top_genes", "flavor", "batch_key"]:
             config_key = f"hvg_{key}"
-            if config_key in simple_config:
-                hvg_params[key] = simple_config.pop(config_key)
+            if config_key in config_data:
+                hvg_params[key] = config_data.pop(config_key)
         if hvg_params:
             kwargs["hvg"] = HVGConfig(**hvg_params)
 
@@ -226,8 +227,8 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         scaling_params = {}
         for key in ["max_value", "vars_to_regress"]:
             config_key = f"scaling_{key}"
-            if config_key in simple_config:
-                scaling_params[key] = simple_config.pop(config_key)
+            if config_key in config_data:
+                scaling_params[key] = config_data.pop(config_key)
         if scaling_params:
             kwargs["scaling"] = ScalingConfig(**scaling_params)
 
@@ -235,8 +236,8 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         integration_params = {}
         for key in ["method", "batch_key"]:
             config_key = f"integration_{key}"
-            if config_key in simple_config:
-                integration_params[key] = simple_config.pop(config_key)
+            if config_key in config_data:
+                integration_params[key] = config_data.pop(config_key)
         if integration_params:
             kwargs["integration"] = IntegrationConfig(**integration_params)
 
@@ -244,17 +245,17 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         graph_params = {}
         for key in ["n_pcs", "n_neighbors"]:
             config_key = f"graph_{key}"
-            if config_key in simple_config:
-                graph_params[key] = simple_config.pop(config_key)
+            if config_key in config_data:
+                graph_params[key] = config_data.pop(config_key)
         if graph_params:
             kwargs["graph"] = GraphConfig(**graph_params)
 
         # Backward compatibility: results_dir -> save_dir
-        if "results_dir" in simple_config:
-            simple_config["save_dir"] = simple_config.pop("results_dir")
+        if "results_dir" in config_data:
+            config_data["save_dir"] = config_data.pop("results_dir")
 
         # Remaining keys go directly to workflow config
-        kwargs.update(simple_config)
+        kwargs.update(config_data)
 
         return cls(**kwargs)
 

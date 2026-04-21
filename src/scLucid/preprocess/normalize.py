@@ -24,6 +24,46 @@ __all__ = ["normalize_data", "plot_normalization_effect"]
 
 
 # --- Helper Functions ---
+def _get_matrix_from_input_layer(adata: AnnData, input_layer: str):
+    """Resolve the configured input matrix or raise a precise error."""
+    if input_layer == "X":
+        return adata.X, "adata.X"
+    if input_layer in adata.layers:
+        return adata.layers[input_layer], f"adata.layers['{input_layer}']"
+
+    available = list(adata.layers.keys())
+    raise ValueError(
+        f"Input layer '{input_layer}' not found. Available layers: {available or '[]'}."
+    )
+
+
+def _validate_normalization_input(
+    source_data: Union[np.ndarray, scipy.sparse.spmatrix],
+    source_name: str,
+    method: str,
+) -> None:
+    """Validate matrix properties before normalization."""
+    if source_data.shape[0] == 0 or source_data.shape[1] == 0:
+        raise ValueError(f"{source_name} is empty with shape {source_data.shape}.")
+
+    if scipy.sparse.issparse(source_data):
+        values = source_data.data
+        min_val = source_data.min() if source_data.nnz > 0 else 0.0
+    else:
+        values = np.asarray(source_data)
+        min_val = np.min(values)
+
+    if not np.all(np.isfinite(values)):
+        raise ValueError(f"{source_name} contains NaN or Inf values.")
+
+    count_based_methods = {"standard", "scran", "pearson_residuals", "clr"}
+    if method in count_based_methods and min_val < 0:
+        raise ValueError(
+            f"{source_name} contains negative values, which is invalid for normalization method '{method}'. "
+            "Use raw non-negative counts as input."
+        )
+
+
 def _diagnose_matrix(data, name="input", max_n=10000):
     """
     Compute and log basic statistics for a matrix or AnnData .X/.layers entry.
@@ -232,18 +272,13 @@ def normalize_data(
     save_dir = Path(active_config.save_dir) if active_config.save_dir else None
 
     # --- 3. Input validation and data diagnosis ---
-    if input_layer == "X":
-        source_data = adata.X
-        source_name = "adata.X"
-    elif input_layer in adata.layers:
-        source_data = adata.layers[input_layer]
-        source_name = f"adata.layers['{input_layer}']"
-    else:
-        raise ValueError(f"Input layer '{input_layer}' not found.")
+    source_data, source_name = _get_matrix_from_input_layer(adata, input_layer)
 
     if output_layer in adata.layers and not force:
         log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
         return adata
+
+    _validate_normalization_input(source_data, source_name, active_config.method)
 
     log.info(f"Diagnosing input data for normalization from '{source_name}' ...")
     stats_before = _diagnose_matrix(source_data, name="input")

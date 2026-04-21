@@ -27,6 +27,8 @@ class ClusteringConfig(SclucidBaseConfig):
     use_rep: str = Field(default="X_pca", description="Embedding to use")
     key_added: Optional[str] = Field(default=None, description="Key for adata.obs")
     random_state: int = Field(default=42)
+    plot: bool = Field(default=False)
+    save_dir: Optional[str] = Field(default=None)
     extra_params: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -46,6 +48,8 @@ class ResolutionSearchConfig(SclucidBaseConfig):
     compute_silhouette: bool = Field(default=True)
     compute_marker_abundance: bool = Field(default=True)
     compute_stability: bool = Field(default=True)
+    plot: bool = Field(default=False)
+    save_dir: Optional[str] = Field(default=None)
 
     # Parameters for marker abundance metric
     de_method_for_markers: str = Field(default="wilcoxon")
@@ -222,9 +226,11 @@ class AnnotationConfig(SclucidBaseConfig):
     run_celltypist: bool = Field(default=False)
     celltypist_model: str = Field(default="Immune_All_Low.pkl")
     run_scoring: bool = Field(default=True)
-    final_method: Literal["max_score", "enrichment", "combined"] = Field(default="combined")
+    final_method: Literal["max_score", "enrichment", "combined", "celltypist", "hybrid"] = Field(default="combined")
+    marker_method: Literal["max_score", "enrichment", "combined"] = Field(default="combined")
     key_added: str = Field(default="cell_type_auto")
     min_confidence: float = Field(default=0.1, ge=0, le=1)
+    celltypist_confidence_threshold: float = Field(default=0.5, ge=0, le=1)
 
     # DE and enrichment parameters
     min_log2fc: float = Field(default=0.5, ge=0)
@@ -232,6 +238,9 @@ class AnnotationConfig(SclucidBaseConfig):
     enrichment_gene_sets: List[str] = Field(
         default_factory=lambda: ["GO_Biological_Process_2023"]
     )
+
+    # Compartment mapping for tumor-aware annotation
+    compartment_map: Optional[Dict[str, str]] = Field(default=None)
 
 
 class ProportionConfig(SclucidBaseConfig):
