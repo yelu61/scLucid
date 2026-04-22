@@ -34,6 +34,7 @@ from .helpers import (
     subset_from_annotations,
     use_layer_as_X,
 )
+from .marker_sets import flatten_marker_dict, filter_marker_dict
 
 # Import workflow utilities
 from .workflow_utils import (
@@ -128,6 +129,8 @@ __all__ = [
     "subset_adata",
     "subset_from_annotations",
     "merge_obs_metadata",
+    "flatten_marker_dict",
+    "filter_marker_dict",
     # Workflow utilities
     "get_progress_bar",
     "progress_decorator",

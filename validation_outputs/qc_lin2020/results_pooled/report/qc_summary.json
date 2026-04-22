@@ -17,7 +17,7 @@
   "recommendation": {
     "min_genes": {
       "threshold": 314,
-      "ci_lower": 289,
+      "ci_lower": 288,
       "ci_upper": 314,
       "confidence": 0.5,
       "method": "GMM + Bootstrap",
@@ -30,8 +30,8 @@
     },
     "max_mt_percent": {
       "threshold": 41.5,
-      "ci_lower": 35.5,
-      "ci_upper": 46.4,
+      "ci_lower": 34.8,
+      "ci_upper": 47.7,
       "confidence": 0.5,
       "method": "distribution fitting (beta)",
       "evidence": {
@@ -59,8 +59,8 @@
     },
     "n_counts": {
       "threshold": 1780,
-      "ci_lower": 1724,
-      "ci_upper": 1845,
+      "ci_lower": 1725,
+      "ci_upper": 1846,
       "confidence": 1.0,
       "method": "log-normal distribution + bootstrap",
       "evidence": {

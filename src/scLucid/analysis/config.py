@@ -164,6 +164,7 @@ class CompareConditionsConfig(ComparisonConfig):
     condition1: str = Field(default="")
     condition2: str = Field(default="")
     key_added: Optional[str] = Field(default=None)
+    n_top_genes: int = Field(default=50, ge=1)
 
 
 class ConservedMarkersConfig(ComparisonConfig):
@@ -319,12 +320,90 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
 
     clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
     de: DifferentialConfig = Field(default_factory=DifferentialConfig)
-    annotation: AnnotationConfig = Field(default_factory=AnnotationConfig)
+    annotation: Optional[AnnotationConfig] = Field(default_factory=AnnotationConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     scoring: Optional[ScoringConfig] = Field(default=None)
     proportion: Optional[ProportionConfig] = Field(default=None)
 
     # Note: save_dir is inherited from SclucidBaseConfig
+
+    @classmethod
+    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> "AnalysisWorkflowConfig":
+        """
+        Create AnalysisWorkflowConfig from a simplified flat dictionary.
+
+        Args:
+            simple_config: Flat dictionary with keys like:
+                - clustering_method, clustering_resolution
+                - annotation_method, marker_method
+                - save_dir, n_jobs
+
+        Returns:
+            AnalysisWorkflowConfig: Fully configured workflow config
+        """
+        config_data = dict(simple_config)
+        kwargs: Dict[str, Any] = {}
+
+        # Extract clustering parameters
+        clustering_params = {}
+        for key in ["method", "resolution", "n_clusters", "use_rep"]:
+            config_key = f"clustering_{key}"
+            if config_key in config_data:
+                clustering_params[key] = config_data.pop(config_key)
+        if clustering_params:
+            kwargs["clustering"] = ClusteringConfig(**clustering_params)
+
+        # Extract annotation parameters
+        annotation_params = {}
+        for key in ["cluster_key", "marker_species", "final_method", "run_scoring"]:
+            config_key = f"annotation_{key}"
+            if config_key in config_data:
+                annotation_params[key] = config_data.pop(config_key)
+        if annotation_params:
+            kwargs["annotation"] = AnnotationConfig(**annotation_params)
+
+        # Extract DE parameters
+        de_params = {}
+        for key in ["groupby", "method"]:
+            config_key = f"de_{key}"
+            if config_key in config_data:
+                de_params[key] = config_data.pop(config_key)
+        if de_params:
+            kwargs["de"] = DifferentialConfig(**de_params)
+
+        # Backward compatibility: results_dir -> save_dir
+        if "results_dir" in config_data:
+            config_data["save_dir"] = config_data.pop("results_dir")
+
+        # Remaining keys go directly to workflow config
+        kwargs.update(config_data)
+        return cls(**kwargs)
+
+    @classmethod
+    def quick(
+        cls,
+        clustering_method: str = "leiden",
+        resolution: float = 1.0,
+        run_annotation: bool = True,
+        **kwargs,
+    ) -> "AnalysisWorkflowConfig":
+        """
+        Quick configuration factory for standard analyses.
+
+        Args:
+            clustering_method: Clustering algorithm
+            resolution: Clustering resolution
+            run_annotation: Whether to run annotation step
+            **kwargs: Additional parameters (save_dir, n_jobs, etc.)
+
+        Returns:
+            AnalysisWorkflowConfig: Pre-configured for standard analysis
+        """
+        return cls(
+            clustering=ClusteringConfig(method=clustering_method, resolution=resolution),
+            annotation=AnnotationConfig() if run_annotation else None,
+            **kwargs,
+        )
 
 
 __all__ = [

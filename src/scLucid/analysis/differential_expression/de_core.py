@@ -17,7 +17,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from ...base_config import SclucidBaseConfig
+from ...base_config import SclucidBaseConfig, apply_config_overrides
 from ..config import (
     CompareConditionsConfig,
     CompareGroupsConfig,
@@ -25,8 +25,9 @@ from ..config import (
     DifferentialConfig,
     FilterMarkersConfig,
 )
-from .de_utils import _standardize_pct_columns, _store_results
+from .de_utils import _standardize_pct_columns, _store_results, _to_frac, _safe_filename
 from ...utils.helpers import sanitize_for_hdf5
+from .de_plots import plot_volcano
 
 log = logging.getLogger(__name__)
 
@@ -82,14 +83,11 @@ def find_markers(
         - Raw scanpy output at: adata.uns['sclucid']['analysis']['de']['{key}']
         - Parameters at: adata.uns['sclucid']['analysis']['de']['{key}_params']
     """
-    # Configuration handling with immutability
     if config is None:
-        active_config = DifferentialConfig(**kwargs)
+        active_config = DifferentialConfig()
+        active_config = apply_config_overrides(active_config, **kwargs)
     else:
-        active_config = config.model_copy()
-        for k, v in kwargs.items():
-            if hasattr(active_config, k):
-                setattr(active_config, k, v)
+        active_config = apply_config_overrides(config, **kwargs)
 
     groupby = active_config.groupby
     key_added = active_config.key_added or "rank_genes_groups"

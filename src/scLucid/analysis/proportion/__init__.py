@@ -31,6 +31,9 @@ from .stats import export_analysis_data
 from .plots import (
     plot_cell_counts,
     plot_proportion_bar,
+    plot_grouped_celltype_counts,
+    plot_grouped_proportion_bar,
+    plot_celltype_alluvial,
     plot_box_summary,
     plot_proportion_heatmap,
     plot_celltype_correlation,
@@ -77,6 +80,9 @@ __all__ = [
     # Plotting
     "plot_cell_counts",
     "plot_proportion_bar",
+    "plot_grouped_celltype_counts",
+    "plot_grouped_proportion_bar",
+    "plot_celltype_alluvial",
     "plot_box_summary",
     "plot_proportion_heatmap",
     "plot_celltype_correlation",

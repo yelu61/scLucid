@@ -15,7 +15,7 @@ import seaborn as sns
 from anndata import AnnData
 from joblib import Parallel, delayed
 
-from .config import NeighborsConfig
+from .config import NeighborsConfig, apply_config_overrides
 
 log = logging.getLogger(__name__)
 
@@ -136,15 +136,7 @@ def optimize_neighbors_pcs(
     if config is None:
         active_config = NeighborsConfig()
     else:
-        # Create a copy of config and apply kwargs
-
-        active_config = config.model_copy()
-
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
-        else:
-            log.warning(f"Ignoring unknown neighbors parameter: '{key}'")
+        active_config = apply_config_overrides(config, **kwargs)
 
     # --- 2. Extract parameters and validate inputs ---
     save_dir = Path(active_config.save_dir) if active_config.save_dir else None

@@ -191,3 +191,96 @@ This cycle is complete only when all of the following are true:
 - `FIX.md` is factually consistent with the repository,
 - refreshed tests and validation artifacts support the updated claims.
 
+---
+
+## QC And Preprocess Polishing Plan
+
+### Summary
+
+`qc` and `preprocess` should now be treated as basically feature-complete foundations rather than active feature-expansion fronts.
+
+The next cycle for both modules is a refinement cycle focused on:
+- trust,
+- API clarity,
+- reviewability,
+- validation,
+- and documentation coherence.
+
+Net-new feature expansion should shift primarily to `analysis`. Work in `qc` and `preprocess` should be accepted when it improves reliability, interpretability, or default-path usability.
+
+### QC Module Assessment
+
+Current strengths:
+- sample-aware workflow behavior with fallback handling for missing sample keys,
+- tumor-aware QC logic that favors cautionary flagging over blind filtering,
+- multi-evidence doublet detection combining algorithmic and marker-based heuristic evidence,
+- recommendation and reporting surfaces for threshold review,
+- strong config-driven execution and stored traceability.
+
+Current weaknesses:
+- overlapping control surfaces make the default user path heavier than necessary,
+- heuristic quality depends strongly on marker quality and tissue context,
+- intelligent recommendation logic still needs stronger validation to build trust,
+- override semantics must remain easy to explain and inspect,
+- reviewer-facing outputs exist but are not yet fully standardized.
+
+### QC Polishing Directions
+
+- Simplify the default path so most users can rely on `run_standard_qc()` with a shorter, safer configuration surface.
+- Preserve expert controls, but separate advanced knobs from default knobs more clearly in docs and examples.
+- Standardize QC review artifacts so every run can emit:
+  - recommendation summary,
+  - applied-threshold summary,
+  - user-override summary,
+  - sample-level threshold table,
+  - tumor-aware caution note when applicable.
+- Strengthen trust in intelligent QC by validating representative homogeneous, heterogeneous, and tumor-like datasets.
+- Tighten and document recommendation-vs-user-override semantics consistently across code, trace outputs, and examples.
+- Do not add new QC algorithms unless validation evidence shows a real gap in current behavior.
+
+The next QC cycle is about trust, clarity, and reviewability, not feature breadth.
+
+### Preprocess Module Assessment
+
+Current strengths:
+- a complete multi-step preprocessing workflow,
+- flexible step control, resume/error recovery, and memory-management options,
+- multiple integration methods with traceability,
+- intelligent preprocessing recommendation support,
+- backend abstraction and advanced utility support.
+
+Current weaknesses:
+- the capability surface is broad and can feel fragmented,
+- the relationship between the main workflow, intelligent recommendation, and experimental normalization paths is not yet clear enough,
+- many preprocessing and integration options exist without a strongly opinionated primary path,
+- benchmark and documentation support for method choice is thinner than the implementation surface,
+- advanced options can overwhelm standard users.
+
+### Preprocess Polishing Directions
+
+- Establish one clear default preprocessing path and explicitly label other routes as advanced or experimental.
+- Reduce ambiguity around normalization, HVG, integration, and neighbor-selection defaults.
+- Standardize intelligent preprocessing outputs so users can inspect:
+  - recommended config summary,
+  - rationale trace,
+  - method-selection note,
+  - integration decision summary.
+- Unify naming and documentation across workflow config, intelligent strategy objects, and public API examples.
+- Validate the default path and common integration modes on small, medium, and multi-batch scenarios.
+- Do not add more preprocessing methods unless they replace or clearly outperform an existing path.
+
+The next preprocess cycle is about path consolidation and decision support, not option expansion.
+
+## Current Non-Goals For QC And Preprocess
+
+- No broad expansion of new QC heuristics.
+- No addition of more batch-correction methods without benchmark justification.
+- No major architecture rewrite unless required by simplification work.
+- No expansion of experimental branches into default workflow without validation.
+- No effort to maximize option count at the expense of clearer defaults.
+
+## Priority Position In The Roadmap
+
+- `analysis` is now the main expansion target.
+- `qc` and `preprocess` should receive targeted polishing work in parallel or between analysis milestones.
+- Work on these modules should be accepted when it improves reliability, interpretability, documentation quality, or public API coherence.

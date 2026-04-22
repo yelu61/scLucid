@@ -1,7 +1,7 @@
 # QC Validation: schlesinger2020.pdac.h5ad
 
 - **Dataset**: schlesinger2020.pdac.h5ad
-- **Cells before/after**: 6499 / 5889
+- **Cells before/after**: 6499 / 5892
 - **Threshold mode**: hierarchical
 - **Strategy**: tumor_aware
 - **Tumor-aware enabled**: True
@@ -25,15 +25,15 @@
 ```json
 {
   "initial_cells": 6499,
-  "final_cells": "5889",
-  "removed_cells": "610",
-  "removed_fraction": 0.09386059393752885,
+  "final_cells": "5892",
+  "removed_cells": "607",
+  "removed_fraction": 0.09339898445914756,
   "criteria_used": [
     "outlier_min_genes"
   ],
   "combination_logic": "any",
   "criteria_counts": {
-    "outlier_min_genes": "610"
+    "outlier_min_genes": "607"
   },
   "config": {
     "save_dir": null,

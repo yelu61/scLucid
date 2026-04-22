@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Self
+from typing import Any, Dict, Literal, Optional, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -102,6 +102,31 @@ class SclucidBaseConfig(BaseModel):
         return self
 
 
+T = TypeVar("T", bound="SclucidBaseConfig")
+
+
+def apply_config_overrides(
+    config: T,
+    *,
+    ignored_keys: Optional[set[str]] = None,
+    **kwargs,
+) -> T:
+    """
+    Create a deep copy of *config* with keyword overrides applied.
+
+    Unknown keyword arguments are logged as warnings and ignored.
+    Keys listed in *ignored_keys* are silently skipped (e.g. ``force``).
+    The original *config* is never mutated.
+    """
+    ignored_keys = ignored_keys or set()
+    valid_fields = set(type(config).model_fields.keys())
+    update_dict = {k: v for k, v in kwargs.items() if k in valid_fields}
+    for key in kwargs:
+        if key not in valid_fields and key not in ignored_keys:
+            logger.warning(f"Ignoring unknown parameter: '{key}'")
+    return config.model_copy(update=update_dict, deep=True)
+
+
 class WorkflowConfigBase(SclucidBaseConfig):
     """
     Base class for workflow-level configurations.
@@ -153,4 +178,5 @@ __all__ = [
     "BaseConfig",  # Backward compatibility
     "WorkflowConfigBase",
     "ComputationConfig",
+    "apply_config_overrides",
 ]

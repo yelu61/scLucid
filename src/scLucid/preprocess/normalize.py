@@ -16,7 +16,8 @@ import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
 
-from .config import NormalizationConfig
+from .config import NormalizationConfig, apply_config_overrides
+from .utils import validate_matrix_input
 
 log = logging.getLogger(__name__)
 
@@ -43,25 +44,11 @@ def _validate_normalization_input(
     method: str,
 ) -> None:
     """Validate matrix properties before normalization."""
-    if source_data.shape[0] == 0 or source_data.shape[1] == 0:
-        raise ValueError(f"{source_name} is empty with shape {source_data.shape}.")
-
-    if scipy.sparse.issparse(source_data):
-        values = source_data.data
-        min_val = source_data.min() if source_data.nnz > 0 else 0.0
-    else:
-        values = np.asarray(source_data)
-        min_val = np.min(values)
-
-    if not np.all(np.isfinite(values)):
-        raise ValueError(f"{source_name} contains NaN or Inf values.")
-
     count_based_methods = {"standard", "scran", "pearson_residuals", "clr"}
-    if method in count_based_methods and min_val < 0:
-        raise ValueError(
-            f"{source_name} contains negative values, which is invalid for normalization method '{method}'. "
-            "Use raw non-negative counts as input."
-        )
+    allow_negative = method not in count_based_methods
+    validate_matrix_input(
+        source_data, name=source_name, allow_negative=allow_negative
+    )
 
 
 def _diagnose_matrix(data, name="input", max_n=10000):
@@ -250,18 +237,7 @@ def normalize_data(
     if config is None:
         active_config = NormalizationConfig()
     else:
-        # Create a copy of the config to avoid modifying the original
-        # Filter kwargs to only include valid fields
-        valid_fields = set(config.model_fields.keys())
-        update_dict = {k: v for k, v in kwargs.items() if k in valid_fields}
-        active_config = config.model_copy(update=update_dict)
-
-    # Apply overrides from kwargs, making the function highly interactive
-    for key, value in kwargs.items():
-        if key in active_config.model_fields:
-            setattr(active_config, key, value)
-        elif key != "force":  # 'force' is handled separately
-            log.warning(f"Ignoring unknown normalization parameter: '{key}'")
+        active_config = apply_config_overrides(config, ignored_keys={"force"}, **kwargs)
 
     # --- 2. Extract parameters from the final config ---
     input_layer = active_config.input_layer
@@ -328,11 +304,9 @@ def normalize_data(
             try:
                 import scanpy.external.pp as scepp
             except ImportError:
-                log.error(
-                    "scanpy.external.pp.scran_normalize not found. Install scanpy[external] and rpy2."
-                )
                 raise RuntimeError(
-                    "scran normalization requires scanpy[external] and rpy2. See Scanpy docs."
+                    "[preprocess] scran normalization failed: scanpy[external] and rpy2 are required. "
+                    "Install with: pip install 'scanpy[external]' rpy2"
                 )
             log.warning("Method 'scran' requires a correctly configured R environment.")
             scepp.scran_normalize(temp_adata, inplace=True)
@@ -355,13 +329,14 @@ def normalize_data(
         else:
             valid_methods = ["standard", "scran", "pearson_residuals", "clr"]
             raise ValueError(
-                f"Unknown normalization method: '{active_config.method}'. Choose from {valid_methods}."
+                f"Unknown normalization method '{active_config.method}'. "
+                f"Expected one of: {', '.join(valid_methods)}."
             )
     except Exception as e:
-        log.error(f"Normalization failed for method '{active_config.method}': {e}")
         raise RuntimeError(
-            "Failed to normalize data. Check dependencies and data format."
-        )
+            f"[preprocess] Normalization failed: {e}. "
+            "Check input data format and required dependencies."
+        ) from e
 
     # --- 5. Log transform and store results ---
     final_log_transformed = method_is_log_transformed

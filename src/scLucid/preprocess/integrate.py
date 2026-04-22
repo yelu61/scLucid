@@ -18,7 +18,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from .config import IntegrationConfig
+from .config import IntegrationConfig, apply_config_overrides
 
 # Logging config
 log = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ def _integrate_harmony(
     if np.any(~np.isfinite(Z_corr)):
         n_invalid = np.sum(~np.isfinite(Z_corr))
         raise RuntimeError(
-            f"Harmony output contains {n_invalid} NaN or Inf values. "
+            f"[preprocess] Harmony integration failed: output contains {n_invalid} NaN/Inf values. "
             "This may indicate convergence failure. Try adjusting theta or lambda."
         )
     
@@ -586,15 +586,7 @@ def batch_correction(
     if config is None:
         active_config = IntegrationConfig()
     else:
-        # Create a copy of config and apply kwargs
-
-        active_config = config.model_copy()
-
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
-        else:
-            log.warning(f"Ignoring unknown integration parameter: '{key}'")
+        active_config = apply_config_overrides(config, ignored_keys={"force"}, **kwargs)
 
     # --- 2. Extract parameters from the final config ---
     method = active_config.method
@@ -679,7 +671,8 @@ def batch_correction(
         )
     else:
         raise ValueError(
-            f"Unknown method '{method}'. Choose from: harmony, scanorama, scvi, bbknn, combat."
+            f"Unknown integration method '{method}'. "
+            "Expected one of: harmony, scanorama, scvi, bbknn, combat."
         )
 
     # --- 6. Store metadata and plot after state ---
