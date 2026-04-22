@@ -1,0 +1,36 @@
+{
+  "format_version": 1,
+  "description": "Bundled gene biotype resources packaged with scLucid.",
+  "resources": [
+    {
+      "species": "human",
+      "filename": "human_reference_latest.csv.gz",
+      "source": "GENCODE human release 49 gene annotation",
+      "rows_including_header": 78692,
+      "required_columns": ["gene_name", "biotype"]
+    },
+    {
+      "species": "mouse",
+      "filename": "mouse_reference_latest.csv.gz",
+      "source": "GENCODE mouse release M38 gene annotation",
+      "rows_including_header": 78276,
+      "required_columns": ["gene_name", "biotype"]
+    },
+    {
+      "species": "human",
+      "filename": "human_ensembl_latest.csv.gz",
+      "alias_for": "human_reference_latest.csv.gz",
+      "source": "GENCODE human release 49 gene annotation",
+      "rows_including_header": 78692,
+      "required_columns": ["gene_name", "biotype"]
+    },
+    {
+      "species": "mouse",
+      "filename": "mouse_ensembl_latest.csv.gz",
+      "alias_for": "mouse_reference_latest.csv.gz",
+      "source": "GENCODE mouse release M38 gene annotation",
+      "rows_including_header": 78276,
+      "required_columns": ["gene_name", "biotype"]
+    }
+  ]
+}

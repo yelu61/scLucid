@@ -300,6 +300,19 @@ class TestAnnotationConfig:
         assert config.run_celltypist is False
         assert config.final_method == "combined"
 
+    def test_valid_hierarchical_annotation(self):
+        """Hierarchical annotation config should accept lineage/state-specific fields."""
+        config = AnnotationConfig(
+            final_method="hierarchical",
+            target_lineage="T cells",
+            lineage_marker_config="tcell_human",
+            state_signature_names=["T_cell_activation"],
+            nomenclature_style="modular",
+        )
+        assert config.final_method == "hierarchical"
+        assert config.target_lineage == "T cells"
+        assert config.nomenclature_style == "modular"
+
     def test_min_confidence_range(self):
         """Test min_confidence must be 0-1."""
         with pytest.raises(ValueError):

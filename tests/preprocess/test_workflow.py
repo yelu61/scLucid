@@ -14,7 +14,13 @@ sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.preprocess import run_preprocessing
 from scLucid.preprocess.config import WorkflowConfig, NormalizationConfig
-from scLucid.preprocess.gene_biotype import annotate_gene_biotypes, filter_genes_by_biotype
+from scLucid.preprocess.gene_biotype import (
+    apply_gene_biotype_strategy,
+    annotate_gene_biotypes,
+    filter_genes_by_biotype,
+    list_gene_biotype_resources,
+    load_gene_biotypes,
+)
 
 # Import synthetic data fixtures
 from tests.fixtures.synthetic_data import (
@@ -226,6 +232,128 @@ class TestPreprocessingWorkflow:
         filtered = filter_genes_by_biotype(adata, keep_biotypes=["protein_coding"], copy=True)
         assert filtered is not None
         assert (filtered.var["biotype_category"] == "protein_coding").all()
+
+    def test_apply_gene_biotype_strategy_supports_custom_path(self, minimal_adata, tmp_path):
+        adata = minimal_adata[:, :3].copy()
+        adata.var_names = np.array(["GAPDH", "MALAT1", "TRAC"])
+        custom_path = tmp_path / "custom_biotypes.tsv"
+        pd.DataFrame(
+            {
+                "external_gene_name": ["GAPDH", "MALAT1", "TRAC"],
+                "gene_biotype": ["protein_coding", "lncRNA", "TR_C_gene"],
+            }
+        ).to_csv(custom_path, sep="\t", index=False)
+
+        result = apply_gene_biotype_strategy(
+            adata,
+            method="custom",
+            custom_biotype_path=custom_path,
+            keep_biotypes=["protein_coding"],
+            copy=True,
+        )
+
+        assert result is not None
+        assert list(result.var_names) == ["GAPDH"]
+
+    def test_load_gene_biotypes_prefers_cache_without_network(self, tmp_path):
+        cache_dir = tmp_path / "gene_annotations"
+        cache_dir.mkdir()
+        cache_file = cache_dir / "human_reference_latest.csv.gz"
+        pd.DataFrame(
+            {
+                "gene_name": ["GAPDH", "MALAT1"],
+                "biotype": ["protein_coding", "lncRNA"],
+                "gene_id": ["ENSG1", "ENSG2"],
+            }
+        ).to_csv(cache_file, index=False, compression="gzip")
+
+        df, meta = load_gene_biotypes(
+            species="human",
+            allow_download=False,
+            cache_dir=cache_dir,
+            prefer_bundled=False,
+            return_metadata=True,
+        )
+
+        assert list(df["gene_name"]) == ["GAPDH", "MALAT1"]
+        assert meta["source"].startswith("cache:")
+
+    def test_load_gene_biotypes_uses_bundled_resource(self):
+        df, meta = load_gene_biotypes(
+            species="human",
+            allow_download=False,
+            return_metadata=True,
+        )
+
+        assert {"gene_name", "biotype"}.issubset(df.columns)
+        assert len(df) > 1000
+        assert meta["source"].startswith("package:")
+
+    def test_list_gene_biotype_resources_reports_cache(self, tmp_path):
+        cache_dir = tmp_path / "gene_annotations"
+        cache_dir.mkdir()
+        (cache_dir / "mouse_reference_latest.csv").write_text("gene_name,biotype\nGapdh,protein_coding\n")
+
+        resources = list_gene_biotype_resources(species="mouse", cache_dir=cache_dir)
+
+        assert "mouse" in resources
+        assert resources["mouse"]["cached"]
+
+    def test_list_gene_biotype_resources_reports_bundled_resources(self):
+        resources = list_gene_biotype_resources(species="human")
+
+        assert "human" in resources
+        assert resources["human"]["bundled"]
+
+    def test_annotate_gene_biotypes_records_reference_source(self, minimal_adata, tmp_path):
+        cache_dir = tmp_path / "gene_annotations"
+        cache_dir.mkdir()
+        pd.DataFrame(
+            {
+                "gene_name": list(minimal_adata.var_names[:3]),
+                "biotype": ["protein_coding", "lncRNA", "protein_coding"],
+                "gene_id": ["ENSG1", "ENSG2", "ENSG3"],
+            }
+        ).to_csv(cache_dir / "human_ensembl_latest.csv.gz", index=False, compression="gzip")
+
+        adata = minimal_adata[:, :3].copy()
+        adata = annotate_gene_biotypes(
+            adata,
+            species="human",
+            method="reference",
+            allow_download=False,
+            cache_dir=cache_dir,
+            prefer_bundled=False,
+            overwrite=True,
+        )
+
+        meta = adata.uns["sclucid"]["preprocess"]["gene_biotypes"]
+        assert meta["reference_source"].startswith("cache:")
+
+    def test_annotate_gene_biotypes_accepts_legacy_ensembl_alias(self, minimal_adata, tmp_path):
+        cache_dir = tmp_path / "gene_annotations"
+        cache_dir.mkdir()
+        pd.DataFrame(
+            {
+                "gene_name": list(minimal_adata.var_names[:2]),
+                "biotype": ["protein_coding", "lncRNA"],
+                "gene_id": ["ENSG1", "ENSG2"],
+            }
+        ).to_csv(cache_dir / "human_reference_latest.csv.gz", index=False, compression="gzip")
+
+        adata = minimal_adata[:, :2].copy()
+        adata = annotate_gene_biotypes(
+            adata,
+            species="human",
+            method="ensembl",
+            allow_download=False,
+            cache_dir=cache_dir,
+            prefer_bundled=False,
+            overwrite=True,
+        )
+
+        meta = adata.uns["sclucid"]["preprocess"]["gene_biotypes"]
+        assert meta["reference_source"].startswith("cache:")
 
     def test_workflow_run_flags_are_honored(self, minimal_adata):
         """Workflow-level run_* flags should disable optional downstream steps."""
