@@ -17,7 +17,8 @@ import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
 
-from .config import ScalingConfig
+from .config import ScalingConfig, apply_config_overrides
+from .utils import validate_matrix_input
 
 log = logging.getLogger(__name__)
 
@@ -162,21 +163,16 @@ def scale_data(
     if config is None:
         active_config = ScalingConfig()
     else:
-        # Create a copy of config and apply kwargs
-
-        active_config = config.model_copy()
-
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
-        else:
-            log.warning(f"Ignoring unknown scaling parameter: '{key}'")
+        active_config = apply_config_overrides(config, **kwargs)
 
     log.info(
         f"Scaling data in .X (shape: {adata.shape}) using '{active_config.scale_method}' method."
     )
 
-    # --- 2. Apply the scaling method ---
+    # --- 2. Validate input matrix ---
+    validate_matrix_input(adata.X, name="adata.X", allow_negative=True)
+
+    # --- 3. Apply the scaling method ---
     if active_config.regress_in_scale:
         vars_reg = active_config.vars_to_regress_in_scale or active_config.vars_to_regress or []
         vars_reg = [v for v in vars_reg if v]
@@ -238,11 +234,15 @@ def scale_data(
                 adata.X = _minmax_scale(adata.X)
         
         else:
-            raise ValueError(f"Unknown scale_method: '{active_config.scale_method}'")
+            raise ValueError(
+                f"Unknown scale_method '{active_config.scale_method}'. "
+                "Expected one of: zscore, robust, minmax."
+            )
 
     except Exception as e:
-        log.error(f"Scaling failed: {str(e)}")
-        raise RuntimeError(f"Failed to scale data: {str(e)}")
+        raise RuntimeError(
+            f"[preprocess] Scaling failed: {e}. Check input data format."
+        ) from e
 
     # Backward compatibility: persist scaled matrix into a named layer.
     if output_layer:
@@ -275,13 +275,7 @@ def regress_out(
     if config is None:
         active_config = ScalingConfig()
     else:
-        # Create a copy of config and apply kwargs
-
-        active_config = config.model_copy()
-
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
+        active_config = apply_config_overrides(config, **kwargs)
 
     vars_to_regress = list(active_config.vars_to_regress or [])
     if not vars_to_regress:

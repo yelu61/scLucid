@@ -5,6 +5,7 @@ This module provides turn-key workflows for standard and advanced
 quality control analysis using all components of the package.
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List, Any, Iterable, TypeVar, Literal
@@ -481,12 +482,45 @@ def _diff_qc_recommendations(
         "n_counts": ("marking_config", "thresholds", "min_counts"),
         "doublet_threshold": ("doublet_config", "score_threshold"),
     }
+    explicit_field_checks = {
+        "min_genes": [
+            ("marking_config",),
+            ("thresholds",),
+            ("min_genes",),
+        ],
+        "max_mt_percent": [
+            ("marking_config",),
+            ("thresholds",),
+            ("pc_mt",),
+        ],
+        "n_counts": [
+            ("marking_config",),
+            ("thresholds",),
+            ("min_counts",),
+        ],
+        "doublet_threshold": [
+            ("doublet_config",),
+            ("score_threshold",),
+        ],
+    }
+
+    def _is_explicit_user_path(config_obj: Any, fields: list[tuple[str, ...]]) -> bool:
+        current = config_obj
+        for field_path in fields:
+            field_name = field_path[0]
+            if current is None or field_name not in getattr(current, "model_fields_set", set()):
+                return False
+            current = getattr(current, field_name, None)
+        return True
 
     for param_name, path in mapping.items():
         rec_val = None
         param_rec = rec_dict.get(param_name)
         if isinstance(param_rec, dict):
             rec_val = param_rec.get("threshold")
+
+        if not _is_explicit_user_path(original_config, explicit_field_checks[param_name]):
+            continue
 
         actual_val = cfg_dict
         for key in path:
@@ -500,6 +534,121 @@ def _diff_qc_recommendations(
             diffs[param_name] = {"recommended": rec_val, "actual": actual_val}
 
     return diffs
+
+
+def _build_qc_review_summary(
+    config: QCWorkflowConfig,
+    original_config: QCWorkflowConfig,
+    recommendation: Any,
+    sample_thresholds: Dict[str, Any],
+    filtering_summary: Dict[str, Any],
+    warnings: List[str],
+) -> Dict[str, Any]:
+    """Build a human-reviewable summary of the QC run.
+
+    This distills the full trace into the artifacts a reviewer needs:
+    what was recommended, what was actually applied, what the user
+    overrode, per-sample thresholds, and any tumor-aware cautions.
+    """
+    summary: Dict[str, Any] = {}
+
+    # --- Recommendation summary ---
+    rec_summary: Dict[str, Any] = {"available": recommendation is not None}
+    if recommendation is not None:
+        rec_dict = recommendation.to_dict() if hasattr(recommendation, "to_dict") else {}
+        rec_summary["overall_strategy"] = rec_dict.get("overall_strategy", "unknown")
+        rec_summary["overall_confidence"] = rec_dict.get("overall_confidence")
+        rec_summary["data_quality_score"] = rec_dict.get("data_quality_score")
+        rec_summary["concerns"] = rec_dict.get("concerns", [])
+        key_thresholds: Dict[str, Any] = {}
+        for param, path in [
+            ("min_genes", ("marking_config", "thresholds", "min_genes")),
+            ("pc_mt", ("marking_config", "thresholds", "pc_mt")),
+            ("min_counts", ("marking_config", "thresholds", "min_counts")),
+            ("doublet_threshold", ("doublet_config", "score_threshold")),
+        ]:
+            rec_val = rec_dict.get(param, {}).get("threshold") if isinstance(rec_dict.get(param), dict) else None
+            cfg_val = original_config.to_dict()
+            for key in path:
+                cfg_val = cfg_val.get(key) if isinstance(cfg_val, dict) else None
+            key_thresholds[param] = {
+                "recommended": rec_val,
+                "user_provided": cfg_val,
+            }
+        rec_summary["key_thresholds"] = key_thresholds
+    summary["recommendation_summary"] = rec_summary
+
+    # --- Applied threshold summary ---
+    th = config.marking_config.thresholds
+    summary["applied_threshold_summary"] = {
+        "min_genes": th.min_genes,
+        "max_genes": th.max_genes,
+        "min_counts": th.min_counts,
+        "max_counts": th.max_counts,
+        "pc_mt": th.pc_mt,
+        "pc_hb": th.pc_hb,
+        "nmads": th.nmads,
+    }
+
+    # --- User override summary ---
+    overrides = _diff_qc_recommendations(recommendation, original_config)
+    summary["user_override_summary"] = {
+        "overrides_detected": bool(overrides),
+        "details": overrides,
+        "note": (
+            "User-specified thresholds take precedence over recommendations. "
+            "Empty details means the user accepted all recommendations or no recommendation was generated."
+        ),
+    }
+
+    # --- Sample-level threshold summary ---
+    n_samples = len(sample_thresholds)
+    summary["sample_threshold_summary"] = {
+        "mode": config.threshold_mode,
+        "n_samples_with_thresholds": n_samples,
+        "per_sample": {
+            sample: {
+                metric: {
+                    "lower": round(vals["lower"], 2) if isinstance(vals.get("lower"), (int, float)) else vals.get("lower"),
+                    "upper": round(vals["upper"], 2) if isinstance(vals.get("upper"), (int, float)) else vals.get("upper"),
+                }
+                for metric, vals in thresholds.items()
+            }
+            for sample, thresholds in sample_thresholds.items()
+        } if sample_thresholds else {},
+        "note": (
+            "Per-sample thresholds are only computed in hierarchical/independent mode with >1 sample. "
+            "Pooled mode uses a single global threshold."
+        ),
+    }
+
+    # --- Tumor-aware summary ---
+    is_tumor = _is_tumor_aware(config.tissue_type)
+    tumor_notes: List[str] = []
+    if is_tumor:
+        tumor_notes.append("Tumor-aware QC is active: elevated mitochondrial content is flagged rather than hard-filtered.")
+        if "outlier_mt" not in config.filter_config.criteria_to_filter:
+            tumor_notes.append("Mitochondrial outlier filtering was disabled for this tumor dataset.")
+    summary["tumor_aware_summary"] = {
+        "enabled": is_tumor,
+        "tissue_type": config.tissue_type,
+        "notes": tumor_notes,
+    }
+
+    # --- Filtering summary ---
+    fs = filtering_summary if isinstance(filtering_summary, dict) else {}
+    summary["filtering_summary"] = {
+        "initial_cells": fs.get("initial_cells"),
+        "final_cells": fs.get("final_cells"),
+        "removed_cells": fs.get("removed_cells"),
+        "removed_fraction": fs.get("removed_fraction"),
+        "criteria_used": fs.get("criteria_used", config.filter_config.criteria_to_filter),
+    }
+
+    # --- Warnings ---
+    summary["warnings"] = warnings
+
+    return summary
 
 
 def _store_qc_trace(
@@ -528,6 +677,123 @@ def _store_qc_trace(
     save_result(adata, "qc", "sample_thresholds", sample_thresholds)
     save_result(adata, "qc", "filtering_summary", filtering_summary)
     save_result(adata, "qc", "warnings", warnings)
+
+    # Build and store the review-facing summary
+    review_summary = _build_qc_review_summary(
+        config, original_config, recommendation, sample_thresholds, filtering_summary, warnings
+    )
+    save_result(adata, "qc", "review_summary", review_summary)
+    return review_summary
+
+
+def _export_qc_review_summary(
+    review_summary: Dict[str, Any],
+    save_dir: Path,
+) -> None:
+    """Export review summary as JSON and Markdown sidecars."""
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # JSON sidecar
+    json_path = save_dir / "qc_review_summary.json"
+    json_path.write_text(json.dumps(review_summary, indent=2, default=str), encoding="utf-8")
+
+    # Markdown sidecar
+    md_lines = [
+        "# QC Review Summary",
+        "",
+        "## Recommendation Summary",
+        "",
+    ]
+    rec = review_summary.get("recommendation_summary", {})
+    if rec.get("available"):
+        md_lines.append(f"- **Strategy**: {rec.get('overall_strategy', 'unknown')}")
+        md_lines.append(f"- **Confidence**: {rec.get('overall_confidence')}")
+        md_lines.append(f"- **Data Quality Score**: {rec.get('data_quality_score')}")
+        if rec.get("concerns"):
+            md_lines.append("- **Concerns**:")
+            for c in rec["concerns"]:
+                md_lines.append(f"  - {c}")
+        md_lines.append("")
+        md_lines.append("| Parameter | Recommended | User Provided |")
+        md_lines.append("|-----------|-------------|---------------|")
+        for param, vals in rec.get("key_thresholds", {}).items():
+            md_lines.append(f"| {param} | {vals.get('recommended')} | {vals.get('user_provided')} |")
+    else:
+        md_lines.append("- No recommendation was generated (recommendations disabled or engine failed).")
+    md_lines.append("")
+
+    md_lines.extend([
+        "## Applied Thresholds",
+        "",
+        "| Parameter | Value |",
+        "|-----------|-------|",
+    ])
+    for param, val in review_summary.get("applied_threshold_summary", {}).items():
+        md_lines.append(f"| {param} | {val} |")
+    md_lines.append("")
+
+    ov = review_summary.get("user_override_summary", {})
+    md_lines.extend([
+        "## User Overrides",
+        "",
+        f"- **Overrides detected**: {ov.get('overrides_detected', False)}",
+    ])
+    if ov.get("details"):
+        md_lines.append("- **Details**:")
+        for param, vals in ov["details"].items():
+            md_lines.append(f"  - {param}: recommended={vals.get('recommended')}, user={vals.get('actual')}")
+    md_lines.append("")
+
+    st = review_summary.get("sample_threshold_summary", {})
+    md_lines.extend([
+        "## Sample-Level Thresholds",
+        "",
+        f"- **Mode**: {st.get('mode')}",
+        f"- **Samples with thresholds**: {st.get('n_samples_with_thresholds', 0)}",
+        "",
+    ])
+    if st.get("per_sample"):
+        md_lines.append("```json")
+        md_lines.append(json.dumps(st["per_sample"], indent=2, default=str))
+        md_lines.append("```")
+    md_lines.append("")
+
+    ta = review_summary.get("tumor_aware_summary", {})
+    md_lines.extend([
+        "## Tumor-Aware QC",
+        "",
+        f"- **Enabled**: {ta.get('enabled', False)}",
+    ])
+    if ta.get("notes"):
+        for note in ta["notes"]:
+            md_lines.append(f"- {note}")
+    md_lines.append("")
+
+    fs = review_summary.get("filtering_summary", {})
+    _removed_frac = fs.get('removed_fraction')
+    _removed_frac_str = f"{_removed_frac:.1%}" if isinstance(_removed_frac, (int, float)) else "N/A"
+    md_lines.extend([
+        "## Filtering Results",
+        "",
+        f"- **Initial cells**: {fs.get('initial_cells')}",
+        f"- **Final cells**: {fs.get('final_cells')}",
+        f"- **Removed**: {fs.get('removed_cells')} ({_removed_frac_str})",
+        f"- **Criteria used**: {fs.get('criteria_used', [])}",
+        "",
+    ])
+
+    if review_summary.get("warnings"):
+        md_lines.extend([
+            "## Warnings",
+            "",
+        ])
+        for w in review_summary["warnings"]:
+            md_lines.append(f"- {w}")
+        md_lines.append("")
+
+    md_path = save_dir / "qc_review_summary.md"
+    md_path.write_text("\n".join(md_lines), encoding="utf-8")
+    log.info(f"QC review summary exported to {json_path} and {md_path}")
 
 
 def _run_qc_workflow(
@@ -707,6 +973,17 @@ def run_standard_qc(
     4. Filtering of marked cells.
     5. Generation of a final report.
 
+    Default path semantics:
+        - ``use_recommendations=True``: intelligent QC recommendations are applied
+          to thresholds that the caller did not explicitly set.
+        - ``threshold_mode="hierarchical"``: per-sample thresholds are computed when
+          multiple samples are present.
+        - Tumor-aware adjustment is active when ``tissue_type`` contains "tumor" or
+          "cancer" (e.g. ``outlier_mt`` is excluded from filtering).
+        - A reviewer-facing summary is stored in
+          ``adata.uns['sclucid']['qc']['review_summary']`` and written to disk as
+          ``qc_review_summary.json`` / ``qc_review_summary.md`` when ``save_dir`` is set.
+
     New features in v0.3:
     - Error recovery with partial result saving
     - Resume from checkpoint
@@ -803,7 +1080,7 @@ def run_standard_qc(
             adata_filtered = adata
 
         filtering_summary = adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
-        _store_qc_trace(
+        review_summary = _store_qc_trace(
             adata_filtered,
             applied_config,
             original_config,
@@ -812,6 +1089,8 @@ def run_standard_qc(
             filtering_summary,
             qc_warnings,
         )
+        if results_path is not None:
+            _export_qc_review_summary(review_summary, results_path)
 
         # --- Step 3: Reporting ---
         if results_path is not None and "reporting" not in completed_steps:
@@ -885,6 +1164,13 @@ def run_advanced_qc(
 
     This workflow is entirely controlled by the provided QCWorkflowConfig object,
     allowing fine-grained control over every step.
+
+    Reviewer-facing outputs:
+        - ``adata.uns['sclucid']['qc']['review_summary']`` contains a structured
+          digest of recommendations, applied thresholds, user overrides,
+          sample-level thresholds, tumor-aware flags, and filtering results.
+        - When ``save_dir`` is set, ``qc_review_summary.json`` and
+          ``qc_review_summary.md`` sidecars are written alongside the report.
 
     New features in v0.3:
     - Error recovery with partial result saving
@@ -964,7 +1250,7 @@ def run_advanced_qc(
             adata_filtered = adata
 
         filtering_summary = adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
-        _store_qc_trace(
+        review_summary = _store_qc_trace(
             adata_filtered,
             applied_config,
             original_config,
@@ -973,6 +1259,8 @@ def run_advanced_qc(
             filtering_summary,
             qc_warnings,
         )
+        if results_path is not None:
+            _export_qc_review_summary(review_summary, results_path)
 
         # --- Step 3: Reporting ---
         if results_path is not None and "reporting" not in completed_steps:

@@ -4,7 +4,7 @@ High-level analysis workflows combining DE and enrichment.
 This module provides integrated workflows:
 - characterize_clusters: Complete cluster characterization with DE + enrichment
 - summarize_markers_and_enrichment: Summarize and visualize results
-""",
+"""
 
 import logging
 from pathlib import Path
@@ -23,12 +23,123 @@ from .enrichment import run_enrichment
 log = logging.getLogger(__name__)
 
 
+def _resolve_characterization_export_paths(
+    save_path: Union[str, Path],
+    *,
+    key_added: str,
+) -> Dict[str, Path]:
+    """Resolve stable output paths for characterization review sidecars."""
+    target = Path(save_path)
+    if target.suffix:
+        base_dir = target.parent
+        stem = target.stem
+        summary_path = target if target.suffix.lower() == ".csv" else target.with_suffix(".csv")
+    else:
+        base_dir = target
+        stem = key_added
+        summary_path = base_dir / f"{stem}_summary.csv"
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "summary": summary_path,
+        "top_markers": base_dir / f"{stem}_top_markers.csv",
+        "enrichment": base_dir / f"{stem}_enrichment_summary.csv",
+        "markdown": base_dir / f"{stem}_summaries.md",
+    }
+
+
+def _detect_enrichment_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
+    """Detect term and adjusted p-value columns across common enrichment outputs."""
+    term_candidates = ["Term", "term_name", "term", "Description", "Name", "Pathway"]
+    pval_candidates = ["pval_adj", "Adjusted P-value", "p.adjust", "padj", "FDR"]
+    term_col = next((c for c in term_candidates if c in df.columns), None)
+    pval_col = next((c for c in pval_candidates if c in df.columns), None)
+    return term_col, pval_col
+
+
+def _build_characterization_tables(
+    de_df: pd.DataFrame,
+    enrichment_results_dict: Dict[str, Dict[str, pd.DataFrame]],
+    *,
+    n_top_markers: int,
+    n_top_terms: int,
+    enrichment_method_to_summarize: str,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Build notebook-friendly cluster marker and enrichment summary tables."""
+    marker_rows: List[Dict[str, object]] = []
+    enrichment_rows: List[Dict[str, object]] = []
+    marker_columns = ["cluster", "rank", "gene", "logfoldchanges", "scores", "pvals_adj"]
+    enrichment_columns = [
+        "cluster",
+        "method",
+        "rank",
+        "term",
+        "adjusted_p_value",
+        "source_columns",
+    ]
+
+    if de_df is not None and not de_df.empty:
+        if "logfoldchanges" in de_df.columns:
+            sort_col = "logfoldchanges"
+        elif "scores" in de_df.columns:
+            sort_col = "scores"
+        else:
+            sort_col = "names"
+
+        for group, group_df in de_df.groupby(de_df["group"].astype(str)):
+            ranked = group_df.sort_values(sort_col, ascending=False).head(n_top_markers)
+            for rank, (_, row) in enumerate(ranked.iterrows(), start=1):
+                marker_rows.append(
+                    {
+                        "cluster": str(group),
+                        "rank": rank,
+                        "gene": str(row.get("names", "")),
+                        "logfoldchanges": row.get("logfoldchanges"),
+                        "scores": row.get("scores"),
+                        "pvals_adj": row.get("pvals_adj"),
+                    }
+                )
+
+    for cluster, cluster_results in enrichment_results_dict.items():
+        enr_df = cluster_results.get(enrichment_method_to_summarize, pd.DataFrame())
+        if not isinstance(enr_df, pd.DataFrame) or enr_df.empty:
+            continue
+        term_col, pval_col = _detect_enrichment_columns(enr_df)
+        if term_col is None:
+            continue
+        ranked = enr_df.copy()
+        if pval_col is not None:
+            ranked[pval_col] = pd.to_numeric(ranked[pval_col], errors="coerce")
+            ranked = ranked.sort_values(pval_col, ascending=True, na_position="last")
+        ranked = ranked.head(n_top_terms)
+        for rank, (_, row) in enumerate(ranked.iterrows(), start=1):
+            enrichment_rows.append(
+                {
+                    "cluster": str(cluster),
+                    "method": enrichment_method_to_summarize,
+                    "rank": rank,
+                    "term": str(row.get(term_col, "")),
+                    "adjusted_p_value": row.get(pval_col) if pval_col is not None else None,
+                    "source_columns": ",".join(map(str, ranked.columns)),
+                }
+            )
+
+    return (
+        pd.DataFrame(marker_rows, columns=marker_columns),
+        pd.DataFrame(enrichment_rows, columns=enrichment_columns),
+    )
+
+
 def characterize_clusters(
     adata: AnnData,
     groupby: str,
     de_config: Optional[DifferentialConfig] = None,
     enrichment_config: Optional[EnrichmentConfig] = None,
     key_added: str = "cluster_characterization",
+    save_path: Optional[Union[str, Path]] = None,
+    n_top_markers: int = 10,
+    n_top_terms: int = 5,
+    enrichment_method_to_summarize: Literal["ora", "gsea"] = "ora",
 ) -> AnnData:
     """
     Comprehensive cluster characterization: DE + enrichment in one step.
@@ -44,6 +155,10 @@ def characterize_clusters(
         de_config: Optional DE configuration
         enrichment_config: Optional enrichment configuration
         key_added: Key for storing combined results
+        save_path: Optional output directory or base CSV path for review sidecars
+        n_top_markers: Number of top markers per cluster to export in review tables
+        n_top_terms: Number of top enrichment terms per cluster to export
+        enrichment_method_to_summarize: Enrichment method to prioritize in summaries
 
     Returns:
         Modified AnnData with results in adata.uns[key_added]
@@ -106,17 +221,92 @@ def characterize_clusters(
             "enrichment_gsea": enr_res.get("gsea", pd.DataFrame()),
         }
 
+    top_markers_df, enrichment_summary_df = _build_characterization_tables(
+        de_df,
+        enrichment_results_dict,
+        n_top_markers=n_top_markers,
+        n_top_terms=n_top_terms,
+        enrichment_method_to_summarize=enrichment_method_to_summarize,
+    )
+    markdown_summaries = summarize_markers_and_enrichment(
+        adata,
+        groupby=groupby,
+        markers_df=de_df,
+        enrichment_dict=enrichment_results_dict,
+        enrichment_method_to_summarize=enrichment_method_to_summarize,
+        n_markers=n_top_markers,
+        n_terms=n_top_terms,
+    )
+    cluster_summary_df = pd.DataFrame(
+        {
+            "cluster": [str(cluster) for cluster in clusters],
+            "n_cells": [
+                int((adata.obs[groupby].astype(str) == str(cluster)).sum())
+                for cluster in clusters
+            ],
+        }
+    )
+    if not top_markers_df.empty:
+        cluster_summary_df = cluster_summary_df.merge(
+            top_markers_df.groupby("cluster")["gene"]
+            .agg(lambda genes: ", ".join(pd.Series(genes).dropna().astype(str).tolist()))
+            .rename("top_markers"),
+            how="left",
+            on="cluster",
+        )
+    else:
+        cluster_summary_df["top_markers"] = ""
+
+    if not enrichment_summary_df.empty:
+        cluster_summary_df = cluster_summary_df.merge(
+            enrichment_summary_df.groupby("cluster")["term"]
+            .agg(lambda terms: ", ".join(pd.Series(terms).dropna().astype(str).tolist()))
+            .rename("top_pathways"),
+            how="left",
+            on="cluster",
+        )
+    else:
+        cluster_summary_df["top_pathways"] = ""
+
+    cluster_summary_df = cluster_summary_df.fillna({"top_markers": "", "top_pathways": ""})
+
     # Store combined results
     adata.uns[key_added] = {
         "results": characterization_results,
+        "summary_table": cluster_summary_df,
+        "top_markers": top_markers_df,
+        "enrichment_summary": enrichment_summary_df,
+        "markdown_summary": markdown_summaries,
         "params": {
             "groupby": groupby,
             "de_df_key": de_df_key,
             "enrichment_key": enrichment_config.key_added,
+            "n_top_markers": int(n_top_markers),
+            "n_top_terms": int(n_top_terms),
+            "summary_enrichment_method": enrichment_method_to_summarize,
             "de_params": de_config.to_dict(),
             "enrichment_params": enrichment_config.to_dict(),
         },
     }
+
+    if save_path:
+        export_paths = _resolve_characterization_export_paths(save_path, key_added=key_added)
+        cluster_summary_df.to_csv(export_paths["summary"], index=False)
+        top_markers_df.to_csv(export_paths["top_markers"], index=False)
+        enrichment_summary_df.to_csv(export_paths["enrichment"], index=False)
+        summarize_markers_and_enrichment(
+            adata,
+            groupby=groupby,
+            markers_df=de_df,
+            enrichment_dict=enrichment_results_dict,
+            enrichment_method_to_summarize=enrichment_method_to_summarize,
+            n_markers=n_top_markers,
+            n_terms=n_top_terms,
+            summary_file=str(export_paths["markdown"]),
+        )
+        adata.uns[key_added]["export_paths"] = {
+            name: str(path) for name, path in export_paths.items()
+        }
 
     log.info(f"Cluster characterization complete -> adata.uns['{key_added}']")
     return adata
@@ -331,4 +521,3 @@ def summarize_markers_and_enrichment(
 
 
 # ==================== Visualization Functions ====================
-

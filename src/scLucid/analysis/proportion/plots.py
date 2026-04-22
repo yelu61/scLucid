@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -89,6 +90,22 @@ def save_and_close(plot_name: str):
         return wrapper
 
     return decorator
+
+
+def _resolve_order(values: pd.Index, requested: Optional[List] = None) -> List:
+    """Resolve display order while keeping only present values."""
+    present = list(values)
+    if requested is None:
+        return present
+    requested_present = [value for value in requested if value in present]
+    remainder = [value for value in present if value not in requested_present]
+    return requested_present + remainder
+
+
+def _resolve_plot_colors(columns: List[str], palette: Optional[Dict] = None) -> List:
+    """Resolve ordered colors for a list of labels."""
+    palette = _ensure_palette(palette, pd.Index(columns))
+    return [palette.get(col, "#808080") for col in columns]
 
 
 # ================= Plotting Functions =================
@@ -220,6 +237,242 @@ def plot_proportion_bar(
     ax.legend(title='Cell Type', bbox_to_anchor=(1.05, 1), loc='upper left')
     ax.set_ylim(0, 1)
 
+    return fig
+
+
+@save_and_close("grouped_celltype_counts")
+def plot_grouped_celltype_counts(
+    count_df: pd.DataFrame,
+    group_col: str = "group",
+    celltype_col: str = "cell_type",
+    count_col: str = "count",
+    group_order: Optional[List] = None,
+    celltype_order: Optional[List] = None,
+    palette: Optional[Dict] = None,
+    annotate: bool = False,
+    figsize: Tuple[float, float] = (12, 6),
+    title: str = "Cell Counts by Group",
+    out_dir: Optional[str] = None,
+) -> plt.Figure:
+    """
+    Plot grouped cell-type counts from a long-format count table.
+
+    Parameters
+    ----------
+    count_df : pd.DataFrame
+        Long-format table with group, cell type, and count columns.
+    group_col : str
+        Grouping column on the x-axis.
+    celltype_col : str
+        Cell-type column used as hue.
+    count_col : str
+        Count column.
+    group_order : list, optional
+        Display order for groups.
+    celltype_order : list, optional
+        Display order for cell types in the legend.
+    palette : dict, optional
+        Color map keyed by cell type.
+    annotate : bool
+        If True, add count labels above non-zero bars.
+    figsize : tuple
+        Figure size.
+    title : str
+        Plot title.
+    out_dir : str, optional
+        Output directory for saving plot.
+    """
+    required = {group_col, celltype_col, count_col}
+    missing = required - set(count_df.columns)
+    if missing:
+        raise KeyError(f"count_df missing required columns: {sorted(missing)}")
+
+    plot_df = count_df.copy()
+    plot_df[group_col] = plot_df[group_col].astype(str)
+    plot_df[celltype_col] = plot_df[celltype_col].astype(str)
+    plot_df[count_col] = pd.to_numeric(plot_df[count_col], errors="coerce").fillna(0)
+
+    group_order = _resolve_order(pd.Index(plot_df[group_col].unique()), group_order)
+    celltype_order = _resolve_order(pd.Index(plot_df[celltype_col].unique()), celltype_order)
+    palette = _ensure_palette(palette, pd.Index(celltype_order))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.barplot(
+        data=plot_df,
+        x=group_col,
+        y=count_col,
+        hue=celltype_col,
+        order=group_order,
+        hue_order=celltype_order,
+        palette=palette,
+        ax=ax,
+    )
+    ax.set_xlabel("")
+    ax.set_ylabel("Cell Count")
+    ax.set_title(title)
+    ax.legend(title=celltype_col, bbox_to_anchor=(1.02, 1), loc="upper left")
+
+    if annotate:
+        for patch in ax.patches:
+            height = patch.get_height()
+            if pd.notna(height) and height > 0:
+                ax.text(
+                    x=patch.get_x() + patch.get_width() / 2,
+                    y=height,
+                    s=f"{int(round(height))}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    rotation=90,
+                )
+
+    return fig
+
+
+@save_and_close("grouped_proportion_bar")
+def plot_grouped_proportion_bar(
+    group_props: pd.DataFrame,
+    group_order: Optional[List] = None,
+    celltype_order: Optional[List] = None,
+    palette: Optional[Dict] = None,
+    figsize: Tuple[float, float] = (9, 6),
+    title: str = "Cell Type Composition by Group",
+    xlabel: str = "Group",
+    ylabel: str = "Proportion",
+    out_dir: Optional[str] = None,
+) -> plt.Figure:
+    """
+    Plot stacked cell-type proportions from a group x cell-type matrix.
+    """
+    if group_props.empty:
+        raise ValueError("group_props is empty")
+
+    plot_df = group_props.copy()
+    plot_df.index = plot_df.index.astype(str)
+    plot_df.columns = plot_df.columns.astype(str)
+
+    resolved_groups = _resolve_order(pd.Index(plot_df.index), group_order)
+    resolved_celltypes = _resolve_order(pd.Index(plot_df.columns), celltype_order)
+    plot_df = plot_df.loc[resolved_groups, resolved_celltypes]
+
+    fig, ax = plt.subplots(figsize=figsize)
+    plot_df.plot(
+        kind="bar",
+        stacked=True,
+        color=_resolve_plot_colors(list(plot_df.columns), palette),
+        edgecolor="white",
+        linewidth=0.5,
+        ax=ax,
+    )
+    ax.set_ylim(0, 1)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend(title="Cell Type", loc="center left", bbox_to_anchor=(1.02, 0.5))
+    ax.tick_params(axis="x", rotation=45)
+    return fig
+
+
+@save_and_close("celltype_alluvial")
+def plot_celltype_alluvial(
+    group_props: pd.DataFrame,
+    celltype_order: Optional[List] = None,
+    palette: Optional[Dict] = None,
+    figsize: Tuple[float, float] = (12, 7),
+    title: str = "Cell Type Alluvial",
+    bar_width: float = 0.35,
+    band_alpha: float = 0.28,
+    out_dir: Optional[str] = None,
+) -> plt.Figure:
+    """
+    Plot an alluvial-style stacked composition chart from group proportions.
+
+    Parameters
+    ----------
+    group_props : pd.DataFrame
+        Matrix indexed by group with cell types as columns. Each row should sum
+        approximately to 1.
+    celltype_order : list, optional
+        Display order for cell types.
+    palette : dict, optional
+        Color map keyed by cell type.
+    figsize : tuple
+        Figure size.
+    title : str
+        Plot title.
+    bar_width : float
+        Width of each stacked bar.
+    band_alpha : float
+        Alpha value for connecting ribbons.
+    out_dir : str, optional
+        Output directory for saving plot.
+    """
+    if group_props.empty:
+        raise ValueError("group_props is empty")
+
+    plot_df = group_props.copy()
+    plot_df.index = plot_df.index.astype(str)
+    plot_df.columns = plot_df.columns.astype(str)
+    resolved_celltypes = _resolve_order(pd.Index(plot_df.columns), celltype_order)
+    plot_df = plot_df[resolved_celltypes]
+
+    groups = list(plot_df.index)
+    x = np.arange(len(groups))
+    palette = _ensure_palette(palette, pd.Index(resolved_celltypes))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    bottoms = {group: 0.0 for group in groups}
+    yspans: Dict[str, Dict[str, Tuple[float, float]]] = {group: {} for group in groups}
+
+    for celltype in resolved_celltypes:
+        color = palette.get(celltype, "#808080")
+        for idx, group in enumerate(groups):
+            height = float(plot_df.loc[group, celltype]) if celltype in plot_df.columns else 0.0
+            y0 = bottoms[group]
+            y1 = y0 + height
+            yspans[group][celltype] = (y0, y1)
+            ax.bar(
+                x[idx],
+                height,
+                bottom=y0,
+                width=bar_width,
+                color=color,
+                edgecolor="white",
+                linewidth=0.6,
+            )
+            bottoms[group] = y1
+
+    for idx in range(len(groups) - 1):
+        left_group, right_group = groups[idx], groups[idx + 1]
+        x_left = x[idx] + bar_width / 2
+        x_right = x[idx + 1] - bar_width / 2
+        for celltype in resolved_celltypes:
+            y0_left, y1_left = yspans[left_group][celltype]
+            y0_right, y1_right = yspans[right_group][celltype]
+            if (y1_left - y0_left) <= 0 and (y1_right - y0_right) <= 0:
+                continue
+            polygon = patches.Polygon(
+                [
+                    (x_left, y0_left),
+                    (x_right, y0_right),
+                    (x_right, y1_right),
+                    (x_left, y1_left),
+                ],
+                closed=True,
+                facecolor=palette.get(celltype, "#808080"),
+                edgecolor="none",
+                alpha=band_alpha,
+            )
+            ax.add_patch(polygon)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(groups, rotation=45, ha="right")
+    ax.set_xlim(-0.6, len(groups) - 1 + 0.6)
+    ax.set_ylim(0, max(1.0, float(plot_df.sum(axis=1).max())))
+    ax.set_ylabel("Proportion")
+    ax.set_title(title)
+    handles = [patches.Patch(color=palette.get(ct, "#808080"), label=ct) for ct in resolved_celltypes]
+    ax.legend(handles=handles, title="Cell Type", loc="center left", bbox_to_anchor=(1.02, 0.5))
     return fig
 
 

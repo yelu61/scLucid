@@ -1,6 +1,6 @@
 {
   "dataset_shape_after": [
-    5889,
+    5892,
     19882
   ],
   "dataset_shape_before": [
@@ -16,9 +16,9 @@
   },
   "recommendation": {
     "min_genes": {
-      "threshold": 337,
-      "ci_lower": 337,
-      "ci_upper": 355,
+      "threshold": 336,
+      "ci_lower": 336,
+      "ci_upper": 356,
       "confidence": 0.5,
       "method": "GMM + Bootstrap",
       "evidence": {
@@ -30,7 +30,7 @@
     },
     "max_mt_percent": {
       "threshold": 10.1,
-      "ci_lower": 9.6,
+      "ci_lower": 9.7,
       "ci_upper": 10.8,
       "confidence": 0.5,
       "method": "distribution fitting (beta)",
@@ -59,8 +59,8 @@
     },
     "n_counts": {
       "threshold": 897,
-      "ci_lower": 870,
-      "ci_upper": 926,
+      "ci_lower": 871,
+      "ci_upper": 925,
       "confidence": 1.0,
       "method": "log-normal distribution + bootstrap",
       "evidence": {
@@ -79,15 +79,15 @@
   },
   "filtering_summary": {
     "initial_cells": 6499,
-    "final_cells": "5889",
-    "removed_cells": "610",
-    "removed_fraction": 0.09386059393752885,
+    "final_cells": "5892",
+    "removed_cells": "607",
+    "removed_fraction": 0.09339898445914756,
     "criteria_used": [
       "outlier_min_genes"
     ],
     "combination_logic": "any",
     "criteria_counts": {
-      "outlier_min_genes": "610"
+      "outlier_min_genes": "607"
     },
     "config": {
       "save_dir": null,

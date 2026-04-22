@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Union
 from anndata import AnnData
 import pandas as pd
 
+from ..base_config import apply_config_overrides
 from ..utils import get_progress_bar, PartialResultManager, WorkflowCheckpoint, WorkflowError
 from .config import AnalysisWorkflowConfig
 from .clustering import find_resolution, cluster_cells
@@ -38,6 +39,15 @@ __all__ = [
     "AnalysisWorkflowError",
     "PartialAnalysisResult",
 ]
+
+
+def _default_groupby_key(adata: AnnData) -> str:
+    """Choose the most likely cluster key for downstream analysis steps."""
+    if "leiden_clusters" in adata.obs.columns:
+        return "leiden_clusters"
+    if "leiden" in adata.obs.columns:
+        return "leiden"
+    return "leiden_clusters"
 
 
 def run_standard_analysis(
@@ -120,12 +130,9 @@ def run_standard_analysis(
     """
     if config is None:
         from .config import AnalysisWorkflowConfig as DefaultConfig
-        config = DefaultConfig(**kwargs)
+        config = apply_config_overrides(DefaultConfig(), **kwargs)
     else:
-        # Allow kwargs to override config
-        for key, value in kwargs.items():
-            if key in config.model_fields:
-                setattr(config, key, value)
+        config = apply_config_overrides(config, **kwargs)
 
     # Validate error recovery settings
     if error_recovery and on_error == "save" and not recovery_save_dir:
@@ -251,7 +258,11 @@ def run_standard_analysis(
                 log.warning(f"To resume, use: run_standard_analysis(adata, resume_from='{save_dir}')")
                 return adata
 
-        raise WorkflowError(error_msg, step_name=current_step or "unknown", original_error=e)
+        raise WorkflowError(
+            f"[analysis] Workflow failed at step '{current_step}': {e}",
+            step_name=current_step or "unknown",
+            original_error=e,
+        )
 
     # Store final config
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {})[
@@ -330,8 +341,8 @@ def run_custom_analysis(
 
         if step == 'resolution':
             config = step_configs.get(step, {})
-            result = find_resolution(adata, **config)
-            log.info(f"  Optimal resolution: {result['optimal_resolution']}")
+            eval_df, recommended_res = find_resolution(adata, **config)
+            log.info(f"  Optimal resolution: {recommended_res}")
 
         elif step == 'clustering':
             from .config import ClusteringConfig
@@ -339,13 +350,14 @@ def run_custom_analysis(
             if isinstance(config, dict):
                 config = ClusteringConfig(**config)
             adata = cluster_cells(adata, config)
-            log.info(f"  Created {adata.obs['leiden'].nunique()} clusters")
+            cluster_key = config.key_added or f"{config.method}_clusters"
+            log.info(f"  Created {adata.obs[cluster_key].nunique()} clusters")
 
         elif step == 'markers':
             from .config import DifferentialConfig
             config = step_configs.get(step, {})
             if 'groupby' not in config:
-                config['groupby'] = 'leiden'
+                config['groupby'] = _default_groupby_key(adata)
             if isinstance(config, dict):
                 config = DifferentialConfig(**config)
             markers = find_markers(adata, config)
@@ -367,7 +379,7 @@ def run_custom_analysis(
         elif step == 'characterization':
             config = step_configs.get(step, {})
             if 'groupby' not in config:
-                config['groupby'] = 'leiden'
+                config['groupby'] = _default_groupby_key(adata)
             adata = characterize_clusters(adata, save_path=save_dir, **config)
             log.info("  Characterization complete")
 
@@ -440,13 +452,14 @@ def compare_clustering_resolutions(
 
         # Compute metrics
         result = {'resolution': res}
-        result['n_clusters'] = adata_temp.obs['leiden'].nunique()
+        cluster_key = config.key_added or f"{config.method}_clusters"
+        result['n_clusters'] = adata_temp.obs[cluster_key].nunique()
 
         if 'silhouette' in metrics and adata_temp.obsm.get('X_pca') is not None:
             try:
                 score = silhouette_score(
                     adata_temp.obsm['X_pca'],
-                    adata_temp.obs['leiden'].astype(int)
+                    adata_temp.obs[cluster_key].astype(int)
                 )
                 result['silhouette'] = score
             except Exception as e:

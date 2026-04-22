@@ -1,217 +1,86 @@
-Quick Start Guide
-=================
+Quick Start
+===========
 
-This guide will help you get started with scLucid in 5 minutes.
+This page shows the recommended minimal path for using scLucid on a new dataset.
+For longer runnable scripts, see :doc:`examples`. For full narrative analyses,
+see :doc:`notebooks`.
 
-Basic Workflow
---------------
+Recommended Learning Order
+--------------------------
 
-scLucid provides a complete pipeline for single-cell RNA-seq analysis:
+1. Run QC with `run_standard_qc()`
+2. Run preprocessing with `PreprocessingWorkflowConfig.default()` or intelligent preprocessing
+3. Run clustering and annotation
+4. Export reviewer-facing summaries before making biological claims
 
-1. **Quality Control (QC)** - Filter low-quality cells and detect doublets
-2. **Preprocessing** - Normalize, find HVGs, scale, and run PCA
-3. **Analysis** - Clustering, annotation, and differential expression
-
-Example Usage
-~~~~~~~~~~~~~
+Minimal End-To-End Example
+--------------------------
 
 .. code-block:: python
 
-    import scLucid
+    import scanpy as sc
+    import scLucid as scl
+    from scLucid.qc import run_standard_qc, QCWorkflowConfig
+    from scLucid.preprocess import run_preprocessing, PreprocessingWorkflowConfig
+    from scLucid.analysis import cluster_cells, run_annotation, ClusteringConfig, AnnotationConfig
 
-    # 1. Quality Control
-    from scLucid.qc import QCWorkflowConfig, run_standard_qc
+    adata = sc.read_h5ad("data/pbmc3k.h5ad")
+    adata.layers["counts"] = adata.X.copy()
 
     qc_config = QCWorkflowConfig(
-        min_genes=200,
-        pc_mt=20.0,
-        doublet_method="scrublet"
+        save_dir="results/qc",
+        use_recommendations=True,
+        threshold_mode="hierarchical",
     )
     adata = run_standard_qc(adata, config=qc_config)
 
-    # 2. Preprocessing
-    from scLucid.preprocess import WorkflowConfig, run_preprocessing
-
-    preprocess_config = WorkflowConfig(
-        target_sum=1e4,
-        n_top_genes=2000,
-        n_pcs=50
-    )
+    preprocess_config = PreprocessingWorkflowConfig.default(save_dir="results/preprocess")
     adata = run_preprocessing(adata, config=preprocess_config)
 
-    # 3. Clustering and Annotation
-    from scLucid.analysis import ClusteringConfig, AnnotationConfig
-
-    clustering_config = ClusteringConfig(method="leiden", resolution=1.0)
-    from scLucid.analysis import cluster_cells, annotate_clusters
-
-    adata = cluster_cells(adata, config=clustering_config)
-    adata = annotate_clusters(adata, marker_manager)
-
-Configuration System
----------------------
-
-scLucid uses **Pydantic** for automatic configuration validation:
-
-.. code-block:: python
-
-    from scLucid.qc import QCThresholds
-
-    # Valid config - validates automatically
-    thresholds = QCThresholds(min_genes=200, pc_mt=20.0)
-
-    # Invalid config - raises ValidationError
-    try:
-        invalid = QCThresholds(min_genes=-1)  # Error: must be >= 0
-    except Exception as e:
-        print(f"Validation error: {e}")
-
-Save and Load Configs
-~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    # Save config to file
-    thresholds.to_json_file("qc_config.json")
-
-    # Load config from file
-    loaded = QCThresholds.from_json_file("qc_config.json")
-
-Global Settings
----------------
-
-Configure runtime behavior:
-
-.. code-block:: python
-
-    from scLucid.config import set_config, config_context
-
-    # Permanent change
-    set_config(
-        n_jobs=4,           # Use 4 CPU cores
-        verbosity=2,        # DEBUG level logging
-        figure_dpi=300      # High-res figures
-    )
-
-    # Temporary change (within context)
-    with config_context(n_jobs=8):
-        # Uses 8 cores temporarily
-        run_preprocessing(adata, config)
-
-    # Original settings restored after context
-
-Common Tasks
-------------
-
-Calculate QC Metrics
-~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    from scLucid.qc import calculate_qc_metric
-
-    adata = calculate_qc_metric(
+    adata = cluster_cells(
         adata,
-        config=qc_config.reporting,
-        species="human"
+        ClusteringConfig(method="leiden", resolution=1.0),
     )
 
-    # Metrics stored in adata.obs:
-    # - n_genes_by_counts
-    # - total_counts
-    # - pct_counts_mt
-    # - pct_counts_ribo
-
-Filter Cells
-~~~~~~~~~~~~
-
-.. code-block:: python
-
-    from scLucid.qc import filter_cells, QCThresholds
-
-    thresholds = QCThresholds(
-        min_genes=200,
-        max_genes=5000,
-        pc_mt=20.0
+    adata = run_annotation(
+        adata,
+        config=AnnotationConfig(
+            cluster_key="leiden_clusters",
+            marker_species="human",
+            final_method="combined",
+        ),
     )
 
-    adata_filtered = filter_cells(adata, thresholds)
+    adata.write("results/final_annotated.h5ad")
 
-Detect Doublets
-~~~~~~~~~~~~~~~
+What This Path Gives You
+------------------------
 
-.. code-block:: python
+- QC trace under ``adata.uns["sclucid"]["qc"]``
+- QC review sidecars when ``save_dir`` is set
+- standard preprocessing outputs such as normalized layers, HVG metadata, PCA, and neighbors/UMAP
+- clustering labels in ``adata.obs``
+- annotation evidence and annotation outputs in ``adata.obs`` and ``adata.uns``
 
-    from scLucid.qc import predict_doublets, DoubletConfig
+Choosing Between Default And Intelligent Preprocessing
+------------------------------------------------------
 
-    doublet_config = DoubletConfig(
-        method="scrublet",
-        expected_doublet_rate=0.06
-    )
+Use `PreprocessingWorkflowConfig.default()` when:
 
-    adata = predict_doublets(adata, config=doublet_config)
+- you want the canonical package path
+- your dataset is standard scRNA-seq with familiar batch structure
+- you value stability and simplicity over parameter search
 
-Normalize Data
-~~~~~~~~~~~~~~
+Use `run_intelligent_preprocessing()` when:
 
-.. code-block:: python
+- you want data-driven parameter suggestions
+- you want a reviewer-facing summary before applying recommendations
+- you need help choosing HVG / PCA / neighbors / integration settings
 
-    from scLucid.preprocess import normalize_data, NormalizationConfig
+Related Repository Entry Points
+-------------------------------
 
-    norm_config = NormalizationConfig(
-        target_sum=1e4,
-        output_layer="normalized"
-    )
-
-    adata = normalize_data(adata, config=norm_config)
-
-    # Result in adata.layers["normalized"]
-
-Find Highly Variable Genes
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    from scLucid.preprocess import find_hvgs, HVGConfig
-
-    hvg_config = HVGConfig(
-        method="seurat",
-        n_top_genes=2000
-    )
-
-    adata = find_hvgs(adata, config=hvg_config)
-
-    # HVGs marked in adata.var["highly_variable"]
-
-Batch Correction
-~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    from scLucid.preprocess import batch_correction, IntegrationConfig
-
-    integration_config = IntegrationConfig(
-        method="harmony",
-        batch_key="sample"
-    )
-
-    adata = batch_correction(adata, config=integration_config)
-
-What's Next
------------
-
-- :doc:`../notebooks/01_quality_control` - Interactive QC tutorial
-- :doc:`../notebooks/02_preprocessing` - Interactive preprocessing tutorial
-- :doc:`../notebooks/03_clustering_annotation` - Clustering and annotation tutorial
-- :doc:`../notebooks/04_advanced_topics` - Advanced features and optimization
-- :doc:`best_practices` - Recommended practices
-- :doc:`api/qc` - QC API reference
-- :doc:`api/preprocess` - Preprocessing API reference
-- :doc:`api/analysis` - Analysis API reference
-
-Getting Help
-------------
-
-- **GitHub Issues**: https://github.com/yourusername/scLucid/issues
-- **Documentation**: https://sclucid.readthedocs.io/
-- **Examples**: See ``examples/`` directory in the repository
+- ``examples/quickstart.py``: shortest runnable script
+- ``examples/preprocessing.py``: standard path + intelligent path + manual path
+- ``examples/annotation_report.py``: reviewer-facing annotation export
+- ``notebooks/``: full notebook analyses with richer outputs

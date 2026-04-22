@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "FunctionalSignatureManager",
     "score_by_gene_sets",
+    "run_module_scoring_workflow",
     "calculate_signature_matrix",
     "plot_signature_heatmap",
     "plot_delta_heatmap",
@@ -424,6 +425,125 @@ def score_by_gene_sets(
         f"Completed scoring: {scored_count}/{total_sets} sets scored, {len(skipped_sets)} skipped."
     )
     return adata
+
+
+def run_module_scoring_workflow(
+    adata: AnnData,
+    modules: Union[Dict[str, List[str]], FunctionalSignatureManager],
+    *,
+    groupby: Optional[str] = None,
+    sample_col: Optional[str] = None,
+    condition_col: Optional[str] = None,
+    layer: Optional[str] = "log1p_norm",
+    use_raw: bool = False,
+    ctrl_size: int = 50,
+    score_name_suffix: str = "_score",
+    preserve_missing: bool = True,
+    min_genes_required: int = 2,
+    copy: bool = False,
+    **kwargs,
+) -> Tuple[AnnData, Dict[str, pd.DataFrame]]:
+    """
+    Score user-defined modules and return standardized summary tables.
+
+    This is a thin workflow wrapper over ``score_by_gene_sets`` intended for
+    curated state-program analysis in notebooks and reports.
+
+    Returns
+    -------
+    tuple
+        ``(adata, results)`` where ``results`` contains:
+        - ``module_summary``: per-module gene matching summary
+        - ``group_mean_scores``: mean scores by ``groupby`` if provided
+        - ``sample_mean_scores``: mean scores by ``sample_col`` if provided
+        - ``condition_mean_scores``: mean scores by ``condition_col`` if provided
+    """
+    if copy:
+        adata = adata.copy()
+
+    if isinstance(modules, FunctionalSignatureManager):
+        modules = modules.get_all_signatures()
+
+    adata = score_by_gene_sets(
+        adata,
+        modules,
+        layer=layer,
+        use_raw=use_raw,
+        ctrl_size=ctrl_size,
+        score_name_suffix=score_name_suffix,
+        preserve_missing=preserve_missing,
+        min_genes_required=min_genes_required,
+        **kwargs,
+    )
+
+    scoring_ns = _ensure_scoring_namespace(adata)
+    gene_set_meta = scoring_ns.get("gene_set_scoring", {})
+    per_set_stats = gene_set_meta.get("per_set_stats", {})
+
+    summary_rows = []
+    score_columns: List[str] = []
+    for module_name in modules.keys():
+        stats = per_set_stats.get(module_name, {})
+        score_col = f"{module_name}{score_name_suffix}"
+        scored = bool(stats.get("scored", 0)) and score_col in adata.obs.columns
+        if scored:
+            score_columns.append(score_col)
+        summary_rows.append(
+            {
+                "module": module_name,
+                "score_col": score_col,
+                "n_input_genes": int(stats.get("n_input", 0)),
+                "n_found_genes": int(stats.get("n_found", 0)),
+                "scored": scored,
+            }
+        )
+
+    module_summary = pd.DataFrame(summary_rows)
+    results: Dict[str, pd.DataFrame] = {"module_summary": module_summary}
+
+    def _mean_table(obs_cols: List[str], key_name: str) -> None:
+        if not obs_cols or not score_columns:
+            return
+        missing_cols = [col for col in obs_cols if col not in adata.obs.columns]
+        if missing_cols:
+            raise KeyError(f"Columns not found in adata.obs: {missing_cols}")
+        table = (
+            adata.obs[obs_cols + score_columns]
+            .groupby(obs_cols, observed=False)[score_columns]
+            .mean()
+            .reset_index()
+        )
+        results[key_name] = table
+
+    if groupby is not None:
+        _mean_table([groupby], "group_mean_scores")
+    if sample_col is not None:
+        sample_keys = [sample_col]
+        if condition_col is not None and condition_col != sample_col and condition_col in adata.obs.columns:
+            sample_keys.append(condition_col)
+        _mean_table(sample_keys, "sample_mean_scores")
+    if condition_col is not None:
+        _mean_table([condition_col], "condition_mean_scores")
+
+    scoring_ns["module_scoring_workflow"] = {
+        "module_summary": module_summary,
+        "results_available": sorted(results.keys()),
+        "params": sanitize_for_hdf5(
+            {
+                "groupby": groupby,
+                "sample_col": sample_col,
+                "condition_col": condition_col,
+                "use_raw": use_raw,
+                "layer": layer,
+                "score_name_suffix": score_name_suffix,
+                "min_genes_required": min_genes_required,
+            }
+        ),
+    }
+    for key, value in results.items():
+        scoring_ns["module_scoring_workflow"][key] = value
+
+    return adata, results
 
 
 # ===================== Matrix-based Analysis =====================

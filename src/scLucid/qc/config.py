@@ -292,7 +292,20 @@ class FilterConfig(SclucidBaseConfig):
 
 
 class QCWorkflowConfig(WorkflowConfigBase):
-    """A single configuration object for the entire QC workflow."""
+    """A single configuration object for the entire QC workflow.
+
+    Default-path semantics:
+        - ``use_recommendations=True``: intelligent QC recommendations are applied
+          only to fields the caller did not explicitly set.
+        - ``threshold_mode="hierarchical"``: per-sample adaptive thresholds are
+          computed when multiple samples are present; single-sample data falls
+          back to pooled behavior automatically.
+        - Tumor-aware adjustment is triggered when ``tissue_type`` contains
+          "tumor" or "cancer" (e.g. ``outlier_mt`` is excluded from filtering).
+        - When ``save_dir`` is set, the workflow writes a reviewer-facing summary
+          (``qc_review_summary.json`` / ``qc_review_summary.md``) alongside the
+          standard report.
+    """
 
     model_config = ConfigDict(extra="ignore")
 

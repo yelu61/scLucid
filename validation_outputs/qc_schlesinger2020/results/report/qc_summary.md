@@ -1,7 +1,7 @@
 # QC Summary
 
 - **Cells before**: 6499
-- **Cells after**: 5889
+- **Cells after**: 5892
 - **Genes**: 19882
 - **Threshold mode**: hierarchical
 - **Strategy**: tumor_aware
@@ -11,8 +11,8 @@
 ## Filtering
 
 - **Criteria used**: outlier_min_genes
-- **Removed cells**: 610
-- **Removed fraction**: 0.09386059393752885
+- **Removed cells**: 607
+- **Removed fraction**: 0.09339898445914756
 
 ## Concerns
 

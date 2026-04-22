@@ -54,6 +54,12 @@ from .gene_biotype import (
     get_biotype_statistics,
     recommend_biotype_strategy,
 )
+from .adaptive_normalize import (
+    AdaptiveNormalizationConfig,
+    adaptive_normalize,
+    estimate_cell_size_factors,
+    quality_aware_normalize,
+)
 
 # --- Intelligent Preprocessing ---
 from .intelligent import (
@@ -124,4 +130,9 @@ __all__ = [
     "BatchCorrectionRecommendation",
     "recommend_intelligent_preprocessing",
     "run_intelligent_preprocessing",
+    # Adaptive Normalization
+    "AdaptiveNormalizationConfig",
+    "adaptive_normalize",
+    "estimate_cell_size_factors",
+    "quality_aware_normalize",
 ]

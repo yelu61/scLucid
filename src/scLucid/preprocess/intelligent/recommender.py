@@ -5,6 +5,7 @@ This module provides data-driven parameter recommendations for preprocessing,
 integrating with existing neighbors.py optimization functionality.
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -927,6 +928,85 @@ def recommend_intelligent_preprocessing(
     )
 
 
+def _export_preprocess_review_summary(
+    review_summary: Dict[str, Any],
+    save_dir: Path,
+) -> None:
+    """Export preprocessing review summary as JSON and Markdown sidecars."""
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # JSON sidecar
+    json_path = save_dir / "preprocess_review_summary.json"
+    json_path.write_text(json.dumps(review_summary, indent=2, default=str), encoding="utf-8")
+
+    # Markdown sidecar
+    md_lines = [
+        "# Preprocessing Review Summary",
+        "",
+        "## Data Profile",
+        "",
+    ]
+    profile = review_summary.get("data_profile", {})
+    md_lines.append(f"- **Cells**: {profile.get('n_cells')}")
+    md_lines.append(f"- **Genes**: {profile.get('n_genes')}")
+    md_lines.append(f"- **Sparsity**: {profile.get('sparsity', 0):.2%}")
+    md_lines.append(f"- **Strategy type**: {profile.get('strategy_type')}")
+    md_lines.append(f"- **Quality score**: {profile.get('data_quality_score')}")
+    if profile.get("potential_issues"):
+        md_lines.append("- **Potential issues**:")
+        for issue in profile["potential_issues"]:
+            md_lines.append(f"  - {issue}")
+    md_lines.append("")
+
+    md_lines.extend([
+        "## Recommendations",
+        "",
+    ])
+    for rec in review_summary.get("recommendations", []):
+        md_lines.append(f"- {rec}")
+    md_lines.append("")
+
+    md_lines.extend([
+        "## Parameter Recommendations",
+        "",
+        "| Parameter | Value | Confidence |",
+        "|-----------|-------|------------|",
+    ])
+    hvg = review_summary.get("hvg", {})
+    md_lines.append(f"| HVGs | {hvg.get('n_top_genes')} | {hvg.get('confidence')} |")
+    pca = review_summary.get("pca", {})
+    md_lines.append(f"| PCs | {pca.get('n_pcs')} | {pca.get('confidence')} |")
+    neighbors = review_summary.get("neighbors", {})
+    md_lines.append(f"| Neighbors | {neighbors.get('n_neighbors')} | {neighbors.get('confidence')} |")
+    resolution = review_summary.get("resolution", {})
+    md_lines.append(f"| Resolution | {resolution.get('resolution')} | {resolution.get('confidence')} |")
+    md_lines.append("")
+
+    bc = review_summary.get("batch_correction", {})
+    md_lines.extend([
+        "## Batch Correction",
+        "",
+        f"- **Needs correction**: {bc.get('needs_correction', False)}",
+    ])
+    if bc.get("needs_correction"):
+        md_lines.append(f"- **Recommended method**: {bc.get('recommended_method')}")
+        md_lines.append(f"- **Severity score**: {bc.get('severity_score')}")
+    md_lines.append("")
+
+    if review_summary.get("concerns"):
+        md_lines.extend([
+            "## Concerns",
+            "",
+        ])
+        for concern in review_summary["concerns"]:
+            md_lines.append(f"- {concern}")
+        md_lines.append("")
+
+    md_path = save_dir / "preprocess_review_summary.md"
+    md_path.write_text("\n".join(md_lines), encoding="utf-8")
+    log.info(f"Preprocessing review summary exported to {json_path} and {md_path}")
+
+
 def run_intelligent_preprocessing(
     adata: AnnData,
     batch_key: Optional[str] = None,
@@ -952,8 +1032,11 @@ def run_intelligent_preprocessing(
 
     Returns
     -------
-    AnnData or Tuple[AnnData, PreprocessingStrategy]
-        Processed data and optionally the strategy
+    Tuple[AnnData, PreprocessingStrategy]
+        AnnData carrying the intelligent review trace plus the strategy.
+        When ``apply_recommendations=True``, the AnnData is the processed result.
+        When ``apply_recommendations=False``, the AnnData is an unprocessed copy
+        of the input with reviewer-facing summary metadata attached.
     """
     from ..workflow import run_preprocessing
 
@@ -962,8 +1045,22 @@ def run_intelligent_preprocessing(
         adata, batch_key=batch_key, save_dir=Path(save_dir) if save_dir else None, **kwargs
     )
 
+    # Build and store reviewer-facing summary
+    review_summary = strategy.to_review_summary()
+
     if not apply_recommendations:
-        return None, strategy
+        review_adata = adata.copy()
+        review_ns = review_adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})
+        review_ns["intelligent_review_summary"] = review_summary
+        review_ns["intelligent_recommendation"] = {
+            "batch_key": batch_key,
+            "apply_recommendations": apply_recommendations,
+            "strategy": strategy.to_dict(),
+            "applied_config": None,
+        }
+        if save_dir is not None:
+            _export_preprocess_review_summary(review_summary, Path(save_dir))
+        return review_adata, strategy
 
     # Apply recommendations
     config = strategy.to_config()
@@ -979,5 +1076,9 @@ def run_intelligent_preprocessing(
         "strategy": strategy.to_dict(),
         "applied_config": config.to_dict() if hasattr(config, "to_dict") else None,
     }
+    adata_processed.uns["sclucid"]["preprocess"]["intelligent_review_summary"] = review_summary
+
+    if save_dir is not None:
+        _export_preprocess_review_summary(review_summary, Path(save_dir))
 
     return adata_processed, strategy

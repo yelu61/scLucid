@@ -98,3 +98,12 @@ def test_explicit_user_thresholds_survive_recommendations(adata_pbmc):
     # user_overrides should show divergence from recommendation
     overrides = adata_f.uns["sclucid"]["qc"]["user_overrides"]["data"]
     assert "min_genes" in overrides or "max_mt_percent" in overrides
+
+
+def test_default_thresholds_do_not_appear_as_user_overrides(adata_pbmc):
+    config = _make_config(use_recommendations=True)
+    adata_f = run_standard_qc(adata_pbmc.copy(), config=config)
+    overrides = adata_f.uns["sclucid"]["qc"]["user_overrides"]["data"]
+    assert "min_genes" not in overrides
+    assert "max_mt_percent" not in overrides
+    assert "n_counts" not in overrides

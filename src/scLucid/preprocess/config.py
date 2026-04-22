@@ -11,9 +11,12 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ..base_config import SclucidBaseConfig, WorkflowConfigBase
+from ..base_config import SclucidBaseConfig, WorkflowConfigBase, apply_config_overrides as _apply_config_overrides
 
 logger = logging.getLogger(__name__)
+
+# Re-export for backward compatibility within preprocess submodules
+apply_config_overrides = _apply_config_overrides
 
 
 class NormalizationConfig(SclucidBaseConfig):
@@ -260,6 +263,39 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         return cls(**kwargs)
 
     @classmethod
+    def default(cls, **kwargs) -> "PreprocessingWorkflowConfig":
+        """
+        Default configuration factory for the standard preprocessing path.
+
+        This represents the canonical default pipeline:
+        - Normalization (log1p, target_sum=1e4)
+        - Regression (total_counts, pct_counts_mt)
+        - HVG selection (2000 genes, seurat flavor)
+        - Scaling (z-score, max_value=10)
+        - PCA (50 components)
+        - Batch correction (harmony, if batch_key present)
+        - Neighbors + UMAP (15 neighbors, 50 PCs)
+
+        Args:
+            **kwargs: Override any default parameter.
+
+        Returns:
+            PreprocessingWorkflowConfig: Pre-configured for the standard path.
+
+        Example:
+            >>> config = PreprocessingWorkflowConfig.default()
+            >>> adata = run_preprocessing(adata, config=config)
+        """
+        return cls(
+            run_regression=True,
+            run_scaling=True,
+            run_pca=True,
+            run_neighbors=True,
+            run_integration=True,
+            **kwargs
+        )
+
+    @classmethod
     def quick(
         cls,
         n_top_genes: int = 2000,
@@ -306,4 +342,5 @@ __all__ = [
     "GraphConfig",
     "PreprocessingWorkflowConfig",
     "WorkflowConfig",  # Backward compatibility
+    "apply_config_overrides",
 ]

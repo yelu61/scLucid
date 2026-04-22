@@ -342,3 +342,64 @@ class PreprocessingStrategy:
             config.run_integration = False
 
         return config
+
+    def to_review_summary(self) -> Dict[str, Any]:
+        """
+        Build a human-reviewable summary of the preprocessing recommendation.
+
+        Returns:
+            Structured dict with data profile, key recommendations,
+            batch-correction decision, and any concerns.
+        """
+        summary: Dict[str, Any] = {
+            "data_profile": self.data_profile.to_dict(),
+            "overall_confidence": round(self.overall_confidence, 3),
+            "concerns": self.concerns,
+            "recommendations": self.recommendations,
+        }
+
+        summary["hvg"] = {
+            "n_top_genes": self.hvg.n_top_genes,
+            "variance_explained": round(self.hvg.variance_explained, 3),
+            "confidence": round(self.hvg.confidence, 3),
+            "ci": [self.hvg.ci_lower, self.hvg.ci_upper],
+        }
+
+        summary["pca"] = {
+            "n_pcs": self.pca.n_pcs,
+            "variance_explained": round(self.pca.variance_explained, 3),
+            "confidence": round(self.pca.confidence, 3),
+            "ci": [self.pca.ci_lower, self.pca.ci_upper],
+        }
+
+        summary["neighbors"] = {
+            "n_neighbors": self.neighbors.n_neighbors,
+            "n_pcs": self.neighbors.n_pcs,
+            "silhouette_score": round(self.neighbors.silhouette_score, 3),
+            "confidence": round(self.neighbors.confidence, 3),
+        }
+
+        summary["resolution"] = {
+            "resolution": round(self.resolution.resolution, 2),
+            "expected_clusters": self.resolution.n_clusters,
+            "stability_score": round(self.resolution.stability_score, 3),
+            "confidence": round(self.resolution.confidence, 3),
+        }
+
+        if self.batch_correction is not None:
+            summary["batch_correction"] = {
+                "needs_correction": self.batch_correction.needs_correction,
+                "severity_score": round(self.batch_correction.severity_score, 3),
+                "recommended_method": self.batch_correction.recommended_method,
+                "alternative_methods": self.batch_correction.alternative_methods,
+                "confidence": round(self.batch_correction.confidence, 3),
+            }
+        else:
+            summary["batch_correction"] = {
+                "needs_correction": False,
+                "severity_score": 0.0,
+                "recommended_method": None,
+                "note": "No batch_key provided; batch assessment skipped.",
+            }
+
+        return summary

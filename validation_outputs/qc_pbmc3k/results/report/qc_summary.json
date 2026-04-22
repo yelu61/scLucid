@@ -16,9 +16,9 @@
   },
   "recommendation": {
     "min_genes": {
-      "threshold": 642,
-      "ci_lower": 642,
-      "ci_upper": 658,
+      "threshold": 641,
+      "ci_lower": 641,
+      "ci_upper": 662,
       "confidence": 0.5,
       "method": "GMM + Bootstrap",
       "evidence": {
@@ -59,8 +59,8 @@
     },
     "n_counts": {
       "threshold": 1503,
-      "ci_lower": 1472,
-      "ci_upper": 1537,
+      "ci_lower": 1470,
+      "ci_upper": 1534,
       "confidence": 1.0,
       "method": "log-normal distribution + bootstrap",
       "evidence": {

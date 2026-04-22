@@ -21,6 +21,7 @@ import seaborn as sns
 from anndata import AnnData
 from sklearn import metrics
 
+from ..base_config import apply_config_overrides
 from ..utils import sanitize_for_hdf5
 from .config import ClusteringConfig, MergeClustersConfig, ResolutionSearchConfig
 
@@ -91,7 +92,10 @@ def _auto_select_resolution(
         return eval_df.loc[idx, 'resolution']
     
     else:
-        raise ValueError(f"Unknown selection strategy: {strategy}")
+        raise ValueError(
+            f"[analysis] Unknown selection strategy '{strategy}'. "
+            "Expected one of: elbow, peak, balanced."
+        )
     
     
 
@@ -245,10 +249,7 @@ def find_resolution(
     if config is None:
         active_config = ResolutionSearchConfig()
     else:
-        active_config = config.model_copy()
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
+        active_config = apply_config_overrides(config, **kwargs)
 
     start, end, steps = active_config.resolution_range
     resolutions = np.linspace(start, end, steps).tolist()
@@ -443,10 +444,7 @@ def cluster_cells(
     if config is None:
         active_config = ClusteringConfig()
     else:
-        active_config = config.model_copy()
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
+        active_config = apply_config_overrides(config, **kwargs)
 
     method = active_config.method
     use_rep = active_config.use_rep
@@ -454,7 +452,8 @@ def cluster_cells(
     # Representation check
     if use_rep not in adata.obsm:
         raise ValueError(
-            f"Representation '{use_rep}' not found in adata.obsm. Please compute PCA or your representation first."
+            f"[analysis] Clustering failed: representation '{use_rep}' not found in adata.obsm. "
+            "Please compute PCA or the selected embedding first."
         )
 
     # Ensure neighbors for graph-based methods
@@ -491,7 +490,9 @@ def cluster_cells(
             from sklearn.cluster import KMeans
 
             if active_config.n_clusters is None or int(active_config.n_clusters) < 2:
-                raise ValueError("n_clusters must be specified and >= 2 for KMeans.")
+                raise ValueError(
+                    "[analysis] KMeans clustering failed: n_clusters must be specified and >= 2."
+                )
             X = adata.obsm[use_rep]
             kmeans = KMeans(
                 n_clusters=int(active_config.n_clusters),
@@ -513,10 +514,14 @@ def cluster_cells(
                 [str(l) if l != -1 else "Noise" for l in labels]
             )
         else:
-            raise ValueError(f"Unknown clustering method: {method}")
+            raise ValueError(
+                f"[analysis] Unknown clustering method '{method}'. "
+                "Expected one of: leiden, louvain, kmeans, hdbscan."
+            )
     except Exception as e:
-        log.error(f"Clustering failed: {e}")
-        raise
+        raise RuntimeError(
+            f"[analysis] Clustering failed: {e}. Check input data and configuration."
+        ) from e
 
     # Ensure categorical type
     if not pd.api.types.is_categorical_dtype(adata.obs[key_added]):
@@ -595,10 +600,7 @@ def merge_clusters(
     if config is None:
         active_config = MergeClustersConfig()
     else:
-        active_config = config.model_copy()
-    for key, value in kwargs.items():
-        if hasattr(active_config, key):
-            setattr(active_config, key, value)
+        active_config = apply_config_overrides(config, **kwargs)
 
     cluster_key = active_config.cluster_key
     threshold = active_config.similarity_threshold
@@ -684,7 +686,10 @@ def merge_clusters(
                 "Not enough clusters to compute correlation; fallback to identity."
             )
     else:
-        raise ValueError(f"Unknown merge method: {method}")
+        raise ValueError(
+            f"[analysis] Unknown merge method '{method}'. "
+            "Expected one of: marker_overlap, expression_correlation."
+        )
 
     # Graph-based merging
     G = nx.from_pandas_adjacency(sim_matrix > threshold)

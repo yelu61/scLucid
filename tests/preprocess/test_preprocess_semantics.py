@@ -233,3 +233,235 @@ def test_run_intelligent_preprocessing_stores_trace(monkeypatch, minimal_adata):
     assert intelligent_meta["batch_key"] == "sampleID"
     assert intelligent_meta["strategy"]["hvg"]["n_top_genes"] == 1000
     assert intelligent_meta["applied_config"]["hvg"]["n_top_genes"] == 1000
+
+
+@pytest.mark.unit
+def test_workflow_config_default_sets_all_run_flags_true():
+    config = WorkflowConfig.default()
+    assert config.run_regression is True
+    assert config.run_scaling is True
+    assert config.run_pca is True
+    assert config.run_neighbors is True
+    assert config.run_integration is True
+
+
+@pytest.mark.unit
+def test_strategy_to_review_summary_structure():
+    strategy = PreprocessingStrategy(
+        data_profile=DataProfile(
+            n_cells=1000,
+            n_genes=5000,
+            sparsity=0.92,
+            median_counts_per_cell=2000,
+            median_genes_per_cell=800,
+            is_sparse=True,
+            is_small_dataset=False,
+            is_medium_dataset=True,
+            is_large_dataset=False,
+        ),
+        hvg=HVGRecommendation(
+            n_top_genes=2000,
+            variance_explained=0.75,
+            ci_lower=1800,
+            ci_upper=2200,
+            method="variance_threshold",
+            confidence=0.85,
+        ),
+        pca=PCARecommendation(
+            n_pcs=30,
+            variance_explained=0.70,
+            ci_lower=25,
+            ci_upper=35,
+            method="elbow",
+            confidence=0.80,
+        ),
+        neighbors=NeighborsRecommendation(
+            n_neighbors=15,
+            n_pcs=30,
+            silhouette_score=0.45,
+            ci_lower_neighbors=10,
+            ci_upper_neighbors=20,
+            ci_lower_pcs=25,
+            ci_upper_pcs=35,
+            method="grid_search",
+            confidence=0.80,
+        ),
+        resolution=ResolutionRecommendation(
+            resolution=1.0,
+            n_clusters=10,
+            stability_score=0.65,
+            ci_lower=0.8,
+            ci_upper=1.2,
+            method="stability",
+            confidence=0.75,
+        ),
+        batch_correction=BatchCorrectionRecommendation(
+            needs_correction=True,
+            severity_score=0.5,
+            recommended_method="harmony",
+            alternative_methods=["scanorama"],
+            confidence=0.9,
+            evidence={"batch_key": "sampleID"},
+        ),
+        overall_confidence=0.82,
+        concerns=["Low median genes"],
+        recommendations=["Use 2000 HVGs", "Apply harmony"],
+    )
+
+    summary = strategy.to_review_summary()
+
+    assert "data_profile" in summary
+    assert summary["overall_confidence"] == 0.82
+    assert summary["concerns"] == ["Low median genes"]
+    assert summary["recommendations"] == ["Use 2000 HVGs", "Apply harmony"]
+
+    assert summary["hvg"]["n_top_genes"] == 2000
+    assert summary["hvg"]["confidence"] == 0.85
+    assert summary["pca"]["n_pcs"] == 30
+    assert summary["neighbors"]["n_neighbors"] == 15
+    assert summary["resolution"]["resolution"] == 1.0
+    assert summary["batch_correction"]["needs_correction"] is True
+    assert summary["batch_correction"]["recommended_method"] == "harmony"
+
+
+@pytest.mark.unit
+def test_run_intelligent_preprocessing_stores_review_summary(monkeypatch, minimal_adata):
+    import scLucid.preprocess.intelligent.recommender as recommender_module
+
+    strategy = PreprocessingStrategy(
+        data_profile=DataProfile(
+            n_cells=100,
+            n_genes=2000,
+            sparsity=0.9,
+            median_counts_per_cell=1500,
+            median_genes_per_cell=700,
+            is_sparse=True,
+            is_small_dataset=True,
+            is_medium_dataset=False,
+            is_large_dataset=False,
+        ),
+        hvg=HVGRecommendation(1000, 0.7, 800, 1200, "test", 0.8),
+        pca=PCARecommendation(20, 0.7, 15, 25, "test", 0.8),
+        neighbors=NeighborsRecommendation(15, 20, 0.3, 10, 20, 15, 25, "test", 0.8),
+        resolution=ResolutionRecommendation(1.0, 5, 0.6, 0.8, 1.2, "test", 0.8),
+    )
+
+    def fake_recommend(*args, **kwargs):
+        return strategy
+
+    def fake_run(adata, config=None, results_dir=None):
+        result = adata.copy()
+        result.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["workflow_config"] = (
+            config.to_dict() if hasattr(config, "to_dict") else {}
+        )
+        return result
+
+    monkeypatch.setattr(recommender_module, "recommend_intelligent_preprocessing", fake_recommend)
+    monkeypatch.setattr("scLucid.preprocess.workflow.run_preprocessing", fake_run)
+
+    result, returned_strategy = run_intelligent_preprocessing(
+        minimal_adata.copy(),
+        batch_key="sampleID",
+        apply_recommendations=True,
+    )
+
+    review_summary = result.uns["sclucid"]["preprocess"]["intelligent_review_summary"]
+    assert "data_profile" in review_summary
+    assert review_summary["hvg"]["n_top_genes"] == 1000
+    assert "overall_confidence" in review_summary
+
+
+@pytest.mark.unit
+def test_run_intelligent_preprocessing_exports_review_summary_to_disk(monkeypatch, minimal_adata, tmp_path):
+    import scLucid.preprocess.intelligent.recommender as recommender_module
+
+    strategy = PreprocessingStrategy(
+        data_profile=DataProfile(
+            n_cells=100,
+            n_genes=2000,
+            sparsity=0.9,
+            median_counts_per_cell=1500,
+            median_genes_per_cell=700,
+            is_sparse=True,
+            is_small_dataset=True,
+            is_medium_dataset=False,
+            is_large_dataset=False,
+        ),
+        hvg=HVGRecommendation(1000, 0.7, 800, 1200, "test", 0.8),
+        pca=PCARecommendation(20, 0.7, 15, 25, "test", 0.8),
+        neighbors=NeighborsRecommendation(15, 20, 0.3, 10, 20, 15, 25, "test", 0.8),
+        resolution=ResolutionRecommendation(1.0, 5, 0.6, 0.8, 1.2, "test", 0.8),
+    )
+
+    def fake_recommend(*args, **kwargs):
+        return strategy
+
+    def fake_run(adata, config=None, results_dir=None):
+        result = adata.copy()
+        result.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["workflow_config"] = (
+            config.to_dict() if hasattr(config, "to_dict") else {}
+        )
+        return result
+
+    monkeypatch.setattr(recommender_module, "recommend_intelligent_preprocessing", fake_recommend)
+    monkeypatch.setattr("scLucid.preprocess.workflow.run_preprocessing", fake_run)
+
+    save_dir = str(tmp_path / "preprocess_out")
+    run_intelligent_preprocessing(
+        minimal_adata.copy(),
+        batch_key="sampleID",
+        apply_recommendations=True,
+        save_dir=save_dir,
+    )
+
+    json_path = tmp_path / "preprocess_out" / "preprocess_review_summary.json"
+    md_path = tmp_path / "preprocess_out" / "preprocess_review_summary.md"
+    assert json_path.exists()
+    assert md_path.exists()
+
+    import json
+    loaded = json.loads(json_path.read_text())
+    assert loaded["hvg"]["n_top_genes"] == 1000
+
+
+@pytest.mark.unit
+def test_run_intelligent_preprocessing_review_only_returns_adata_with_summary(
+    monkeypatch, minimal_adata
+):
+    import scLucid.preprocess.intelligent.recommender as recommender_module
+
+    strategy = PreprocessingStrategy(
+        data_profile=DataProfile(
+            n_cells=100,
+            n_genes=2000,
+            sparsity=0.9,
+            median_counts_per_cell=1500,
+            median_genes_per_cell=700,
+            is_sparse=True,
+            is_small_dataset=True,
+            is_medium_dataset=False,
+            is_large_dataset=False,
+        ),
+        hvg=HVGRecommendation(1000, 0.7, 800, 1200, "test", 0.8),
+        pca=PCARecommendation(20, 0.7, 15, 25, "test", 0.8),
+        neighbors=NeighborsRecommendation(15, 20, 0.3, 10, 20, 15, 25, "test", 0.8),
+        resolution=ResolutionRecommendation(1.0, 5, 0.6, 0.8, 1.2, "test", 0.8),
+    )
+
+    def fake_recommend(*args, **kwargs):
+        return strategy
+
+    monkeypatch.setattr(recommender_module, "recommend_intelligent_preprocessing", fake_recommend)
+
+    review_adata, returned_strategy = run_intelligent_preprocessing(
+        minimal_adata.copy(),
+        batch_key="sampleID",
+        apply_recommendations=False,
+    )
+
+    assert returned_strategy is strategy
+    assert review_adata is not None
+    preprocess_uns = review_adata.uns["sclucid"]["preprocess"]
+    assert preprocess_uns["intelligent_review_summary"]["hvg"]["n_top_genes"] == 1000
+    assert preprocess_uns["intelligent_recommendation"]["apply_recommendations"] is False
+    assert preprocess_uns["intelligent_recommendation"]["applied_config"] is None
