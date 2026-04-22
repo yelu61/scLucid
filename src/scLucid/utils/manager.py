@@ -159,7 +159,7 @@ class CellType:
     negative_markers: List[str] = field(default_factory=list)
     parent: Optional[CellType] = None
     minor: List[CellType] = field(default_factory=list)
-    metadata: Dict[str, str] = field(default_factory=dict)
+    metadata: Dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Post-initialization processing."""
@@ -208,6 +208,19 @@ class CellType:
         # Add only markers that aren't already in the list
         existing = set(self.markers)
         self.markers.extend([m for m in new_markers if m not in existing])
+
+    def copy_shallow(self) -> "CellType":
+        """Return a shallow copy of the cell type without parent/children links."""
+        return CellType(
+            name=self.name,
+            color=self.color,
+            markers=list(self.markers),
+            level=self.level,
+            negative_markers=list(self.negative_markers),
+            parent=None,
+            minor=[],
+            metadata=dict(self.metadata),
+        )
 
     def get_all_markers(self, include_subtypes: bool = False) -> List[str]:
         """
@@ -784,6 +797,44 @@ class Manager:
         log.info(f"Extracted {len(lineage_markers)} dedicated lineages for doublet detection.")
         return lineage_markers
 
+    def select_cells(self, names: Sequence[str], include_children: bool = True) -> "Manager":
+        """
+        Build a new manager containing only selected cell types.
+
+        Parameters
+        ----------
+        names : sequence of str
+            Cell type names to select from this manager.
+        include_children : bool
+            Whether to recursively include all descendants for the selected entries.
+        """
+        selected = Manager.__new__(Manager)
+        selected.CELLS = {}
+        selected.CLUSTERS = {}
+        selected.case_sensitive = self.case_sensitive
+        selected._source_file = getattr(self, "_source_file", "selected")
+
+        def clone_tree(cell: CellType, parent: Optional[CellType] = None) -> CellType:
+            cloned = cell.copy_shallow()
+            cloned.level = "minor" if parent is not None else "major"
+            cloned.parent = parent
+            cloned.minor = []
+            selected.CELLS[cloned.name] = cloned
+            for child in cell.minor:
+                if include_children:
+                    child_clone = clone_tree(child, parent=cloned)
+                    cloned.minor.append(child_clone)
+            return cloned
+
+        for name in names:
+            if name not in self.CELLS:
+                continue
+            original = self.CELLS[name]
+            top_clone = clone_tree(original, parent=None)
+            selected.CLUSTERS.setdefault(name, []).append(top_clone)
+
+        return selected
+
 
 # =============================================================================
 # GeneSet Manager for functional signatures
@@ -1033,38 +1084,22 @@ def get_marker_manager(
         # Add cell state markers if specified
         if states:
             try:
-                # Load the entire cell state file once
                 mgr_states_all = Manager(
                     f"cell_state_{species}", case_sensitive=case_sensitive
                 )
+                found_states = [state_name for state_name in states if state_name in mgr_states_all.CELLS]
+                missing_states = [state_name for state_name in states if state_name not in mgr_states_all.CELLS]
 
-                # Find the parent category for states
-                parent_category = "Cell States"
+                for state_name in missing_states:
+                    log.warning(f"State '{state_name}' not found in cell state file")
 
-                # Now, selectively merge only the requested states
-                merged_count = 0
-                for state_name in states:
-                    if state_name in mgr_states_all.CELLS:
-                        # Create a temporary manager with just this one state
-                        state_obj = mgr_states_all.CELLS[state_name]
-                        temp_mgr = Manager(
-                            f"cell_state_{species}",
-                            root_key=parent_category,
-                            case_sensitive=case_sensitive,
-                        )
-                        temp_mgr.CELLS = {state_name: state_obj}
-                        temp_mgr.CLUSTERS = {parent_category: [state_obj]}
-
-                        # Merge this state into the main manager
-                        mgr.merge_from(temp_mgr)
+                if found_states:
+                    temp_mgr = mgr_states_all.select_cells(found_states, include_children=True)
+                    mgr.merge_from(temp_mgr)
+                    for state_name in found_states:
                         log.info(f"Merged cell state markers for '{state_name}'")
-                        merged_count += 1
-                    else:
-                        log.warning(
-                            f"State '{state_name}' not found in cell state file"
-                        )
 
-                if merged_count == 0 and states:
+                if not found_states and states:
                     log.warning(f"None of the requested states {states} were found")
 
             except FileNotFoundError as e:

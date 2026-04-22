@@ -7,8 +7,9 @@ before downstream analysis.
 """
 
 import logging
+import tempfile
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Set, Union
+from typing import Dict, List, Literal, Optional, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -16,14 +17,25 @@ import time
 from functools import wraps
 from anndata import AnnData
 
+from ..utils.resource_loader import get_resource_path, resource_exists
+
 log = logging.getLogger(__name__)
 
 __all__ = [
     "annotate_gene_biotypes",
+    "apply_gene_biotype_strategy",
     "filter_genes_by_biotype",
     "get_biotype_statistics",
     "recommend_biotype_strategy",
+    "load_gene_biotypes",
+    "list_gene_biotype_resources",
+    "get_gene_biotype_cache_dir",
 ]
+
+GENE_BIOTYPE_RESOURCE_SUBDIR = "gene_biotypes"
+GENE_BIOTYPE_RESOURCE_MANIFEST = f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/manifest.json"
+SUPPORTED_GENE_BIOTYPE_SPECIES = ("human", "mouse", "rat")
+GENE_BIOTYPE_METHODS = ("reference", "ensembl", "custom")
 
 
 # --- Predefined Biotype Categories ---
@@ -112,19 +124,144 @@ def retry(retries=3, delay=5):
     return decorator
 
 
-def _load_ensembl_biotypes(
+def get_gene_biotype_cache_dir() -> Path:
+    """Return the user-local cache directory for gene biotype references."""
+    cache_dir = Path.home() / ".sclucid" / "gene_annotations"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
+    except PermissionError:
+        fallback = Path(tempfile.gettempdir()) / "sclucid_gene_annotations"
+        fallback.mkdir(parents=True, exist_ok=True)
+        log.warning(
+            f"Gene biotype cache directory '{cache_dir}' is not writable; using temporary fallback '{fallback}'."
+        )
+        return fallback
+
+
+def _candidate_biotype_resource_names(
+    species: str,
+    ensembl_version: Optional[int] = None,
+) -> List[str]:
+    names: List[str] = []
+    if ensembl_version is not None:
+        names.extend(
+            [
+                f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_reference_v{ensembl_version}.csv.gz",
+                f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_reference_v{ensembl_version}.csv",
+                f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_ensembl_v{ensembl_version}.csv.gz",
+                f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_ensembl_v{ensembl_version}.csv",
+            ]
+        )
+    names.extend(
+        [
+            f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_reference_latest.csv.gz",
+            f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_reference_latest.csv",
+            f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_ensembl_latest.csv.gz",
+            f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_ensembl_latest.csv",
+            f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_biotypes_ensembl.csv.gz",
+            f"{GENE_BIOTYPE_RESOURCE_SUBDIR}/{species}_biotypes_ensembl.csv",
+        ]
+    )
+    return names
+
+
+def _candidate_biotype_cache_paths(
+    species: str,
+    ensembl_version: Optional[int] = None,
+    cache_dir: Optional[Path] = None,
+) -> List[Path]:
+    cache_root = cache_dir or get_gene_biotype_cache_dir()
+    paths: List[Path] = []
+    if ensembl_version is not None:
+        paths.extend(
+            [
+                cache_root / f"{species}_reference_v{ensembl_version}.csv.gz",
+                cache_root / f"{species}_reference_v{ensembl_version}.csv",
+                cache_root / f"{species}_ensembl_v{ensembl_version}.csv.gz",
+                cache_root / f"{species}_ensembl_v{ensembl_version}.csv",
+            ]
+        )
+    paths.extend(
+        [
+            cache_root / f"{species}_reference_latest.csv.gz",
+            cache_root / f"{species}_reference_latest.csv",
+            cache_root / f"{species}_ensembl_latest.csv.gz",
+            cache_root / f"{species}_ensembl_latest.csv",
+            cache_root / f"{species}_biotypes_ensembl.csv.gz",
+            cache_root / f"{species}_biotypes_ensembl.csv",
+        ]
+    )
+    return paths
+
+
+def _read_biotype_table(path: Path) -> pd.DataFrame:
+    """Load and validate a gene biotype reference table."""
+    compression = "gzip" if path.suffix == ".gz" else "infer"
+    df = pd.read_csv(path, compression=compression)
+    required = {"gene_name", "biotype"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"Gene biotype resource '{path}' is missing required columns: {sorted(missing)}"
+        )
+    return df
+
+
+def _read_gene_biotype_manifest() -> Dict[str, dict]:
+    """Return bundled gene biotype manifest data when available."""
+    if not resource_exists(GENE_BIOTYPE_RESOURCE_MANIFEST):
+        return {}
+    manifest_path = get_resource_path(GENE_BIOTYPE_RESOURCE_MANIFEST)
+    return pd.read_json(manifest_path).to_dict() if manifest_path.suffix == ".json" else {}
+
+
+def list_gene_biotype_resources(
+    species: Optional[str] = None,
+    cache_dir: Optional[Union[str, Path]] = None,
+) -> Dict[str, Dict[str, List[str]]]:
+    """
+    List bundled and cached gene biotype resources discoverable by scLucid.
+
+    Returns a dictionary keyed by species with `bundled` and `cached` file lists.
+    """
+    requested_species = [species] if species else list(SUPPORTED_GENE_BIOTYPE_SPECIES)
+    cache_root = Path(cache_dir) if cache_dir is not None else get_gene_biotype_cache_dir()
+    resources_by_species: Dict[str, Dict[str, List[str]]] = {}
+
+    for sp in requested_species:
+        bundled = [
+            name for name in _candidate_biotype_resource_names(sp)
+            if resource_exists(name)
+        ]
+        cached = [
+            str(path) for path in _candidate_biotype_cache_paths(sp, cache_dir=cache_root)
+            if path.exists()
+        ]
+        resources_by_species[sp] = {"bundled": bundled, "cached": cached}
+
+    return resources_by_species
+
+
+def _load_reference_biotypes(
     species: Literal["human", "mouse", "rat"] = "human",
     ensembl_version: Optional[int] = None,
+    allow_download: bool = True,
+    cache_dir: Optional[Union[str, Path]] = None,
+    prefer_bundled: bool = True,
+    return_source: bool = False,
 ) -> pd.DataFrame:
     """
-    Load gene biotype annotations from Ensembl biomart.
+    Load gene biotype annotations from the official reference source.
 
-    This function attempts to load from local cache first, then downloads
-    from Ensembl if needed.
+    Resolution order:
+    1. bundled package resource
+    2. user-local cache
+    3. download from an official remote source if allowed
 
     Args:
         species: Species name
-        ensembl_version: Ensembl version (default: latest)
+        ensembl_version: Historical version tag for cache/resource selection
 
     Returns:
         DataFrame with columns: gene_id, gene_name, biotype, chromosome
@@ -140,7 +277,7 @@ def _load_ensembl_biotypes(
         )
         raise
 
-    # Map species to Ensembl dataset names
+    # Map species to Ensembl dataset names for the legacy online fallback path.
     dataset_map = {
         "human": "hsapiens_gene_ensembl",
         "mouse": "mmusculus_gene_ensembl",
@@ -154,17 +291,32 @@ def _load_ensembl_biotypes(
 
     dataset = dataset_map[species]
 
-    # Check local cache first
-    cache_dir = Path.home() / ".sclucid" / "gene_annotations"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{species}_biotypes_ensembl.csv"
+    cache_root = Path(cache_dir) if cache_dir is not None else get_gene_biotype_cache_dir()
 
-    if cache_file.exists():
-        log.info(f"Loading gene biotypes from cache: {cache_file}")
-        return pd.read_csv(cache_file)
+    # Prefer packaged resources for fully offline usage when the release bundles them.
+    if prefer_bundled:
+        for resource_name in _candidate_biotype_resource_names(species, ensembl_version):
+            if resource_exists(resource_name):
+                resource_path = get_resource_path(resource_name)
+                log.info(f"Loading gene biotypes from packaged resource: {resource_name}")
+                df = _read_biotype_table(resource_path)
+                return (df, f"package:{resource_name}") if return_source else df
 
-    # Download from Ensembl BioMart
-    log.info(f"Downloading gene biotype annotations for {species} from Ensembl...")
+    # Fall back to user-local cache populated by a previous download.
+    for cache_path in _candidate_biotype_cache_paths(species, ensembl_version, cache_root):
+        if cache_path.exists():
+            log.info(f"Loading gene biotypes from cache: {cache_path}")
+            df = _read_biotype_table(cache_path)
+            return (df, f"cache:{cache_path}") if return_source else df
+
+    # Download from Ensembl BioMart as a fallback path when no bundled/cache resource exists.
+    if not allow_download:
+        raise FileNotFoundError(
+            f"No packaged or cached gene biotype reference found for species='{species}'. "
+            "Set allow_download=True to fetch once into the local cache."
+        )
+
+    log.info(f"Downloading gene biotype annotations for {species} from Ensembl BioMart...")
 
     # Ensembl BioMart REST API
     server = "http://www.ensembl.org"
@@ -207,11 +359,17 @@ def _load_ensembl_biotypes(
         # Remove genes without names
         df = df[df["gene_name"].notna() & (df["gene_name"] != "")]
 
-        # Cache the result
-        df.to_csv(cache_file, index=False)
-        log.info(f"Downloaded and cached {len(df)} gene annotations")
+        # Cache the result in the user-local cache; do not write into package resources.
+        cache_name = (
+            f"{species}_reference_v{ensembl_version}.csv.gz"
+            if ensembl_version is not None
+            else f"{species}_reference_latest.csv.gz"
+        )
+        cache_file = cache_root / cache_name
+        df.to_csv(cache_file, index=False, compression="gzip")
+        log.info(f"Downloaded and cached {len(df)} gene annotations to: {cache_file}")
 
-        return df
+        return (df, f"download:{cache_file}") if return_source else df
 
     except requests.exceptions.RequestException as e:
         log.error(f"Failed to download Ensembl annotations: {e}")
@@ -219,6 +377,44 @@ def _load_ensembl_biotypes(
             "Could not download gene annotations. Please check your internet connection "
             "or provide a custom biotype annotation file."
         )
+
+
+# Backward-compatible internal alias.
+def _load_ensembl_biotypes(*args, **kwargs):
+    return _load_reference_biotypes(*args, **kwargs)
+
+
+def load_gene_biotypes(
+    species: Literal["human", "mouse", "rat"] = "human",
+    ensembl_version: Optional[int] = None,
+    *,
+    allow_download: bool = True,
+    cache_dir: Optional[Union[str, Path]] = None,
+    prefer_bundled: bool = True,
+    return_metadata: bool = False,
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict[str, str]]]:
+    """
+    Load gene biotype annotations with a stable resolution order:
+    packaged resource -> user cache -> one-time download.
+
+    Notes:
+    - This function does not write into installed package resources.
+    - If a release bundles the reference table under `scLucid/resources/gene_biotypes/`,
+      loading is fully offline.
+    - If not bundled, the first successful download is cached under
+      `~/.sclucid/gene_annotations/` and reused offline on later runs.
+    """
+    df, source = _load_reference_biotypes(
+        species=species,
+        ensembl_version=ensembl_version,
+        allow_download=allow_download,
+        cache_dir=cache_dir,
+        prefer_bundled=prefer_bundled,
+        return_source=True,
+    )
+    if return_metadata:
+        return df, {"source": source, "species": species}
+    return df
 
 
 def _match_genes_to_biotypes(
@@ -314,9 +510,12 @@ def annotate_gene_biotypes(
     adata: AnnData,
     species: Literal["human", "mouse", "rat"] = "human",
     biotype_df: Optional[pd.DataFrame] = None,
-    method: Literal["ensembl", "custom"] = "ensembl",
+    method: Literal["reference", "ensembl", "custom"] = "reference",
     fuzzy_match: bool = True,
     overwrite: bool = False,
+    allow_download: bool = True,
+    cache_dir: Optional[Union[str, Path]] = None,
+    prefer_bundled: bool = True,
 ) -> AnnData:
     """
     Annotate genes with biotype information.
@@ -330,7 +529,7 @@ def annotate_gene_biotypes(
         adata: AnnData object
         species: Species for annotation
         biotype_df: Custom biotype DataFrame (gene_name, biotype columns required)
-        method: Annotation method ('ensembl' or 'custom')
+        method: Annotation method ('reference', legacy 'ensembl', or 'custom')
         fuzzy_match: Try to match unmatched genes with Ensembl IDs
         overwrite: Overwrite existing biotype annotations
 
@@ -338,7 +537,7 @@ def annotate_gene_biotypes(
         AnnData with annotated .var
 
     Examples:
-        >>> # Basic usage with Ensembl
+        >>> # Basic usage with packaged/cache-backed reference annotations
         >>> adata = annotate_gene_biotypes(adata, species='human')
         >>>
         >>> # Using custom annotations
@@ -357,11 +556,23 @@ def annotate_gene_biotypes(
     log.info(f"Annotating gene biotypes for {adata.n_vars} genes...")
 
     # Load biotype reference
+    source_info = {"source": "custom"}
     if method == "ensembl":
+        log.info("method='ensembl' is retained as a legacy alias for method='reference'.")
+        method = "reference"
+
+    if method == "reference":
         if biotype_df is None:
-            biotype_df = _load_ensembl_biotypes(species)
+            biotype_df, source_info = load_gene_biotypes(
+                species=species,
+                allow_download=allow_download,
+                cache_dir=cache_dir,
+                prefer_bundled=prefer_bundled,
+                return_metadata=True,
+            )
         else:
-            log.info("Using provided biotype_df with ensembl method")
+            log.info("Using provided biotype_df with reference method")
+            source_info = {"source": "caller_provided_reference_df"}
     elif method == "custom":
         if biotype_df is None:
             raise ValueError("biotype_df must be provided when method='custom'")
@@ -404,12 +615,100 @@ def annotate_gene_biotypes(
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["gene_biotypes"] = {
         "method": method,
         "species": species,
+        "reference_source": source_info["source"],
         "n_genes_annotated": (~adata.var["biotype"].isna()).sum(),
         "n_protein_coding": (adata.var["biotype_category"] == "protein_coding").sum(),
         "annotation_rate": (~adata.var["biotype"].isna()).sum() / adata.n_vars,
     }
 
     return adata
+
+
+def apply_gene_biotype_strategy(
+    adata: AnnData,
+    *,
+    species: Literal["human", "mouse", "rat"] = "human",
+    method: Literal["reference", "ensembl", "custom"] = "reference",
+    custom_biotype_df: Optional[pd.DataFrame] = None,
+    custom_biotype_path: Optional[Union[str, Path]] = None,
+    keep_biotypes: Optional[List[str]] = None,
+    use_recommended: bool = False,
+    do_filter: bool = True,
+    fuzzy_match: bool = True,
+    overwrite: bool = True,
+    allow_download: bool = True,
+    cache_dir: Optional[Union[str, Path]] = None,
+    prefer_bundled: bool = True,
+    copy: bool = False,
+) -> AnnData:
+    """
+    Convenience helper for notebook/workflow usage:
+    annotate gene biotypes, then optionally filter genes in one call.
+
+    Typical use cases:
+    - `method="reference"` for package/cache/download-backed official reference loading
+    - `method="custom"` with either a DataFrame or a local TSV/CSV path
+    """
+    if copy:
+        adata = adata.copy()
+
+    if method == "ensembl":
+        method = "reference"
+
+    if method == "custom":
+        if custom_biotype_df is None and custom_biotype_path is not None:
+            custom_path = Path(custom_biotype_path)
+            sep = "\t" if custom_path.suffix.lower() in {".tsv", ".txt"} else ","
+            custom_biotype_df = pd.read_csv(custom_path, sep=sep)
+        if custom_biotype_df is None:
+            raise ValueError(
+                "Provide custom_biotype_df or custom_biotype_path when method='custom'."
+            )
+
+        rename_map = {
+            "external_gene_name": "gene_name",
+            "gene_biotype": "biotype",
+            "ensembl_gene_id": "gene_id",
+            "chromosome_name": "chromosome",
+            "start_position": "start",
+            "end_position": "end",
+        }
+        custom_biotype_df = custom_biotype_df.rename(
+            columns={k: v for k, v in rename_map.items() if k in custom_biotype_df.columns}
+        )
+        annotated = annotate_gene_biotypes(
+            adata,
+            species=species,
+            biotype_df=custom_biotype_df,
+            method="custom",
+            fuzzy_match=fuzzy_match,
+            overwrite=overwrite,
+        )
+    else:
+        annotated = annotate_gene_biotypes(
+            adata,
+            species=species,
+            method="reference",
+            fuzzy_match=fuzzy_match,
+            overwrite=overwrite,
+            allow_download=allow_download,
+            cache_dir=cache_dir,
+            prefer_bundled=prefer_bundled,
+        )
+
+    if not do_filter:
+        return annotated
+
+    if keep_biotypes is None and not use_recommended:
+        return annotated
+
+    filtered = filter_genes_by_biotype(
+        annotated,
+        keep_biotypes=keep_biotypes,
+        use_recommended=use_recommended,
+        copy=True,
+    )
+    return filtered if filtered is not None else annotated
 
 
 def filter_genes_by_biotype(

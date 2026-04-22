@@ -49,9 +49,13 @@ from .backend import (
     list_available_backends,
 )
 from .gene_biotype import (
+    apply_gene_biotype_strategy,
     annotate_gene_biotypes,
     filter_genes_by_biotype,
     get_biotype_statistics,
+    get_gene_biotype_cache_dir,
+    list_gene_biotype_resources,
+    load_gene_biotypes,
     recommend_biotype_strategy,
 )
 from .adaptive_normalize import (
@@ -93,6 +97,7 @@ __all__ = [
     "WorkflowError",
     "PartialWorkflowResult",
     # Core Functions
+    "apply_gene_biotype_strategy",
     "normalize_data",
     "regress_out",
     "find_hvgs",
@@ -102,6 +107,9 @@ __all__ = [
     "annotate_gene_biotypes",
     "filter_genes_by_biotype",
     "get_biotype_statistics",
+    "load_gene_biotypes",
+    "list_gene_biotype_resources",
+    "get_gene_biotype_cache_dir",
     "recommend_biotype_strategy",
     # Backend
     "PreprocessingBackend",

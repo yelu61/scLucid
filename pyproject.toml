@@ -118,4 +118,12 @@ Repository = "https://github.com/yelu61/scLucid"
 where = ["src"]
 
 [tool.setuptools.package-data]
-scLucid = ["resources/*.toml", "resources/**/*.toml"]
+scLucid = [
+    "resources/*.toml",
+    "resources/**/*.toml",
+    "resources/**/*.json",
+    "resources/**/*.csv",
+    "resources/**/*.csv.gz",
+    "resources/**/*.gmt",
+    "resources/**/*.md",
+]

@@ -27,9 +27,13 @@ def test_normalization_config_success_and_reserved_layer_validation():
 @pytest.mark.unit
 def test_preprocess_exports_gene_biotype_utilities():
     required = [
+        "apply_gene_biotype_strategy",
         "annotate_gene_biotypes",
         "filter_genes_by_biotype",
         "get_biotype_statistics",
+        "get_gene_biotype_cache_dir",
+        "list_gene_biotype_resources",
+        "load_gene_biotypes",
         "recommend_biotype_strategy",
     ]
     for symbol in required:

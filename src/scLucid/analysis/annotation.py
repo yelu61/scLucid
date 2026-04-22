@@ -7,7 +7,7 @@ manual/AI mapping import, and annotation evaluation.
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,6 +17,7 @@ from anndata import AnnData
 
 from ..utils import sanitize_for_hdf5, use_layer_as_X, Manager, get_marker_manager
 from .config import AnnotationConfig
+from .scoring import FunctionalSignatureManager, score_by_gene_sets
 
 log = logging.getLogger(__name__)
 
@@ -28,10 +29,42 @@ __all__ = [
     "transfer_labels",
     "evaluate_annotation",
     "summarize_annotation_evidence",
+    "run_lineage_state_annotation",
+    "filter_marker_table_for_annotation",
+    "flag_suspect_clusters",
+    "build_annotation_review_table",
     "apply_annotation_mapping",
     "remap_labels",
     "run_annotation",
 ]
+
+
+_ANNOTATION_NOISE_EXACT_GENES = {
+    "MALAT1": "housekeeping",
+    "NEAT1": "housekeeping",
+    "XIST": "housekeeping",
+}
+
+_ANNOTATION_NOISE_PREFIXES = {
+    "ribosomal": ("RPL", "RPS", "MRPL", "MRPS"),
+    "mitochondrial": ("MT-",),
+    "stress": (
+        "HSP",
+        "HSPA",
+        "HSPB",
+        "HSPC",
+        "HSPD",
+        "HSPE",
+        "HSPH",
+        "DNAJ",
+        "FOS",
+        "JUN",
+        "ATF3",
+        "IER",
+        "DDIT3",
+        "PPP1R15A",
+    ),
+}
 
 
 # --------------------- Helper Functions -----------------------
@@ -167,6 +200,155 @@ def _read_json_file(path: str) -> dict:
         if last_err
         else RuntimeError("Failed to read JSON with multiple encodings.")
     )
+
+
+def _classify_annotation_marker(gene: Any) -> Optional[str]:
+    """Classify common non-informative marker genes seen during manual annotation."""
+    if pd.isna(gene):
+        return None
+
+    gene_upper = str(gene).upper()
+    if gene_upper in _ANNOTATION_NOISE_EXACT_GENES:
+        return _ANNOTATION_NOISE_EXACT_GENES[gene_upper]
+
+    for category, prefixes in _ANNOTATION_NOISE_PREFIXES.items():
+        if any(gene_upper.startswith(prefix) for prefix in prefixes):
+            return category
+    return None
+
+
+def _resolve_score_columns(
+    adata: AnnData,
+    score_cols: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """Resolve module score columns from obs."""
+    if score_cols is not None:
+        return [col for col in score_cols if col in adata.obs.columns]
+    return [
+        col for col in adata.obs.columns
+        if col.endswith("_score") and pd.api.types.is_numeric_dtype(adata.obs[col])
+    ]
+
+
+def _resolve_annotation_manager(
+    *,
+    species: str,
+    tissue: Optional[str],
+    states: Optional[List[str]] = None,
+    marker_config: Optional[str] = None,
+):
+    """Resolve either a custom marker file or the built-in combined marker manager."""
+    if marker_config:
+        return Manager(marker_config, case_sensitive=True)
+    return get_marker_manager(species=species, tissue=tissue, states=states)
+
+
+def _label_matches_target_lineage(labels: pd.Series, target_lineage: Optional[str]) -> pd.Series:
+    """Return a boolean mask for cells matching the requested target lineage."""
+    if not target_lineage:
+        return pd.Series(True, index=labels.index)
+
+    target = str(target_lineage).strip().lower()
+    values = labels.astype(str).str.lower()
+    return values.eq(target) | values.str.contains(target, regex=False)
+
+
+def _build_modular_annotation_label(
+    lineage: pd.Series,
+    subtype: pd.Series,
+    state: pd.Series,
+) -> pd.Series:
+    """Construct a compact modular display label from lineage/subtype/state columns."""
+    result = []
+    for lin, sub, st in zip(lineage.astype(str), subtype.astype(str), state.astype(str)):
+        label = lin
+        if sub not in {"Unknown", "Not_applicable", "nan", ""} and sub != lin:
+            label = sub
+        if st not in {"Unknown", "Not_applicable", "nan", ""}:
+            label = f"{label} | {st}"
+        result.append(label)
+    return pd.Series(result, index=lineage.index, dtype="object")
+
+
+def _rename_score_columns_for_manager(
+    adata: AnnData,
+    manager: Manager,
+    suffix: str,
+) -> None:
+    """Rename manager-derived *_score columns to a scoped suffix."""
+    rename_map = {}
+    for cell_type in manager.CELLS:
+        source = f"{cell_type}_score"
+        if source in adata.obs.columns:
+            rename_map[source] = f"{cell_type}{suffix}"
+    if rename_map:
+        adata.obs.rename(columns=rename_map, inplace=True)
+
+
+def _collect_state_signatures(
+    config: AnnotationConfig,
+) -> tuple[Dict[str, List[str]], Dict[str, Dict[str, object]]]:
+    """Collect state/program signatures plus optional scope metadata."""
+    signatures: Dict[str, List[str]] = {}
+    metadata: Dict[str, Dict[str, object]] = {}
+
+    if config.marker_states:
+        state_mgr = _resolve_annotation_manager(
+            species=config.marker_species,
+            tissue=None,
+            marker_config=config.state_marker_config or f"cell_state_{config.marker_species}",
+        )
+        selected = state_mgr.select_cells(config.marker_states, include_children=True)
+        for name, cell in selected.CELLS.items():
+            if cell.markers:
+                signatures[name] = list(cell.markers)
+                metadata[name] = dict(cell.metadata)
+
+    if config.custom_state_signatures:
+        signatures.update(config.custom_state_signatures)
+        if config.custom_state_metadata:
+            metadata.update(config.custom_state_metadata)
+
+    if config.state_signature_names or config.state_signature_categories:
+        manager = FunctionalSignatureManager(species=config.marker_species)
+        for category in config.state_signature_categories:
+            signatures.update(manager.get_category(category))
+        for name in config.state_signature_names:
+            signatures[name] = manager.get_signature(name)
+
+    return signatures, metadata
+
+
+def _state_applies_to_cell(
+    state_meta: Optional[Dict[str, object]],
+    lineage_label: str,
+    subtype_label: str,
+) -> bool:
+    """Check whether a state program is valid for the current lineage/subtype context."""
+    if not state_meta:
+        return True
+
+    scope = str(state_meta.get("scope", "all")).lower()
+    applies_to = state_meta.get("applies_to", ["all"])
+    if isinstance(applies_to, str):
+        applies = [applies_to]
+    else:
+        applies = [str(x) for x in applies_to]
+
+    applies_lower = [x.lower() for x in applies]
+    if "all" in applies_lower or scope == "all":
+        return True
+
+    lineage_lower = str(lineage_label).lower()
+    subtype_lower = str(subtype_label).lower()
+
+    for allowed in applies_lower:
+        if allowed and (allowed == lineage_lower or allowed in lineage_lower):
+            return True
+        if allowed and subtype_lower not in {"not_applicable", "unknown", "nan"}:
+            if allowed == subtype_lower or allowed in subtype_lower:
+                return True
+    return False
 
 
 # --------------------- Scoring Function -----------------------
@@ -888,6 +1070,555 @@ def summarize_annotation_evidence(
     return summary
 
 
+def filter_marker_table_for_annotation(
+    markers_df: pd.DataFrame,
+    *,
+    gene_col: str = "names",
+    group_col: str = "group",
+    score_col: Optional[str] = "logfoldchanges",
+    keep_categories: Optional[Iterable[str]] = None,
+    keep_top_n_per_group: Optional[int] = None,
+    min_score: Optional[float] = None,
+    custom_drop_genes: Optional[Iterable[str]] = None,
+    drop_noise: bool = True,
+) -> pd.DataFrame:
+    """
+    Filter marker tables for manual annotation by removing common noisy genes.
+
+    The returned DataFrame always includes:
+    - `annotation_noise_category`
+    - `is_annotation_informative`
+    """
+    if gene_col not in markers_df.columns:
+        raise KeyError(f"'{gene_col}' not found in markers_df.")
+    if group_col not in markers_df.columns:
+        raise KeyError(f"'{group_col}' not found in markers_df.")
+    if score_col is not None and score_col not in markers_df.columns:
+        raise KeyError(f"'{score_col}' not found in markers_df.")
+
+    filtered = markers_df.copy()
+    filtered["annotation_noise_category"] = filtered[gene_col].map(_classify_annotation_marker)
+
+    if custom_drop_genes is not None:
+        custom_drop = {str(g).upper() for g in custom_drop_genes}
+        custom_mask = filtered[gene_col].astype(str).str.upper().isin(custom_drop)
+        filtered.loc[custom_mask, "annotation_noise_category"] = "custom_drop"
+
+    informative_mask = filtered["annotation_noise_category"].isna()
+    if keep_categories is not None:
+        allowed = set(keep_categories)
+        informative_mask = informative_mask | filtered["annotation_noise_category"].isin(allowed)
+
+    filtered["is_annotation_informative"] = informative_mask.astype(bool)
+
+    if min_score is not None and score_col is not None:
+        filtered = filtered[filtered[score_col] >= float(min_score)].copy()
+
+    if keep_top_n_per_group is not None:
+        sort_col = score_col if score_col is not None else gene_col
+        filtered = (
+            filtered.sort_values([group_col, sort_col], ascending=[True, False])
+            .groupby(group_col, group_keys=False)
+            .head(int(keep_top_n_per_group))
+            .copy()
+        )
+
+    if drop_noise:
+        filtered = filtered[filtered["is_annotation_informative"]].copy()
+
+    return filtered.reset_index(drop=True)
+
+
+def flag_suspect_clusters(
+    adata: AnnData,
+    cluster_key: str,
+    *,
+    markers_df: Optional[pd.DataFrame] = None,
+    marker_gene_col: str = "names",
+    marker_group_col: str = "group",
+    marker_score_col: str = "logfoldchanges",
+    top_n_markers: int = 15,
+    doublet_flag_cols: Sequence[str] = (
+        "predicted_doublet",
+        "scrublet_predicted",
+        "doubletdetection_predicted",
+    ),
+    mt_col: Optional[str] = "pct_counts_mt",
+    n_genes_col: Optional[str] = "n_genes_by_counts",
+    score_cols: Optional[Sequence[str]] = None,
+    ribosomal_fraction_threshold: float = 0.5,
+    stress_fraction_threshold: float = 0.4,
+    doublet_fraction_threshold: float = 0.2,
+    mt_mean_threshold: float = 15.0,
+    min_informative_markers: int = 3,
+    key_added: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Flag clusters dominated by low-information, stress, or doublet-like signals.
+    """
+    if cluster_key not in adata.obs.columns:
+        raise KeyError(f"'{cluster_key}' not found in adata.obs.")
+
+    available_scores = _resolve_score_columns(adata, score_cols)
+    cluster_series = adata.obs[cluster_key].astype(str)
+    cluster_order = cluster_series.drop_duplicates().tolist()
+    rows: List[Dict[str, Any]] = []
+
+    marker_subset = None
+    if markers_df is not None:
+        if marker_gene_col not in markers_df.columns:
+            raise KeyError(f"'{marker_gene_col}' not found in markers_df.")
+        if marker_group_col not in markers_df.columns:
+            raise KeyError(f"'{marker_group_col}' not found in markers_df.")
+        if marker_score_col not in markers_df.columns:
+            raise KeyError(f"'{marker_score_col}' not found in markers_df.")
+
+        marker_subset = (
+            markers_df.copy()
+            .sort_values([marker_group_col, marker_score_col], ascending=[True, False])
+            .groupby(marker_group_col, group_keys=False)
+            .head(int(top_n_markers))
+            .copy()
+        )
+        marker_subset["annotation_noise_category"] = marker_subset[marker_gene_col].map(
+            _classify_annotation_marker
+        )
+
+    for cluster in cluster_order:
+        mask = cluster_series == cluster
+        cluster_obs = adata.obs.loc[mask]
+        row: Dict[str, Any] = {
+            "cluster": cluster,
+            "n_cells": int(mask.sum()),
+            "cell_fraction": float(mask.mean()),
+        }
+
+        if mt_col and mt_col in cluster_obs.columns:
+            row["mean_pct_counts_mt"] = float(cluster_obs[mt_col].mean())
+        else:
+            row["mean_pct_counts_mt"] = np.nan
+
+        if n_genes_col and n_genes_col in cluster_obs.columns:
+            row["mean_n_genes_by_counts"] = float(cluster_obs[n_genes_col].mean())
+        else:
+            row["mean_n_genes_by_counts"] = np.nan
+
+        present_doublet_cols = [
+            col for col in doublet_flag_cols
+            if col in cluster_obs.columns and pd.api.types.is_bool_dtype(cluster_obs[col])
+        ]
+        if present_doublet_cols:
+            doublet_mask = cluster_obs[present_doublet_cols].any(axis=1)
+            row["doublet_fraction"] = float(doublet_mask.mean())
+        else:
+            row["doublet_fraction"] = np.nan
+
+        for score_col in available_scores:
+            row[f"mean_{score_col}"] = float(cluster_obs[score_col].mean())
+
+        suspect_reasons: List[str] = []
+        primary_flag = "clean"
+
+        if marker_subset is not None:
+            cluster_markers = marker_subset[
+                marker_subset[marker_group_col].astype(str) == str(cluster)
+            ].copy()
+            noise_counts = cluster_markers["annotation_noise_category"].value_counts()
+            n_markers = int(cluster_markers.shape[0])
+            n_informative = int(cluster_markers["annotation_noise_category"].isna().sum())
+            row["n_top_markers"] = n_markers
+            row["n_informative_markers"] = n_informative
+            row["ribosomal_marker_fraction"] = (
+                float(noise_counts.get("ribosomal", 0) / n_markers) if n_markers else np.nan
+            )
+            row["stress_marker_fraction"] = (
+                float(noise_counts.get("stress", 0) / n_markers) if n_markers else np.nan
+            )
+            row["mitochondrial_marker_fraction"] = (
+                float(noise_counts.get("mitochondrial", 0) / n_markers) if n_markers else np.nan
+            )
+            row["housekeeping_marker_fraction"] = (
+                float(noise_counts.get("housekeeping", 0) / n_markers) if n_markers else np.nan
+            )
+            row["top_marker_preview"] = ", ".join(
+                cluster_markers[marker_gene_col].astype(str).head(6).tolist()
+            )
+
+            if n_markers and row["ribosomal_marker_fraction"] >= ribosomal_fraction_threshold:
+                suspect_reasons.append("ribosomal_dominant")
+            if n_markers and row["stress_marker_fraction"] >= stress_fraction_threshold:
+                suspect_reasons.append("stress_high")
+            if n_markers and n_informative < min_informative_markers:
+                suspect_reasons.append("low_information")
+        else:
+            row["n_top_markers"] = np.nan
+            row["n_informative_markers"] = np.nan
+            row["ribosomal_marker_fraction"] = np.nan
+            row["stress_marker_fraction"] = np.nan
+            row["mitochondrial_marker_fraction"] = np.nan
+            row["housekeeping_marker_fraction"] = np.nan
+            row["top_marker_preview"] = ""
+
+        if pd.notna(row["doublet_fraction"]) and row["doublet_fraction"] >= doublet_fraction_threshold:
+            suspect_reasons.append("doublet_suspect")
+        if pd.notna(row["mean_pct_counts_mt"]) and row["mean_pct_counts_mt"] >= mt_mean_threshold:
+            suspect_reasons.append("mt_high")
+
+        for severity in (
+            "doublet_suspect",
+            "stress_high",
+            "ribosomal_dominant",
+            "low_information",
+            "mt_high",
+        ):
+            if severity in suspect_reasons:
+                primary_flag = severity
+                break
+
+        row["suspect_reasons"] = ",".join(suspect_reasons)
+        row["suspect_flag"] = primary_flag
+        rows.append(row)
+
+    summary_df = pd.DataFrame(rows)
+    target_key = key_added or f"{cluster_key}_suspect_flags"
+    annotation_ns = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("annotation", {})
+    )
+    annotation_ns[target_key] = summary_df
+    annotation_ns[f"{target_key}_params"] = sanitize_for_hdf5(
+        {
+            "cluster_key": cluster_key,
+            "top_n_markers": int(top_n_markers),
+            "doublet_flag_cols": list(doublet_flag_cols),
+            "mt_col": mt_col,
+            "n_genes_col": n_genes_col,
+            "score_cols": available_scores,
+        }
+    )
+
+    flag_map = summary_df.set_index("cluster")["suspect_flag"].to_dict()
+    reason_map = summary_df.set_index("cluster")["suspect_reasons"].to_dict()
+    adata.obs[f"{target_key}_flag"] = cluster_series.map(flag_map).astype("category")
+    adata.obs[f"{target_key}_reasons"] = cluster_series.map(reason_map).astype(str)
+    return summary_df
+
+
+def build_annotation_review_table(
+    adata: AnnData,
+    cluster_key: str,
+    *,
+    markers_df: Optional[pd.DataFrame] = None,
+    marker_gene_col: str = "names",
+    marker_group_col: str = "group",
+    marker_score_col: Optional[str] = "logfoldchanges",
+    enrichment_dict: Optional[Dict[str, pd.DataFrame]] = None,
+    annotation_key: Optional[str] = None,
+    sample_col: Optional[str] = None,
+    group_col: Optional[str] = None,
+    time_col: Optional[str] = None,
+    score_cols: Optional[Sequence[str]] = None,
+    top_n_markers: int = 8,
+    top_n_terms: int = 3,
+    key_added: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Build a per-cluster review table for manual annotation and notebook reporting.
+    """
+    if cluster_key not in adata.obs.columns:
+        raise KeyError(f"'{cluster_key}' not found in adata.obs.")
+
+    cluster_series = adata.obs[cluster_key].astype(str)
+    total_cells = max(adata.n_obs, 1)
+    score_cols = _resolve_score_columns(adata, score_cols)
+
+    filtered_markers = None
+    if markers_df is not None:
+        filtered_markers = filter_marker_table_for_annotation(
+            markers_df,
+            gene_col=marker_gene_col,
+            group_col=marker_group_col,
+            score_col=marker_score_col if marker_score_col in markers_df.columns else None,
+            keep_top_n_per_group=top_n_markers,
+            drop_noise=True,
+        )
+
+    rows: List[Dict[str, Any]] = []
+    for cluster in cluster_series.drop_duplicates().tolist():
+        mask = cluster_series == cluster
+        cluster_obs = adata.obs.loc[mask]
+        row: Dict[str, Any] = {
+            "cluster": cluster,
+            "n_cells": int(mask.sum()),
+            "pct_cells": float(mask.sum() / total_cells),
+        }
+
+        if annotation_key and annotation_key in cluster_obs.columns:
+            row["annotation"] = str(cluster_obs[annotation_key].mode(dropna=True).iloc[0])
+        else:
+            row["annotation"] = None
+
+        if filtered_markers is not None and not filtered_markers.empty:
+            top_markers = filtered_markers[
+                filtered_markers[marker_group_col].astype(str) == str(cluster)
+            ][marker_gene_col].astype(str).head(top_n_markers).tolist()
+            row["top_markers"] = ", ".join(top_markers)
+        else:
+            row["top_markers"] = ""
+
+        if enrichment_dict:
+            cluster_terms = enrichment_dict.get(cluster)
+            if cluster_terms is None:
+                cluster_terms = enrichment_dict.get(str(cluster))
+            if isinstance(cluster_terms, pd.DataFrame) and not cluster_terms.empty:
+                sort_col = "Adjusted P-value" if "Adjusted P-value" in cluster_terms.columns else cluster_terms.columns[0]
+                row["top_terms"] = ", ".join(
+                    cluster_terms.sort_values(sort_col).head(top_n_terms)["Term"].astype(str).tolist()
+                ) if "Term" in cluster_terms.columns else ""
+            else:
+                row["top_terms"] = ""
+        else:
+            row["top_terms"] = ""
+
+        if sample_col and sample_col in cluster_obs.columns:
+            sample_counts = cluster_obs[sample_col].astype(str).value_counts(normalize=True).head(3)
+            row["top_samples"] = ", ".join(
+                f"{sample}:{frac:.2f}" for sample, frac in sample_counts.items()
+            )
+        else:
+            row["top_samples"] = ""
+
+        if group_col and group_col in cluster_obs.columns:
+            group_counts = cluster_obs[group_col].astype(str).value_counts(normalize=True).head(3)
+            row["group_distribution"] = ", ".join(
+                f"{name}:{frac:.2f}" for name, frac in group_counts.items()
+            )
+        else:
+            row["group_distribution"] = ""
+
+        if time_col and time_col in cluster_obs.columns:
+            time_counts = cluster_obs[time_col].astype(str).value_counts(normalize=True).head(3)
+            row["time_distribution"] = ", ".join(
+                f"{name}:{frac:.2f}" for name, frac in time_counts.items()
+            )
+        else:
+            row["time_distribution"] = ""
+
+        row["mean_scores"] = ", ".join(
+            f"{col}:{cluster_obs[col].mean():.3f}" for col in score_cols
+        )
+        rows.append(row)
+
+    review_df = pd.DataFrame(rows)
+    target_key = key_added or f"{cluster_key}_review_table"
+    annotation_ns = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("annotation", {})
+    )
+    annotation_ns[target_key] = review_df
+    annotation_ns[f"{target_key}_params"] = sanitize_for_hdf5(
+        {
+            "cluster_key": cluster_key,
+            "marker_gene_col": marker_gene_col,
+            "marker_group_col": marker_group_col,
+            "marker_score_col": marker_score_col,
+            "annotation_key": annotation_key,
+            "sample_col": sample_col,
+            "group_col": group_col,
+            "time_col": time_col,
+            "score_cols": score_cols,
+            "top_n_markers": int(top_n_markers),
+            "top_n_terms": int(top_n_terms),
+        }
+    )
+    return review_df
+
+
+def run_lineage_state_annotation(
+    adata: AnnData,
+    config: AnnotationConfig,
+) -> AnnData:
+    """
+    Hierarchical annotation workflow:
+    lineage -> optional subtype -> optional state/program -> modular display label.
+    """
+    use_raw = adata.raw is not None
+    annotation_ns = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("analysis", {})
+        .setdefault("annotation", {})
+    )
+
+    lineage_mgr = _resolve_annotation_manager(
+        species=config.marker_species,
+        tissue=config.marker_tissue,
+        states=config.marker_states,
+        marker_config=config.lineage_marker_config,
+    )
+    lineage_mgr.intersect_with(adata.raw if use_raw else adata)
+
+    if config.run_scoring:
+        adata = score_cell_types(
+            adata,
+            marker_config=lineage_mgr,
+            use_raw=use_raw,
+            layer=None,
+            score_name_suffix="_score",
+        )
+
+    adata = annotate_clusters(
+        adata,
+        cluster_key=config.cluster_key,
+        marker_config=lineage_mgr,
+        method=config.marker_method,
+        key_added=config.lineage_key,
+        min_score=config.min_confidence,
+        use_raw=use_raw,
+        plot=False,
+    )
+    _rename_score_columns_for_manager(adata, lineage_mgr, "_lineage_module")
+
+    subtype_values = pd.Series("Not_applicable", index=adata.obs_names, dtype="object")
+    target_mask = _label_matches_target_lineage(adata.obs[config.lineage_key], config.target_lineage)
+
+    if config.subtype_marker_config:
+        subtype_mgr = _resolve_annotation_manager(
+            species=config.marker_species,
+            tissue=config.marker_tissue,
+            marker_config=config.subtype_marker_config,
+        )
+        subtype_mgr.intersect_with(adata.raw if use_raw else adata)
+        if config.run_scoring:
+            adata = score_cell_types(
+                adata,
+                marker_config=subtype_mgr,
+                use_raw=use_raw,
+                layer=None,
+                score_name_suffix="_score",
+            )
+        adata = annotate_clusters(
+            adata,
+            cluster_key=config.cluster_key,
+            marker_config=subtype_mgr,
+            method=config.marker_method,
+            key_added=config.subtype_key,
+            min_score=config.min_confidence,
+            use_raw=use_raw,
+            plot=False,
+        )
+        subtype_values = adata.obs[config.subtype_key].astype(str)
+        subtype_values = subtype_values.where(target_mask, "Not_applicable")
+        adata.obs[config.subtype_key] = pd.Categorical(subtype_values)
+        _rename_score_columns_for_manager(adata, subtype_mgr, "_subtype_module")
+    else:
+        adata.obs[config.subtype_key] = pd.Categorical(subtype_values)
+
+    state_values = pd.Series("Not_applicable", index=adata.obs_names, dtype="object")
+    state_confidence = pd.Series(np.nan, index=adata.obs_names, dtype=float)
+    signatures, state_metadata = _collect_state_signatures(config)
+
+    if signatures:
+        adata = score_by_gene_sets(
+            adata,
+            signatures,
+            use_raw=use_raw,
+            layer=None,
+            score_name_suffix=config.state_score_suffix,
+            preserve_missing=True,
+            min_genes_required=1,
+        )
+        state_score_cols = [
+            f"{name}{config.state_score_suffix}"
+            for name in signatures
+            if f"{name}{config.state_score_suffix}" in adata.obs.columns
+        ]
+        if state_score_cols:
+            state_score_df = adata.obs[state_score_cols].copy()
+            lineage_labels = adata.obs[config.lineage_key].astype(str)
+            subtype_labels = adata.obs[config.subtype_key].astype(str)
+
+            scoped_score_df = state_score_df.copy()
+            for state_name in signatures:
+                score_col = f"{state_name}{config.state_score_suffix}"
+                if score_col not in scoped_score_df.columns:
+                    continue
+                allowed_mask = [
+                    _state_applies_to_cell(
+                        state_metadata.get(state_name),
+                        lineage_label=lin,
+                        subtype_label=sub,
+                    )
+                    for lin, sub in zip(lineage_labels, subtype_labels)
+                ]
+                scoped_score_df.loc[~pd.Series(allowed_mask, index=scoped_score_df.index), score_col] = -np.inf
+
+            winner_cols = scoped_score_df.idxmax(axis=1)
+            state_values = winner_cols.str.replace(config.state_score_suffix, "", regex=False)
+
+            top1 = scoped_score_df.max(axis=1)
+            top2 = scoped_score_df.apply(
+                lambda row: row.replace(-np.inf, np.nan).nlargest(2).iloc[-1]
+                if row.replace(-np.inf, np.nan).dropna().shape[0] > 1
+                else row.replace(-np.inf, np.nan).fillna(0).iloc[0],
+                axis=1,
+            )
+            state_confidence = (top1 - top2).astype(float)
+            state_values = state_values.where(top1.replace(-np.inf, np.nan).notna(), "Not_applicable")
+            state_confidence = state_confidence.where(top1.replace(-np.inf, np.nan).notna(), np.nan)
+            state_values = state_values.where(target_mask, "Not_applicable")
+            state_confidence = state_confidence.where(target_mask, np.nan)
+
+    adata.obs[config.state_key] = pd.Categorical(state_values)
+    adata.obs[f"{config.state_key}_confidence"] = state_confidence
+
+    if config.nomenclature_style == "modular":
+        final_labels = _build_modular_annotation_label(
+            adata.obs[config.lineage_key],
+            adata.obs[config.subtype_key],
+            adata.obs[config.state_key],
+        )
+    else:
+        final_labels = adata.obs[config.subtype_key].astype(str)
+        final_labels = final_labels.where(
+            ~final_labels.isin(["Unknown", "Not_applicable"]),
+            adata.obs[config.lineage_key].astype(str),
+        )
+
+    adata.obs[config.key_added] = pd.Categorical(final_labels)
+    adata.obs[config.annotation_basis_key] = pd.Categorical(
+        np.where(
+            adata.obs[config.state_key].astype(str).isin(["Unknown", "Not_applicable"]),
+            "lineage+subtype",
+            "lineage+subtype+state",
+        )
+    )
+
+    annotation_ns[f"{config.key_added}_hierarchical_params"] = sanitize_for_hdf5(
+        {
+            "cluster_key": config.cluster_key,
+            "lineage_key": config.lineage_key,
+            "subtype_key": config.subtype_key,
+            "state_key": config.state_key,
+            "target_lineage": config.target_lineage,
+            "lineage_marker_config": config.lineage_marker_config,
+            "subtype_marker_config": config.subtype_marker_config,
+            "marker_states": config.marker_states,
+            "state_marker_config": config.state_marker_config,
+            "state_signature_names": config.state_signature_names,
+            "state_signature_categories": config.state_signature_categories,
+            "nomenclature_style": config.nomenclature_style,
+        }
+    )
+    annotation_ns[f"{config.key_added}_state_signatures"] = sanitize_for_hdf5(
+        {name: len(genes) for name, genes in signatures.items()}
+    )
+    annotation_ns[f"{config.key_added}_state_metadata"] = sanitize_for_hdf5(state_metadata)
+
+    return adata
+
+
 def apply_annotation_mapping(
     adata: AnnData,
     cluster_key: str,
@@ -1235,8 +1966,37 @@ def run_annotation(
     """
     Full annotation workflow: scoring -> auto annotation -> results in .obs/.uns.
     """
+    if config.final_method == "hierarchical":
+        adata = run_lineage_state_annotation(adata, config)
+        _store_annotation_evidence_summary(
+            adata,
+            config.cluster_key,
+            config.key_added,
+            params=(
+                adata.uns.get("sclucid", {})
+                .get("analysis", {})
+                .get("annotation", {})
+                .get(f"{config.key_added}_hierarchical_params", {})
+            ),
+        )
+        adata.obs["cell_compartment"] = _map_compartments(
+            adata.obs[config.key_added],
+            compartment_map=config.compartment_map,
+        )
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
+            "annotation", {}
+        )
+        adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = (
+            sanitize_for_hdf5(config.to_dict())
+        )
+        return adata
+
     use_raw = adata.raw is not None
-    mgr = get_marker_manager(species=config.marker_species, tissue=config.marker_tissue)
+    mgr = get_marker_manager(
+        species=config.marker_species,
+        tissue=config.marker_tissue,
+        states=config.marker_states,
+    )
     mgr.intersect_with(adata.raw if use_raw else adata)
 
     if config.run_celltypist or config.final_method in {"celltypist", "hybrid"}:
