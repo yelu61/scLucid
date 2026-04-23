@@ -195,13 +195,13 @@ class DoubletConfig(SclucidBaseConfig):
         """Validate method-specific dependencies and parameters."""
         if self.method == "scrublet":
             try:
-                import scrublet
+                import scrublet as _scrublet  # noqa: F401
             except ImportError:
                 logger.warning("scrublet not found. Install with: pip install scrublet")
 
         elif self.method == "solo":
             try:
-                import scvi
+                import scvi as _scvi  # noqa: F401
             except ImportError:
                 logger.warning("scvi-tools not found. Install with: pip install scvi-tools")
             if self.solo_n_epochs < 100:
@@ -209,7 +209,7 @@ class DoubletConfig(SclucidBaseConfig):
 
         elif self.method == "doubletdetection":
             try:
-                import doubletdetection
+                import doubletdetection as _dd  # noqa: F401
             except ImportError:
                 logger.warning(
                     "doublet-detection not found. Install with: pip install doublet-detection"

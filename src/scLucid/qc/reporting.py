@@ -14,6 +14,11 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from anndata import AnnData
 
+try:
+    import plotly.graph_objects as go
+except ImportError:
+    go = None  # type: ignore[misc,assignment]
+
 log = logging.getLogger(__name__)
 
 
@@ -408,7 +413,6 @@ class EnhancedQCReport:
     ) -> str:
         """Generate complete HTML report."""
         metadata = data["metadata"]
-        summary = data["summary"]
         filtering = data["filtering"]
         recommendations = data.get("recommendations", [])
         tables = data.get("tables", {})
@@ -773,10 +777,7 @@ class InteractiveReportGenerator:
             output_path: Path to save report
             title: Report title
         """
-        try:
-            import plotly.graph_objects as go
-            import plotly.io as pio
-        except ImportError:
+        if go is None:
             raise ImportError("Plotly is required for interactive reports")
 
         # Create plots

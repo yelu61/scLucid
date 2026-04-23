@@ -500,7 +500,7 @@ def score_cell_cycle(
     # --- Plotting ---
     if plot:
         try:
-            fig = _plot_cell_cycle(adata, species_used, save_dir)
+            _plot_cell_cycle(adata, species_used, save_dir)
         except Exception as e:
             log.warning(f"Failed to generate cell cycle plots: {str(e)}")
 

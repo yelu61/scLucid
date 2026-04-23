@@ -291,7 +291,7 @@ def _plot_top_genes_distribution(
         # For each threshold, calculate percentage of cells above it
         for threshold in thresholds:
             counts = adata.obs.groupby(sample_key, observed=False)[percent_top_col].apply(
-                lambda x: (x > threshold).sum()
+                lambda x, thr=threshold: (x > thr).sum()
             )
             percentages = counts / adata.obs.groupby(sample_key, observed=False).size() * 100
             threshold_stats = pd.DataFrame({"counts": counts, "percentage": percentages})

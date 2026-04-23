@@ -313,7 +313,6 @@ class AdaptiveThresholdLearner:
 
             # Find outliers (label = -1)
             outlier_values = values[labels == -1]
-            inlier_values = values[labels != -1]
 
             if len(outlier_values) == 0:
                 # No outliers detected, use percentile
