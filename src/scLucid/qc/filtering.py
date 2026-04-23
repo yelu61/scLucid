@@ -481,8 +481,6 @@ def _plot_qc_outliers(
                         {
                             False: "#637b8a",  # Blue for normal cells
                             True: "#d62728",  # Red for outliers
-                            0: "#637b8a",
-                            1: "#d62728",
                         }
                     )
 
@@ -1240,8 +1238,8 @@ def mark_low_quality_cells_adaptive(
     for metric in metrics:
         log.info(f"Calculating adaptive thresholds for {metric}...")
 
-        # Analyze batch effects
-        batch_stats = calculator._calculate_batch_effects(metric)
+        # Analyze batch effects (side effect: logs batch effect info)
+        calculator._calculate_batch_effects(metric)
 
         # Get adaptive thresholds
         thresholds = calculator._suggest_adaptive_thresholds(metric, method=method)
@@ -1573,7 +1571,6 @@ def generate_qc_report(
 
     # 2. QC distributions plot
     n_metrics = len(qc_metrics)
-    n_samples = len(samples)
 
     fig, axes = plt.subplots(n_metrics, 1, figsize=(12, 4 * n_metrics))
     if n_metrics == 1:
@@ -1592,7 +1589,7 @@ def generate_qc_report(
             sample_data.append(sample_values)
             sample_labels.append(f"{sample}\n(n={len(sample_values)})")
 
-        ax.boxplot(sample_data, labels=sample_labels)
+        ax.boxplot(sample_data, tick_labels=sample_labels)
         ax.set_title(f"{metric.replace('_', ' ').title()} Distribution by Sample")
         ax.set_ylabel(metric.replace("_", " ").title())
 

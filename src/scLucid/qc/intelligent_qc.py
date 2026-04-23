@@ -708,7 +708,7 @@ class IntelligentQCRecommender:
                 params = dist.fit(mt_pct_nonzero, floc=0)
                 ks_stat, ks_pval = stats.kstest(mt_pct_nonzero, dist.cdf(*params))
                 dist_results[dist_name] = {"params": params, "ks_stat": ks_stat, "ks_pval": ks_pval}
-            except:
+            except Exception:
                 pass
 
         # Select best distribution
@@ -951,7 +951,6 @@ class IntelligentQCRecommender:
             if "All cells in same cell cycle phase" in " ".join(quality_flags):
                 if "S" in adata.obs.columns or "G2M" in adata.obs.columns:
                     s_cells = (adata.obs["cell_cycle_phase"] == "S").sum()
-                    g2m_cells = (adata.obs["cell_cycle_phase"] == "G2M").sum()
                     if s_cells / len(adata) > 0.7:
                         considerations.append(
                             f"High proliferative state ({s_cells/len(adata):.1%} S-phase cells) "

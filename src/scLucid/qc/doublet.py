@@ -63,7 +63,7 @@ def _create_doublet_marker_config_from_manager(
             f"Performing marker intersection on {'adata.raw' if cfg.default_use_raw and adata.raw else 'adata'}."
         )
 
-        case_sensitive = True if cfg.marker_species.lower() == "mouse" else False
+        case_sensitive = cfg.marker_species.lower() == "mouse"
         manager = get_marker_manager(
             species=cfg.marker_species,
             tissue=cfg.marker_tissue,
@@ -1420,14 +1420,14 @@ class DoubletEvidenceProfiler:
 ⚡ This cell shows MODERATE evidence of being a doublet:
    • Consider context-specific filtering
    • May be a transient cell state or true biological heterogeneity
-   
+
 ➤ RECOMMENDATION: Review in biological context before filtering
 """
         else:
             report += """
 ✓ This cell shows LOW evidence of being a doublet:
    • Likely a true singlet
-   
+
 ➤ RECOMMENDATION: Keep for downstream analysis
 """
 
