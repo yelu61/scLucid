@@ -1,27 +1,28 @@
 """Tests for the analysis workflow."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import scanpy as sc
 
-from scLucid.analysis.workflow import (
-    run_standard_analysis,
-    run_custom_analysis,
-    compare_clustering_resolutions,
-    WorkflowError,
-)
 from scLucid.analysis.config import (
     AnalysisWorkflowConfig,
     AnnotationConfig,
     ClusteringConfig,
+)
+from scLucid.analysis.workflow import (
+    WorkflowError,
+    compare_clustering_resolutions,
+    run_custom_analysis,
+    run_standard_analysis,
 )
 
 
 def _make_preprocessed_adata(n_obs=200, n_vars=500):
     """Create minimal preprocessed AnnData suitable for analysis."""
     import anndata
+
     counts = np.random.poisson(5, size=(n_obs, n_vars)).astype(np.float32)
     adata = anndata.AnnData(X=counts)
     adata.obs_names = [f"cell_{i}" for i in range(n_obs)]
@@ -58,9 +59,9 @@ def test_run_standard_analysis_passes_annotation_config():
         assert mock_run_annotation.called, "run_annotation was not called"
         _, kwargs = mock_run_annotation.call_args
         passed_config = kwargs.get("config")
-        assert isinstance(passed_config, AnnotationConfig), (
-            f"Expected AnnotationConfig, got {type(passed_config)}"
-        )
+        assert isinstance(
+            passed_config, AnnotationConfig
+        ), f"Expected AnnotationConfig, got {type(passed_config)}"
         assert passed_config.key_added == "my_cell_type"
         assert passed_config.run_scoring is False
         assert passed_config.final_method == "celltypist"
@@ -87,6 +88,24 @@ def test_run_standard_analysis_passes_dict_annotation_config():
         passed_config = kwargs.get("config")
         assert isinstance(passed_config, AnnotationConfig)
         assert passed_config.key_added == "dict_cell_type"
+
+
+def test_run_standard_analysis_marker_step_requires_existing_cluster_key():
+    """Marker-only runs should fail clearly when no cluster labels exist."""
+    adata = _make_preprocessed_adata()
+    workflow_config = AnalysisWorkflowConfig(
+        clustering=ClusteringConfig(key_added="missing_clusters"),
+        annotation=None,
+        characterize=False,
+    )
+
+    with pytest.raises(WorkflowError, match="requires clustering results"):
+        run_standard_analysis(
+            adata,
+            config=workflow_config,
+            steps=["markers"],
+            show_progress=False,
+        )
 
 
 class TestRunStandardAnalysisErrorHandling:
@@ -159,9 +178,9 @@ class TestRunCustomAnalysis:
     def test_markers_step_prefers_leiden_clusters_default(self):
         """Marker workflow defaults to the repository's cluster key."""
         adata = _make_preprocessed_adata()
-        adata.obs["leiden_clusters"] = np.where(
-            np.arange(adata.n_obs) % 2 == 0, "0", "1"
-        ).astype(object)
+        adata.obs["leiden_clusters"] = np.where(np.arange(adata.n_obs) % 2 == 0, "0", "1").astype(
+            object
+        )
         adata.obs["leiden_clusters"] = adata.obs["leiden_clusters"].astype("category")
 
         with patch("scLucid.analysis.workflow.find_markers") as mock_find_markers:
@@ -174,9 +193,9 @@ class TestRunCustomAnalysis:
     def test_characterization_step_passes_save_dir_and_cluster_key(self, tmp_path):
         """Characterization workflow forwards save_dir and uses leiden_clusters by default."""
         adata = _make_preprocessed_adata()
-        adata.obs["leiden_clusters"] = np.where(
-            np.arange(adata.n_obs) % 2 == 0, "0", "1"
-        ).astype(object)
+        adata.obs["leiden_clusters"] = np.where(np.arange(adata.n_obs) % 2 == 0, "0", "1").astype(
+            object
+        )
         adata.obs["leiden_clusters"] = adata.obs["leiden_clusters"].astype("category")
 
         with patch("scLucid.analysis.workflow.characterize_clusters") as mock_characterize:

@@ -5,11 +5,12 @@ This module provides tools for distinguishing malignant cells
 from normal cells based on expression patterns and CNVs.
 """
 
+import logging
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class MalignancyClassifier:
     cnv_threshold : float
         Threshold for CNV-based classification
 
-    Attributes
+    Attributes:
     ----------
     is_malignant_ : pd.Series
         Classification results
@@ -55,7 +56,7 @@ class MalignancyClassifier:
         reference_adata : AnnData, optional
             Reference normal cells
 
-        Returns
+        Returns:
         -------
         MalignancyClassifier
             Fitted classifier
@@ -90,7 +91,7 @@ class MalignancyClassifier:
         # Calculate expression variance across chromosome regions
         # Simplified: use overall expression variance as proxy
         expr = adata.X
-        if hasattr(expr, 'toarray'):
+        if hasattr(expr, "toarray"):
             expr = expr.toarray()
 
         # Calculate deviation from median
@@ -117,13 +118,13 @@ class MalignancyClassifier:
         else:
             scores = adata[:, available].X.mean(axis=1)
 
-        if hasattr(scores, 'toarray'):
+        if hasattr(scores, "toarray"):
             scores = scores.toarray().flatten()
 
         # Determine threshold
         if reference_adata is not None:
             ref_scores = reference_adata[:, available].X.mean(axis=1)
-            if hasattr(ref_scores, 'toarray'):
+            if hasattr(ref_scores, "toarray"):
                 ref_scores = ref_scores.toarray().flatten()
             threshold = np.percentile(ref_scores, 95)
         else:
@@ -147,11 +148,11 @@ class MalignancyClassifier:
 
         # Prepare training data
         X_ref = reference_adata.X
-        if hasattr(X_ref, 'toarray'):
+        if hasattr(X_ref, "toarray"):
             X_ref = X_ref.toarray()
 
         X_tumor = adata.X
-        if hasattr(X_tumor, 'toarray'):
+        if hasattr(X_tumor, "toarray"):
             X_tumor = X_tumor.toarray()
 
         X_train = np.vstack([X_ref, X_tumor[:100]])  # Use some tumor cells
@@ -187,7 +188,7 @@ def classify_malignant_cells(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.Series
         Classification results
@@ -217,7 +218,7 @@ def score_malignancy_potential(
     malignant_key : str
         Column with malignant classification
 
-    Returns
+    Returns:
     -------
     pd.Series
         Malignancy scores
@@ -234,7 +235,7 @@ def score_malignancy_potential(
     available = [g for g in proliferation_markers if g in adata.var_names]
     if len(available) > 0:
         prolif = adata[:, available].X.mean(axis=1)
-        if hasattr(prolif, 'toarray'):
+        if hasattr(prolif, "toarray"):
             prolif = prolif.toarray().flatten()
         scores += (prolif - prolif.min()) / (prolif.max() - prolif.min() + 1e-6)
 

@@ -2,19 +2,16 @@
 Utility functions for CellChat (R-free)
 """
 
-import pandas as pd
-import numpy as np
-from typing import Optional, List
 import logging
+from typing import List, Optional
+
+import pandas as pd
 
 log = logging.getLogger(__name__)
 
 
 def create_cellchat_from_scanpy(
-    adata,
-    group_by: str,
-    use_raw: bool = False,
-    spatial_key: Optional[str] = None
+    adata, group_by: str, use_raw: bool = False, spatial_key: Optional[str] = None
 ):
     """
     Create CellChat object from Scanpy AnnData object
@@ -39,11 +36,7 @@ def create_cellchat_from_scanpy(
         gene_names = adata.var_names.tolist()
 
     # Create expression DataFrame
-    expr_df = pd.DataFrame(
-        expr,
-        index=gene_names,
-        columns=adata.obs_names
-    )
+    expr_df = pd.DataFrame(expr, index=gene_names, columns=adata.obs_names)
 
     # Get metadata
     if group_by not in adata.obs.columns:
@@ -54,29 +47,18 @@ def create_cellchat_from_scanpy(
     # Get spatial coordinates if available
     spatial_coords = None
     if spatial_key is not None and spatial_key in adata.obsm:
-        spatial_coords = pd.DataFrame(
-            adata.obsm[spatial_key],
-            index=adata.obs_names
-        )
+        spatial_coords = pd.DataFrame(adata.obsm[spatial_key], index=adata.obs_names)
 
     # Create CellChat object
     from .core import CellChat
 
-    cellchat = CellChat(
-        data=expr_df,
-        meta=meta,
-        group_by=group_by,
-        spatial_coords=spatial_coords
-    )
+    cellchat = CellChat(data=expr_df, meta=meta, group_by=group_by, spatial_coords=spatial_coords)
 
     log.info(f"Created CellChat from AnnData: {adata.n_obs} cells, {adata.n_vars} genes")
     return cellchat
 
 
-def merge_cellchat_objects(
-    cellchat_list: list,
-    add_names: Optional[List] = None
-):
+def merge_cellchat_objects(cellchat_list: list, add_names: Optional[List] = None):
     """
     Merge multiple CellChat objects for comparison
 
@@ -93,20 +75,12 @@ def merge_cellchat_objects(
     if len(add_names) != len(cellchat_list):
         raise ValueError("Length of add_names must match cellchat_list")
 
-    merged = {
-        'objects': cellchat_list,
-        'names': add_names
-    }
+    merged = {"objects": cellchat_list, "names": add_names}
 
     return merged
 
 
-def export_to_cytoscape(
-    cellchat_obj,
-    pathway: str,
-    filename: str,
-    thresh: float = 0.05
-):
+def export_to_cytoscape(cellchat_obj, pathway: str, filename: str, thresh: float = 0.05):
     """
     Export network to Cytoscape format
 
@@ -121,10 +95,10 @@ def export_to_cytoscape(
     thresh : float
         Threshold for edges
     """
-    if pathway not in cellchat_obj.netP['prob']:
+    if pathway not in cellchat_obj.netP["prob"]:
         raise ValueError(f"Pathway {pathway} not found")
 
-    prob = cellchat_obj.netP['prob'][pathway]
+    prob = cellchat_obj.netP["prob"][pathway]
     groups = cellchat_obj.unique_groups
 
     # Create edge list
@@ -132,12 +106,9 @@ def export_to_cytoscape(
     for i, source in enumerate(groups):
         for j, target in enumerate(groups):
             if prob[i, j] > thresh:
-                edges.append({
-                    'source': source,
-                    'target': target,
-                    'weight': prob[i, j],
-                    'interaction': 'pp'
-                })
+                edges.append(
+                    {"source": source, "target": target, "weight": prob[i, j], "interaction": "pp"}
+                )
 
     edge_df = pd.DataFrame(edges)
     edge_df.to_csv(filename, index=False)
@@ -148,7 +119,8 @@ def export_to_cytoscape(
 def save_cellchat(cellchat_obj, filename: str):
     """Save CellChat object to file"""
     import pickle
-    with open(filename, 'wb') as f:
+
+    with open(filename, "wb") as f:
         pickle.dump(cellchat_obj, f)
     log.info(f"Saved CellChat object to {filename}")
 
@@ -156,7 +128,8 @@ def save_cellchat(cellchat_obj, filename: str):
 def load_cellchat(filename: str):
     """Load CellChat object from file"""
     import pickle
-    with open(filename, 'rb') as f:
+
+    with open(filename, "rb") as f:
         cellchat_obj = pickle.load(f)
     log.info(f"Loaded CellChat object from {filename}")
     return cellchat_obj

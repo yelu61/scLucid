@@ -3,16 +3,10 @@ Plotting functions for single-cell RNA-seq data.
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
-import matplotlib.gridspec as gridspec
-import matplotlib.patches as mpatches
-import matplotlib.patheffects as PathEffects
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import scanpy as sc
-import scipy.sparse
 import seaborn as sns
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
@@ -34,9 +28,7 @@ def _subset_adata(adata: sc.AnnData, subset: Optional[pd.Series]) -> sc.AnnData:
             or not subset.dtype == bool
             or len(subset) != adata.n_obs
         ):
-            raise ValueError(
-                "`subset` must be a boolean pandas Series of length adata.n_obs."
-            )
+            raise ValueError("`subset` must be a boolean pandas Series of length adata.n_obs.")
         log.info(f"Subsetting data to {subset.sum()} cells.")
         return adata[subset].copy()
     return adata
@@ -109,7 +101,7 @@ def _sort_genes_within_categories(
     marker_dict : Dict[str, List[str]]
         Gene categories
 
-    Returns
+    Returns:
     -------
     List[str]
         Sorted gene names
@@ -147,5 +139,3 @@ def _sort_genes_within_categories(
 # =============================================================================
 # Embedding Visualization Functions
 # =============================================================================
-
-

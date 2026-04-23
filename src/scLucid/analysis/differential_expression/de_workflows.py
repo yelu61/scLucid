@@ -10,14 +10,11 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
-import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 from anndata import AnnData
 
-from ...base_config import SclucidBaseConfig
-from ..config import DifferentialConfig, EnrichmentConfig, FilterMarkersConfig
-from .de_core import find_markers, filter_markers
+from ..config import DifferentialConfig, EnrichmentConfig
+from .de_core import find_markers
 from .enrichment import run_enrichment
 
 log = logging.getLogger(__name__)
@@ -191,16 +188,12 @@ def characterize_clusters(
 
     # Set up enrichment config
     if enrichment_config is None:
-        enrichment_config = EnrichmentConfig(
-            de_key=de_df_key, mode="offline", method="ora"
-        )
+        enrichment_config = EnrichmentConfig(de_key=de_df_key, mode="offline", method="ora")
     else:
         enrichment_config.de_key = de_df_key
 
     # Run enrichment
-    enrichment_results_dict = run_enrichment(
-        adata, groupby=groupby, config=enrichment_config
-    )
+    enrichment_results_dict = run_enrichment(adata, groupby=groupby, config=enrichment_config)
 
     # Combine results
     clusters = (
@@ -241,8 +234,7 @@ def characterize_clusters(
         {
             "cluster": [str(cluster) for cluster in clusters],
             "n_cells": [
-                int((adata.obs[groupby].astype(str) == str(cluster)).sum())
-                for cluster in clusters
+                int((adata.obs[groupby].astype(str) == str(cluster)).sum()) for cluster in clusters
             ],
         }
     )
@@ -400,17 +392,13 @@ def summarize_markers_and_enrichment(
     if groupby in adata.obs:
         group_order = list(pd.unique(adata.obs[groupby].astype(str)))
     else:
-        group_order = list(
-            pd.unique(markers_df.get("group", pd.Series([], dtype=str)).astype(str))
-        )
+        group_order = list(pd.unique(markers_df.get("group", pd.Series([], dtype=str)).astype(str)))
 
     # Determine sort column
     sort_col = (
         sort_markers_by
         if sort_markers_by in markers_df.columns
-        else "scores"
-        if "scores" in markers_df.columns
-        else "logfoldchanges"
+        else "scores" if "scores" in markers_df.columns else "logfoldchanges"
     )
 
     if sort_col not in markers_df.columns:
@@ -468,10 +456,7 @@ def summarize_markers_and_enrichment(
                     sort_col_enr = pval_col
                     ascending = True
 
-                    if (
-                        enrichment_method_to_summarize == "gsea"
-                        and "nes" in sig.columns
-                    ):
+                    if enrichment_method_to_summarize == "gsea" and "nes" in sig.columns:
                         sort_col_enr = "nes"
                         ascending = False
 
@@ -482,9 +467,7 @@ def summarize_markers_and_enrichment(
                         .tolist()
                     )
                 else:
-                    log.debug(
-                        f"Cluster {g}: No pathways below p_adj={enrichment_padj_cutoff}"
-                    )
+                    log.debug(f"Cluster {g}: No pathways below p_adj={enrichment_padj_cutoff}")
             else:
                 log.warning(
                     f"Cluster {g}: Could not detect term/pval columns. "
@@ -507,9 +490,7 @@ def summarize_markers_and_enrichment(
     if summary_file:
         Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
         content = (
-            "\n\n---\n\n".join(lines)
-            if lines
-            else "# Marker and Enrichment Summary\n\nNo results."
+            "\n\n---\n\n".join(lines) if lines else "# Marker and Enrichment Summary\n\nNo results."
         )
 
         with open(summary_file, "w", encoding="utf-8") as f:

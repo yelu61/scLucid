@@ -34,88 +34,95 @@ from .helpers import (
     subset_from_annotations,
     use_layer_as_X,
 )
-from .marker_sets import flatten_marker_dict, filter_marker_dict
 
-# Import workflow utilities
-from .workflow_utils import (
-    get_progress_bar,
-    progress_decorator,
-    WorkflowError,
-    StepError,
-    RecoveryError,
-    WorkflowCheckpoint,
-    PartialResultManager,
-    WorkflowStepIterator,
-    BaseWorkflow,
-    with_error_recovery,
-    merge_partial_results,
+# Import and expose key functions and classes from the submodule
+from .manager import (
+    KNOWN_SPECIES,
+    MARKER_FORMATS,
+    CellType,
+    GeneSetManager,
+    Manager,
+    _get_cancer_markers,
+    get_geneset_manager,
+    get_marker_manager,
+)
+from .marker_sets import filter_marker_dict, flatten_marker_dict
+
+# Import profiling utilities
+from .profiling import (
+    BenchmarkRunner,
+    PerformanceProfiler,
+    PerformanceStats,
+    estimate_adata_memory,
+    get_memory_usage,
+    memory_tracker,
+    profile_function,
+    profile_performance,
+)
+
+# Import result cleanup utilities
+from .result_cleanup import (
+    clear_sclucid_results,
+    list_sclucid_modules,
+)
+
+# Import storage utilities (new simplified interface)
+from .storage import (
+    STORAGE_ROOT,
+    VALID_MODULES,
+    clear_storage,
+    export_review_summary,
+    get_storage,
+    has_result,
+    list_results,
+    load_config,
+    load_result,
+    load_workflow_result,
+    migrate_legacy_storage,
+    save_result,
+    save_workflow_result,
 )
 
 # Import validation utilities
 from .validation import (
     ValidationError,
-    validate_adata,
-    validate_config,
-    validate_analysis_results,
-    check_layer_consistency,
-    assert_qc_ready,
-    assert_preprocessing_ready,
     assert_analysis_ready,
+    assert_preprocessing_ready,
+    assert_qc_ready,
+    check_layer_consistency,
+    validate_adata,
+    validate_analysis_results,
+    validate_config,
 )
 
-# Import profiling utilities
-from .profiling import (
-    PerformanceStats,
-    PerformanceProfiler,
-    BenchmarkRunner,
-    profile_performance,
-    profile_function,
-    memory_tracker,
-    get_memory_usage,
-    estimate_adata_memory,
+# Import workflow utilities
+from .workflow_utils import (
+    BaseWorkflow,
+    PartialResultManager,
+    RecoveryError,
+    StepError,
+    WorkflowCheckpoint,
+    WorkflowError,
+    WorkflowStepIterator,
+    get_progress_bar,
+    merge_partial_results,
+    progress_decorator,
+    with_error_recovery,
 )
-
-# Import storage utilities (new simplified interface)
-from .storage import (
-    get_storage,
-    save_result,
-    load_result,
-    load_config,
-    has_result,
-    list_results,
-    clear_storage,
-    migrate_legacy_storage,
-    save_workflow_result,
-    load_workflow_result,
-    STORAGE_ROOT,
-    VALID_MODULES,
-)
-
-# Import and expose key functions and classes from the submodule
-from .manager import (
-    CellType,
-    Manager,
-    GeneSetManager,
-    get_marker_manager,
-    get_geneset_manager,
-    _get_cancer_markers,
-    KNOWN_SPECIES,
-    MARKER_FORMATS,
-)
-
 
 # Import data loading utilities
 try:
     from .data_loader import (
-        load_pbmc3k,
-        load_luad,
-        load_melanoma,
-        load_all_datasets,
-        get_dataset_info,
-        print_dataset_summary,
         filter_by_species,
         filter_by_tissue_type,
+        get_dataset_info,
+        load_all_datasets,
+        load_luad,
+        load_melanoma,
+        load_pbmc3k,
+        print_dataset_summary,
     )
+
     _data_loader_available = True
 except ImportError:
     _data_loader_available = False
@@ -131,6 +138,9 @@ __all__ = [
     "merge_obs_metadata",
     "flatten_marker_dict",
     "filter_marker_dict",
+    # Result cleanup
+    "clear_sclucid_results",
+    "list_sclucid_modules",
     # Workflow utilities
     "get_progress_bar",
     "progress_decorator",
@@ -163,6 +173,7 @@ __all__ = [
     "migrate_legacy_storage",
     "save_workflow_result",
     "load_workflow_result",
+    "export_review_summary",
     "STORAGE_ROOT",
     "VALID_MODULES",
     # Validation utilities
@@ -187,13 +198,15 @@ __all__ = [
 
 # Add data loader functions if available
 if _data_loader_available:
-    __all__.extend([
-        "load_pbmc3k",
-        "load_luad",
-        "load_melanoma",
-        "load_all_datasets",
-        "get_dataset_info",
-        "print_dataset_summary",
-        "filter_by_species",
-        "filter_by_tissue_type",
-    ])
+    __all__.extend(
+        [
+            "load_pbmc3k",
+            "load_luad",
+            "load_melanoma",
+            "load_all_datasets",
+            "get_dataset_info",
+            "print_dataset_summary",
+            "filter_by_species",
+            "filter_by_tissue_type",
+        ]
+    )

@@ -4,11 +4,12 @@ Utility functions for BayesPrism (R-free)
 Helper functions for gene filtering and validation.
 """
 
+import logging
+from typing import List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import List, Optional, Tuple
 from scipy.stats import pearsonr, spearmanr
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -36,12 +37,12 @@ def cleanup_genes(
     custom_remove : List[str], optional
         Additional gene patterns to remove
 
-    Returns
+    Returns:
     -------
     List[str]
         Cleaned gene list
 
-    Examples
+    Examples:
     --------
     >>> genes = ['RPS14', 'MT-CO1', 'TP53', 'XIST', 'BRCA1']
     >>> clean = cleanup_genes(genes, remove_ribo=True, remove_mito=True)
@@ -56,19 +57,19 @@ def cleanup_genes(
 
         # Check ribosomal genes
         if remove_ribo:
-            if gene_upper.startswith('RPS') or gene_upper.startswith('RPL'):
+            if gene_upper.startswith("RPS") or gene_upper.startswith("RPL"):
                 skip = True
 
         # Check mitochondrial genes
         if remove_mito and not skip:
-            if gene_upper.startswith('MT-') or gene_upper.startswith('MT'):
+            if gene_upper.startswith("MT-") or gene_upper.startswith("MT"):
                 skip = True
 
         # Check sex chromosome genes
         if remove_sex and not skip:
-            if gene_upper == 'XIST' or gene_upper.startswith('Y-'):
+            if gene_upper == "XIST" or gene_upper.startswith("Y-"):
                 skip = True
-            if 'CHROMOSOME_Y' in gene_upper:
+            if "CHROMOSOME_Y" in gene_upper:
                 skip = True
 
         # Check custom patterns
@@ -107,7 +108,7 @@ def find_outlier_genes(
     min_samples : float
         Minimum fraction of samples exceeding threshold
 
-    Returns
+    Returns:
     -------
     List[str]
         List of outlier genes
@@ -149,7 +150,7 @@ def compute_correlation(
     method : str
         Correlation method ("pearson" or "spearman")
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Correlation statistics per cell type
@@ -170,11 +171,13 @@ def compute_correlation(
         else:
             raise ValueError(f"Unknown method: {method}")
 
-        results.append({
-            'cell_type': cell_type,
-            f'{method}_r': r,
-            f'{method}_p': p,
-        })
+        results.append(
+            {
+                "cell_type": cell_type,
+                f"{method}_r": r,
+                f"{method}_p": p,
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -193,7 +196,7 @@ def compute_rmse(
     actual : pd.DataFrame
         Actual fractions
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         RMSE per cell type
@@ -210,10 +213,12 @@ def compute_rmse(
         mse = np.mean((pred - true) ** 2)
         rmse = np.sqrt(mse)
 
-        results.append({
-            'cell_type': cell_type,
-            'rmse': rmse,
-        })
+        results.append(
+            {
+                "cell_type": cell_type,
+                "rmse": rmse,
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -232,7 +237,7 @@ def normalize_expression(
     method : str
         Normalization method ("cpm" or "tpm")
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Normalized expression
@@ -270,7 +275,7 @@ def batch_correct(
     method : str
         Batch correction method ("combat" or "mean_center")
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Batch-corrected expression
@@ -284,8 +289,7 @@ def batch_correct(
             overall_mean = expression.mean(axis=1)
 
             corrected.loc[:, batch_mask] = (
-                expression.loc[:, batch_mask].sub(batch_mean, axis=0)
-                .add(overall_mean, axis=0)
+                expression.loc[:, batch_mask].sub(batch_mean, axis=0).add(overall_mean, axis=0)
             )
 
         return corrected
@@ -293,6 +297,7 @@ def batch_correct(
     elif method == "combat":
         try:
             from combat.pycombat import pycombat
+
             return pycombat(expression, batch_labels)
         except ImportError:
             raise ImportError("combat package required for ComBat correction")
@@ -320,7 +325,7 @@ def subsample_cells(
     random_state : int
         Random seed
 
-    Returns
+    Returns:
     -------
     Tuple[pd.DataFrame, pd.Series]
         Subsampled expression and labels
@@ -363,12 +368,12 @@ def validate_inputs(
     cell_type_labels : pd.Series
         Cell type labels
 
-    Returns
+    Returns:
     -------
     bool
         True if valid
 
-    Raises
+    Raises:
     ------
     ValueError
         If validation fails

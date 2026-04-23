@@ -19,28 +19,27 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Tuple
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from anndata import AnnData
 
 from .config import ProportionConfig
-from .stats import (
-    compute_celltype_proportion,
-    run_statistical_test,
-    export_analysis_data,
-)
 from .plots import (
-    plot_cell_counts,
-    plot_proportion_bar,
+    plot_batch_effect,
     plot_box_summary,
-    plot_proportion_heatmap,
+    plot_cell_counts,
     plot_celltype_correlation,
     plot_effect_size_volcano,
+    plot_proportion_bar,
+    plot_proportion_heatmap,
     plot_proportion_timeseries,
-    plot_batch_effect,
+)
+from .stats import (
+    compute_celltype_proportion,
+    export_analysis_data,
+    run_statistical_test,
 )
 
 log = logging.getLogger(__name__)
@@ -82,22 +81,20 @@ def _natural_sort_key(text):
     text : str
         Text string to sort
 
-    Returns
+    Returns:
     -------
     list
         Key for sorting
     """
     import re
 
-    return [int(c) if c.isdigit() else c.lower() for c in re.split('([0-9]+)', text)]
+    return [int(c) if c.isdigit() else c.lower() for c in re.split("([0-9]+)", text)]
 
 
 # ================= Main Workflow =================
 
 
-def _auto_configure_analysis(
-    adata: AnnData, config: ProportionConfig
-) -> ProportionConfig:
+def _auto_configure_analysis(adata: AnnData, config: ProportionConfig) -> ProportionConfig:
     """
     Automatically configure test method and plot types based on data characteristics.
 
@@ -115,7 +112,7 @@ def _auto_configure_analysis(
     config : ProportionConfig
         Configuration object
 
-    Returns
+    Returns:
     -------
     ProportionConfig
         Auto-configured settings
@@ -137,20 +134,26 @@ def _auto_configure_analysis(
 
     is_paired = False
     if config.pairing_col and config.pairing_col in adata.obs.columns:
-        pair_counts = adata.obs[[config.sample_col, config.pairing_col]].drop_duplicates()[config.pairing_col].value_counts()
+        pair_counts = (
+            adata.obs[[config.sample_col, config.pairing_col]]
+            .drop_duplicates()[config.pairing_col]
+            .value_counts()
+        )
         if (pair_counts > 1).all():
             is_paired = True
 
-    log.info(f"Auto-config detected: {n_groups} groups, min reps={min_reps}, max reps={max_reps}, paired={is_paired}")
+    log.info(
+        f"Auto-config detected: {n_groups} groups, min reps={min_reps}, max reps={max_reps}, paired={is_paired}"
+    )
 
     # Auto-select test method
     suggested_method = config.test_method
 
-    if n_groups > 2:
+    if n_groups > 2 and config.test_method not in {"anova", "kruskal"}:
         suggested_method = "anova"
     elif is_paired:
         suggested_method = "paired-wilcoxon" if min_reps >= 5 else "paired-t-test"
-    elif min_reps == 1:
+    elif min_reps == 1 and config.test_method not in {"chi-square", "fisher", "kruskal"}:
         log.warning("Detected N=1 in at least one group. Forcing statistical test to 'chi-square'.")
         suggested_method = "chi-square"
     elif min_reps == 2:
@@ -159,7 +162,7 @@ def _auto_configure_analysis(
             suggested_method = "deseq2"
 
     # Update method
-    if getattr(config, 'auto_configure', True):
+    if getattr(config, "auto_configure", True):
         if suggested_method != config.test_method:
             log.warning(
                 f"Auto-config suggests '{suggested_method}' instead of '{config.test_method}' "
@@ -193,8 +196,7 @@ def _auto_configure_analysis(
 
 
 def celltype_proportion_analysis(
-    adata: AnnData,
-    config: ProportionConfig
+    adata: AnnData, config: ProportionConfig
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Main entry point for cell type proportion analysis.
@@ -212,14 +214,14 @@ def celltype_proportion_analysis(
     config : ProportionConfig
         Configuration object containing analysis parameters
 
-    Returns
+    Returns:
     -------
     prop_df : pd.DataFrame
         Proportion matrix (samples × cell types)
     stat_df : pd.DataFrame
         Statistical test results
 
-    Examples
+    Examples:
     --------
     >>> from scLucid.analysis import ProportionConfig, celltype_proportion_analysis
     >>> config = ProportionConfig(
@@ -245,10 +247,7 @@ def celltype_proportion_analysis(
     # 1. Compute proportions
     log.info("Computing cell type proportions...")
     prop_df = compute_celltype_proportion(
-        adata,
-        celltype_col=config.celltype_col,
-        sample_col=config.sample_col,
-        normalize=True
+        adata, celltype_col=config.celltype_col, sample_col=config.sample_col, normalize=True
     )
 
     # 2. Run statistical tests
@@ -256,26 +255,32 @@ def celltype_proportion_analysis(
     if config.condition_col:
         log.info(f"Running statistical tests ({config.test_method})...")
 
-        sample_to_cond = adata.obs[config.condition_col]
-        sample_to_pair = adata.obs[config.pairing_col] if config.pairing_col else None
+        sample_meta_cols = [config.sample_col, config.condition_col]
+        if config.pairing_col:
+            sample_meta_cols.append(config.pairing_col)
+        sample_meta = (
+            adata.obs[sample_meta_cols]
+            .drop_duplicates(subset=[config.sample_col])
+            .set_index(config.sample_col)
+        )
+        sample_to_cond = sample_meta.loc[prop_df.index, config.condition_col]
+        sample_to_pair = (
+            sample_meta.loc[prop_df.index, config.pairing_col] if config.pairing_col else None
+        )
 
         stat_df = run_statistical_test(
             prop_df,
             condition_col=config.condition_col,
             test_method=config.test_method,
             sample_to_cond=sample_to_cond,
-            sample_to_pair=sample_to_pair
+            sample_to_pair=sample_to_pair,
         )
 
         # Add effect sizes
-        if config.test_method in ['t-test', 'wilcoxon', 'paired-t-test', 'paired-wilcoxon']:
+        if config.test_method in ["t-test", "wilcoxon", "paired-t-test", "paired-wilcoxon"]:
             from .proportion_stats import _add_effect_sizes
-            stat_df = _add_effect_sizes(
-                stat_df,
-                prop_df,
-                sample_to_cond,
-                method='cohens_d'
-            )
+
+            stat_df = _add_effect_sizes(stat_df, prop_df, sample_to_cond, method="cohens_d")
 
     # 3. Generate plots
     if config.plot_types:
@@ -283,61 +288,49 @@ def celltype_proportion_analysis(
 
         # Prepare data
         condition = adata.obs[config.condition_col] if config.condition_col else None
-        palette = config.palette if hasattr(config, 'palette') else None
+        palette = config.palette if hasattr(config, "palette") else None
 
         for plot_type in config.plot_types:
             try:
-                if plot_type == 'counts':
+                if plot_type == "counts":
                     plot_cell_counts(
                         adata,
                         celltype_col=config.celltype_col,
                         sample_col=config.sample_col,
                         group_col=condition.name if condition is not None else None,
                         palette=palette,
-                        out_dir=out_dir
+                        out_dir=out_dir,
                     )
 
-                elif plot_type == 'bar':
+                elif plot_type == "bar":
                     sample_order = sorted(prop_df.index, key=_natural_sort_key)
                     plot_proportion_bar(
-                        prop_df,
-                        sample_order=sample_order,
-                        palette=palette,
-                        out_dir=out_dir
+                        prop_df, sample_order=sample_order, palette=palette, out_dir=out_dir
                     )
 
-                elif plot_type == 'box':
+                elif plot_type == "box":
                     if condition is not None:
                         plot_box_summary(
-                            prop_df,
-                            condition=condition,
-                            palette=palette,
-                            out_dir=out_dir
+                            prop_df, condition=condition, palette=palette, out_dir=out_dir
                         )
 
-                elif plot_type == 'heatmap':
-                    celltype_order = stat_df['cell_type'].values if not stat_df.empty else None
+                elif plot_type == "heatmap":
+                    celltype_order = stat_df["cell_type"].values if not stat_df.empty else None
                     plot_proportion_heatmap(
                         prop_df,
                         celltype_order=celltype_order,
                         cluster_samples=True,
-                        out_dir=out_dir
+                        out_dir=out_dir,
                     )
 
-                elif plot_type == 'correlation':
-                    plot_celltype_correlation(
-                        prop_df,
-                        out_dir=out_dir
-                    )
+                elif plot_type == "correlation":
+                    plot_celltype_correlation(prop_df, out_dir=out_dir)
 
-                elif plot_type == 'volcano':
+                elif plot_type == "volcano":
                     if not stat_df.empty:
-                        plot_effect_size_volcano(
-                            stat_df,
-                            out_dir=out_dir
-                        )
+                        plot_effect_size_volcano(stat_df, out_dir=out_dir)
 
-                elif plot_type == 'timeseries':
+                elif plot_type == "timeseries":
                     if config.timepoint_col and config.timepoint_col in adata.obs:
                         timepoints = adata.obs[config.timepoint_col]
 
@@ -352,18 +345,14 @@ def celltype_proportion_analysis(
                                 celltype=celltype,
                                 group_col=condition,
                                 palette=palette,
-                                out_dir=out_dir
+                                out_dir=out_dir,
                             )
 
-                elif plot_type == 'batch_pca':
+                elif plot_type == "batch_pca":
                     if config.batch_col and config.batch_col in adata.obs:
                         batch = adata.obs[config.batch_col]
                         plot_batch_effect(
-                            prop_df,
-                            batch=batch,
-                            method='pca',
-                            palette=palette,
-                            out_dir=out_dir
+                            prop_df, batch=batch, method="pca", palette=palette, out_dir=out_dir
                         )
 
             except Exception as e:

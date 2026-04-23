@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Self, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ class SclucidBaseConfig(BaseModel):
     Provides:
     - Automatic validation via Pydantic
     - Serialization to/from dict and JSON
-    - Path auto-creation for save_dir
     - Consistent configuration patterns
+    - Directory creation is deferred until actual file write
 
     Example:
         >>> config = MyConfig(save_dir="./results", n_jobs=4)
@@ -55,10 +55,11 @@ class SclucidBaseConfig(BaseModel):
 
     @field_validator("save_dir")
     @classmethod
-    def _create_save_dir(cls, v: Optional[str]) -> Optional[str]:
-        """Create save directory if specified."""
+    def _validate_save_dir(cls, v: Optional[str]) -> Optional[str]:
+        """Validate save_dir is a valid path string (does not create directory)."""
         if v is not None:
-            Path(v).mkdir(parents=True, exist_ok=True)
+            # Only validate that it's a valid path string, no side effects
+            _ = Path(v)
         return v
 
     def to_dict(self) -> Dict[str, Any]:

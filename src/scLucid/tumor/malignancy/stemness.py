@@ -5,11 +5,12 @@ This module provides tools for quantifying cancer stemness
 and identifying cancer stem cell populations.
 """
 
+import logging
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -17,24 +18,74 @@ log = logging.getLogger(__name__)
 # Cancer stem cell signatures
 STEMNESS_SIGNATURES = {
     "core_stemness": [
-        "PROM1", "CD44", "ALDH1A1", "ALDH1A3", "NANOG", "SOX2", "POU5F1",
-        "MYC", "KLF4", "LIN28A", "SALL4", "DPPA4",
+        "PROM1",
+        "CD44",
+        "ALDH1A1",
+        "ALDH1A3",
+        "NANOG",
+        "SOX2",
+        "POU5F1",
+        "MYC",
+        "KLF4",
+        "LIN28A",
+        "SALL4",
+        "DPPA4",
     ],
     "embryonic_stemness": [
-        "NANOG", "SOX2", "POU5F1", "LIN28A", "SALL4", "DPPA2", "DPPA4",
-        "ZFP42", "TDGF1", "GDF3", "UTF1", "LEFTY1",
+        "NANOG",
+        "SOX2",
+        "POU5F1",
+        "LIN28A",
+        "SALL4",
+        "DPPA2",
+        "DPPA4",
+        "ZFP42",
+        "TDGF1",
+        "GDF3",
+        "UTF1",
+        "LEFTY1",
     ],
     "tissue_stemness": [
-        "LGR5", "ASCL2", "SMOC2", "OLFM4", "AXIN2", "EPHB2", "TNFRSF19",
-        "SOX9", "CD44", "ITGB1", "EPCAM", "PROM1",
+        "LGR5",
+        "ASCL2",
+        "SMOC2",
+        "OLFM4",
+        "AXIN2",
+        "EPHB2",
+        "TNFRSF19",
+        "SOX9",
+        "CD44",
+        "ITGB1",
+        "EPCAM",
+        "PROM1",
     ],
     "epithelial_plasticity": [
-        "CDH1", "CDH2", "VIM", "CLDN3", "CLDN4", "CLDN7", "EPCAM",
-        "MUC1", "CD24", "CD44", "ALCAM", "MET",
+        "CDH1",
+        "CDH2",
+        "VIM",
+        "CLDN3",
+        "CLDN4",
+        "CLDN7",
+        "EPCAM",
+        "MUC1",
+        "CD24",
+        "CD44",
+        "ALCAM",
+        "MET",
     ],
     "quiescence": [
-        "CDKN1B", "CDKN1C", "TGFB1", "BTG1", "BTG2", "ID1", "ID2", "ID3",
-        "CCND1", "MYC", "MTOR", "AMPK",
+        "CDKN1B",
+        "CDKN1C",
+        "TGFB1",
+        "BTG1",
+        "BTG2",
+        "ID1",
+        "ID2",
+        "ID3",
+        "CCND1",
+        "MYC",
+        "MTOR",
+        "AMPK",
     ],
 }
 
@@ -50,7 +101,7 @@ class StemnessAnalyzer:
     method : str
         Scoring method
 
-    Attributes
+    Attributes:
     ----------
     stemness_scores_ : pd.DataFrame
         Stemness scores per cell
@@ -74,7 +125,7 @@ class StemnessAnalyzer:
         adata : AnnData
             Expression data
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Stemness scores
@@ -89,7 +140,7 @@ class StemnessAnalyzer:
                 continue
 
             expr = adata[:, available].X.mean(axis=1)
-            if hasattr(expr, 'toarray'):
+            if hasattr(expr, "toarray"):
                 expr = expr.toarray().flatten()
 
             scores[sig_name] = expr
@@ -119,7 +170,7 @@ class StemnessAnalyzer:
         top_n_percent : float
             Percentage of top cells to consider as CSCs
 
-        Returns
+        Returns:
         -------
         pd.Series
             Boolean indicating CSCs
@@ -151,7 +202,7 @@ class StemnessAnalyzer:
         pseudotime_key : str
             Column containing pseudotime
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Stemness dynamics
@@ -205,7 +256,7 @@ def calculate_stemness_score(
     key_added : str
         Key prefix for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Stemness scores
@@ -242,7 +293,7 @@ def identify_cancer_stem_cells(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.Series
         Boolean indicating CSCs
@@ -274,7 +325,7 @@ def compare_stemness_between_groups(
     method : str
         Statistical test method
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Comparison results
@@ -302,14 +353,16 @@ def compare_stemness_between_groups(
             else:
                 raise ValueError(f"Unknown method: {method}")
 
-            results.append({
-                "signature": sig,
-                "group1": groups[0],
-                "group2": groups[1],
-                "mean1": np.mean(group_scores[0]),
-                "mean2": np.mean(group_scores[1]),
-                "statistic": stat,
-                "pvalue": pval,
-            })
+            results.append(
+                {
+                    "signature": sig,
+                    "group1": groups[0],
+                    "group2": groups[1],
+                    "mean1": np.mean(group_scores[0]),
+                    "mean2": np.mean(group_scores[1]),
+                    "statistic": stat,
+                    "pvalue": pval,
+                }
+            )
 
     return pd.DataFrame(results)

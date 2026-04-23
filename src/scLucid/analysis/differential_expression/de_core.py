@@ -10,14 +10,14 @@ This module provides the main DE analysis functions:
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from ...base_config import SclucidBaseConfig, apply_config_overrides
+from ...base_config import apply_config_overrides
+from ...utils.helpers import sanitize_for_hdf5
 from ..config import (
     CompareConditionsConfig,
     CompareGroupsConfig,
@@ -25,9 +25,9 @@ from ..config import (
     DifferentialConfig,
     FilterMarkersConfig,
 )
-from .de_utils import _standardize_pct_columns, _store_results, _to_frac, _safe_filename
-from ...utils.helpers import sanitize_for_hdf5
 from .de_plots import plot_volcano
+from .de_utils import _safe_filename
+from .scanpy_compat import _to_frac, standardize_pct_columns as _standardize_pct_columns
 
 log = logging.getLogger(__name__)
 
@@ -93,9 +93,7 @@ def find_markers(
     key_added = active_config.key_added or "rank_genes_groups"
 
     if active_config.verbose:
-        log.info(
-            f"Finding markers: groupby='{groupby}', method='{active_config.method}'"
-        )
+        log.info(f"Finding markers: groupby='{groupby}', method='{active_config.method}'")
 
     # Build Scanpy parameters
     rank_genes_params = {
@@ -132,8 +130,7 @@ def find_markers(
     names_field = raw["names"]
     if not hasattr(names_field, "dtype") or names_field.dtype.names is None:
         raise ValueError(
-            "Scanpy 'names' field lacks structured dtype. "
-            "Cannot extract group-wise results."
+            "Scanpy 'names' field lacks structured dtype. " "Cannot extract group-wise results."
         )
 
     groups_tested = names_field.dtype.names
@@ -179,11 +176,7 @@ def find_markers(
         full_df = _standardize_pct_columns(full_df)
 
     # Store with provenance
-    root = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("de", {})
-    )
+    root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
 
     root[key_added] = adata.uns[key_added]  # Raw Scanpy output
     df_key = f"{key_added}_df"
@@ -195,9 +188,7 @@ def find_markers(
     root[f"{key_added}_params"] = sanitize_for_hdf5(params)
 
     if active_config.verbose:
-        log.info(
-            f"Found {len(full_df)} total markers across {len(groups_tested)} groups"
-        )
+        log.info(f"Found {len(full_df)} total markers across {len(groups_tested)} groups")
         log.info(f"Results stored at .uns['sclucid']['analysis']['de']['{df_key}']")
         log.info("Use filter_markers() for advanced filtering")
 
@@ -298,9 +289,7 @@ def filter_markers(
         padj = pd.to_numeric(df["pvals_adj"], errors="coerce")
         keep = (padj <= float(config.max_padj)).fillna(False)
 
-        log.info(
-            f"[Filter] adj_p <= {config.max_padj}: kept {int(keep.sum())}/{len(filt)}"
-        )
+        log.info(f"[Filter] adj_p <= {config.max_padj}: kept {int(keep.sum())}/{len(filt)}")
         filt &= keep
     else:
         log.debug("[Filter] max_padj: skipped (None)")
@@ -343,19 +332,13 @@ def filter_markers(
             log.debug("[Filter] min_diff_pct: skipped (None)")
     else:
         if config.max_out_group_pct is not None or config.min_diff_pct is not None:
-            log.warning(
-                "'pct_nz_reference' not found; specificity-related filters skipped"
-            )
+            log.warning("'pct_nz_reference' not found; specificity-related filters skipped")
 
     filtered_df = df[filt].copy()
     log.info(f"Retained {len(filtered_df)} genes after all filters")
 
     # Post-filter: Keep top N per group
-    if (
-        config.keep_top_n is not None
-        and config.keep_top_n > 0
-        and not filtered_df.empty
-    ):
+    if config.keep_top_n is not None and config.keep_top_n > 0 and not filtered_df.empty:
         sort_by_col = config.sort_by
 
         # Handle special case: diff_pct
@@ -374,26 +357,20 @@ def filter_markers(
             fallback_col = (
                 "logfoldchanges"
                 if "logfoldchanges" in filtered_df.columns
-                else "scores"
-                if "scores" in filtered_df.columns
-                else filtered_df.columns[0]
+                else "scores" if "scores" in filtered_df.columns else filtered_df.columns[0]
             )
             log.warning(
-                f"Sort key '{config.sort_by}' not found. "
-                f"Falling back to '{fallback_col}'"
+                f"Sort key '{config.sort_by}' not found. " f"Falling back to '{fallback_col}'"
             )
             sort_by_col = fallback_col
 
         log.info(
-            f"Selecting top {config.keep_top_n} genes per group, "
-            f"sorted by '{sort_by_col}'"
+            f"Selecting top {config.keep_top_n} genes per group, " f"sorted by '{sort_by_col}'"
         )
 
         parts = []
         for g in filtered_df["group"].unique():
-            sub = filtered_df[filtered_df["group"] == g].sort_values(
-                sort_by_col, ascending=False
-            )
+            sub = filtered_df[filtered_df["group"] == g].sort_values(sort_by_col, ascending=False)
             parts.append(sub.head(config.keep_top_n))
 
         filtered_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
@@ -464,9 +441,7 @@ def compare_groups(
 
     subset_mask = adata.obs[groupby].isin([group1, group2])
     if subset_mask.sum() == 0:
-        raise ValueError(
-            f"No cells found for either '{group1}' or '{group2}' in '{groupby}'"
-        )
+        raise ValueError(f"No cells found for either '{group1}' or '{group2}' in '{groupby}'")
 
     # Create temporary subset with standardized group labels
     temp_adata = adata[subset_mask].copy()
@@ -517,11 +492,7 @@ def compare_groups(
         log.info(f"Found {len(final)} DE genes ({len(up)} up, {len(down)} down)")
 
     # Store results
-    root = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("de", {})
-    )
+    root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     root[key_added] = final
     root[f"{key_added}_params"] = sanitize_for_hdf5(config.to_dict())
 
@@ -627,11 +598,7 @@ def compare_conditions(
     results_df["celltype"] = group_name
 
     # Store in parent AnnData
-    root = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("de", {})
-    )
+    root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     root[comp_config.key_added] = results_df
     root[f"{comp_config.key_added}_params"] = sanitize_for_hdf5(config.to_dict())
 
@@ -685,9 +652,7 @@ def get_conserved_markers(
     else:
         config = config.model_copy(update=kwargs)
 
-    key_added = config.key_added or (
-        f"conserved_markers_{config.groupby}_{config.condition_key}"
-    )
+    key_added = config.key_added or (f"conserved_markers_{config.groupby}_{config.condition_key}")
 
     # Validate columns exist
     if config.condition_key not in adata.obs.columns:
@@ -724,8 +689,7 @@ def get_conserved_markers(
         # Run DE in each condition
         for cond in conditions:
             subset = adata[
-                (adata.obs[config.groupby] == group)
-                & (adata.obs[config.condition_key] == cond)
+                (adata.obs[config.groupby] == group) & (adata.obs[config.condition_key] == cond)
             ]
 
             if subset.n_obs < config.min_cells:
@@ -812,11 +776,7 @@ def get_conserved_markers(
             )
 
     # Store results
-    root = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("de", {})
-    )
+    root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     root[key_added] = sanitize_for_hdf5(
         {
             "aggregates": conserved_markers,
@@ -833,4 +793,3 @@ def get_conserved_markers(
 
 
 # ==================== Enrichment Analysis ====================
-

@@ -72,9 +72,7 @@ class RecommendationEngine:
 
         if "clustering" in self.config.modules:
             if preprocess_raw is not None:
-                sections["clustering"] = self._adapt_clustering_from_preprocess(
-                    preprocess_raw
-                )
+                sections["clustering"] = self._adapt_clustering_from_preprocess(preprocess_raw)
             else:
                 sections["clustering"] = self._recommend_clustering_only(
                     adata,
@@ -101,9 +99,11 @@ class RecommendationEngine:
             tissue_type=tissue_type,
             batch_key=batch_key,
         )
-        overall_confidence = float(
-            np.mean([section.confidence for section in sections.values()])
-        ) if sections else 0.0
+        overall_confidence = (
+            float(np.mean([section.confidence for section in sections.values()]))
+            if sections
+            else 0.0
+        )
 
         return WorkflowRecommendations(
             sections=sections,
@@ -217,9 +217,7 @@ class RecommendationEngine:
             marker_tissue=annotation_config.marker_tissue,
         )
         celltypist_available = self._celltypist_available()
-        existing_celltypist = any(
-            col.startswith("celltypist_") for col in adata.obs.columns
-        )
+        existing_celltypist = any(col.startswith("celltypist_") for col in adata.obs.columns)
         celltypist_evidence = self._evaluate_existing_celltypist_evidence(
             adata,
             cluster_key=cluster_key,
@@ -243,24 +241,25 @@ class RecommendationEngine:
 
         concerns = []
         if annotation_evidence["eligible_types"] == 0:
-            concerns.append("Built-in marker sets have limited overlap with the current gene space.")
+            concerns.append(
+                "Built-in marker sets have limited overlap with the current gene space."
+            )
         if not (celltypist_available or existing_celltypist):
-            concerns.append("CellTypist is unavailable; recommendation falls back to marker-based annotation.")
+            concerns.append(
+                "CellTypist is unavailable; recommendation falls back to marker-based annotation."
+            )
         if cluster_key not in adata.obs.columns:
             concerns.append(
                 f"Cluster key '{cluster_key}' is not present yet; annotation recommendation uses expected cluster counts only."
             )
-        if (
-            existing_celltypist
-            and agreement_score is not None
-            and agreement_score < 0.4
-        ):
+        if existing_celltypist and agreement_score is not None and agreement_score < 0.4:
             concerns.append(
                 "Marker evidence and existing CellTypist labels disagree substantially across clusters."
             )
         if (
             existing_celltypist
-            and celltypist_evidence["mean_confidence"] < annotation_config.celltypist_confidence_threshold
+            and celltypist_evidence["mean_confidence"]
+            < annotation_config.celltypist_confidence_threshold
         ):
             concerns.append(
                 "Existing CellTypist confidence is below the configured acceptance threshold."
@@ -780,9 +779,7 @@ class RecommendationEngine:
                 label_scores: Dict[str, float] = {}
                 for cell_type, cell in mgr.CELLS.items():
                     indices = [
-                        marker_lookup[marker]
-                        for marker in cell.markers
-                        if marker in marker_lookup
+                        marker_lookup[marker] for marker in cell.markers if marker in marker_lookup
                     ]
                     if len(indices) < 3:
                         continue
@@ -795,7 +792,9 @@ class RecommendationEngine:
                 sorted_scores = sorted(label_scores.items(), key=lambda item: item[1], reverse=True)
                 best_label, best_score = sorted_scores[0]
                 second_score = sorted_scores[1][1] if len(sorted_scores) > 1 else 0.0
-                signal = 0.7 * self._sigmoid(best_score) + 0.3 * self._sigmoid(best_score - second_score)
+                signal = 0.7 * self._sigmoid(best_score) + 0.3 * self._sigmoid(
+                    best_score - second_score
+                )
                 cluster_scores[str(cluster)] = float(signal)
                 cluster_best_labels[str(cluster)] = best_label
                 cluster_signal_by_label[str(cluster)] = label_scores
@@ -900,9 +899,7 @@ class RecommendationEngine:
         eligible_ratio = float(marker_evidence.get("eligible_ratio", 0.0))
         cluster_marker_signal = marker_evidence.get("cluster_marker_signal")
         marker_signal = (
-            float(cluster_marker_signal)
-            if cluster_marker_signal is not None
-            else eligible_ratio
+            float(cluster_marker_signal) if cluster_marker_signal is not None else eligible_ratio
         )
         mean_confidence = float(celltypist_evidence.get("mean_confidence", 0.0))
         cluster_purity = float(celltypist_evidence.get("cluster_purity", 0.0))
@@ -922,8 +919,10 @@ class RecommendationEngine:
             final_method = marker_method
             run_scoring = marker_method in {"max_score", "combined"}
         elif existing_celltypist:
-            if mean_confidence >= 0.7 and cluster_purity >= 0.7 and (
-                agreement is None or agreement >= 0.55
+            if (
+                mean_confidence >= 0.7
+                and cluster_purity >= 0.7
+                and (agreement is None or agreement >= 0.55)
             ):
                 final_method = "hybrid" if marker_signal >= 0.25 else "celltypist"
             elif marker_signal >= 0.45 and (agreement is not None and agreement < 0.4):

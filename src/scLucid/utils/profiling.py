@@ -15,7 +15,7 @@ import time
 import tracemalloc
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -139,9 +139,7 @@ class PerformanceProfiler:
         return False  # Don't suppress exceptions
 
     @classmethod
-    def track(
-        cls, name: Optional[str] = None, track_memory: bool = True
-    ) -> Callable:
+    def track(cls, name: Optional[str] = None, track_memory: bool = True) -> Callable:
         """
         Decorator to track function performance.
 

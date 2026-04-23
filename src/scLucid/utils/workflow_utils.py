@@ -12,8 +12,8 @@ Used by: qc, preprocess, and analysis modules.
 
 import logging
 import pickle
-import traceback
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +22,6 @@ from typing import (
     Callable,
     Dict,
     Generic,
-    Iterable,
     List,
     Optional,
     Tuple,
@@ -30,8 +29,7 @@ from typing import (
     Union,
 )
 
-from anndata import AnnData
-import scanpy as sc
+from anndata import AnnData, read_h5ad
 
 log = logging.getLogger(__name__)
 
@@ -108,9 +106,7 @@ def progress_decorator(desc: str = "Processing", unit: str = "step"):
         def wrapper(*args, show_progress: bool = True, **kwargs):
             result = func(*args, **kwargs)
             if hasattr(result, "__iter__") and not isinstance(result, (str, bytes)):
-                return get_progress_bar(
-                    result, desc=desc, enabled=show_progress, unit=unit
-                )
+                return get_progress_bar(result, desc=desc, enabled=show_progress, unit=unit)
             return result
 
         return wrapper
@@ -253,9 +249,7 @@ class PartialResultManager:
         log.info(f"Partial results saved to: {self.save_dir}")
         return self.save_dir
 
-    def load(
-        self, name: str = "partial"
-    ) -> Tuple[AnnData, WorkflowCheckpoint, Optional[Any]]:
+    def load(self, name: str = "partial") -> Tuple[AnnData, WorkflowCheckpoint, Optional[Any]]:
         """
         Load partial results from disk.
 
@@ -269,7 +263,7 @@ class PartialResultManager:
         adata_path = self.save_dir / f"{name}_result.h5ad"
         if not adata_path.exists():
             raise FileNotFoundError(f"No saved results found at: {adata_path}")
-        adata = sc.read_h5ad(adata_path)
+        adata = read_h5ad(adata_path)
 
         # Load checkpoint
         checkpoint_path = self.save_dir / f"{name}_checkpoint.pkl"
@@ -357,7 +351,10 @@ class WorkflowStepIterator:
             completed_steps=self.successful_steps.copy(),
             failed_step=self.current_step if error else None,
             error_message=str(error) if error else None,
-            metadata={"total_steps": len(self.all_steps), "remaining_steps": len(self.steps_to_run) - len(self.successful_steps)},
+            metadata={
+                "total_steps": len(self.all_steps),
+                "remaining_steps": len(self.steps_to_run) - len(self.successful_steps),
+            },
         )
 
 
@@ -448,9 +445,7 @@ class BaseWorkflow(ABC, Generic[C]):
         except Exception as e:
             if self.error_recovery and self.recovery_manager:
                 checkpoint = self._step_iterator.get_checkpoint(e)
-                self.recovery_manager.save(
-                    adata, checkpoint, self.config, name="partial"
-                )
+                self.recovery_manager.save(adata, checkpoint, self.config, name="partial")
                 log.warning(f"Workflow saved to: {self.recovery_manager.save_dir}")
 
                 if on_error == "save":
@@ -507,6 +502,7 @@ def with_error_recovery(
             if args:
                 # Try to get first positional arg that looks like AnnData
                 from anndata import AnnData as AnnDataClass
+
                 for arg in args:
                     if isinstance(arg, AnnDataClass):
                         adata = arg
@@ -528,6 +524,7 @@ def with_error_recovery(
                 )
 
         return wrapper
+
     return decorator
 
 
@@ -545,8 +542,6 @@ def merge_partial_results(
     Returns:
         Tuple of (merged_adata, failed_names)
     """
-    from collections import defaultdict
-
     # Separate successful and failed
     successful = [(name, data) for name, data in results if data is not None]
     failed = [name for name, data in results if data is None]

@@ -5,11 +5,12 @@ This module provides tools for analyzing regional heterogeneity
 in tumor samples with or without spatial information.
 """
 
+import logging
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class RegionalAnalyzer:
     spatial_key : str
         Key for spatial coordinates in adata.obsm
 
-    Attributes
+    Attributes:
     ----------
     regions_ : pd.DataFrame
         Regional heterogeneity metrics
@@ -54,7 +55,7 @@ class RegionalAnalyzer:
         region_key : str, optional
             Column defining regions. If None, will infer from spatial coordinates
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Regional heterogeneity metrics
@@ -82,7 +83,7 @@ class RegionalAnalyzer:
                 "n_cells": region_adata.n_obs,
                 "n_clones": len(clone_counts),
                 "shannon_diversity": -np.sum(clone_props * np.log(clone_props + 1e-10)),
-                "simpson_diversity": 1 - np.sum(clone_props ** 2),
+                "simpson_diversity": 1 - np.sum(clone_props**2),
                 "dominant_clone": clone_counts.index[0],
                 "dominant_clone_freq": clone_props.iloc[0],
             }
@@ -125,7 +126,7 @@ class RegionalAnalyzer:
         method : str
             Spatial autocorrelation method ("moran", "geary")
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Spatial pattern metrics
@@ -147,12 +148,14 @@ class RegionalAnalyzer:
             else:
                 raise ValueError(f"Unknown method: {method}")
 
-            results.append({
-                "clone": clone,
-                "spatial_score": score,
-                "n_cells": is_clone.sum(),
-                "method": method,
-            })
+            results.append(
+                {
+                    "clone": clone,
+                    "spatial_score": score,
+                    "n_cells": is_clone.sum(),
+                    "method": method,
+                }
+            )
 
         return pd.DataFrame(results)
 
@@ -190,7 +193,7 @@ class RegionalAnalyzer:
             for j in range(n):
                 numerator += W[i, j] * z[i] * z[j]
 
-        denominator = (z ** 2).sum()
+        denominator = (z**2).sum()
 
         if denominator == 0:
             return 0.0
@@ -259,7 +262,7 @@ def analyze_regional_heterogeneity(
     spatial_key : str
         Key for spatial coordinates
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Regional heterogeneity metrics
@@ -288,7 +291,7 @@ def identify_spatial_patterns(
     spatial_key : str
         Key for spatial coordinates
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Spatial pattern metrics
@@ -314,7 +317,7 @@ def calculate_regional_expression_differences(
     method : str
         Statistical test method
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Differential expression results
@@ -335,9 +338,9 @@ def calculate_regional_expression_differences(
         expr1 = adata[region1_mask, gene].X
         expr2 = adata[region2_mask, gene].X
 
-        if hasattr(expr1, 'toarray'):
+        if hasattr(expr1, "toarray"):
             expr1 = expr1.toarray().flatten()
-        if hasattr(expr2, 'toarray'):
+        if hasattr(expr2, "toarray"):
             expr2 = expr2.toarray().flatten()
 
         if method == "wilcoxon":
@@ -350,19 +353,22 @@ def calculate_regional_expression_differences(
         else:
             raise ValueError(f"Unknown method: {method}")
 
-        results.append({
-            "gene": gene,
-            "region1_mean": np.mean(expr1),
-            "region2_mean": np.mean(expr2),
-            "log2fc": np.log2((np.mean(expr1) + 1e-6) / (np.mean(expr2) + 1e-6)),
-            "statistic": stat,
-            "pvalue": pval,
-        })
+        results.append(
+            {
+                "gene": gene,
+                "region1_mean": np.mean(expr1),
+                "region2_mean": np.mean(expr2),
+                "log2fc": np.log2((np.mean(expr1) + 1e-6) / (np.mean(expr2) + 1e-6)),
+                "statistic": stat,
+                "pvalue": pval,
+            }
+        )
 
     results_df = pd.DataFrame(results)
 
     # Add FDR correction
     from scipy.stats import false_discovery_rate
+
     if len(results_df) > 0:
         results_df["fdr"] = false_discovery_rate(results_df["pvalue"].fillna(1))[1]
 

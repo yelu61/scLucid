@@ -16,7 +16,7 @@ import scanpy as sc
 from anndata import AnnData
 from sklearn.metrics import silhouette_score
 
-from ..config import NeighborsConfig, PreprocessingWorkflowConfig
+from ..config import NeighborsConfig
 from .config import IntelligentPreprocessConfig
 from .data_classes import (
     BatchCorrectionRecommendation,
@@ -39,7 +39,7 @@ class IntelligentPreprocessRecommender:
     for all preprocessing parameters, integrating with existing neighbors.py
     for n_neighbors/n_pcs optimization.
 
-    Examples
+    Examples:
     --------
     >>> recommender = IntelligentPreprocessRecommender()
     >>> strategy = recommender.recommend(adata, batch_key="sampleID")
@@ -75,6 +75,7 @@ class IntelligentPreprocessRecommender:
         tissue_type: str = "unknown",
         plot: bool = True,
         save_dir: Optional[Path] = None,
+        fast_mode: bool = False,
     ) -> PreprocessingStrategy:
         """
         Generate complete preprocessing strategy recommendation.
@@ -93,29 +94,38 @@ class IntelligentPreprocessRecommender:
             Generate diagnostic plots
         save_dir : Path, optional
             Directory to save outputs
+        fast_mode : bool, default=False
+            If True, skip expensive computations (bootstrap, full grid
+            search, stability re-runs) for a faster recommendation.
 
-        Returns
+        Returns:
         -------
         PreprocessingStrategy with all recommendations
         """
+        if fast_mode:
+            log.info("Fast mode enabled: skipping expensive computations.")
+            plot = False  # Override plot in fast mode
+
         log.info("=" * 60)
         log.info("=== Starting Intelligent Preprocessing Analysis ===")
         log.info("=" * 60)
 
         # Step 1: Profile data characteristics
         log.info("Step 1: Profiling data characteristics...")
-        self._data_profile = DataProfile.from_adata(
-            adata, batch_key=batch_key, config=self.config
+        self._data_profile = DataProfile.from_adata(adata, batch_key=batch_key, config=self.config)
+        log.info(
+            f"Data profile: {self._data_profile.n_cells} cells, "
+            f"{self._data_profile.n_genes} genes"
         )
-        log.info(f"Data profile: {self._data_profile.n_cells} cells, "
-                 f"{self._data_profile.n_genes} genes")
         log.info(f"Strategy type: {self._data_profile.strategy_type}")
 
         # Step 2: Recommend HVG parameters
         log.info("Step 2: Analyzing HVG selection...")
-        hvg_rec = self.recommend_hvg(adata, plot=plot, save_dir=save_dir)
-        log.info(f"Recommended HVGs: {hvg_rec.n_top_genes} "
-                 f"(explains {hvg_rec.variance_explained:.1%} variance)")
+        hvg_rec = self.recommend_hvg(adata, plot=plot, save_dir=save_dir, fast_mode=fast_mode)
+        log.info(
+            f"Recommended HVGs: {hvg_rec.n_top_genes} "
+            f"(explains {hvg_rec.variance_explained:.1%} variance)"
+        )
 
         # Step 3: Compute HVGs and PCA for downstream analysis
         log.info("Step 3: Computing HVGs and PCA...")
@@ -123,51 +133,61 @@ class IntelligentPreprocessRecommender:
 
         # Step 4: Recommend PCA dimensions
         log.info("Step 4: Analyzing PCA dimensions...")
-        pca_rec = self.recommend_pca(adata_temp, plot=plot, save_dir=save_dir)
-        log.info(f"Recommended PCs: {pca_rec.n_pcs} "
-                 f"(explains {pca_rec.variance_explained:.1%} variance)")
+        pca_rec = self.recommend_pca(adata_temp, plot=plot, save_dir=save_dir, fast_mode=fast_mode)
+        log.info(
+            f"Recommended PCs: {pca_rec.n_pcs} "
+            f"(explains {pca_rec.variance_explained:.1%} variance)"
+        )
 
         # Step 5: Recommend neighbors/PCs (using existing neighbors.py)
         log.info("Step 5: Optimizing neighbors and PCs...")
         neighbors_rec = self.recommend_neighbors(
-            adata_temp, plot=plot, save_dir=save_dir
+            adata_temp, plot=plot, save_dir=save_dir, fast_mode=fast_mode
         )
-        log.info(f"Recommended: n_neighbors={neighbors_rec.n_neighbors}, "
-                 f"n_pcs={neighbors_rec.n_pcs} "
-                 f"(silhouette={neighbors_rec.silhouette_score:.3f})")
+        log.info(
+            f"Recommended: n_neighbors={neighbors_rec.n_neighbors}, "
+            f"n_pcs={neighbors_rec.n_pcs} "
+            f"(silhouette={neighbors_rec.silhouette_score:.3f})"
+        )
 
         # Step 6: Recommend clustering resolution
         log.info("Step 6: Analyzing clustering resolution...")
         resolution_rec = self.recommend_resolution(
-            adata_temp, use_rep="X_pca", plot=plot, save_dir=save_dir
+            adata_temp, use_rep="X_pca", plot=plot, save_dir=save_dir, fast_mode=fast_mode
         )
-        log.info(f"Recommended resolution: {resolution_rec.resolution} "
-                 f"(~{resolution_rec.n_clusters} clusters, "
-                 f"stability={resolution_rec.stability_score:.3f})")
+        log.info(
+            f"Recommended resolution: {resolution_rec.resolution} "
+            f"(~{resolution_rec.n_clusters} clusters, "
+            f"stability={resolution_rec.stability_score:.3f})"
+        )
 
         # Step 7: Assess batch effects
         batch_rec = None
         if batch_key:
             log.info("Step 7: Assessing batch effects...")
             batch_rec = self.assess_batch_effects(
-                adata_temp, batch_key, plot=plot, save_dir=save_dir
+                adata_temp, batch_key, plot=plot, save_dir=save_dir, fast_mode=fast_mode
             )
             if batch_rec.needs_correction:
-                log.info(f"Batch correction recommended: {batch_rec.recommended_method} "
-                         f"(severity={batch_rec.severity_score:.2f})")
+                log.info(
+                    f"Batch correction recommended: {batch_rec.recommended_method} "
+                    f"(severity={batch_rec.severity_score:.2f})"
+                )
             else:
                 log.info("No significant batch effects detected")
         else:
             log.info("Step 7: Skipping batch assessment (no batch_key provided)")
 
         # Step 8: Compile overall strategy
-        overall_confidence = np.mean([
-            hvg_rec.confidence,
-            pca_rec.confidence,
-            neighbors_rec.confidence,
-            resolution_rec.confidence,
-            batch_rec.confidence if batch_rec else 1.0,
-        ])
+        overall_confidence = np.mean(
+            [
+                hvg_rec.confidence,
+                pca_rec.confidence,
+                neighbors_rec.confidence,
+                resolution_rec.confidence,
+                batch_rec.confidence if batch_rec else 1.0,
+            ]
+        )
 
         strategy = PreprocessingStrategy(
             data_profile=self._data_profile,
@@ -194,6 +214,7 @@ class IntelligentPreprocessRecommender:
         adata: AnnData,
         plot: bool = True,
         save_dir: Optional[Path] = None,
+        fast_mode: bool = False,
     ) -> HVGRecommendation:
         """
         Recommend optimal n_top_genes based on variance explanation.
@@ -204,15 +225,14 @@ class IntelligentPreprocessRecommender:
         3. Find smallest n_top_genes reaching variance threshold
         4. Bootstrap to estimate confidence interval
         """
-        from sklearn.decomposition import PCA
-
         cfg = self.config
 
         # Define search space based on data size and config
+        n_points = 3 if fast_mode else cfg.hvg_search_points
         search_space = np.linspace(
             cfg.min_hvg_genes,
             min(cfg.max_hvg_genes, adata.n_vars),
-            cfg.hvg_search_points,
+            n_points,
         ).astype(int)
         search_space = np.unique(search_space)  # Remove duplicates
 
@@ -238,10 +258,12 @@ class IntelligentPreprocessRecommender:
                 # Calculate cumulative variance
                 var_explained = adata_hvg.uns["pca"]["variance_ratio"].sum()
 
-                results.append({
-                    "n_genes": n_genes,
-                    "variance_explained": var_explained,
-                })
+                results.append(
+                    {
+                        "n_genes": n_genes,
+                        "variance_explained": var_explained,
+                    }
+                )
             except Exception as e:
                 log.warning(f"Failed for n_genes={n_genes}: {e}")
 
@@ -264,9 +286,9 @@ class IntelligentPreprocessRecommender:
 
         if len(above_threshold) > 0:
             optimal_n = above_threshold["n_genes"].min()
-            optimal_var = above_threshold[
-                above_threshold["n_genes"] == optimal_n
-            ]["variance_explained"].values[0]
+            optimal_var = above_threshold[above_threshold["n_genes"] == optimal_n][
+                "variance_explained"
+            ].values[0]
             method = "variance_threshold"
         else:
             # Use elbow method if threshold not reached
@@ -274,10 +296,14 @@ class IntelligentPreprocessRecommender:
             optimal_var = df[df["n_genes"] == optimal_n]["variance_explained"].values[0]
             method = "elbow"
 
-        # Bootstrap for confidence interval
-        ci_lower, ci_upper = self._bootstrap_hvg(
-            adata, optimal_n, cfg.n_bootstrap, cfg.confidence_level
-        )
+        # Bootstrap for confidence interval (skipped in fast mode)
+        if fast_mode:
+            ci_lower = max(cfg.min_hvg_genes, int(optimal_n * 0.8))
+            ci_upper = min(cfg.max_hvg_genes, int(optimal_n * 1.2))
+        else:
+            ci_lower, ci_upper = self._bootstrap_hvg(
+                adata, optimal_n, cfg.n_bootstrap, cfg.confidence_level
+            )
 
         # Calculate confidence based on variance achieved
         confidence = min(1.0, optimal_var / threshold) if threshold > 0 else 0.5
@@ -305,6 +331,7 @@ class IntelligentPreprocessRecommender:
         adata: AnnData,
         plot: bool = True,
         save_dir: Optional[Path] = None,
+        fast_mode: bool = False,
     ) -> PCARecommendation:
         """
         Recommend optimal n_pcs using elbow method or cumulative variance.
@@ -336,10 +363,14 @@ class IntelligentPreprocessRecommender:
         n_pcs = max(cfg.min_pcs, min(n_pcs, max_pcs))
         var_explained = cumulative_var[n_pcs - 1]
 
-        # Bootstrap CI
-        ci_lower, ci_upper = self._bootstrap_pca(
-            adata, n_pcs, cfg.n_bootstrap, cfg.confidence_level
-        )
+        # Bootstrap CI (skipped in fast mode)
+        if fast_mode:
+            ci_lower = max(cfg.min_pcs, int(n_pcs * 0.8))
+            ci_upper = min(cfg.max_pcs, int(n_pcs * 1.2))
+        else:
+            ci_lower, ci_upper = self._bootstrap_pca(
+                adata, n_pcs, cfg.n_bootstrap, cfg.confidence_level
+            )
 
         # Confidence based on variance stability
         confidence = self._calculate_pca_confidence(variance_ratios, n_pcs)
@@ -365,6 +396,7 @@ class IntelligentPreprocessRecommender:
         adata: AnnData,
         plot: bool = True,
         save_dir: Optional[Path] = None,
+        fast_mode: bool = False,
     ) -> NeighborsRecommendation:
         """
         Recommend optimal n_neighbors and n_pcs using existing neighbors.py optimization.
@@ -389,12 +421,22 @@ class IntelligentPreprocessRecommender:
                 confidence=0.5,
             )
 
+        # Fast mode: reduced search space
+        if fast_mode:
+            n_neighbors_list = [10, 15, 30]
+            n_pcs_list = list(range(cfg.min_pcs, min(cfg.max_pcs, adata.n_vars), 20))
+            subsample = min(cfg.silhouette_sample_size, 5000)
+        else:
+            n_neighbors_list = cfg.neighbors_search_space
+            n_pcs_list = list(range(cfg.min_pcs, min(cfg.max_pcs, adata.n_vars), 10))
+            subsample = cfg.silhouette_sample_size
+
         # Use existing neighbors.py optimization
         neighbors_cfg = NeighborsConfig(
-            n_neighbors_list=cfg.neighbors_search_space,
-            n_pcs_list=list(range(cfg.min_pcs, min(cfg.max_pcs, adata.n_vars), 10)),
+            n_neighbors_list=n_neighbors_list,
+            n_pcs_list=n_pcs_list,
             use_rep="X_pca",
-            subsample=cfg.silhouette_sample_size,
+            subsample=subsample,
             plot=plot,
             save_dir=str(save_dir) if save_dir else None,
         )
@@ -410,14 +452,8 @@ class IntelligentPreprocessRecommender:
             best = results_df.loc[best_idx]
 
             # Calculate confidence intervals from the grid
-            ci_lower_n = max(
-                cfg.neighbors_search_space[0],
-                int(best["n_neighbors"] * 0.7)
-            )
-            ci_upper_n = min(
-                cfg.neighbors_search_space[-1],
-                int(best["n_neighbors"] * 1.3)
-            )
+            ci_lower_n = max(cfg.neighbors_search_space[0], int(best["n_neighbors"] * 0.7))
+            ci_upper_n = min(cfg.neighbors_search_space[-1], int(best["n_neighbors"] * 1.3))
             ci_lower_pcs = max(cfg.min_pcs, int(best["n_pcs"] * 0.7))
             ci_upper_pcs = min(cfg.max_pcs, int(best["n_pcs"] * 1.3))
 
@@ -464,12 +500,14 @@ class IntelligentPreprocessRecommender:
         use_rep: str = "X_pca",
         plot: bool = True,
         save_dir: Optional[Path] = None,
+        fast_mode: bool = False,
     ) -> ResolutionRecommendation:
         """
         Recommend optimal clustering resolution based on stability.
         """
         cfg = self.config
-        resolutions = cfg.resolution_search_space
+        resolutions = cfg.resolution_search_space[::2] if fast_mode else cfg.resolution_search_space
+        n_stability_runs = 2 if fast_mode else cfg.resolution_stability_n
 
         log.info(f"Testing {len(resolutions)} resolutions for stability...")
 
@@ -484,7 +522,7 @@ class IntelligentPreprocessRecommender:
 
                 # Run clustering multiple times for stability
                 labels_list = []
-                for seed in range(cfg.resolution_stability_n):
+                for seed in range(n_stability_runs):
                     sc.tl.leiden(
                         adata,
                         resolution=res,
@@ -522,7 +560,7 @@ class IntelligentPreprocessRecommender:
                 n_clusters_list.append(n_clusters)
 
                 # Clean up
-                for seed in range(cfg.resolution_stability_n):
+                for seed in range(n_stability_runs):
                     del adata.obs[f"leiden_{seed}"]
 
             except Exception as e:
@@ -550,9 +588,7 @@ class IntelligentPreprocessRecommender:
 
         # Simple CI estimation
         threshold = best_stability * 0.9
-        within_threshold = [
-            r for r, s in zip(resolutions, stability_scores) if s >= threshold
-        ]
+        within_threshold = [r for r, s in zip(resolutions, stability_scores) if s >= threshold]
         ci_lower = min(within_threshold) if within_threshold else best_res * 0.8
         ci_upper = max(within_threshold) if within_threshold else best_res * 1.2
 
@@ -585,6 +621,7 @@ class IntelligentPreprocessRecommender:
         batch_key: str,
         plot: bool = True,
         save_dir: Optional[Path] = None,
+        fast_mode: bool = False,
     ) -> BatchCorrectionRecommendation:
         """
         Assess batch effect severity and recommend correction method.
@@ -622,7 +659,8 @@ class IntelligentPreprocessRecommender:
             from sklearn.metrics import r2_score
 
             r2_scores = []
-            for i in range(min(10, adata.obsm["X_pca"].shape[1])):
+            n_pcs_to_test = 5 if fast_mode else 10
+            for i in range(min(n_pcs_to_test, adata.obsm["X_pca"].shape[1])):
                 reg = LinearRegression()
                 reg.fit(batch_encoded.reshape(-1, 1), adata.obsm["X_pca"][:, i])
                 y_pred = reg.predict(batch_encoded.reshape(-1, 1))
@@ -731,9 +769,7 @@ class IntelligentPreprocessRecommender:
 
             try:
                 # Quick variance estimate
-                sc.pp.highly_variable_genes(
-                    adata_boot, n_top_genes=optimal_n, flavor="seurat_v3"
-                )
+                sc.pp.highly_variable_genes(adata_boot, n_top_genes=optimal_n, flavor="seurat_v3")
                 n_hvg = adata_boot.var.highly_variable.sum()
                 estimates.append(n_hvg)
             except Exception:
@@ -754,9 +790,7 @@ class IntelligentPreprocessRecommender:
         ci_upper = int(optimal_n * 1.2)
         return ci_lower, ci_upper
 
-    def _calculate_pca_confidence(
-        self, variance_ratios: np.ndarray, n_pcs: int
-    ) -> float:
+    def _calculate_pca_confidence(self, variance_ratios: np.ndarray, n_pcs: int) -> float:
         """Calculate confidence in PCA recommendation."""
         if n_pcs >= len(variance_ratios):
             return 0.5
@@ -890,7 +924,8 @@ def recommend_intelligent_preprocessing(
     tissue_type: str = "unknown",
     plot: bool = True,
     save_dir: Optional[Path] = None,
-    **config_overrides
+    fast_mode: bool = False,
+    **config_overrides,
 ) -> PreprocessingStrategy:
     """
     Main entry point for intelligent preprocessing recommendations.
@@ -907,14 +942,16 @@ def recommend_intelligent_preprocessing(
         Generate diagnostic plots
     save_dir : Path, optional
         Directory to save outputs
+    fast_mode : bool, default=False
+        If True, skip expensive computations for faster recommendations.
     **config_overrides
         Override any IntelligentPreprocessConfig parameter
 
-    Returns
+    Returns:
     -------
     PreprocessingStrategy with all recommendations
 
-    Example
+    Example:
     -------
     >>> strategy = recommend_intelligent_preprocessing(adata, batch_key="sampleID")
     >>> print(f"Recommended HVGs: {strategy.hvg.n_top_genes}")
@@ -924,7 +961,12 @@ def recommend_intelligent_preprocessing(
     config = IntelligentPreprocessConfig(**config_overrides)
     recommender = IntelligentPreprocessRecommender(config=config)
     return recommender.recommend(
-        adata, batch_key=batch_key, tissue_type=tissue_type, plot=plot, save_dir=save_dir
+        adata,
+        batch_key=batch_key,
+        tissue_type=tissue_type,
+        plot=plot,
+        save_dir=save_dir,
+        fast_mode=fast_mode,
     )
 
 
@@ -958,46 +1000,58 @@ def _export_preprocess_review_summary(
             md_lines.append(f"  - {issue}")
     md_lines.append("")
 
-    md_lines.extend([
-        "## Recommendations",
-        "",
-    ])
+    md_lines.extend(
+        [
+            "## Recommendations",
+            "",
+        ]
+    )
     for rec in review_summary.get("recommendations", []):
         md_lines.append(f"- {rec}")
     md_lines.append("")
 
-    md_lines.extend([
-        "## Parameter Recommendations",
-        "",
-        "| Parameter | Value | Confidence |",
-        "|-----------|-------|------------|",
-    ])
+    md_lines.extend(
+        [
+            "## Parameter Recommendations",
+            "",
+            "| Parameter | Value | Confidence |",
+            "|-----------|-------|------------|",
+        ]
+    )
     hvg = review_summary.get("hvg", {})
     md_lines.append(f"| HVGs | {hvg.get('n_top_genes')} | {hvg.get('confidence')} |")
     pca = review_summary.get("pca", {})
     md_lines.append(f"| PCs | {pca.get('n_pcs')} | {pca.get('confidence')} |")
     neighbors = review_summary.get("neighbors", {})
-    md_lines.append(f"| Neighbors | {neighbors.get('n_neighbors')} | {neighbors.get('confidence')} |")
+    md_lines.append(
+        f"| Neighbors | {neighbors.get('n_neighbors')} | {neighbors.get('confidence')} |"
+    )
     resolution = review_summary.get("resolution", {})
-    md_lines.append(f"| Resolution | {resolution.get('resolution')} | {resolution.get('confidence')} |")
+    md_lines.append(
+        f"| Resolution | {resolution.get('resolution')} | {resolution.get('confidence')} |"
+    )
     md_lines.append("")
 
     bc = review_summary.get("batch_correction", {})
-    md_lines.extend([
-        "## Batch Correction",
-        "",
-        f"- **Needs correction**: {bc.get('needs_correction', False)}",
-    ])
+    md_lines.extend(
+        [
+            "## Batch Correction",
+            "",
+            f"- **Needs correction**: {bc.get('needs_correction', False)}",
+        ]
+    )
     if bc.get("needs_correction"):
         md_lines.append(f"- **Recommended method**: {bc.get('recommended_method')}")
         md_lines.append(f"- **Severity score**: {bc.get('severity_score')}")
     md_lines.append("")
 
     if review_summary.get("concerns"):
-        md_lines.extend([
-            "## Concerns",
-            "",
-        ])
+        md_lines.extend(
+            [
+                "## Concerns",
+                "",
+            ]
+        )
         for concern in review_summary["concerns"]:
             md_lines.append(f"- {concern}")
         md_lines.append("")
@@ -1012,7 +1066,8 @@ def run_intelligent_preprocessing(
     batch_key: Optional[str] = None,
     apply_recommendations: bool = True,
     save_dir: Optional[str] = None,
-    **kwargs
+    fast_mode: bool = False,
+    **kwargs,
 ):
     """
     One-step intelligent preprocessing with automatic parameter selection.
@@ -1027,10 +1082,12 @@ def run_intelligent_preprocessing(
         If True, apply recommendations and return processed AnnData
     save_dir : str, optional
         Directory for outputs
+    fast_mode : bool, default=False
+        If True, skip expensive computations for faster recommendations.
     **kwargs
         Additional parameters for recommendation
 
-    Returns
+    Returns:
     -------
     Tuple[AnnData, PreprocessingStrategy]
         AnnData carrying the intelligent review trace plus the strategy.
@@ -1042,7 +1099,11 @@ def run_intelligent_preprocessing(
 
     # Generate recommendations
     strategy = recommend_intelligent_preprocessing(
-        adata, batch_key=batch_key, save_dir=Path(save_dir) if save_dir else None, **kwargs
+        adata,
+        batch_key=batch_key,
+        save_dir=Path(save_dir) if save_dir else None,
+        fast_mode=fast_mode,
+        **kwargs,
     )
 
     # Build and store reviewer-facing summary
@@ -1064,9 +1125,7 @@ def run_intelligent_preprocessing(
 
     # Apply recommendations
     config = strategy.to_config()
-    adata_processed = run_preprocessing(
-        adata, config=config, results_dir=save_dir
-    )
+    adata_processed = run_preprocessing(adata, config=config, results_dir=save_dir)
 
     adata_processed.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
         "intelligent_recommendation"

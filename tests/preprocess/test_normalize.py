@@ -117,7 +117,9 @@ class TestNormalizeDataStandard:
 
     def test_kwargs_override_config(self, minimal_adata):
         adata = minimal_adata.copy()
-        config = NormalizationConfig(method="standard", target_sum=1e4, plot=False, report=False, verbose=False)
+        config = NormalizationConfig(
+            method="standard", target_sum=1e4, plot=False, report=False, verbose=False
+        )
         result = normalize_data(adata, config=config, target_sum=1e5)
         meta = result.uns["sclucid"]["preprocess"]["normalization"]
         assert meta["params"]["target_sum"] == 1e5
@@ -227,7 +229,9 @@ class TestNormalizeDataValidation:
         with pytest.raises(ValueError, match="empty"):
             normalize_data(
                 empty,
-                config=NormalizationConfig(method="standard", plot=False, report=False, verbose=False),
+                config=NormalizationConfig(
+                    method="standard", plot=False, report=False, verbose=False
+                ),
             )
 
     def test_config_not_mutated(self, minimal_adata):

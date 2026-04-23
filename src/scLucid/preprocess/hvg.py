@@ -59,9 +59,7 @@ def _validate_hvg_input_matrix(X, input_layer: str, method: str) -> None:
 
     values = X.data if scipy.sparse.issparse(X) else np.asarray(X)
     if not np.all(np.isfinite(values)):
-        raise ValueError(
-            f"HVG input layer '{input_layer}' contains NaN or Inf values."
-        )
+        raise ValueError(f"HVG input layer '{input_layer}' contains NaN or Inf values.")
 
     min_val = X.min() if scipy.sparse.issparse(X) else np.min(values)
     if min_val < 0:
@@ -192,7 +190,6 @@ def _compute_hvg_single_sample(
     Returns:
         Boolean Series indicating HVG status for each gene
     """
-
     n_cells = X_sample.shape[0]
     n_genes = X_sample.shape[1]
 
@@ -286,13 +283,9 @@ def _compute_hvg_per_sample_parallel(
             )
 
     if len(valid_samples) == 0:
-        raise ValueError(
-            f"No samples have >= {min_cells_per_sample} cells. Cannot compute HVGs."
-        )
+        raise ValueError(f"No samples have >= {min_cells_per_sample} cells. Cannot compute HVGs.")
 
-    log.info(
-        f"Processing {len(valid_samples)}/{n_samples} samples with sufficient cells"
-    )
+    log.info(f"Processing {len(valid_samples)}/{n_samples} samples with sufficient cells")
 
     # Prepare data for parallel processing
     # Extract X matrices for each sample BEFORE parallelization
@@ -310,9 +303,7 @@ def _compute_hvg_per_sample_parallel(
             # Already dense, keep as-is
             pass
 
-        sample_data.append(
-            {"sample_id": sample, "X": X_sample, "n_cells": sample_mask.sum()}
-        )
+        sample_data.append({"sample_id": sample, "X": X_sample, "n_cells": sample_mask.sum()})
 
     # Define wrapper for parallel execution
     def _process_sample(sample_dict):
@@ -335,9 +326,7 @@ def _compute_hvg_per_sample_parallel(
 
         results = Parallel(n_jobs=n_jobs, backend=backend, verbose=0)(
             delayed(_process_sample)(sample_dict)
-            for sample_dict in tqdm(
-                sample_data, desc="Computing HVGs per sample", unit="sample"
-            )
+            for sample_dict in tqdm(sample_data, desc="Computing HVGs per sample", unit="sample")
         )
 
     except ImportError:
@@ -449,14 +438,12 @@ def _identify_sample_specific_genes_parallel(
 
     if n_samples <= 1:
         log.info(
-            f"Only {n_samples} sample(s) found. "
-            "Skipping sample-specific gene identification."
+            f"Only {n_samples} sample(s) found. " "Skipping sample-specific gene identification."
         )
         return np.zeros(adata.n_vars, dtype=bool)
 
     log.info(
-        f"Identifying sample-specific genes across {n_samples} groups "
-        f"using {method} test..."
+        f"Identifying sample-specific genes across {n_samples} groups " f"using {method} test..."
     )
 
     # Store original X
@@ -474,9 +461,7 @@ def _identify_sample_specific_genes_parallel(
         # Validate method
         valid_methods = ["t-test", "wilcoxon", "logreg"]
         if method not in valid_methods:
-            log.warning(
-                f"Method '{method}' not in {valid_methods}. Defaulting to 't-test'."
-            )
+            log.warning(f"Method '{method}' not in {valid_methods}. Defaulting to 't-test'.")
             method = "t-test"
 
         # Perform differential expression
@@ -723,9 +708,7 @@ def _infer_species_from_gene_names(var_names: pd.Index) -> str:
 
     # Count capitalization patterns
     all_caps = sum(1 for g in sample_genes if len(g) > 1 and g.isupper())
-    title_case = sum(
-        1 for g in sample_genes if len(g) > 1 and g[0].isupper() and not g.isupper()
-    )
+    title_case = sum(1 for g in sample_genes if len(g) > 1 and g[0].isupper() and not g.isupper())
 
     # Check for species-specific markers
     has_mt_upper = any(g.startswith("MT-") for g in sample_genes)  # Human
@@ -745,8 +728,7 @@ def _infer_species_from_gene_names(var_names: pd.Index) -> str:
         return "mouse"
     else:
         log.warning(
-            "Could not confidently infer species from gene names. "
-            "Defaulting to 'human'."
+            "Could not confidently infer species from gene names. " "Defaulting to 'human'."
         )
         return "human"
 
@@ -762,9 +744,7 @@ def _write_hvg_report(
     with open(report_path, "w") as f:
         f.write("# HVG Selection Report\n\n")
         f.write(f"**Method:** {config.method}\n\n")
-        f.write(
-            f"**Input shape:** {stats.get('n_cells')} cells × {stats.get('n_genes')} genes\n\n"
-        )
+        f.write(f"**Input shape:** {stats.get('n_cells')} cells × {stats.get('n_genes')} genes\n\n")
         f.write("## Input Statistics\n")
         for k, v in stats.items():
             f.write(f"- {k}: {v:.3g}\n")
@@ -822,9 +802,7 @@ def find_hvgs(
     # Extract parameters from the final config for use in the function
     force = kwargs.get("force", False)
     report = (
-        active_config.report
-        if hasattr(active_config, "report")
-        else kwargs.get("report", False)
+        active_config.report if hasattr(active_config, "report") else kwargs.get("report", False)
     )
     plot = kwargs.get("plot", active_config.plot)
     save_dir = active_config.save_dir
@@ -836,9 +814,7 @@ def find_hvgs(
     span = active_config.span
 
     output_key = (
-        f"highly_variable_{method}_{flavor}"
-        if method == "scanpy"
-        else f"highly_variable_{method}"
+        f"highly_variable_{method}_{flavor}" if method == "scanpy" else f"highly_variable_{method}"
     )
 
     log.info(f"[HVG] Diagnosing input data from layer '{input_layer}' ...")
@@ -954,16 +930,18 @@ def find_hvgs(
                 # Store for diagnostics
                 adata.var[f"{output_key}_highly_expressed"] = highly_expressed_mask
 
-                log.info(
-                    f"Marked {highly_expressed_mask.sum()} genes as highly expressed"
-                )
+                log.info(f"Marked {highly_expressed_mask.sum()} genes as highly expressed")
 
             # 3b. Sample-specific marker genes
             if n_specific_genes > 0:
                 if preserve_tumor_heterogeneity:
-                    log.info("preserve_tumor_heterogeneity=True: Skipping sample-specific gene exclusion to retain inter-tumor heterogeneity.")
+                    log.info(
+                        "preserve_tumor_heterogeneity=True: Skipping sample-specific gene exclusion to retain inter-tumor heterogeneity."
+                    )
                 else:
-                    log.info("Identifying sample-specific genes to exclude (Batch Effect removal)...")
+                    log.info(
+                        "Identifying sample-specific genes to exclude (Batch Effect removal)..."
+                    )
 
                 sample_specific_mask = _identify_sample_specific_genes_parallel(
                     adata,
@@ -979,9 +957,7 @@ def find_hvgs(
                 # Store for diagnostics
                 adata.var[f"{output_key}_sample_specific"] = sample_specific_mask
 
-                log.info(
-                    f"Marked {sample_specific_mask.sum()} genes as sample-specific"
-                )
+                log.info(f"Marked {sample_specific_mask.sum()} genes as sample-specific")
 
             # === STEP 4: Apply exclusions ===
             # Final HVG mask = (selected in >= min_n_samples) AND (not excluded)
@@ -1031,7 +1007,7 @@ def find_hvgs(
         log.info(f"[HVG] Excluding gene types: {exclude_gene_types}")
 
         # Auto-detect species for enhanced pattern matching
-        species = kwargs.get("species", None)
+        species = kwargs.get("species")
 
         current_mask = adata.var[output_key]
 
@@ -1105,9 +1081,7 @@ def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str) -> None:
     msg.append("\n--- Overlap Analysis ---")
     msg.append(f"- Intersection (genes in all sets): {len(intersection_set)} genes")
     msg.append(f"- Union (genes in any set): {len(union_set)} genes")
-    msg.append(
-        f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)"
-    )
+    msg.append(f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)")
 
     msg.append(f"\n--- Recommendation for your chosen mode ('{mode}') ---")
 
@@ -1126,9 +1100,7 @@ def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str) -> None:
 
     elif 0.4 <= jaccard_index <= 0.7:
         msg.append("Data-driven verdict: **Moderate Overlap**.")
-        msg.append(
-            "The methods agree on a core set of genes but also identify unique ones."
-        )
+        msg.append("The methods agree on a core set of genes but also identify unique ones.")
         if mode == "intersection":
             msg.append(
                 "Your choice of 'intersection' is the most conservative and reproducible option. You will get a high-confidence set but may miss some subtle biological signals."
@@ -1198,9 +1170,7 @@ def select_hvg_sets(
         combined_set = set.union(*hvg_sets)
     elif mode == "difference":
         if len(hvg_sets) < 2:
-            log.warning(
-                "Difference mode needs at least 2 masks. Falling back to direct."
-            )
+            log.warning("Difference mode needs at least 2 masks. Falling back to direct.")
             combined_set = hvg_sets[0]
         else:
             combined_set = hvg_sets[0].copy()
@@ -1257,9 +1227,7 @@ def select_hvg_sets(
     mask_combined = adata.var_names.isin(list(combined_set))
     adata.var[output_key] = mask_combined
 
-    log.info(
-        f"Created final HVG mask in '.var['{output_key}']' with {mask_combined.sum()} genes."
-    )
+    log.info(f"Created final HVG mask in '.var['{output_key}']' with {mask_combined.sum()} genes.")
 
     if subset:
         if keep_raw and adata.raw is None:
@@ -1273,9 +1241,7 @@ def select_hvg_sets(
             return adata_subset
         else:
             adata._inplace_subset_var(mask_combined)
-            log.info(
-                f"Subsetted AnnData object in-place to {mask_combined.sum()} final HVGs."
-            )
+            log.info(f"Subsetted AnnData object in-place to {mask_combined.sum()} final HVGs.")
             return adata
 
     return adata
@@ -1311,19 +1277,15 @@ def evaluate_hvg_stability(
     if random_state is not None:
         random.seed(random_state)
         np.random.seed(random_state)
-    gene_selection_count = {gene: 0 for gene in adata.var_names}
+    gene_selection_count = dict.fromkeys(adata.var_names, 0)
     n_cells_per_bootstrap = int(adata.n_obs * sample_fraction)
     report_interval = max(1, n_bootstrap // 10)
     for i in range(n_bootstrap):
         if i % report_interval == 0:
             log.info(f"[HVG stability] Bootstrap iteration {i + 1}/{n_bootstrap}")
-        cell_indices = np.random.choice(
-            adata.n_obs, size=n_cells_per_bootstrap, replace=False
-        )
+        cell_indices = np.random.choice(adata.n_obs, size=n_cells_per_bootstrap, replace=False)
         bootstrap_adata_view = adata[cell_indices, :]
-        bootstrap_adata = sc.AnnData(
-            X=bootstrap_adata_view.X, var=bootstrap_adata_view.var
-        )
+        bootstrap_adata = sc.AnnData(X=bootstrap_adata_view.X, var=bootstrap_adata_view.var)
         find_hvgs(
             bootstrap_adata,
             HVGConfig(method=method, n_top_genes=n_top_genes, flavor=flavor),
@@ -1331,13 +1293,9 @@ def evaluate_hvg_stability(
             plot=False,
         )
         bootstrap_hvgs = set(
-            bootstrap_adata.var_names[
-                bootstrap_adata.var[f"highly_variable_{method}_{flavor}"]
-            ]
+            bootstrap_adata.var_names[bootstrap_adata.var[f"highly_variable_{method}_{flavor}"]]
             if method == "scanpy"
-            else bootstrap_adata.var_names[
-                bootstrap_adata.var[f"highly_variable_{method}"]
-            ]
+            else bootstrap_adata.var_names[bootstrap_adata.var[f"highly_variable_{method}"]]
         )
         for gene in bootstrap_hvgs:
             if gene in gene_selection_count:
@@ -1349,22 +1307,14 @@ def evaluate_hvg_stability(
         [selection_frequency.get(gene, 0) for gene in adata.var_names],
         index=adata.var_names,
     )
-    stability_score = np.mean(
-        [selection_frequency.get(gene, 0) for gene in current_hvgs]
-    )
-    top_quartile = np.quantile(
-        [selection_frequency.get(gene, 0) for gene in current_hvgs], 0.75
-    )
-    bottom_quartile = np.quantile(
-        [selection_frequency.get(gene, 0) for gene in current_hvgs], 0.25
-    )
+    stability_score = np.mean([selection_frequency.get(gene, 0) for gene in current_hvgs])
+    top_quartile = np.quantile([selection_frequency.get(gene, 0) for gene in current_hvgs], 0.75)
+    bottom_quartile = np.quantile([selection_frequency.get(gene, 0) for gene in current_hvgs], 0.25)
     log.info("[HVG stability] Stability metrics:")
     log.info(f"  - Overall stability score: {stability_score:.3f}")
     log.info(f"  - Top 25% of HVGs selected with frequency >= {top_quartile:.3f}")
     log.info(f"  - Bottom 25% of HVGs selected with frequency <= {bottom_quartile:.3f}")
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
-        "hvg_stability"
-    ] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg_stability"] = {
         "overall_score": stability_score,
         "top_quartile": top_quartile,
         "bottom_quartile": bottom_quartile,
@@ -1375,9 +1325,7 @@ def evaluate_hvg_stability(
     if plot:
         try:
             fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-            sns.histplot(
-                adata.var["hvg_selection_frequency"], bins=30, kde=True, ax=axes[0]
-            )
+            sns.histplot(adata.var["hvg_selection_frequency"], bins=30, kde=True, ax=axes[0])
             axes[0].set_title("HVG Selection Frequency Distribution")
             axes[0].set_xlabel("Selection Frequency")
             axes[0].set_ylabel("Number of Genes")
@@ -1396,9 +1344,7 @@ def evaluate_hvg_stability(
                 if layer is None:
                     adata.var["temp_means"] = np.array(adata.X.mean(axis=0)).flatten()
                 else:
-                    adata.var["temp_means"] = np.array(
-                        adata.layers[layer].mean(axis=0)
-                    ).flatten()
+                    adata.var["temp_means"] = np.array(adata.layers[layer].mean(axis=0)).flatten()
                 x = "temp_means"
             scatter = axes[1].scatter(
                 adata.var[x],
@@ -1481,9 +1427,7 @@ def plot_hvg_metrics(
                 y = "hvg_selection_frequency"
                 plot_type = "stability"
             else:
-                raise ValueError(
-                    "[HVG plot] Cannot create HVG plot: no appropriate metrics found"
-                )
+                raise ValueError("[HVG plot] Cannot create HVG plot: no appropriate metrics found")
     fig, ax = plt.subplots(figsize=(10, 8))
     if size_by_expr and "mean" in available_metrics:
         sizes = np.clip(adata.var[available_metrics["mean"]] * 20, 5, 200)
@@ -1525,9 +1469,7 @@ def plot_hvg_metrics(
                     xytext=(5, 5),
                     textcoords="offset points",
                     fontsize=8,
-                    bbox=dict(
-                        boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8
-                    ),
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
                 )
     n_hvgs = adata.var[hvg_key].sum()
     total_genes = len(adata.var)

@@ -5,11 +5,12 @@ This module provides tools for analyzing clonal structure
 and evolution from copy number variation data.
 """
 
+import logging
+from typing import Dict, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class CloneAnalyzer:
     method : str
         Clustering method ("kmeans", "hierarchical", "leiden")
 
-    Attributes
+    Attributes:
     ----------
     clone_ids_ : pd.Series
         Clone assignments for each cell
@@ -54,7 +55,7 @@ class CloneAnalyzer:
         cnv_key : str
             Key for CNV scores in adata.obsm
 
-        Returns
+        Returns:
         -------
         CloneAnalyzer
             Fitted analyzer
@@ -69,12 +70,14 @@ class CloneAnalyzer:
         # Cluster cells
         if self.method == "kmeans":
             from sklearn.cluster import KMeans
+
             clusterer = KMeans(n_clusters=self.n_clusters, random_state=42, n_init=10)
             labels = clusterer.fit_predict(cnv_data)
             self.centroids_ = clusterer.cluster_centers_
 
         elif self.method == "hierarchical":
             from sklearn.cluster import AgglomerativeClustering
+
             clusterer = AgglomerativeClustering(n_clusters=self.n_clusters)
             labels = clusterer.fit_predict(cnv_data)
 
@@ -106,7 +109,7 @@ class CloneAnalyzer:
         """
         Calculate clonal diversity metrics.
 
-        Returns
+        Returns:
         -------
         dict
             Diversity metrics
@@ -121,7 +124,7 @@ class CloneAnalyzer:
         shannon = -np.sum(proportions * np.log(proportions + 1e-10))
 
         # Simpson diversity
-        simpson = 1 - np.sum(proportions ** 2)
+        simpson = 1 - np.sum(proportions**2)
 
         # Richness
         richness = len(proportions)
@@ -142,7 +145,7 @@ class CloneAnalyzer:
         adata : AnnData
             Expression data
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Clone comparison results
@@ -156,7 +159,7 @@ class CloneAnalyzer:
         clones = self.clone_ids_.unique()
 
         for i, clone1 in enumerate(clones):
-            for clone2 in clones[i+1:]:
+            for clone2 in clones[i + 1 :]:
                 mask1 = self.clone_ids_ == clone1
                 mask2 = self.clone_ids_ == clone2
 
@@ -165,19 +168,21 @@ class CloneAnalyzer:
                     expr1 = adata[mask1, gene].X.mean()
                     expr2 = adata[mask2, gene].X.mean()
 
-                    if hasattr(expr1, 'toarray'):
+                    if hasattr(expr1, "toarray"):
                         expr1 = expr1.toarray().flatten()[0]
-                    if hasattr(expr2, 'toarray'):
+                    if hasattr(expr2, "toarray"):
                         expr2 = expr2.toarray().flatten()[0]
 
-                    results.append({
-                        "clone1": clone1,
-                        "clone2": clone2,
-                        "gene": gene,
-                        "mean1": expr1,
-                        "mean2": expr2,
-                        "diff": expr1 - expr2,
-                    })
+                    results.append(
+                        {
+                            "clone1": clone1,
+                            "clone2": clone2,
+                            "gene": gene,
+                            "mean1": expr1,
+                            "mean2": expr2,
+                            "diff": expr1 - expr2,
+                        }
+                    )
 
         return pd.DataFrame(results)
 
@@ -202,7 +207,7 @@ def identify_clones(
     key_added : str
         Key for storing clone IDs
 
-    Returns
+    Returns:
     -------
     pd.Series
         Clone assignments
@@ -231,7 +236,7 @@ def calculate_clonal_diversity(
     clone_key : str
         Column with clone IDs
 
-    Returns
+    Returns:
     -------
     dict
         Diversity metrics
@@ -240,7 +245,7 @@ def calculate_clonal_diversity(
     proportions = counts / counts.sum()
 
     shannon = -np.sum(proportions * np.log(proportions + 1e-10))
-    simpson = 1 - np.sum(proportions ** 2)
+    simpson = 1 - np.sum(proportions**2)
 
     return {
         "shannon_diversity": shannon,
@@ -267,7 +272,7 @@ def infer_clonal_phylogeny(
     method : str
         Tree building method
 
-    Returns
+    Returns:
     -------
     dict
         Phylogenetic tree

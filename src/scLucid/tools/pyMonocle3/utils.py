@@ -2,11 +2,12 @@
 Utility functions for pyMonocle3 (R-free)
 """
 
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from typing import Optional, List, Dict, Union, Tuple, Any
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -25,21 +26,20 @@ def convert_to_dense(matrix) -> np.ndarray:
     return np.asarray(matrix)
 
 
-def convert_to_sparse(matrix, format: str = 'csr') -> sp.spmatrix:
+def convert_to_sparse(matrix, format: str = "csr") -> sp.spmatrix:
     """Convert matrix to sparse format"""
     if sp.issparse(matrix):
-        if format == 'csr':
+        if format == "csr":
             return matrix.tocsr()
-        elif format == 'csc':
+        elif format == "csc":
             return matrix.tocsc()
-        elif format == 'coo':
+        elif format == "coo":
             return matrix.tocoo()
-    return sp.csr_matrix(matrix) if format == 'csr' else sp.csc_matrix(matrix)
+    return sp.csr_matrix(matrix) if format == "csr" else sp.csc_matrix(matrix)
 
 
 def calculate_size_factors(
-    counts: np.ndarray,
-    method: str = "mean-geometric-mean-total"
+    counts: np.ndarray, method: str = "mean-geometric-mean-total"
 ) -> np.ndarray:
     """
     Calculate size factors for normalization
@@ -51,7 +51,7 @@ def calculate_size_factors(
     method : str
         Method for size factor calculation
 
-    Returns
+    Returns:
     -------
     np.ndarray
         Size factors for each cell
@@ -80,7 +80,7 @@ def normalize_expression(
     counts: np.ndarray,
     size_factors: Optional[np.ndarray] = None,
     method: str = "log",
-    pseudo_count: float = 1.0
+    pseudo_count: float = 1.0,
 ) -> np.ndarray:
     """
     Normalize expression data
@@ -96,7 +96,7 @@ def normalize_expression(
     pseudo_count : float
         Pseudo-count for log transformation
 
-    Returns
+    Returns:
     -------
     np.ndarray
         Normalized expression
@@ -143,7 +143,7 @@ def select_highly_variable_genes(
     min_disp : float
         Minimum dispersion
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         HVG statistics
@@ -162,27 +162,25 @@ def select_highly_variable_genes(
     mean_filter = (mean_expr >= min_mean) & (mean_expr <= max_mean)
 
     # Create results DataFrame
-    hvg_stats = pd.DataFrame({
-        'gene': gene_names,
-        'means': mean_expr,
-        'variances': var_expr,
-        'dispersions': dispersion,
-        'highly_variable': mean_filter & (dispersion >= min_disp),
-    })
+    hvg_stats = pd.DataFrame(
+        {
+            "gene": gene_names,
+            "means": mean_expr,
+            "variances": var_expr,
+            "dispersions": dispersion,
+            "highly_variable": mean_filter & (dispersion >= min_disp),
+        }
+    )
 
     # Rank by dispersion and select top genes
-    hvg_stats['dispersion_rank'] = hvg_stats['dispersions'].rank(ascending=False)
-    hvg_stats.loc[
-        hvg_stats['dispersion_rank'] <= n_top_genes, 'highly_variable'
-    ] = True
+    hvg_stats["dispersion_rank"] = hvg_stats["dispersions"].rank(ascending=False)
+    hvg_stats.loc[hvg_stats["dispersion_rank"] <= n_top_genes, "highly_variable"] = True
 
-    return hvg_stats.sort_values('dispersions', ascending=False)
+    return hvg_stats.sort_values("dispersions", ascending=False)
 
 
 def calculate_gene_loadings(
-    pca_model,
-    gene_names: List[str],
-    n_components: int = 10
+    pca_model, gene_names: List[str], n_components: int = 10
 ) -> pd.DataFrame:
     """
     Calculate gene loadings from PCA model
@@ -196,7 +194,7 @@ def calculate_gene_loadings(
     n_components : int
         Number of components
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Gene loadings
@@ -206,7 +204,7 @@ def calculate_gene_loadings(
     loadings = pd.DataFrame(
         pca_model.components_[:n_components].T,
         index=gene_names,
-        columns=[f"PC{i+1}" for i in range(n_components)]
+        columns=[f"PC{i+1}" for i in range(n_components)],
     )
 
     return loadings
@@ -216,7 +214,7 @@ def aggregate_expression_by_group(
     expression: np.ndarray,
     groups: pd.Series,
     group_names: Optional[List] = None,
-    aggregation: str = "mean"
+    aggregation: str = "mean",
 ) -> pd.DataFrame:
     """
     Aggregate expression by group
@@ -232,7 +230,7 @@ def aggregate_expression_by_group(
     aggregation : str
         Aggregation method ("mean", "sum", "median")
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Aggregated expression
@@ -254,16 +252,10 @@ def aggregate_expression_by_group(
 
         results.append(agg)
 
-    return pd.DataFrame(
-        np.array(results).T,
-        columns=group_names
-    )
+    return pd.DataFrame(np.array(results).T, columns=group_names)
 
 
-def calculate_correlation_matrix(
-    data: np.ndarray,
-    method: str = "pearson"
-) -> np.ndarray:
+def calculate_correlation_matrix(data: np.ndarray, method: str = "pearson") -> np.ndarray:
     """
     Calculate correlation matrix
 
@@ -274,7 +266,7 @@ def calculate_correlation_matrix(
     method : str
         Correlation method ("pearson" or "spearman")
 
-    Returns
+    Returns:
     -------
     np.ndarray
         Correlation matrix
@@ -283,6 +275,7 @@ def calculate_correlation_matrix(
         return np.corrcoef(data)
     elif method == "spearman":
         from scipy.stats import spearmanr
+
         corr, _ = spearmanr(data.T)
         return corr
     else:
@@ -290,10 +283,7 @@ def calculate_correlation_matrix(
 
 
 def subsample_cells(
-    cds,
-    n_cells: Optional[int] = None,
-    frac: Optional[float] = None,
-    random_state: int = 42
+    cds, n_cells: Optional[int] = None, frac: Optional[float] = None, random_state: int = 42
 ):
     """
     Subsample cells from CellDataSet
@@ -309,7 +299,7 @@ def subsample_cells(
     random_state : int
         Random seed
 
-    Returns
+    Returns:
     -------
     CellDataSet
         Subsampled CellDataSet
@@ -352,7 +342,7 @@ def merge_datasets(
     merge_groups : list, optional
         Group labels for each dataset
 
-    Returns
+    Returns:
     -------
     CellDataSet
         Merged CellDataSet
@@ -373,7 +363,7 @@ def merge_datasets(
     meta_list = []
     for cds, group in zip(cds_list, merge_groups):
         meta = cds.cell_metadata.copy()
-        meta['dataset'] = group
+        meta["dataset"] = group
         meta_list.append(meta)
     merged_meta = pd.concat(meta_list, ignore_index=True)
 
@@ -400,7 +390,7 @@ def validate_cds(cds) -> Tuple[bool, str]:
     cds : CellDataSet
         CellDataSet to validate
 
-    Returns
+    Returns:
     -------
     tuple
         (is_valid, error_message)
@@ -435,11 +425,12 @@ def estimate_memory_usage(cds) -> Dict[str, float]:
     cds : CellDataSet
         CellDataSet to analyze
 
-    Returns
+    Returns:
     -------
     dict
         Memory usage in MB for each component
     """
+
     def get_size(obj):
         """Get size of object in MB"""
         if isinstance(obj, np.ndarray):
@@ -452,14 +443,14 @@ def estimate_memory_usage(cds) -> Dict[str, float]:
             return 0
 
     usage = {
-        'expression': get_size(cds.expression_data),
-        'cell_metadata': get_size(cds.cell_metadata),
-        'gene_metadata': get_size(cds.gene_metadata),
+        "expression": get_size(cds.expression_data),
+        "cell_metadata": get_size(cds.cell_metadata),
+        "gene_metadata": get_size(cds.gene_metadata),
     }
 
     for key, reduction in cds.reducedDims.items():
-        usage[f'reduction_{key}'] = get_size(reduction)
+        usage[f"reduction_{key}"] = get_size(reduction)
 
-    usage['total'] = sum(usage.values())
+    usage["total"] = sum(usage.values())
 
     return usage

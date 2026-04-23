@@ -2,34 +2,32 @@
 Tests for pyMonocle3 (R-free Monocle3 implementation)
 """
 
-import pytest
+import sys
+
 import numpy as np
 import pandas as pd
-import scipy.sparse as sp
-import sys
+import pytest
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.tools.pyMonocle3 import (
     CellDataSet,
-    new_cell_data_set,
-    create_cds_from_scanpy,
-    export_to_scanpy,
+    cluster_cells,
+    compare_genes,
     detect_genes,
     estimate_size_factors,
+    graph_test,
+    learn_graph,
+    new_cell_data_set,
+    order_cells,
+    partition_cells,
+    plot_cells,
+    plot_trajectory,
     preprocess_cds,
     reduce_dimension,
     run_pca,
     run_umap,
-    cluster_cells,
-    partition_cells,
-    learn_graph,
-    order_cells,
-    graph_test,
     top_markers,
-    compare_genes,
-    plot_cells,
-    plot_trajectory,
     validate_cds,
 )
 
@@ -47,14 +45,20 @@ def sample_cds():
     cell_names = [f"cell_{i}" for i in range(n_cells)]
 
     # Create metadata
-    cell_meta = pd.DataFrame({
-        'cell_type': np.random.choice(['A', 'B', 'C'], n_cells),
-        'batch': np.random.choice(['batch1', 'batch2'], n_cells),
-    }, index=cell_names)
+    cell_meta = pd.DataFrame(
+        {
+            "cell_type": np.random.choice(["A", "B", "C"], n_cells),
+            "batch": np.random.choice(["batch1", "batch2"], n_cells),
+        },
+        index=cell_names,
+    )
 
-    gene_meta = pd.DataFrame({
-        'gene_short_name': gene_names,
-    }, index=gene_names)
+    gene_meta = pd.DataFrame(
+        {
+            "gene_short_name": gene_names,
+        },
+        index=gene_names,
+    )
 
     return CellDataSet(
         expression_data=expr,
@@ -156,25 +160,25 @@ class TestPreprocessing:
         """Test gene detection"""
         cds = detect_genes(sample_cds, min_expr=0.1, min_cells=5)
 
-        assert 'mean_expression' in cds.gene_metadata.columns
-        assert 'num_cells_expressed' in cds.gene_metadata.columns
-        assert 'use_for_ordering' in cds.gene_metadata.columns
+        assert "mean_expression" in cds.gene_metadata.columns
+        assert "num_cells_expressed" in cds.gene_metadata.columns
+        assert "use_for_ordering" in cds.gene_metadata.columns
 
     def test_estimate_size_factors(self, sample_cds):
         """Test size factor estimation"""
         cds = estimate_size_factors(sample_cds)
 
-        assert 'Size_Factor' in cds.cell_metadata.columns
-        assert len(cds.cell_metadata['Size_Factor']) == cds.n_cells
-        assert all(cds.cell_metadata['Size_Factor'] > 0)
+        assert "Size_Factor" in cds.cell_metadata.columns
+        assert len(cds.cell_metadata["Size_Factor"]) == cds.n_cells
+        assert all(cds.cell_metadata["Size_Factor"] > 0)
 
     def test_preprocess_cds(self, sample_cds):
         """Test full preprocessing pipeline"""
         cds = preprocess_cds(sample_cds, num_dim=10)
 
-        assert 'PCA' in cds.reducedDims
-        assert cds.reducedDims['PCA'].shape[0] == cds.n_cells
-        assert cds.reducedDims['PCA'].shape[1] <= 10
+        assert "PCA" in cds.reducedDims
+        assert cds.reducedDims["PCA"].shape[0] == cds.n_cells
+        assert cds.reducedDims["PCA"].shape[1] <= 10
         assert len(cds.preprocessing_params) > 0
 
 
@@ -186,33 +190,33 @@ class TestDimensionality:
         """Test UMAP reduction"""
         pytest.importorskip("umap")
 
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
 
-        assert 'UMAP' in cds.reducedDims
-        assert cds.reducedDims['UMAP'].shape == (cds.n_cells, 2)
+        assert "UMAP" in cds.reducedDims
+        assert cds.reducedDims["UMAP"].shape == (cds.n_cells, 2)
 
     def test_reduce_dimension_tsne(self, preprocessed_cds):
         """Test tSNE reduction"""
-        cds = reduce_dimension(preprocessed_cds, reduction_method='tSNE')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="tSNE")
 
-        assert 'tSNE' in cds.reducedDims
-        assert cds.reducedDims['tSNE'].shape == (cds.n_cells, 2)
+        assert "tSNE" in cds.reducedDims
+        assert cds.reducedDims["tSNE"].shape == (cds.n_cells, 2)
 
     def test_run_pca(self, sample_cds):
         """Test PCA"""
         cds = run_pca(sample_cds, n_components=10)
 
-        assert 'PCA' in cds.reducedDims
-        assert cds.reducedDims['PCA'].shape[1] <= 10
+        assert "PCA" in cds.reducedDims
+        assert cds.reducedDims["PCA"].shape[1] <= 10
 
     def test_run_umap(self, preprocessed_cds):
         """Test standalone UMAP"""
         pytest.importorskip("umap")
 
-        cds = run_umap(preprocessed_cds, reduction_key='PCA')
+        cds = run_umap(preprocessed_cds, reduction_key="PCA")
 
-        assert 'UMAP_2D' in cds.reducedDims
-        assert cds.reducedDims['UMAP_2D'].shape == (cds.n_cells, 2)
+        assert "UMAP_2D" in cds.reducedDims
+        assert cds.reducedDims["UMAP_2D"].shape == (cds.n_cells, 2)
 
 
 @pytest.mark.unit
@@ -224,31 +228,31 @@ class TestClustering:
         pytest.importorskip("leidenalg")
         pytest.importorskip("igraph")
 
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
-        cds = cluster_cells(cds, cluster_method='leiden')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
+        cds = cluster_cells(cds, cluster_method="leiden")
 
         assert cds.clusters is not None
-        assert 'cluster' in cds.cell_metadata.columns
+        assert "cluster" in cds.cell_metadata.columns
 
     def test_cluster_cells_louvain(self, preprocessed_cds):
         """Test Louvain clustering"""
         pytest.importorskip("louvain")
         pytest.importorskip("igraph")
 
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
-        cds = cluster_cells(cds, cluster_method='louvain')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
+        cds = cluster_cells(cds, cluster_method="louvain")
 
         assert cds.clusters is not None
-        assert 'cluster' in cds.cell_metadata.columns
+        assert "cluster" in cds.cell_metadata.columns
 
     def test_partition_cells(self, preprocessed_cds):
         """Test cell partitioning"""
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
         cds = cluster_cells(cds)
         cds = partition_cells(cds)
 
         assert cds.partitions is not None
-        assert 'partition' in cds.cell_metadata.columns
+        assert "partition" in cds.cell_metadata.columns
 
 
 @pytest.mark.unit
@@ -257,27 +261,27 @@ class TestTrajectory:
 
     def test_learn_graph(self, preprocessed_cds):
         """Test graph learning"""
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
         cds = cluster_cells(cds)
         cds = partition_cells(cds)
         cds = learn_graph(cds)
 
         assert cds.principal_graph is not None
-        assert 'adj_matrix' in cds.principal_graph
+        assert "adj_matrix" in cds.principal_graph
 
     def test_order_cells(self, preprocessed_cds):
         """Test pseudotime calculation"""
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
         cds = cluster_cells(cds)
         cds = partition_cells(cds)
         cds = learn_graph(cds)
         cds = order_cells(cds)
 
-        assert 'pseudotime' in cds.cell_metadata.columns
+        assert "pseudotime" in cds.cell_metadata.columns
 
     def test_graph_test(self, preprocessed_cds):
         """Test graph-based differential expression"""
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
         cds = cluster_cells(cds)
         cds = partition_cells(cds)
         cds = learn_graph(cds)
@@ -285,8 +289,8 @@ class TestTrajectory:
         results = graph_test(cds)
 
         assert isinstance(results, pd.DataFrame)
-        assert 'gene' in results.columns
-        assert 'morans_i' in results.columns
+        assert "gene" in results.columns
+        assert "morans_i" in results.columns
 
 
 @pytest.mark.unit
@@ -295,8 +299,8 @@ class TestDifferential:
 
     def test_top_markers(self, preprocessed_cds):
         """Test marker gene finding"""
-        cds = reduce_dimension(preprocessed_cds, reduction_method='PCA')
-        cds = cluster_cells(cds, reduction_method='PCA')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="PCA")
+        cds = cluster_cells(cds, reduction_method="PCA")
 
         markers = top_markers(cds)
 
@@ -311,8 +315,8 @@ class TestDifferential:
         results = compare_genes(preprocessed_cds, cell_list1, cell_list2)
 
         assert isinstance(results, pd.DataFrame)
-        assert 'gene' in results.columns
-        assert 'log2fc' in results.columns
+        assert "gene" in results.columns
+        assert "log2fc" in results.columns
 
 
 @pytest.mark.unit
@@ -323,10 +327,10 @@ class TestVisualization:
         """Test cell plotting"""
         pytest.importorskip("matplotlib")
 
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
         cds = cluster_cells(cds)
 
-        fig, ax = plot_cells(cds, color_cells_by='cluster')
+        fig, ax = plot_cells(cds, color_cells_by="cluster")
 
         assert fig is not None
         assert ax is not None
@@ -335,7 +339,7 @@ class TestVisualization:
         """Test trajectory plotting"""
         pytest.importorskip("matplotlib")
 
-        cds = reduce_dimension(preprocessed_cds, reduction_method='UMAP')
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
         cds = cluster_cells(cds)
         cds = partition_cells(cds)
         cds = learn_graph(cds)
@@ -372,11 +376,11 @@ class TestFullWorkflow:
 
         # Preprocessing
         cds = preprocess_cds(cds, num_dim=10)
-        assert 'PCA' in cds.reducedDims
+        assert "PCA" in cds.reducedDims
 
         # Dimensionality reduction
-        cds = reduce_dimension(cds, reduction_method='UMAP')
-        assert 'UMAP' in cds.reducedDims
+        cds = reduce_dimension(cds, reduction_method="UMAP")
+        assert "UMAP" in cds.reducedDims
 
         # Clustering
         cds = cluster_cells(cds)
@@ -388,7 +392,7 @@ class TestFullWorkflow:
 
         # Pseudotime
         cds = order_cells(cds)
-        assert 'pseudotime' in cds.cell_metadata.columns
+        assert "pseudotime" in cds.cell_metadata.columns
 
         # Validation
         is_valid, _ = validate_cds(cds)

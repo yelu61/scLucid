@@ -14,8 +14,8 @@ import seaborn as sns
 from anndata import AnnData
 from scipy.stats import mannwhitneyu, ttest_ind, zscore
 
-from ..utils.manager import _get_marker_path, _load_marker_file
 from ..utils import sanitize_for_hdf5
+from ..utils.manager import _get_marker_path, _load_marker_file
 
 log = logging.getLogger(__name__)
 
@@ -57,14 +57,10 @@ class FunctionalSignatureManager:
                 if "_categories" in species_data:
                     self.categories = species_data["_categories"]
                     # Remove from signatures dict
-                    species_data = {
-                        k: v for k, v in species_data.items() if k != "_categories"
-                    }
+                    species_data = {k: v for k, v in species_data.items() if k != "_categories"}
 
                 self.signatures = species_data
-                log.info(
-                    f"Loaded {len(self.signatures)} built-in signatures for {self.species}"
-                )
+                log.info(f"Loaded {len(self.signatures)} built-in signatures for {self.species}")
                 if self.categories:
                     log.info(f"Loaded {len(self.categories)} signature categories")
             else:
@@ -81,12 +77,12 @@ class FunctionalSignatureManager:
         category_name : str
             Category name (e.g., 'Immune_Function', 'Metabolism')
 
-        Returns
+        Returns:
         -------
         dict
             Dictionary of {signature_name: genes} for that category
 
-        Examples
+        Examples:
         --------
         >>> manager = FunctionalSignatureManager(species='human')
         >>> immune_sigs = manager.get_category('Immune_Function')
@@ -100,9 +96,7 @@ class FunctionalSignatureManager:
             )
 
         sig_names = self.categories[category_name]
-        return {
-            name: self.signatures[name] for name in sig_names if name in self.signatures
-        }
+        return {name: self.signatures[name] for name in sig_names if name in self.signatures}
 
     def list_categories(self) -> List[str]:
         """List all available categories."""
@@ -155,14 +149,14 @@ class FunctionalSignatureManager:
                 "gprofiler-official required for species conversion. "
                 "Install with: pip install gprofiler-official"
             )
-        
+
         org_map = {"human": "hsapiens", "mouse": "mmusculus"}
-        
+
         gp = GProfiler(return_dataframe=True)
-        
+
         # Collect all genes
         all_genes = list({gene for genes in self.signatures.values() for gene in genes})
-        
+
         # Convert
         log.info(f"Converting {len(all_genes)} genes from {self.species} to {target_species}...")
         ortho = gp.orth(
@@ -170,19 +164,19 @@ class FunctionalSignatureManager:
             organism=org_map.get(self.species, self.species),
             target=org_map.get(target_species, target_species),
         )
-        
+
         mapping = (
             ortho[ortho["ortholog.name"] != "n.s."][["incoming.name", "ortholog.name"]]
             .set_index("incoming.name")["ortholog.name"]
             .to_dict()
         )
-        
+
         # Create new manager with converted genes
         new_manager = FunctionalSignatureManager.__new__(FunctionalSignatureManager)
         new_manager.species = target_species
         new_manager.signatures = {}
         new_manager.categories = {}  # ✅ 初始化 categories
-        
+
         # Convert signatures
         for name, genes in self.signatures.items():
             converted = list({mapping[g] for g in genes if g in mapping})
@@ -190,17 +184,17 @@ class FunctionalSignatureManager:
                 new_manager.add_signature(name, converted)
             else:
                 log.warning(f"No genes converted for signature '{name}'")
-        
+
         # ✅ 尝试保留分类信息（如果签名名称未改变）
         for category, sig_names in self.categories.items():
             converted_sigs = [s for s in sig_names if s in new_manager.signatures]
             if converted_sigs:
                 new_manager.categories[category] = converted_sigs
-        
+
         log.info(f"Conversion complete. {len(new_manager.signatures)} signatures available.")
         if new_manager.categories:
             log.info(f"Preserved {len(new_manager.categories)} categories.")
-        
+
         return new_manager
 
 
@@ -209,11 +203,7 @@ class FunctionalSignatureManager:
 
 def _ensure_scoring_namespace(adata: AnnData) -> dict:
     """Ensure the scoring namespace exists in adata.uns and return it."""
-    return (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("scoring", {})
-    )
+    return adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("scoring", {})
 
 
 def _cohens_d(x: np.ndarray, y: np.ndarray) -> Optional[float]:
@@ -236,13 +226,11 @@ def _cohens_d(x: np.ndarray, y: np.ndarray) -> Optional[float]:
 
 
 def _validate_score_column(
-    adata: AnnData,
-    score_key: str,
-    expected_source: str = "score_genes"
+    adata: AnnData, score_key: str, expected_source: str = "score_genes"
 ) -> bool:
     """
     Validate if a score column exists and was generated correctly.
-    
+
     Parameters
     ----------
     adata : AnnData
@@ -251,26 +239,26 @@ def _validate_score_column(
         Score column name
     expected_source : str
         Expected generation method
-    
-    Returns
+
+    Returns:
     -------
     bool
         True if valid, False otherwise
     """
     if score_key not in adata.obs.columns:
         return False
-    
+
     # Check if it's numeric
     if not pd.api.types.is_numeric_dtype(adata.obs[score_key]):
         log.warning(f"Score '{score_key}' is not numeric")
         return False
-    
+
     # Check for suspicious values
     score_data = adata.obs[score_key].dropna()
     if len(score_data) == 0:
         log.warning(f"Score '{score_key}' has no valid values")
         return False
-    
+
     # Check if values are reasonable (scores from score_genes are typically -5 to 5)
     if expected_source == "score_genes":
         if score_data.min() < -10 or score_data.max() > 10:
@@ -278,7 +266,7 @@ def _validate_score_column(
                 f"Score '{score_key}' has unusual range [{score_data.min():.2f}, {score_data.max():.2f}]. "
                 f"Expected range for score_genes is typically [-5, 5]."
             )
-    
+
     return True
 
 
@@ -320,7 +308,7 @@ def score_by_gene_sets(
     **kwargs
         Additional arguments passed to scanpy.tl.score_genes
 
-    Returns
+    Returns:
     -------
     AnnData
         Modified AnnData with scores added to .obs
@@ -449,7 +437,7 @@ def run_module_scoring_workflow(
     This is a thin workflow wrapper over ``score_by_gene_sets`` intended for
     curated state-program analysis in notebooks and reports.
 
-    Returns
+    Returns:
     -------
     tuple
         ``(adata, results)`` where ``results`` contains:
@@ -519,7 +507,11 @@ def run_module_scoring_workflow(
         _mean_table([groupby], "group_mean_scores")
     if sample_col is not None:
         sample_keys = [sample_col]
-        if condition_col is not None and condition_col != sample_col and condition_col in adata.obs.columns:
+        if (
+            condition_col is not None
+            and condition_col != sample_col
+            and condition_col in adata.obs.columns
+        ):
             sample_keys.append(condition_col)
         _mean_table(sample_keys, "sample_mean_scores")
     if condition_col is not None:
@@ -578,7 +570,7 @@ def calculate_signature_matrix(
     z_score : bool
         Apply z-score normalization row-wise
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Matrix of signature scores (signatures × groups)
@@ -591,9 +583,7 @@ def calculate_signature_matrix(
     )
 
     # Filter valid gene sets
-    valid_sets = {
-        k: [g for g in v if g in source_var_names] for k, v in gene_sets.items()
-    }
+    valid_sets = {k: [g for g in v if g in source_var_names] for k, v in gene_sets.items()}
     valid_sets = {k: v for k, v in valid_sets.items() if v}
 
     if not valid_sets:
@@ -663,7 +653,7 @@ def plot_signature_heatmap(
     **kwargs
         Additional arguments for sns.heatmap
 
-    Returns
+    Returns:
     -------
     plt.Axes
         Matplotlib axes object
@@ -746,7 +736,7 @@ def plot_delta_heatmap(
     **kwargs
         Additional arguments for sns.heatmap
 
-    Returns
+    Returns:
     -------
     tuple
         (matplotlib axes, delta DataFrame)
@@ -775,16 +765,15 @@ def plot_delta_heatmap(
             else:
                 if not _validate_score_column(adata, sig, "score_genes"):
                     log.warning(
-                        f"Existing column '{sig}' may not be a valid score. "
-                        f"Recalculating..."
+                        f"Existing column '{sig}' may not be a valid score. " f"Recalculating..."
                     )
                     sc.tl.score_genes(
-                    adata,
-                    gene_list=genes_in,
-                    score_name=sig,
-                    use_raw=use_raw,
-                    ctrl_size=min(len(genes_in), ctrl_size),
-                )
+                        adata,
+                        gene_list=genes_in,
+                        score_name=sig,
+                        use_raw=use_raw,
+                        ctrl_size=min(len(genes_in), ctrl_size),
+                    )
             valid_sigs.append(sig)
 
     if not valid_sigs:
@@ -794,15 +783,9 @@ def plot_delta_heatmap(
     obs_data = adata.obs[[groupby, compare_group] + valid_sigs].copy()
 
     # Calculate means for each group
-    mean_ref = (
-        obs_data[obs_data[compare_group] == ref_group]
-        .groupby(groupby)[valid_sigs]
-        .mean()
-    )
+    mean_ref = obs_data[obs_data[compare_group] == ref_group].groupby(groupby)[valid_sigs].mean()
     mean_target = (
-        obs_data[obs_data[compare_group] == target_group]
-        .groupby(groupby)[valid_sigs]
-        .mean()
+        obs_data[obs_data[compare_group] == target_group].groupby(groupby)[valid_sigs].mean()
     )
 
     # Align subclusters
@@ -876,12 +859,12 @@ def batch_plot_delta_heatmap(
     save_prefix : str, optional
         Prefix for saved figures
 
-    Returns
+    Returns:
     -------
     list of tuples
         List of (delta_df, stats_dict) for each comparison
 
-    Examples
+    Examples:
     --------
     >>> results = batch_plot_delta_heatmap(
     ...     adata,
@@ -895,27 +878,25 @@ def batch_plot_delta_heatmap(
     # Handle FunctionalSignatureManager input
     if isinstance(gene_sets, FunctionalSignatureManager):
         gene_sets = gene_sets.get_all_signatures()
-    
+
     n_pairs = len(condition_pairs)
     nrows = (n_pairs + ncols - 1) // ncols
-    
+
     # Calculate figure size
     total_width = figsize_per_plot[0] * ncols
     total_height = figsize_per_plot[1] * nrows
-    
+
     fig, axes = plt.subplots(
-        nrows, ncols, 
-        figsize=(total_width, total_height),
-        squeeze=False  # ✅ 确保返回 2D 数组
+        nrows, ncols, figsize=(total_width, total_height), squeeze=False  # ✅ 确保返回 2D 数组
     )
-    
+
     results = []
-    
+
     # Pre-calculate all delta matrices (避免重复计算)
     source_var_names = (
         adata.raw.var_names if (use_raw and adata.raw is not None) else adata.var_names
     )
-    
+
     # Calculate scores once for all comparisons
     valid_sigs = []
     for sig, genes in gene_sets.items():
@@ -930,103 +911,103 @@ def batch_plot_delta_heatmap(
                     ctrl_size=min(len(genes_in), ctrl_size),
                 )
             valid_sigs.append(sig)
-    
+
     if not valid_sigs:
         raise ValueError("No valid signatures found.")
-    
+
     obs_data = adata.obs[[groupby, compare_group] + valid_sigs].copy()
-    
+
     # Plot each comparison
     for idx, (ref, target) in enumerate(condition_pairs):
         row = idx // ncols
         col = idx % ncols
         ax = axes[row, col]
-        
+
         # Calculate delta for this pair
-        mean_ref = (
-            obs_data[obs_data[compare_group] == ref]
-            .groupby(groupby)[valid_sigs]
-            .mean()
-        )
+        mean_ref = obs_data[obs_data[compare_group] == ref].groupby(groupby)[valid_sigs].mean()
         mean_target = (
-            obs_data[obs_data[compare_group] == target]
-            .groupby(groupby)[valid_sigs]
-            .mean()
+            obs_data[obs_data[compare_group] == target].groupby(groupby)[valid_sigs].mean()
         )
-        
+
         common_groups = mean_ref.index.intersection(mean_target.index)
         if len(common_groups) == 0:
             log.warning(f"No common groups for {ref} vs {target}")
-            ax.text(0.5, 0.5, f"No data\n{ref} vs {target}", 
-                   ha='center', va='center', transform=ax.transAxes)
-            ax.axis('off')
+            ax.text(
+                0.5,
+                0.5,
+                f"No data\n{ref} vs {target}",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            ax.axis("off")
             continue
-        
+
         mean_ref = mean_ref.loc[common_groups]
         mean_target = mean_target.loc[common_groups]
         delta_df = mean_target - mean_ref
-        
+
         # Plot on subplot
         max_val = np.max(np.abs(delta_df.values))
-        
+
         sns.heatmap(
             delta_df,
-            cmap=kwargs.get('cmap', 'RdBu_r'),
+            cmap=kwargs.get("cmap", "RdBu_r"),
             center=0,
             vmin=-max_val,
             vmax=max_val,
             annot=True,
             fmt=".2f",
             linewidths=1,
-            linecolor='white',
-            cbar_kws={'label': f'Δ Score'},
+            linecolor="white",
+            cbar_kws={"label": "Δ Score"},
             square=True,
             ax=ax,
         )
-        
+
         ax.set_title(f"{target} vs {ref}", fontsize=12, pad=10)
         ax.set_xlabel("")
         ax.set_ylabel("")
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=9)
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right", fontsize=9)
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=9)
-        
+
         # Save individual if requested
         if save_prefix:
             fig_individual = plt.figure(figsize=figsize_per_plot)
             ax_individual = fig_individual.add_subplot(111)
             sns.heatmap(
                 delta_df,
-                cmap=kwargs.get('cmap', 'RdBu_r'),
+                cmap=kwargs.get("cmap", "RdBu_r"),
                 center=0,
                 vmin=-max_val,
                 vmax=max_val,
                 annot=True,
                 fmt=".2f",
                 linewidths=1,
-                linecolor='white',
-                cbar_kws={'label': f'Δ Score ({target} - {ref})'},
+                linecolor="white",
+                cbar_kws={"label": f"Δ Score ({target} - {ref})"},
                 square=True,
                 ax=ax_individual,
             )
             ax_individual.set_title(f"Functional Remodeling: {target} vs {ref}")
             plt.tight_layout()
-            plt.savefig(f"{save_prefix}_{ref}_vs_{target}.pdf", dpi=300, bbox_inches='tight')
+            plt.savefig(f"{save_prefix}_{ref}_vs_{target}.pdf", dpi=300, bbox_inches="tight")
             plt.close(fig_individual)
-        
-        results.append((delta_df, {'ref': ref, 'target': target, 'n_groups': len(common_groups)}))
-    
+
+        results.append((delta_df, {"ref": ref, "target": target, "n_groups": len(common_groups)}))
+
     # Hide unused subplots
     for idx in range(n_pairs, nrows * ncols):
         row = idx // ncols
         col = idx % ncols
-        axes[row, col].axis('off')
-    
+        axes[row, col].axis("off")
+
     plt.tight_layout()
-    
+
     if save_prefix:
-        plt.savefig(f"{save_prefix}_combined.pdf", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{save_prefix}_combined.pdf", dpi=300, bbox_inches="tight")
         log.info(f"Saved combined figure to {save_prefix}_combined.pdf")
-    
+
     plt.show()
     return results
 
@@ -1078,7 +1059,7 @@ def plot_score_violin_with_stats(
     save : str, optional
         Path to save figure
 
-    Returns
+    Returns:
     -------
     tuple
         (matplotlib axes, statistics dict)
@@ -1126,12 +1107,8 @@ def plot_score_violin_with_stats(
     # Print statistics
     log.info("\n=== Statistical Test Results ===")
     log.info(f"Test: {test_name}")
-    log.info(
-        f"Group 1 ({group1}): n={stats['n_group1']}, mean={stats['mean_group1']:.4f}"
-    )
-    log.info(
-        f"Group 2 ({group2}): n={stats['n_group2']}, mean={stats['mean_group2']:.4f}"
-    )
+    log.info(f"Group 1 ({group1}): n={stats['n_group1']}, mean={stats['mean_group1']:.4f}")
+    log.info(f"Group 2 ({group2}): n={stats['n_group2']}, mean={stats['mean_group2']:.4f}")
     log.info(f"Statistic: {stats['statistic']:.4f}")
     log.info(f"P-value: {stats['pvalue']:.6f}")
     if cohens_d is not None:
@@ -1240,12 +1217,12 @@ def _calculate_group_stats(
     method : str
         Statistical test method ('ttest' or 'wilcoxon')
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Single-row DataFrame with comparison statistics
 
-    Examples
+    Examples:
     --------
     >>> stats = _calculate_group_stats(
     ...     adata, 'Cytotoxicity_score', 'tissue', 'Tumor', 'Normal', 'wilcoxon'
@@ -1304,9 +1281,7 @@ def _calculate_group_stats(
         else:
             raise ValueError(f"Unknown method: {method}. Use 'ttest' or 'wilcoxon'.")
     except Exception as e:
-        log.warning(
-            f"Statistical test failed for '{score_key}' ({group1} vs {g2_label}): {e}"
-        )
+        log.warning(f"Statistical test failed for '{score_key}' ({group1} vs {g2_label}): {e}")
         return pd.DataFrame()
 
     # Calculate effect size
@@ -1367,12 +1342,12 @@ def batch_compare_scores(
         If True, apply FDR correction (requires statsmodels).
         If False, return uncorrected p-values.
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Combined results with columns: score, group1, group2, pvalue, cohens_d, etc.
 
-    Examples
+    Examples:
     --------
     >>> # Compare all signatures between two conditions
     >>> results = batch_compare_scores(
@@ -1427,7 +1402,7 @@ def batch_compare_scores(
         if adjust_pvalues:
             try:
                 from statsmodels.stats.multitest import multipletests
-                
+
                 _, pvals_corrected, _, _ = multipletests(
                     all_results["pvalue"],
                     method="fdr_bh",
@@ -1435,7 +1410,7 @@ def batch_compare_scores(
                 all_results["pvalue_adjusted"] = pvals_corrected
                 all_results = all_results.sort_values("pvalue_adjusted")
                 log.info("✅ Applied FDR correction (Benjamini-Hochberg)")
-                
+
             except ImportError:
                 log.warning(
                     "⚠️ statsmodels not installed. Skipping FDR correction. "
@@ -1444,7 +1419,7 @@ def batch_compare_scores(
                 all_results = all_results.sort_values("pvalue")
         else:
             all_results = all_results.sort_values("pvalue")
-        
+
         # Save to namespace
         ns["batch_compare_results"] = sanitize_for_hdf5(
             {
@@ -1454,7 +1429,7 @@ def batch_compare_scores(
                 "fdr_corrected": adjust_pvalues and "pvalue_adjusted" in all_results.columns,
             }
         )
-        
+
         log.info(f"✅ Completed {len(all_results)} comparisons")
         return all_results
     else:

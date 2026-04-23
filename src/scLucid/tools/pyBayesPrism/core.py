@@ -4,14 +4,15 @@ Core BayesPrism class for deconvolution (R-free)
 Main implementation of Bayesian deconvolution algorithm.
 """
 
+import logging
+from concurrent.futures import ProcessPoolExecutor
+from typing import List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List, Tuple
 from scipy.optimize import nnls
-from concurrent.futures import ProcessPoolExecutor
-import logging
 
-from .config import PrismConfig, DeconvolutionConfig
+from .config import DeconvolutionConfig, PrismConfig
 from .reference import BayesPrismReference
 from .sampling import GibbsSampler
 from .utils import cleanup_genes
@@ -37,7 +38,7 @@ class BayesPrism:
     config : PrismConfig, optional
         Configuration parameters
 
-    Attributes
+    Attributes:
     ----------
     theta_initial_ : np.ndarray
         Initial cell type proportions from NNLS
@@ -48,7 +49,7 @@ class BayesPrism:
     aligned_genes_ : List[str]
         Genes common to reference and mixture
 
-    Examples
+    Examples:
     --------
     >>> ref = BayesPrismReference(ref_data, cell_types)
     >>> bp = BayesPrism(reference=ref, mixture=bulk_data)
@@ -160,7 +161,7 @@ class BayesPrism:
         method : str
             Selection method ("fold_change" or "t-test")
 
-        Returns
+        Returns:
         -------
         List[str]
             Selected marker genes
@@ -241,7 +242,7 @@ class BayesPrism:
         updated : bool
             Use updated (Gibbs) or initial (NNLS) estimates
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Cell type proportions (samples x cell_types)
@@ -270,7 +271,7 @@ class BayesPrism:
         cell_type : str, optional
             Specific cell type (None for all)
 
-        Returns
+        Returns:
         -------
         pd.DataFrame or dict
             Cell type-specific expression
@@ -300,14 +301,14 @@ class BayesPrism:
         if self.theta_updated_ is None:
             raise ValueError("Run deconvolution first")
 
-        cv = np.std(self.theta_updated_, axis=1) / (
-            np.mean(self.theta_updated_, axis=1) + 1e-10
-        )
+        cv = np.std(self.theta_updated_, axis=1) / (np.mean(self.theta_updated_, axis=1) + 1e-10)
 
-        return pd.DataFrame({
-            'cell_type': self.reference.cell_types,
-            'CV': cv,
-        })
+        return pd.DataFrame(
+            {
+                "cell_type": self.reference.cell_types,
+                "CV": cv,
+            }
+        )
 
 
 def _deconvolve_sample_worker(args) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

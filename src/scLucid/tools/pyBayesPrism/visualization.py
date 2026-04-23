@@ -2,10 +2,10 @@
 Visualization functions for BayesPrism (R-free)
 """
 
-import numpy as np
-import pandas as pd
-from typing import Optional, Tuple, List
 import logging
+from typing import Optional, Tuple
+
+import pandas as pd
 
 log = logging.getLogger(__name__)
 
@@ -44,20 +44,20 @@ def plot_fraction(
     sns.heatmap(
         fraction_df.T,
         cmap=cmap,
-        cbar_kws={'label': 'Fraction'},
+        cbar_kws={"label": "Fraction"},
         xticklabels=True,
         yticklabels=True,
         ax=ax,
     )
 
     ax.set_title(title)
-    ax.set_xlabel('Samples')
-    ax.set_ylabel('Cell Types')
+    ax.set_xlabel("Samples")
+    ax.set_ylabel("Cell Types")
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, ax
 
@@ -95,8 +95,8 @@ def plot_correlation(
     sns.heatmap(
         corr,
         annot=True,
-        fmt='.2f',
-        cmap='coolwarm',
+        fmt=".2f",
+        cmap="coolwarm",
         center=0,
         square=True,
         ax=ax,
@@ -107,7 +107,7 @@ def plot_correlation(
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, ax
 
@@ -140,21 +140,21 @@ def plot_stacked_bar(
     fig, ax = plt.subplots(figsize=figsize)
 
     fraction_df.plot(
-        kind='bar',
+        kind="bar",
         stacked=True,
         ax=ax,
-        colormap='tab20',
+        colormap="tab20",
     )
 
     ax.set_title(title)
-    ax.set_xlabel('Samples')
-    ax.set_ylabel('Fraction')
-    ax.legend(title='Cell Types', bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.set_xlabel("Samples")
+    ax.set_ylabel("Fraction")
+    ax.legend(title="Cell Types", bbox_to_anchor=(1.05, 1), loc="upper left")
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, ax
 
@@ -198,17 +198,17 @@ def plot_gene_programs(
         axes[i].barh(range(top_n), top_genes.values[::-1])
         axes[i].set_yticks(range(top_n))
         axes[i].set_yticklabels(top_genes.index[::-1], fontsize=8)
-        axes[i].set_xlabel('Weight')
-        axes[i].set_title(f'{program}')
+        axes[i].set_xlabel("Weight")
+        axes[i].set_title(f"{program}")
 
     # Hide unused subplots
     for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
+        axes[j].axis("off")
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, axes
 
@@ -247,20 +247,20 @@ def plot_program_usage(
     sns.heatmap(
         H_df,
         cmap=cmap,
-        cbar_kws={'label': 'Usage'},
+        cbar_kws={"label": "Usage"},
         xticklabels=True,
         yticklabels=True,
         ax=ax,
     )
 
     ax.set_title(title)
-    ax.set_xlabel('Samples')
-    ax.set_ylabel('Programs')
+    ax.set_xlabel("Samples")
+    ax.set_ylabel("Programs")
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, ax
 
@@ -289,16 +289,16 @@ def plot_cv(
 
     fig, ax = plt.subplots(figsize=figsize)
 
-    ax.bar(cv_df['cell_type'], cv_df['CV'])
-    ax.set_xlabel('Cell Type')
-    ax.set_ylabel('Coefficient of Variation')
-    ax.set_title('Uncertainty Estimation (CV)')
-    ax.tick_params(axis='x', rotation=45)
+    ax.bar(cv_df["cell_type"], cv_df["CV"])
+    ax.set_xlabel("Cell Type")
+    ax.set_ylabel("Coefficient of Variation")
+    ax.set_title("Uncertainty Estimation (CV)")
+    ax.tick_params(axis="x", rotation=45)
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, ax
 
@@ -347,19 +347,19 @@ def plot_validation_scatter(
         r, p = pearsonr(x, y)
 
         ax.scatter(x, y, alpha=0.6)
-        ax.plot([0, 1], [0, 1], 'r--', lw=2)
+        ax.plot([0, 1], [0, 1], "r--", lw=2)
 
-        ax.set_xlabel('Actual Fraction')
-        ax.set_ylabel('Predicted Fraction')
-        ax.set_title(f'{cell_type}\nr={r:.3f}, p={p:.2e}')
+        ax.set_xlabel("Actual Fraction")
+        ax.set_ylabel("Predicted Fraction")
+        ax.set_title(f"{cell_type}\nr={r:.3f}, p={p:.2e}")
 
     # Hide unused subplots
     for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
+        axes[j].axis("off")
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, axes

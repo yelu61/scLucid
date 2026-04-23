@@ -2,7 +2,6 @@
 Test QC workflow behavior using synthetic data.
 """
 
-import numpy as np
 
 from scLucid import qc
 from scLucid.qc import QCWorkflowConfig
@@ -16,7 +15,9 @@ def _make_qc_test_adata():
 
 def _workflow_config_for_tests(save_dir=None) -> QCWorkflowConfig:
     """Create a non-interactive QC config for deterministic and fast tests."""
-    config = QCWorkflowConfig(sample_key="sampleID", species="human", save_dir=save_dir, use_parallel=False)
+    config = QCWorkflowConfig(
+        sample_key="sampleID", species="human", save_dir=save_dir, use_parallel=False
+    )
 
     # Metrics step: disable interactive plotting/exports.
     config.metrics_reporting_config.show_plots = False

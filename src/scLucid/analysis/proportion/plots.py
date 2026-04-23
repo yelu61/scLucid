@@ -15,15 +15,13 @@ from __future__ import annotations
 import logging
 from functools import wraps
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib.patches import PathPatch
-from matplotlib.path import Path as MplPath
 
 log = logging.getLogger(__name__)
 
@@ -44,9 +42,7 @@ def _get_sig_stars(p_val: float) -> str:
     return "ns"
 
 
-def _ensure_palette(
-    palette: Optional[Dict], keys: pd.Index, default_cmap: str = "husl"
-) -> Dict:
+def _ensure_palette(palette: Optional[Dict], keys: pd.Index, default_cmap: str = "husl") -> Dict:
     """Ensure a color palette exists for the given keys."""
     if palette is None:
         sorted_keys = sorted(keys) if all(isinstance(k, str) for k in keys) else keys
@@ -70,6 +66,7 @@ def _calculate_bracket_height(
 
 def save_and_close(plot_name: str):
     """Decorator to automatically save and close plots."""
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, out_dir=None, **kwargs):
@@ -138,7 +135,7 @@ def plot_cell_counts(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
@@ -163,18 +160,20 @@ def plot_cell_counts(
 
         for ax, (group, group_df) in zip(axes, df.groupby(group_col)):
             group_counts = group_df.groupby([sample_col, celltype_col]).size().unstack(fill_value=0)
-            group_counts.plot(kind='bar', stacked=True, ax=ax, color=[palette[c] for c in group_counts.columns])
-            ax.set_title(f'{group}')
-            ax.set_xlabel('Sample')
-            ax.set_ylabel('Cell Count')
-            ax.legend(title=celltype_col, bbox_to_anchor=(1.05, 1), loc='upper left')
+            group_counts.plot(
+                kind="bar", stacked=True, ax=ax, color=[palette[c] for c in group_counts.columns]
+            )
+            ax.set_title(f"{group}")
+            ax.set_xlabel("Sample")
+            ax.set_ylabel("Cell Count")
+            ax.legend(title=celltype_col, bbox_to_anchor=(1.05, 1), loc="upper left")
     else:
         fig, ax = plt.subplots(figsize=(max(10, len(count_df) * 0.5), 5))
-        count_df.plot(kind='bar', stacked=True, ax=ax, color=[palette[c] for c in count_df.columns])
-        ax.set_title('Cell Counts per Sample')
-        ax.set_xlabel('Sample')
-        ax.set_ylabel('Cell Count')
-        ax.legend(title=celltype_col, bbox_to_anchor=(1.05, 1), loc='upper left')
+        count_df.plot(kind="bar", stacked=True, ax=ax, color=[palette[c] for c in count_df.columns])
+        ax.set_title("Cell Counts per Sample")
+        ax.set_xlabel("Sample")
+        ax.set_ylabel("Cell Count")
+        ax.legend(title=celltype_col, bbox_to_anchor=(1.05, 1), loc="upper left")
 
     return fig
 
@@ -203,7 +202,7 @@ def plot_proportion_bar(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
@@ -223,18 +222,18 @@ def plot_proportion_bar(
 
     # Plot stacked bar
     prop_df.plot(
-        kind='bar',
+        kind="bar",
         stacked=True,
         ax=ax,
         color=[palette[c] for c in prop_df.columns],
-        edgecolor='white',
-        linewidth=0.5
+        edgecolor="white",
+        linewidth=0.5,
     )
 
-    ax.set_title('Cell Type Proportions per Sample')
-    ax.set_xlabel('Sample')
-    ax.set_ylabel('Proportion')
-    ax.legend(title='Cell Type', bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.set_title("Cell Type Proportions per Sample")
+    ax.set_xlabel("Sample")
+    ax.set_ylabel("Proportion")
+    ax.legend(title="Cell Type", bbox_to_anchor=(1.05, 1), loc="upper left")
     ax.set_ylim(0, 1)
 
     return fig
@@ -421,7 +420,7 @@ def plot_celltype_alluvial(
     palette = _ensure_palette(palette, pd.Index(resolved_celltypes))
 
     fig, ax = plt.subplots(figsize=figsize)
-    bottoms = {group: 0.0 for group in groups}
+    bottoms = dict.fromkeys(groups, 0.0)
     yspans: Dict[str, Dict[str, Tuple[float, float]]] = {group: {} for group in groups}
 
     for celltype in resolved_celltypes:
@@ -471,7 +470,9 @@ def plot_celltype_alluvial(
     ax.set_ylim(0, max(1.0, float(plot_df.sum(axis=1).max())))
     ax.set_ylabel("Proportion")
     ax.set_title(title)
-    handles = [patches.Patch(color=palette.get(ct, "#808080"), label=ct) for ct in resolved_celltypes]
+    handles = [
+        patches.Patch(color=palette.get(ct, "#808080"), label=ct) for ct in resolved_celltypes
+    ]
     ax.legend(handles=handles, title="Cell Type", loc="center left", bbox_to_anchor=(1.02, 0.5))
     return fig
 
@@ -497,7 +498,7 @@ def plot_box_summary(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
@@ -524,17 +525,17 @@ def plot_box_summary(
         bp = ax.boxplot(box_data, labels=conditions, patch_artist=True)
 
         # Color boxes
-        for patch in bp['boxes']:
-            patch.set_facecolor(palette.get(celltype, 'gray'))
+        for patch in bp["boxes"]:
+            patch.set_facecolor(palette.get(celltype, "gray"))
             patch.set_alpha(0.7)
 
         # Add strip plot
         for i, cond in enumerate(conditions):
             x = np.random.normal(i + 1, 0.04, size=len(data[data == cond]))
-            ax.scatter(x, data[data == cond], alpha=0.5, s=20, color='black', zorder=3)
+            ax.scatter(x, data[data == cond], alpha=0.5, s=20, color="black", zorder=3)
 
         ax.set_title(celltype)
-        ax.set_ylabel('Proportion')
+        ax.set_ylabel("Proportion")
 
     plt.tight_layout()
     return fig
@@ -570,13 +571,11 @@ def plot_proportion_heatmap(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
     """
-    from scipy.cluster.hierarchy import linkage, dendrogram
-
     # Reorder if specified
     if sample_order:
         prop_df = prop_df.reindex(sample_order)
@@ -585,21 +584,18 @@ def plot_proportion_heatmap(
         prop_df = prop_df[celltype_order]
 
     # Create figure
-    fig, ax = plt.subplots(figsize=(max(10, len(prop_df.columns) * 0.5), max(8, len(prop_df) * 0.1)))
+    fig, ax = plt.subplots(
+        figsize=(max(10, len(prop_df.columns) * 0.5), max(8, len(prop_df) * 0.1))
+    )
 
     # Plot heatmap
     sns.heatmap(
-        prop_df.T,
-        cmap=cmap,
-        cbar_kws={'label': 'Proportion'},
-        ax=ax,
-        linewidths=0.5,
-        annot=False
+        prop_df.T, cmap=cmap, cbar_kws={"label": "Proportion"}, ax=ax, linewidths=0.5, annot=False
     )
 
-    ax.set_title('Cell Type Proportion Heatmap')
-    ax.set_xlabel('Sample')
-    ax.set_ylabel('Cell Type')
+    ax.set_title("Cell Type Proportion Heatmap")
+    ax.set_xlabel("Sample")
+    ax.set_ylabel("Cell Type")
 
     return fig
 
@@ -607,7 +603,7 @@ def plot_proportion_heatmap(
 @save_and_close("celltype_correlation")
 def plot_celltype_correlation(
     prop_df: pd.DataFrame,
-    method: str = 'pearson',
+    method: str = "pearson",
     cmap: str = "coolwarm",
     out_dir: Optional[str] = None,
 ) -> plt.Figure:
@@ -625,7 +621,7 @@ def plot_celltype_correlation(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
@@ -645,13 +641,13 @@ def plot_celltype_correlation(
         vmax=1,
         square=True,
         linewidths=0.5,
-        cbar_kws={'label': f'{method.capitalize()} Correlation'},
+        cbar_kws={"label": f"{method.capitalize()} Correlation"},
         annot=True,
-        fmt='.2f',
-        ax=ax
+        fmt=".2f",
+        ax=ax,
     )
 
-    ax.set_title('Cell Type Proportion Correlation')
+    ax.set_title("Cell Type Proportion Correlation")
 
     return fig
 
@@ -659,8 +655,8 @@ def plot_celltype_correlation(
 @save_and_close("effect_size_volcano")
 def plot_effect_size_volcano(
     stat_df: pd.DataFrame,
-    effect_size_col: str = 'effect_size_cohens_d',
-    pval_col: str = 'padj',
+    effect_size_col: str = "effect_size_cohens_d",
+    pval_col: str = "padj",
     sig_threshold: float = 0.05,
     effect_threshold: float = 0.5,
     out_dir: Optional[str] = None,
@@ -683,7 +679,7 @@ def plot_effect_size_volcano(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
@@ -700,14 +696,16 @@ def plot_effect_size_volcano(
     is_large = np.abs(x) > effect_threshold
 
     # Plot points
-    ax.scatter(x[~is_sig], y[~is_sig], color='gray', alpha=0.5, label='ns')
-    ax.scatter(x[is_sig & ~is_large], y[is_sig & ~is_large], color='blue', alpha=0.7, label='sig')
-    ax.scatter(x[is_sig & is_large], y[is_sig & is_large], color='red', alpha=0.7, label='sig + large')
+    ax.scatter(x[~is_sig], y[~is_sig], color="gray", alpha=0.5, label="ns")
+    ax.scatter(x[is_sig & ~is_large], y[is_sig & ~is_large], color="blue", alpha=0.7, label="sig")
+    ax.scatter(
+        x[is_sig & is_large], y[is_sig & is_large], color="red", alpha=0.7, label="sig + large"
+    )
 
     # Add reference lines
-    ax.axhline(-np.log10(sig_threshold), color='black', linestyle='--', linewidth=1, alpha=0.5)
-    ax.axvline(-effect_threshold, color='black', linestyle='--', linewidth=1, alpha=0.5)
-    ax.axvline(effect_threshold, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    ax.axhline(-np.log10(sig_threshold), color="black", linestyle="--", linewidth=1, alpha=0.5)
+    ax.axvline(-effect_threshold, color="black", linestyle="--", linewidth=1, alpha=0.5)
+    ax.axvline(effect_threshold, color="black", linestyle="--", linewidth=1, alpha=0.5)
 
     # Labels
     ax.set_xlabel(f"Effect Size ({effect_size_col})")
@@ -719,12 +717,12 @@ def plot_effect_size_volcano(
     top_hits = stat_df[is_sig & is_large].nsmallest(5, pval_col)
     for _, row in top_hits.iterrows():
         ax.annotate(
-            row['cell_type'],
+            row["cell_type"],
             xy=(row[effect_size_col], -np.log10(row[pval_col])),
             xytext=(5, 5),
-            textcoords='offset points',
+            textcoords="offset points",
             fontsize=9,
-            arrowprops=dict(arrowstyle='->', lw=0.5)
+            arrowprops=dict(arrowstyle="->", lw=0.5),
         )
 
     return fig
@@ -757,7 +755,7 @@ def plot_proportion_timeseries(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
@@ -766,42 +764,33 @@ def plot_proportion_timeseries(
         raise ValueError(f"Cell type {celltype} not in proportion matrix")
 
     # Prepare data
-    plot_df = pd.DataFrame({
-        'timepoint': timepoints,
-        'proportion': prop_df[celltype]
-    })
+    plot_df = pd.DataFrame({"timepoint": timepoints, "proportion": prop_df[celltype]})
 
     if group_col is not None:
-        plot_df['group'] = group_col
-        palette = _ensure_palette(palette, plot_df['group'].unique())
+        plot_df["group"] = group_col
+        palette = _ensure_palette(palette, plot_df["group"].unique())
 
     # Create figure
     fig, ax = plt.subplots(figsize=(10, 6))
 
     if group_col is not None:
-        for group in plot_df['group'].unique():
-            group_df = plot_df[plot_df['group'] == group]
+        for group in plot_df["group"].unique():
+            group_df = plot_df[plot_df["group"] == group]
             ax.plot(
-                group_df['timepoint'],
-                group_df['proportion'],
-                'o-',
+                group_df["timepoint"],
+                group_df["proportion"],
+                "o-",
                 label=group,
                 color=palette.get(group),
                 linewidth=2,
-                markersize=8
+                markersize=8,
             )
     else:
-        ax.plot(
-            plot_df['timepoint'],
-            plot_df['proportion'],
-            'o-',
-            linewidth=2,
-            markersize=8
-        )
+        ax.plot(plot_df["timepoint"], plot_df["proportion"], "o-", linewidth=2, markersize=8)
 
-    ax.set_xlabel('Timepoint')
-    ax.set_ylabel(f'{celltype} Proportion')
-    ax.set_title(f'{celltype} Proportion Over Time')
+    ax.set_xlabel("Timepoint")
+    ax.set_ylabel(f"{celltype} Proportion")
+    ax.set_title(f"{celltype} Proportion Over Time")
 
     if group_col is not None:
         ax.legend()
@@ -813,7 +802,7 @@ def plot_proportion_timeseries(
 def plot_batch_effect(
     prop_df: pd.DataFrame,
     batch: pd.Series,
-    method: str = 'pca',
+    method: str = "pca",
     palette: Optional[Dict] = None,
     out_dir: Optional[str] = None,
 ) -> plt.Figure:
@@ -833,7 +822,7 @@ def plot_batch_effect(
     out_dir : str, optional
         Output directory for saving plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Matplotlib figure object
@@ -846,18 +835,18 @@ def plot_batch_effect(
     prop_scaled = scaler.fit_transform(prop_df)
 
     # Dimensionality reduction
-    if method == 'pca':
+    if method == "pca":
         reducer = PCA(n_components=2)
         emb = reducer.fit_transform(prop_scaled)
         var_explained = reducer.explained_variance_ratio_
-        xlabel = f'PC1 ({var_explained[0]*100:.1f}%)'
-        ylabel = f'PC2 ({var_explained[1]*100:.1f}%)'
+        xlabel = f"PC1 ({var_explained[0]*100:.1f}%)"
+        ylabel = f"PC2 ({var_explained[1]*100:.1f}%)"
     else:
         log.warning(f"Unknown method: {method}. Using PCA.")
         reducer = PCA(n_components=2)
         emb = reducer.fit_transform(prop_scaled)
-        xlabel = 'PC1'
-        ylabel = 'PC2'
+        xlabel = "PC1"
+        ylabel = "PC2"
 
     # Ensure palette
     palette = _ensure_palette(palette, batch.unique())
@@ -868,18 +857,11 @@ def plot_batch_effect(
     # Plot samples colored by batch
     for b in batch.unique():
         mask = batch == b
-        ax.scatter(
-            emb[mask, 0],
-            emb[mask, 1],
-            label=b,
-            color=palette.get(b),
-            s=100,
-            alpha=0.7
-        )
+        ax.scatter(emb[mask, 0], emb[mask, 1], label=b, color=palette.get(b), s=100, alpha=0.7)
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    ax.set_title('Batch Effect Visualization')
+    ax.set_title("Batch Effect Visualization")
     ax.legend()
 
     return fig
@@ -887,6 +869,7 @@ def plot_batch_effect(
 
 # Additional simplified plotting functions for other plot types
 # These would follow the same pattern as above
+
 
 def plot_composition(
     prop_df: pd.DataFrame,
@@ -949,7 +932,7 @@ def plot_proportion_with_ci(
 
 def plot_celltype_variability(
     prop_df: pd.DataFrame,
-    method: str = 'cv',
+    method: str = "cv",
     out_dir: Optional[str] = None,
 ) -> plt.Figure:
     """Plot cell type variability across samples."""

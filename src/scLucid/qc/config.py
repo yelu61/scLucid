@@ -26,8 +26,12 @@ class MetricsReportingConfig(SclucidBaseConfig):
 
     # Plotting Controls
     plot_violin: bool = Field(default=True, description="Plot violin plots for QC metrics.")
-    plot_scatter: bool = Field(default=True, description="Plot scatter for total_counts vs n_genes.")
-    plot_top_genes: bool = Field(default=True, description="Plot distribution of pct_counts_in_top_X_genes.")
+    plot_scatter: bool = Field(
+        default=True, description="Plot scatter for total_counts vs n_genes."
+    )
+    plot_top_genes: bool = Field(
+        default=True, description="Plot distribution of pct_counts_in_top_X_genes."
+    )
     show_plots: bool = Field(default=True, description="Display plots interactively.")
 
     # File Export Controls
@@ -48,22 +52,30 @@ class QCThresholds(SclucidBaseConfig):
     max_genes: Optional[int] = Field(default=None, ge=0, description="Maximum genes per cell.")
 
     # Cell-based filtering
-    min_counts: Optional[int] = Field(default=None, ge=0, description="Minimum UMI counts per cell.")
-    max_counts: Optional[int] = Field(default=None, ge=0, description="Maximum UMI counts per cell.")
+    min_counts: Optional[int] = Field(
+        default=None, ge=0, description="Minimum UMI counts per cell."
+    )
+    max_counts: Optional[int] = Field(
+        default=None, ge=0, description="Maximum UMI counts per cell."
+    )
 
     # MAD-based outlier detection
     nmads: float = Field(default=5.0, gt=0, description="Number of MADs for outlier detection.")
 
     # Percentage-based filtering
-    pc_mt: Optional[float] = Field(default=20.0, ge=0, le=100, description="Mitochondrial percentage threshold.")
-    pc_hb: Optional[float] = Field(default=20.0, ge=0, le=100, description="Hemoglobin percentage threshold.")
+    pc_mt: Optional[float] = Field(
+        default=20.0, ge=0, le=100, description="Mitochondrial percentage threshold."
+    )
+    pc_hb: Optional[float] = Field(
+        default=20.0, ge=0, le=100, description="Hemoglobin percentage threshold."
+    )
     pc_top_genes: Dict[str, float] = Field(
         default_factory=dict, description="Top gene percentages, e.g., {'pc_top_20_genes': 50.0}"
     )
     use_fixed_top_gene_threshold: bool = Field(default=False)
 
     @model_validator(mode="after")
-    def validate_thresholds(self) -> "QCThresholds":
+    def validate_thresholds(self) -> QCThresholds:
         """Validate threshold logical consistency."""
         if self.min_genes is not None and self.max_genes is not None:
             if self.min_genes > self.max_genes:
@@ -90,8 +102,12 @@ class MarkerConfig(SclucidBaseConfig):
     model_config = ConfigDict(extra="ignore")
 
     genes: Union[List[str], str] = Field(description="List of genes or regex pattern")
-    expression_threshold: float = Field(default=2.0, description="Minimum expression to be 'expressed'")
-    min_genes_required: int = Field(default=2, ge=1, description="Minimum genes required for lineage")
+    expression_threshold: float = Field(
+        default=2.0, description="Minimum expression to be 'expressed'"
+    )
+    min_genes_required: int = Field(
+        default=2, ge=1, description="Minimum genes required for lineage"
+    )
     use_raw: bool = Field(default=True, description="Whether to use raw counts")
     is_regex: bool = Field(default=False, description="Determined from genes type")
 
@@ -142,14 +158,16 @@ class DoubletConfig(SclucidBaseConfig):
     )
     marker_species: str = Field(default="human", description="Species for marker loading")
     marker_tissue: Optional[str] = Field(default=None, description="Tissue context for markers")
-    marker_configs: Optional[Dict[str, "MarkerConfig"]] = Field(
+    marker_configs: Optional[Dict[str, MarkerConfig]] = Field(
         default=None, description="Manual marker override (disables auto-loading)"
     )
     default_expression_threshold: float = Field(default=2.0)
     default_min_genes_required: int = Field(default=2, ge=1)
     default_use_raw: bool = Field(default=True)
     min_lineage_prevalence: float = Field(default=0.005, ge=0, le=1)
-    min_lineages_for_doublet: int = Field(default=2, ge=2, description="Min lineages for doublet call")
+    min_lineages_for_doublet: int = Field(
+        default=2, ge=2, description="Min lineages for doublet call"
+    )
     ignore_coexpression_pairs: List[Tuple[str, str]] = Field(
         default_factory=lambda: [("Epithelial", "Mesenchymal")]
     )
@@ -173,7 +191,7 @@ class DoubletConfig(SclucidBaseConfig):
     show_plots: bool = Field(default=True)
 
     @model_validator(mode="after")
-    def validate_method_params(self) -> "DoubletConfig":
+    def validate_method_params(self) -> DoubletConfig:
         """Validate method-specific dependencies and parameters."""
         if self.method == "scrublet":
             try:
@@ -193,12 +211,14 @@ class DoubletConfig(SclucidBaseConfig):
             try:
                 import doubletdetection
             except ImportError:
-                logger.warning("doublet-detection not found. Install with: pip install doublet-detection")
+                logger.warning(
+                    "doublet-detection not found. Install with: pip install doublet-detection"
+                )
 
         return self
 
     @model_validator(mode="after")
-    def validate_heuristics(self) -> "DoubletConfig":
+    def validate_heuristics(self) -> DoubletConfig:
         """Validate heuristic-specific parameters."""
         if not self.use_heuristics:
             if self.marker_configs is not None or self.marker_tissue is not None:
@@ -209,7 +229,9 @@ class DoubletConfig(SclucidBaseConfig):
 
     @field_validator("expected_doublet_rate")
     @classmethod
-    def validate_doublet_rate(cls, v: Optional[Union[float, Dict[str, float]]]) -> Optional[Union[float, Dict[str, float]]]:
+    def validate_doublet_rate(
+        cls, v: Optional[Union[float, Dict[str, float]]]
+    ) -> Optional[Union[float, Dict[str, float]]]:
         """Validate expected doublet rate."""
         if v is None:
             return v
@@ -219,7 +241,9 @@ class DoubletConfig(SclucidBaseConfig):
         elif isinstance(v, dict):
             for k, rate in v.items():
                 if not (0.0 < rate < 1.0):
-                    raise ValueError(f"expected_doublet_rate for sample '{k}' must be between 0 and 1")
+                    raise ValueError(
+                        f"expected_doublet_rate for sample '{k}' must be between 0 and 1"
+                    )
         return v
 
 
@@ -273,14 +297,18 @@ class FilterConfig(SclucidBaseConfig):
     )
     combination_logic: Literal["any", "all", "custom", "threshold"] = Field(default="any")
     custom_logic_expr: Optional[str] = Field(default=None)
-    min_criteria_for_removal: int = Field(default=2, ge=1, description="Used when logic is 'threshold'")
+    min_criteria_for_removal: int = Field(
+        default=2, ge=1, description="Used when logic is 'threshold'"
+    )
     metadata_filters: Optional[Dict[str, Any]] = Field(default=None)
 
     @model_validator(mode="after")
-    def validate_filter_logic(self) -> "FilterConfig":
+    def validate_filter_logic(self) -> FilterConfig:
         """Validate filter logic configuration."""
         if self.combination_logic == "custom" and not self.custom_logic_expr:
-            raise ValueError("combination_logic is 'custom', but 'custom_logic_expr' is not provided")
+            raise ValueError(
+                "combination_logic is 'custom', but 'custom_logic_expr' is not provided"
+            )
 
         if self.combination_logic == "threshold" and self.min_criteria_for_removal < 1:
             raise ValueError("'min_criteria_for_removal' must be >= 1 for 'threshold' logic")
@@ -310,9 +338,7 @@ class QCWorkflowConfig(WorkflowConfigBase):
     model_config = ConfigDict(extra="ignore")
 
     # Sub-configurations for each step
-    metrics_reporting_config: MetricsReportingConfig = Field(
-        default_factory=MetricsReportingConfig
-    )
+    metrics_reporting_config: MetricsReportingConfig = Field(default_factory=MetricsReportingConfig)
     marking_config: MarkingConfig = Field(default_factory=MarkingConfig)
     doublet_config: DoubletConfig = Field(default_factory=DoubletConfig)
     filter_config: FilterConfig = Field(default_factory=FilterConfig)
@@ -355,7 +381,7 @@ class QCWorkflowConfig(WorkflowConfigBase):
         return data
 
     @classmethod
-    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> "QCWorkflowConfig":
+    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> QCWorkflowConfig:
         """
         Create QCWorkflowConfig from a simplified flat dictionary.
 
@@ -383,8 +409,15 @@ class QCWorkflowConfig(WorkflowConfigBase):
             ... })
         """
         # Extract threshold parameters
-        threshold_keys = ["min_genes", "max_genes", "min_counts", "max_counts",
-                         "pc_mt", "pc_hb", "nmads"]
+        threshold_keys = [
+            "min_genes",
+            "max_genes",
+            "min_counts",
+            "max_counts",
+            "pc_mt",
+            "pc_hb",
+            "nmads",
+        ]
         thresholds = {}
         for key in threshold_keys:
             config_key = f"thresholds_{key}"
@@ -407,9 +440,7 @@ class QCWorkflowConfig(WorkflowConfigBase):
             kwargs["save_dir"] = kwargs.pop("results_dir")
 
         if thresholds:
-            kwargs["marking_config"] = MarkingConfig(
-                thresholds=QCThresholds(**thresholds)
-            )
+            kwargs["marking_config"] = MarkingConfig(thresholds=QCThresholds(**thresholds))
 
         if doublet_config:
             kwargs["doublet_config"] = DoubletConfig(**doublet_config)
@@ -417,7 +448,7 @@ class QCWorkflowConfig(WorkflowConfigBase):
         return cls(**kwargs)
 
     @classmethod
-    def quick(cls, min_genes: int = 200, pc_mt: float = 20.0, **kwargs) -> "QCWorkflowConfig":
+    def quick(cls, min_genes: int = 200, pc_mt: float = 20.0, **kwargs) -> QCWorkflowConfig:
         """
         Quick configuration factory for common use cases.
 
@@ -433,10 +464,8 @@ class QCWorkflowConfig(WorkflowConfigBase):
             >>> config = QCWorkflowConfig.quick(min_genes=300, pc_mt=15.0, species="mouse")
         """
         return cls(
-            marking_config=MarkingConfig(
-                thresholds=QCThresholds(min_genes=min_genes, pc_mt=pc_mt)
-            ),
-            **kwargs
+            marking_config=MarkingConfig(thresholds=QCThresholds(min_genes=min_genes, pc_mt=pc_mt)),
+            **kwargs,
         )
 
 

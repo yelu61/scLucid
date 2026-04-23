@@ -2,7 +2,7 @@
 
 import pytest
 
-from scLucid.utils import flatten_marker_dict, filter_marker_dict
+from scLucid.utils import filter_marker_dict, flatten_marker_dict
 
 
 @pytest.mark.unit

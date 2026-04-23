@@ -5,11 +5,12 @@ This module provides tools for analyzing tumor progression
 trajectories and identifying transition states.
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class ProgressionAnalyzer:
     method : str
         Trajectory inference method ("pseudotime", "velocity")
 
-    Attributes
+    Attributes:
     ----------
     pseudotime_ : pd.Series
         Pseudotime assignments
@@ -60,14 +61,16 @@ class ProgressionAnalyzer:
         embedding_key : str
             Key for embedding coordinates
 
-        Returns
+        Returns:
         -------
         pd.Series
             Pseudotime assignments
         """
         # Use diffusion pseudotime or similar
         if embedding_key not in adata.obsm:
-            raise ValueError(f"Embedding {embedding_key} not found. Run dimensionality reduction first.")
+            raise ValueError(
+                f"Embedding {embedding_key} not found. Run dimensionality reduction first."
+            )
 
         X = adata.obsm[embedding_key]
 
@@ -113,7 +116,7 @@ class ProgressionAnalyzer:
         window_size : float
             Window size for sliding analysis
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Transition state information
@@ -173,7 +176,7 @@ class ProgressionAnalyzer:
         min_branch_size : int
             Minimum size for a branch
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Branch point information
@@ -195,12 +198,14 @@ class ProgressionAnalyzer:
             mask = labels == label
             center = X[mask].mean(axis=0)
 
-            branches.append({
-                "branch_id": label,
-                "n_cells": mask.sum(),
-                "center_x": center[0],
-                "center_y": center[1],
-            })
+            branches.append(
+                {
+                    "branch_id": label,
+                    "n_cells": mask.sum(),
+                    "center_x": center[0],
+                    "center_y": center[1],
+                }
+            )
 
         return pd.DataFrame(branches)
 
@@ -231,7 +236,7 @@ def analyze_tumor_progression(
     key_added : str
         Key for storing pseudotime
 
-    Returns
+    Returns:
     -------
     pd.Series
         Pseudotime assignments
@@ -265,7 +270,7 @@ def identify_transition_states(
     cell_type_key : str
         Column with cell types
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Transition states
@@ -291,7 +296,7 @@ def align_progression_trajectories(
     gene_subset : list, optional
         Genes to use for alignment
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Aligned trajectory data
@@ -322,13 +327,15 @@ def align_progression_trajectories(
             else:
                 expr = bin_adata.X.mean(axis=0)
 
-            if hasattr(expr, 'toarray'):
+            if hasattr(expr, "toarray"):
                 expr = expr.toarray().flatten()
 
-            aligned_data.append({
-                "sample": i,
-                "pseudotime_bin": bin_centers[j],
-                "mean_expression": expr.mean(),
-            })
+            aligned_data.append(
+                {
+                    "sample": i,
+                    "pseudotime_bin": bin_centers[j],
+                    "mean_expression": expr.mean(),
+                }
+            )
 
     return pd.DataFrame(aligned_data)

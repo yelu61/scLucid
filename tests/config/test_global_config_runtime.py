@@ -45,10 +45,9 @@ def test_config_context_restores_values_on_exit_and_exception():
 
     assert get_config().n_jobs == baseline
 
-    with pytest.raises(RuntimeError):
-        with config_context(n_jobs=5):
-            assert get_config().n_jobs == 5
-            raise RuntimeError("boom")
+    with pytest.raises(RuntimeError), config_context(n_jobs=5):
+        assert get_config().n_jobs == 5
+        raise RuntimeError("boom")
 
     assert get_config().n_jobs == baseline
 

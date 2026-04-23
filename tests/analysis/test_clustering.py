@@ -4,19 +4,15 @@ Tests for the analysis clustering module.
 Tests clustering, resolution optimization, and cluster merging.
 """
 
+import sys
+
 import pytest
-import numpy as np
-from anndata import AnnData
 import scanpy as sc
 
-import sys
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
-import scLucid as scl
 from scLucid.analysis.clustering import cluster_cells, find_resolution, merge_clusters
-from scLucid.analysis.config import ClusteringConfig, ResolutionSearchConfig, MergeClustersConfig
-
-from tests.fixtures.synthetic_data import minimal_adata, synthetic_generator
+from scLucid.analysis.config import ClusteringConfig, MergeClustersConfig, ResolutionSearchConfig
 
 
 @pytest.fixture

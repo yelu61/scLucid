@@ -5,11 +5,12 @@ This module provides tools for building and analyzing phylogenetic
 trees from single-cell data.
 """
 
+import logging
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class PhylogenyBuilder:
     distance_metric : str
         Distance metric for tree construction
 
-    Attributes
+    Attributes:
     ----------
     tree_ : dict
         Phylogenetic tree structure
@@ -62,7 +63,7 @@ class PhylogenyBuilder:
         variant_key : str, optional
             Key for variant data in adata.obsm
 
-        Returns
+        Returns:
         -------
         dict
             Phylogenetic tree structure
@@ -78,20 +79,15 @@ class PhylogenyBuilder:
             )
         else:
             # Use expression data (mean per clone)
-            clone_data = self._aggregate_by_clone(
-                adata.X, adata.obs[clone_key], clones
-            )
-            if hasattr(clone_data, 'toarray'):
+            clone_data = self._aggregate_by_clone(adata.X, adata.obs[clone_key], clones)
+            if hasattr(clone_data, "toarray"):
                 clone_data = clone_data.toarray()
 
         # Calculate distance matrix
         from scipy.spatial.distance import pdist, squareform
+
         distances = pdist(clone_data, metric=self.distance_metric)
-        self.distance_matrix_ = pd.DataFrame(
-            squareform(distances),
-            index=clones,
-            columns=clones
-        )
+        self.distance_matrix_ = pd.DataFrame(squareform(distances), index=clones, columns=clones)
 
         # Build tree
         if self.method == "nj":
@@ -217,7 +213,10 @@ class PhylogenyBuilder:
 
         dm = distance_matrix.values.copy()
         active = list(range(n))
-        nodes = [{"id": i, "label": labels[i], "children": [], "height": 0.0, "size": 1} for i in range(n)]
+        nodes = [
+            {"id": i, "label": labels[i], "children": [], "height": 0.0, "size": 1}
+            for i in range(n)
+        ]
         next_node_id = n
 
         while len(active) > 1:
@@ -247,9 +246,10 @@ class PhylogenyBuilder:
             new_distances = []
             for kk in active:
                 if kk != ii and kk != jj:
-                    new_d = (dm[active.index(ii), active.index(kk)] * nodes[ii]["size"] +
-                             dm[active.index(jj), active.index(kk)] * nodes[jj]["size"]) / \
-                            (nodes[ii]["size"] + nodes[jj]["size"])
+                    new_d = (
+                        dm[active.index(ii), active.index(kk)] * nodes[ii]["size"]
+                        + dm[active.index(jj), active.index(kk)] * nodes[jj]["size"]
+                    ) / (nodes[ii]["size"] + nodes[jj]["size"])
                     new_distances.append(new_d)
 
             # Update active list
@@ -281,7 +281,7 @@ class PhylogenyBuilder:
         outgroup : str, optional
             Outgroup label for rooting
 
-        Returns
+        Returns:
         -------
         dict
             Rooted tree
@@ -316,7 +316,7 @@ def build_phylogenetic_tree(
     method : str
         Tree building method
 
-    Returns
+    Returns:
     -------
     dict
         Phylogenetic tree structure
@@ -336,7 +336,7 @@ def root_tree(tree: Dict, outgroup: Optional[str] = None) -> Dict:
     outgroup : str, optional
         Outgroup label
 
-    Returns
+    Returns:
     -------
     dict
         Rooted tree
@@ -354,11 +354,12 @@ def calculate_tree_metrics(tree: Dict) -> Dict:
     tree : dict
         Tree structure
 
-    Returns
+    Returns:
     -------
     dict
         Tree metrics
     """
+
     def count_tips(node: Dict) -> int:
         if not node.get("children"):
             return 1
@@ -372,8 +373,10 @@ def calculate_tree_metrics(tree: Dict) -> Dict:
     def get_depth(node: Dict) -> float:
         if not node.get("children"):
             return 0.0
-        child_depths = [get_depth(child) + node.get(f"branch_length_{i+1}", 0.5)
-                       for i, child in enumerate(node["children"])]
+        child_depths = [
+            get_depth(child) + node.get(f"branch_length_{i+1}", 0.5)
+            for i, child in enumerate(node["children"])
+        ]
         return max(child_depths)
 
     return {

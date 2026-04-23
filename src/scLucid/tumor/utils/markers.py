@@ -25,7 +25,7 @@ def get_tumor_markers(
     custom_markers : list, optional
         Additional custom markers to include
 
-    Returns
+    Returns:
     -------
     list
         Tumor marker gene names
@@ -67,12 +67,12 @@ def get_immune_markers(
     include_subtypes : bool
         Include subtype markers for T cells
 
-    Returns
+    Returns:
     -------
     dict or list
         Immune marker genes by cell type
 
-    Note
+    Note:
     ----
     This function now delegates to the global Manager class.
     Consider using `get_marker_manager()` directly for new code.
@@ -114,12 +114,12 @@ def get_stromal_markers(
     cell_type : str, optional
         Specific stromal cell type. If None, returns all.
 
-    Returns
+    Returns:
     -------
     dict or list
         Stromal marker genes
 
-    Note
+    Note:
     ----
     This function now delegates to the global Manager class.
     Consider using `get_marker_manager()` directly for new code.
@@ -133,7 +133,10 @@ def get_stromal_markers(
 
     for name, cell in mgr.CELLS.items():
         # Check if it might be stromal by name patterns
-        if any(keyword in name.lower() for keyword in ["fibroblast", "endothelial", "pericyte", "smooth muscle"]):
+        if any(
+            keyword in name.lower()
+            for keyword in ["fibroblast", "endothelial", "pericyte", "smooth muscle"]
+        ):
             markers = mgr.query("markers", name)[name]
             stromal_cells[name] = markers
 
@@ -158,12 +161,12 @@ def get_proliferation_markers(
     phase : str, optional
         Cell cycle phase ("proliferation_core", "g1_s_genes", "s_genes", "g2m_genes", "m_genes")
 
-    Returns
+    Returns:
     -------
     dict or list
         Proliferation marker genes
 
-    Note
+    Note:
     ----
     This function now loads from resources/cell_cycle_genes.json
     """
@@ -209,12 +212,12 @@ def get_emt_markers(
     state : str
         EMT state ("epithelial", "mesenchymal", "hybrid", "all")
 
-    Returns
+    Returns:
     -------
     dict or list
         EMT marker genes
 
-    Note
+    Note:
     ----
     This function now loads from resources/genesets_cancer_signatures.json
     """
@@ -248,20 +251,23 @@ def get_all_markers() -> Dict[str, Dict[str, List[str]]]:
     """
     Get all marker gene definitions.
 
-    Returns
+    Returns:
     -------
     dict
         All marker gene sets organized by category
     """
     return {
-        "tumor": {k: v for k, v in [
-            ("pan_cancer", get_tumor_markers("pan_cancer")),
-            ("lung", get_tumor_markers("lung")),
-            ("breast", get_tumor_markers("breast")),
-            ("colorectal", get_tumor_markers("colorectal")),
-            ("liver", get_tumor_markers("liver")),
-            ("gastric", get_tumor_markers("gastric")),
-        ]},
+        "tumor": {
+            k: v
+            for k, v in [
+                ("pan_cancer", get_tumor_markers("pan_cancer")),
+                ("lung", get_tumor_markers("lung")),
+                ("breast", get_tumor_markers("breast")),
+                ("colorectal", get_tumor_markers("colorectal")),
+                ("liver", get_tumor_markers("liver")),
+                ("gastric", get_tumor_markers("gastric")),
+            ]
+        },
         "immune": get_immune_markers(),
         "stromal": get_stromal_markers(),
         "proliferation": get_proliferation_markers(),
@@ -283,7 +289,7 @@ def search_markers(
     return_categories : bool
         Return categories containing the gene
 
-    Returns
+    Returns:
     -------
     dict
         Categories and specific sets containing the gene
@@ -296,7 +302,8 @@ def search_markers(
     for category, marker_sets in all_markers.items():
         if isinstance(marker_sets, dict):
             matches = {
-                k: v for k, v in marker_sets.items()
+                k: v
+                for k, v in marker_sets.items()
                 if isinstance(v, list) and gene_upper in [g.upper() for g in v]
             }
             if matches:

@@ -4,7 +4,6 @@
 提供统一的 `analyze_celltype_proportion()` 函数，自动分发到：
 - Pseudo-bulk 方法 (analysis/proportion.py)
 - scCODA 方法 (tools/sccoda.py)
-- Milo 方法 (tools/milo.py，待实现)
 
 使用 `recommend_method()` 自动选择最合适的方法。
 """
@@ -34,24 +33,23 @@ def analyze_celltype_proportion(
     celltype_col: str = "cell_type",
     out_dir: Optional[Union[str, Path]] = None,
     return_type: Literal["auto", "tuple", "anndata"] = "auto",
-    **kwargs
+    **kwargs,
 ) -> Union[tuple[pd.DataFrame, pd.DataFrame], AnnData]:
     """
     统一的细胞比例分析接口。
 
     这是分析细胞类型比例变化的统一入口函数。根据指定的方法（或自动推荐），
-    调用相应的分析流程：Pseudo-bulk、scCODA 或 Milo。
+    调用相应的分析流程：Pseudo-bulk 或 scCODA。
 
     Parameters
     ----------
     adata : AnnData
         单细胞数据对象，必须包含样本、条件和细胞类型列
-    method : {None, 'pseudobulk', 'sccoda', 'milo'} or ProportionMethod, optional
+    method : {None, 'pseudobulk', 'sccoda'} or ProportionMethod, optional
         分析方法选择：
         - None (默认): 自动推荐最合适的方法
         - 'pseudobulk': Pseudo-bulk + 传统统计检验
         - 'sccoda': 贝叶斯组成数据分析
-        - 'milo': 基于邻域的细胞水平分析（未实现）
     config : ProportionConfig, optional
         分析配置对象。如果为 None，使用默认配置
     sample_col : str
@@ -70,21 +68,20 @@ def analyze_celltype_proportion(
     **kwargs
         传递给具体分析方法的额外参数
 
-    Returns
+    Returns:
     -------
     根据方法和 return_type 参数：
         - **Pseudo-bulk**: (prop_df, stat_df) 元组
         - **scCODA**: AnnData（结果存储在 adata.uns['sclucid']['sccoda']）
-        - **Milo**: AnnData（未实现）
 
-    Raises
+    Raises:
     ------
     ValueError
         如果指定的方法无效
-    NotImplementedError
-        如果选择的方法尚未实现（如 Milo）
+    ValueError
+        如果指定的方法无效
 
-    Examples
+    Examples:
     --------
     **示例 1: 自动推荐方法**
     >>> from scLucid.analysis import analyze_celltype_proportion
@@ -137,13 +134,13 @@ def analyze_celltype_proportion(
     ...     config=config
     ... )
 
-    See Also
+    See Also:
     --------
     recommend_method : 根据数据特征推荐分析方法
     ProportionConfig : 分析配置类
     scLucid.tools.sccoda.run_sccoda : scCODA 详细接口
 
-    Notes
+    Notes:
     -----
     **方法选择指南**:
 
@@ -152,7 +149,6 @@ def analyze_celltype_proportion(
     ├─────────────┼────────────────┼─────────────────┼──────────────┤
     │ Pseudo-bulk │ N ≥ 5         │ 无             │ 标准分析     │
     │ scCODA      │ N < 5 或任意  │ 有             │ 批次校正     │
-    │ Milo        │ N ≥ 3         │ 无关           │ 亚群发现     │
     └─────────────┴────────────────┴─────────────────┴──────────────┘
 
     **输出格式**:
@@ -161,33 +157,26 @@ def analyze_celltype_proportion(
         * prop_df: 样本 × 细胞类型的比例矩阵
         * stat_df: 统计检验结果（p-value, 效应量等）
 
-    - **scCODA/Milo** 返回 AnnData:
-        * 结果存储在 adata.uns['sclucid']['sccoda'] 或 adata.uns['sclucid']['milo']
+    - **scCODA** 返回 AnnData:
+        * 结果存储在 adata.uns['sclucid']['sccoda']
         * 可使用对应的 summarise 函数提取结果
 
     **性能考虑**:
 
     - Pseudo-bulk: 最快（秒级）
     - scCODA: 中等（分钟级，MCMC 采样）
-    - Milo: 最慢（小时级，图计算）
 
-    References
+    References:
     ----------
     .. [1] Love, M.I. et al. (2014) "Moderated estimation of fold change and
        dispersion for RNA-seq data with DESeq2." Genome Biol.
     .. [2] Büttner, M. et al. (2021) "scCODA: Bayesian composition analysis
        of single-cell data." Nat. Methods.
-    .. [3] Dan, J. et al. (2022) "Milo: A scalable statistical framework
-       for differential composition analysis." Nat. Methods.
     """
     # 1. 方法选择
     if method is None:
         log.info("未指定方法，自动推荐...")
-        method = recommend_method(
-            adata,
-            sample_col=sample_col,
-            condition_col=condition_col
-        )
+        method = recommend_method(adata, sample_col=sample_col, condition_col=condition_col)
     elif isinstance(method, str):
         method = ProportionMethod(method.lower())
 
@@ -206,11 +195,12 @@ def analyze_celltype_proportion(
         # 确保配置存在
         if config is None:
             from .config import ProportionConfig as DefaultConfig
+
             config = DefaultConfig(
                 celltype_col=celltype_col,
                 sample_col=sample_col,
                 condition_col=condition_col,
-                out_dir=str(out_dir) if out_dir else None
+                out_dir=str(out_dir) if out_dir else None,
             )
         else:
             # 更新配置中的列名
@@ -224,13 +214,13 @@ def analyze_celltype_proportion(
         prop_df, stat_df = pb_analysis(adata, config)
 
         # 根据返回类型要求返回
-        if return_type == 'anndata':
+        if return_type == "anndata":
             # 将结果存储到 AnnData 中
-            adata.uns.setdefault('sclucid', {})['proportion'] = {
-                'method': 'pseudobulk',
-                'prop_df': prop_df,
-                'stat_df': stat_df,
-                'config': config.model_dump()
+            adata.uns.setdefault("sclucid", {})["proportion"] = {
+                "method": "pseudobulk",
+                "prop_df": prop_df,
+                "stat_df": stat_df,
+                "config": config.model_dump(),
             }
             return adata
         else:
@@ -243,16 +233,14 @@ def analyze_celltype_proportion(
         try:
             from .sccoda import run_sccoda
         except ImportError:
-            raise ImportError(
-                "scCODA 未安装。请安装: pip install scCODA"
-            )
+            raise ImportError("scCODA 未安装。请安装: pip install scCODA")
 
         # 提取 scCODA 特定参数
         sccoda_kwargs = {
-            'cell_type_col': celltype_col,
-            'sample_col': sample_col,
-            'condition_col': condition_col,
-            'out_dir': out_dir
+            "cell_type_col": celltype_col,
+            "sample_col": sample_col,
+            "condition_col": condition_col,
+            "out_dir": out_dir,
         }
         sccoda_kwargs.update(kwargs)
 
@@ -261,21 +249,9 @@ def analyze_celltype_proportion(
 
         return result
 
-    elif method == ProportionMethod.MILO:
-        # Milo 方法尚未实现
-        raise NotImplementedError(
-            "Milo 分析尚未实现。\n"
-            "当前可选方法：'pseudobulk'（默认）或 'sccoda'。\n"
-            "如果需要 Milo 功能，请：\n"
-            "  1. 安装 Milo: pip import milo\n"
-            "  2. 实现 tools/milo.py wrapper\n"
-            "  或使用 issue 请求添加此功能"
-        )
-
     else:
         raise ValueError(
-            f"未知的方法: {method}\n"
-            f"可用方法: {[m.value for m in ProportionMethod]}"
+            f"未知的方法: {method}\n" f"可用方法: {[m.value for m in ProportionMethod]}"
         )
 
 
@@ -291,7 +267,7 @@ def analyze_all_methods(
     condition_col: str = "condition",
     celltype_col: str = "cell_type",
     out_dir: Optional[Union[str, Path]] = None,
-    compare: bool = True
+    compare: bool = True,
 ) -> dict[str, Union[tuple, AnnData]]:
     """
     使用多种方法分析细胞比例，便于结果比较。
@@ -313,12 +289,12 @@ def analyze_all_methods(
     compare : bool
         是否生成方法比较报告
 
-    Returns
+    Returns:
     -------
     dict
         字典，键为方法名，值为对应方法的结果
 
-    Examples
+    Examples:
     --------
     >>> from scLucid.analysis import analyze_all_methods
     >>>
@@ -332,7 +308,7 @@ def analyze_all_methods(
     >>> prop_df, stat_df = results['pseudobulk']
     >>> adata_sccoda = results['sccoda']
 
-    Notes
+    Notes:
     -----
     该函数便于：
     - 方法验证：比较不同方法的结果一致性
@@ -366,7 +342,7 @@ def analyze_all_methods(
                 condition_col=condition_col,
                 celltype_col=celltype_col,
                 out_dir=method_out_dir,
-                return_type='auto'
+                return_type="auto",
             )
             results[method.value] = result
 
@@ -378,12 +354,13 @@ def analyze_all_methods(
     if compare:
         log.info("\n生成方法比较报告...")
         from .proportion_methods import compare_methods
+
         comparison = compare_methods(
             adata,
             methods=methods,
             sample_col=sample_col,
             condition_col=condition_col,
-            celltype_col=celltype_col
+            celltype_col=celltype_col,
         )
 
         if out_dir:
@@ -391,9 +368,9 @@ def analyze_all_methods(
             log.info(f"比较报告保存至: {out_dir / 'method_comparison.csv'}")
 
         # 打印比较表
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("方法适用性比较")
-        print("="*80)
-        print(comparison[['method', 'overall_score', 'recommendation']].to_string(index=False))
+        print("=" * 80)
+        print(comparison[["method", "overall_score", "recommendation"]].to_string(index=False))
 
     return results

@@ -3,7 +3,8 @@ Core data structures for pyMonocle3 (R-free)
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Union, List
+from typing import Any, Dict, Optional, Union
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -36,6 +37,7 @@ class CellDataSet:
     principal_graph : dict, optional
         Principal graph for trajectory inference
     """
+
     expression_data: Union[np.ndarray, sp.spmatrix]
     cell_metadata: pd.DataFrame
     gene_metadata: pd.DataFrame
@@ -87,17 +89,19 @@ class CellDataSet:
     def copy(self) -> "CellDataSet":
         """Create a deep copy of the CellDataSet"""
         return CellDataSet(
-            expression_data=self.expression_data.copy()
-            if sp.issparse(self.expression_data)
-            else self.expression_data.copy(),
+            expression_data=(
+                self.expression_data.copy()
+                if sp.issparse(self.expression_data)
+                else self.expression_data.copy()
+            ),
             cell_metadata=self.cell_metadata.copy(),
             gene_metadata=self.gene_metadata.copy(),
             reducedDims={k: v.copy() for k, v in self.reducedDims.items()},
             clusters=self.clusters.copy() if self.clusters is not None else None,
             partitions=self.partitions.copy() if self.partitions is not None else None,
-            principal_graph=self.principal_graph.copy()
-            if self.principal_graph is not None
-            else None,
+            principal_graph=(
+                self.principal_graph.copy() if self.principal_graph is not None else None
+            ),
             preprocessing_params=self.preprocessing_params.copy(),
         )
 
@@ -135,7 +139,7 @@ def new_cell_data_set(
     gene_metadata : pd.DataFrame, optional
         Gene metadata. If None, creates default metadata.
 
-    Returns
+    Returns:
     -------
     CellDataSet
         New CellDataSet object
@@ -167,9 +171,11 @@ def new_cell_data_set(
             gene_metadata.index = gene_names
 
     return CellDataSet(
-        expression_data=expression_matrix
-        if not isinstance(expression_matrix, pd.DataFrame)
-        else expression_matrix.values,
+        expression_data=(
+            expression_matrix
+            if not isinstance(expression_matrix, pd.DataFrame)
+            else expression_matrix.values
+        ),
         cell_metadata=cell_metadata,
         gene_metadata=gene_metadata,
     )
@@ -189,7 +195,7 @@ def create_cds_from_scanpy(
     layer : str, optional
         Layer to use. If None, uses .X
 
-    Returns
+    Returns:
     -------
     CellDataSet
         New CellDataSet object
@@ -219,7 +225,7 @@ def export_to_scanpy(cds: CellDataSet) -> AnnData:
     cds : CellDataSet
         CellDataSet to export
 
-    Returns
+    Returns:
     -------
     AnnData
         Scanpy AnnData object

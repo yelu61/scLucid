@@ -3,19 +3,14 @@ Plotting functions for single-cell RNA-seq data.
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import List, Literal, Optional, Tuple
 
-import matplotlib.gridspec as gridspec
-import matplotlib.patches as mpatches
-import matplotlib.patheffects as PathEffects
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import scipy.sparse
 import seaborn as sns
-from scipy.cluster import hierarchy
-from scipy.spatial import distance
 
 # Try importing adjustText softly
 try:
@@ -129,12 +124,12 @@ def plot_ridge(
     **kwargs
         Additional keyword arguments passed to `seaborn.kdeplot`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object.
 
-    Examples
+    Examples:
     --------
     >>> # Basic ridge plot
     >>> plot_ridge(adata, features=['CD3D', 'CD4'], groupby='cell_type')
@@ -144,9 +139,7 @@ def plot_ridge(
     """
     # --- 1. Input Validation and Data Preparation ---
     if not (groupby or (groupby_main and groupby_sub)):
-        raise ValueError(
-            "Provide either 'groupby' or both 'groupby_main' and 'groupby_sub'."
-        )
+        raise ValueError("Provide either 'groupby' or both 'groupby_main' and 'groupby_sub'.")
 
     adata_to_plot = _subset_adata(adata, subset)
 
@@ -158,25 +151,25 @@ def plot_ridge(
     for feature in features:
         try:
             # Use sc.get.obs_df which handles raw/layer logic robustly
-            expr = sc.get.obs_df(
-                adata_to_plot, keys=[feature], use_raw=use_raw, layer=layer
-            )[feature].values
+            expr = sc.get.obs_df(adata_to_plot, keys=[feature], use_raw=use_raw, layer=layer)[
+                feature
+            ].values
         except KeyError:
             raise ValueError(
                 f"Feature '{feature}' not found. Check `use_raw` and `layer` parameters."
             )
-        temp_df = pd.DataFrame(
-            {"expression": expr, "group": adata_to_plot.obs[groupby].values}
-        )
+        temp_df = pd.DataFrame({"expression": expr, "group": adata_to_plot.obs[groupby].values})
         df_list.append(temp_df)
 
     plot_df = pd.concat(df_list)
-    plot_df['feature'] = np.repeat(features, [len(adata_to_plot.obs[groupby].unique())] * len(features))
+    plot_df["feature"] = np.repeat(
+        features, [len(adata_to_plot.obs[groupby].unique())] * len(features)
+    )
 
     # --- 3. Plotting with FacetGrid ---
-    n_groups = len(plot_df['group'].unique())
+    n_groups = len(plot_df["group"].unique())
     n_features = len(features)
-    
+
     if figsize is None:
         # Estimate figure size
         subplot_h = 0.8
@@ -189,7 +182,14 @@ def plot_ridge(
     sns.set_theme(style="white", rc={"axes.facecolor": (0, 0, 0, 0)})
 
     g = sns.FacetGrid(
-        plot_df, row="group", col="feature", sharex=True, sharey=False, height=subplot_h, aspect=subplot_w/subplot_h, palette=palette
+        plot_df,
+        row="group",
+        col="feature",
+        sharex=True,
+        sharey=False,
+        height=subplot_h,
+        aspect=subplot_w / subplot_h,
+        palette=palette,
     )
 
     g.map(
@@ -277,12 +277,12 @@ def plot_coexpression(
     **kwargs
         Additional keyword arguments passed to `ax.scatter` or `ax.hexbin`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object.
 
-    Examples
+    Examples:
     --------
     >>> # Basic co-expression plot
     >>> plot_coexpression(adata, x_gene='CD3D', y_gene='CD8A')
@@ -298,9 +298,7 @@ def plot_coexpression(
 
     try:
         # Use sc.get.obs_df which handles raw/layer logic robustly
-        df = sc.get.obs_df(
-            adata_to_plot, keys=[x_gene, y_gene], use_raw=use_raw, layer=layer
-        )
+        df = sc.get.obs_df(adata_to_plot, keys=[x_gene, y_gene], use_raw=use_raw, layer=layer)
     except KeyError as e:
         raise ValueError(f"Could not find data for plotting: {e}")
 
@@ -399,12 +397,12 @@ def plot_differential_abundance(
     show : bool, default=True
         Whether to display the plot
 
-    Returns
+    Returns:
     -------
     plt.Figure
         Figure object
 
-    Examples
+    Examples:
     --------
     >>> # Visualize differential abundance
     >>> plot_differential_abundance(diff_abundance_df)

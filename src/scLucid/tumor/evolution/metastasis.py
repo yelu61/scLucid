@@ -5,35 +5,83 @@ This module provides tools for predicting metastasis risk
 and analyzing tumor cell dissemination patterns.
 """
 
+import logging
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
 # Metastasis-associated gene signatures
 METASTASIS_SIGNATURES = {
     "emt": [
-        "CDH2", "VIM", "SNAI1", "SNAI2", "TWIST1", "ZEB1", "ZEB2",
-        "FN1", "MMP2", "MMP3", "MMP9", "TGFB1", "TGFB2",
+        "CDH2",
+        "VIM",
+        "SNAI1",
+        "SNAI2",
+        "TWIST1",
+        "ZEB1",
+        "ZEB2",
+        "FN1",
+        "MMP2",
+        "MMP3",
+        "MMP9",
+        "TGFB1",
+        "TGFB2",
     ],
     "invasion": [
-        "MMP1", "MMP2", "MMP3", "MMP7", "MMP9", "MMP13",
-        "PLAU", "PLAUR", "CTSD", "CTSB", "HEBP2",
+        "MMP1",
+        "MMP2",
+        "MMP3",
+        "MMP7",
+        "MMP9",
+        "MMP13",
+        "PLAU",
+        "PLAUR",
+        "CTSD",
+        "CTSB",
+        "HEBP2",
     ],
     "angiogenesis": [
-        "VEGFA", "VEGFB", "VEGFC", "ANGPT1", "ANGPT2", "PDGFA",
-        "FGF2", "HGF", "TGFA", "IGF1", "IGF2",
+        "VEGFA",
+        "VEGFB",
+        "VEGFC",
+        "ANGPT1",
+        "ANGPT2",
+        "PDGFA",
+        "FGF2",
+        "HGF",
+        "TGFA",
+        "IGF1",
+        "IGF2",
     ],
     "stemness": [
-        "PROM1", "CD44", "ALDH1A1", "ALDH1A3", "NANOG", "SOX2", "POU5F1",
-        "KLF4", "MYC", "BMI1", "EZH2",
+        "PROM1",
+        "CD44",
+        "ALDH1A1",
+        "ALDH1A3",
+        "NANOG",
+        "SOX2",
+        "POU5F1",
+        "KLF4",
+        "MYC",
+        "BMI1",
+        "EZH2",
     ],
     "proliferation": [
-        "MKI67", "PCNA", "CCNB1", "CCND1", "CDK1", "CDK4", "CDK6",
-        "E2F1", "TOP2A", "AURKA", "AURKB",
+        "MKI67",
+        "PCNA",
+        "CCNB1",
+        "CCND1",
+        "CDK1",
+        "CDK4",
+        "CDK6",
+        "E2F1",
+        "TOP2A",
+        "AURKA",
+        "AURKB",
     ],
 }
 
@@ -56,7 +104,7 @@ class MetastasisTracker:
     signatures : dict
         Metastasis-associated gene signatures
 
-    Attributes
+    Attributes:
     ----------
     risk_scores_ : pd.DataFrame
         Metastasis risk scores per cell
@@ -84,7 +132,7 @@ class MetastasisTracker:
         organ : str, optional
             Target organ for tropism prediction
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Risk scores per cell
@@ -99,7 +147,7 @@ class MetastasisTracker:
                 continue
 
             expr = adata[:, available].X.mean(axis=1)
-            if hasattr(expr, 'toarray'):
+            if hasattr(expr, "toarray"):
                 expr = expr.toarray().flatten()
 
             scores[sig_name] = expr
@@ -111,7 +159,7 @@ class MetastasisTracker:
 
             if len(available) > 0:
                 expr = adata[:, available].X.mean(axis=1)
-                if hasattr(expr, 'toarray'):
+                if hasattr(expr, "toarray"):
                     expr = expr.toarray().flatten()
                 scores[f"{organ}_tropism"] = expr
 
@@ -140,7 +188,7 @@ class MetastasisTracker:
         metastatic_key : str
             Column indicating metastatic cells
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Dissemination analysis results
@@ -178,8 +226,9 @@ class MetastasisTracker:
 
                 # Statistical test
                 from scipy import stats
+
                 _, pval = stats.mannwhitneyu(
-                    scores[primary_mask], scores[meta_mask], alternative='two-sided'
+                    scores[primary_mask], scores[meta_mask], alternative="two-sided"
                 )
                 result["pvalue"] = pval
 
@@ -208,7 +257,7 @@ class MetastasisTracker:
         primary_value : str
             Value indicating primary tumor
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Potential seeding clones
@@ -239,7 +288,8 @@ class MetastasisTracker:
                     "clone": clone,
                     "n_cells": clone_adata.n_obs,
                     "primary_freq": site_freqs.get(primary_value, 0),
-                    "seeding_potential": site_freqs.get(primary_value, 0) * len([s for s in metastatic_sites if s in site_freqs]),
+                    "seeding_potential": site_freqs.get(primary_value, 0)
+                    * len([s for s in metastatic_sites if s in site_freqs]),
                 }
 
                 for site in metastatic_sites:
@@ -271,7 +321,7 @@ def predict_metastasis_risk(
     key_added : str
         Key prefix for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Risk scores
@@ -305,7 +355,7 @@ def analyze_dissemination(
     metastatic_key : str
         Metastatic indicator
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Dissemination analysis
@@ -336,7 +386,7 @@ def compare_primary_vs_metastasis(
     method : str
         Statistical test method
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Differential expression results
@@ -358,9 +408,9 @@ def compare_primary_vs_metastasis(
         expr_primary = adata[primary_mask, gene].X
         expr_meta = adata[meta_mask, gene].X
 
-        if hasattr(expr_primary, 'toarray'):
+        if hasattr(expr_primary, "toarray"):
             expr_primary = expr_primary.toarray().flatten()
-        if hasattr(expr_meta, 'toarray'):
+        if hasattr(expr_meta, "toarray"):
             expr_meta = expr_meta.toarray().flatten()
 
         if method == "wilcoxon":
@@ -373,13 +423,15 @@ def compare_primary_vs_metastasis(
         else:
             raise ValueError(f"Unknown method: {method}")
 
-        results.append({
-            "gene": gene,
-            "primary_mean": np.mean(expr_primary),
-            "metastatic_mean": np.mean(expr_meta),
-            "log2fc": np.log2((np.mean(expr_meta) + 1e-6) / (np.mean(expr_primary) + 1e-6)),
-            "statistic": stat,
-            "pvalue": pval,
-        })
+        results.append(
+            {
+                "gene": gene,
+                "primary_mean": np.mean(expr_primary),
+                "metastatic_mean": np.mean(expr_meta),
+                "log2fc": np.log2((np.mean(expr_meta) + 1e-6) / (np.mean(expr_primary) + 1e-6)),
+                "statistic": stat,
+                "pvalue": pval,
+            }
+        )
 
     return pd.DataFrame(results).sort_values("pvalue")

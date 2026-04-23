@@ -7,9 +7,9 @@ import threading
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 try:
     from .base_config import SclucidBaseConfig
@@ -20,6 +20,7 @@ except ImportError:
         """Fallback base config when base_config module is unavailable."""
 
         model_config = {"extra": "ignore"}
+
 
 _config_lock = threading.Lock()
 
@@ -32,8 +33,8 @@ class GlobalConfig(SclucidBaseConfig):
     # Computational settings
     n_jobs: int = Field(default=-1, description="Number of parallel jobs (-1 for all cores)")
     random_state: int = Field(default=42, description="Random seed for reproducibility")
-    backend: Literal['loky', 'threading', 'multiprocessing'] = Field(
-        default='loky', description="Parallel backend for joblib"
+    backend: Literal["loky", "threading", "multiprocessing"] = Field(
+        default="loky", description="Parallel backend for joblib"
     )
 
     # Logging settings
@@ -45,12 +46,14 @@ class GlobalConfig(SclucidBaseConfig):
     use_cache: bool = Field(default=True, description="Whether to use caching")
 
     # Plotting settings
-    plot_backend: Literal['matplotlib', 'plotly'] = Field(default='matplotlib', description="Plotting backend")
+    plot_backend: Literal["matplotlib", "plotly"] = Field(
+        default="matplotlib", description="Plotting backend"
+    )
     figure_dpi: int = Field(default=100, description="Figure DPI")
-    figure_format: str = Field(default='png', description="Figure format (png, pdf, svg)")
-    color_palette: str = Field(default='tab20', description="Color palette name")
-    plot_theme: str = Field(default='default', description="Plot theme")
-    font_style: Optional[Literal['nature', 'cell', 'traditional']] = Field(
+    figure_format: str = Field(default="png", description="Figure format (png, pdf, svg)")
+    color_palette: str = Field(default="tab20", description="Color palette name")
+    plot_theme: str = Field(default="default", description="Plot theme")
+    font_style: Optional[Literal["nature", "cell", "traditional"]] = Field(
         default=None, description="Academic font style"
     )
 
@@ -59,7 +62,7 @@ class GlobalConfig(SclucidBaseConfig):
     low_memory_mode: bool = Field(default=False, description="Enable memory-efficient mode")
 
     # Species-specific settings
-    default_species: str = Field(default='human', description="Default species")
+    default_species: str = Field(default="human", description="Default species")
 
     # Resource paths
     marker_db_path: Optional[Path] = Field(default=None, description="Path to marker database")
@@ -81,7 +84,7 @@ class GlobalConfig(SclucidBaseConfig):
         return data
 
     @model_validator(mode="after")
-    def post_init_setup(self) -> "GlobalConfig":
+    def post_init_setup(self) -> GlobalConfig:
         """Set up logging after initialization."""
         self._setup_logging()
         self._validate_settings()
@@ -89,12 +92,8 @@ class GlobalConfig(SclucidBaseConfig):
 
     def _setup_logging(self):
         """Configure logging based on verbosity."""
-        logger = logging.getLogger('sclucid')
-        log_levels = {
-            0: logging.WARNING,
-            1: logging.INFO,
-            2: logging.DEBUG
-        }
+        logger = logging.getLogger("sclucid")
+        log_levels = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}
 
         level = log_levels.get(self.verbosity, logging.INFO)
 
@@ -108,8 +107,7 @@ class GlobalConfig(SclucidBaseConfig):
         console_handler = logging.StreamHandler()
         console_handler.setLevel(level)
         formatter = logging.Formatter(
-            '[%(asctime)s] %(levelname)s - %(name)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "[%(asctime)s] %(levelname)s - %(name)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
@@ -126,16 +124,14 @@ class GlobalConfig(SclucidBaseConfig):
         """Validate configuration settings."""
         if self.n_jobs < -1 or self.n_jobs == 0:
             warnings.warn(
-                f"n_jobs={self.n_jobs} is invalid. Setting to -1 (use all cores).",
-                UserWarning
+                f"n_jobs={self.n_jobs} is invalid. Setting to -1 (use all cores).", UserWarning
             )
             # Can't modify self during validation, so this warning is informational
             # The user should set n_jobs correctly when creating the config
 
         if self.verbosity not in [0, 1, 2]:
             warnings.warn(
-                f"verbosity={self.verbosity} is invalid. Setting to 1 (INFO).",
-                UserWarning
+                f"verbosity={self.verbosity} is invalid. Setting to 1 (INFO).", UserWarning
             )
 
     def set(self, **kwargs):
@@ -147,15 +143,14 @@ class GlobalConfig(SclucidBaseConfig):
                 raise ValueError(f"Unknown configuration key: {key}")
         self._validate_settings()
 
-        if 'verbosity' in kwargs or 'log_file' in kwargs:
+        if "verbosity" in kwargs or "log_file" in kwargs:
             self._setup_logging()
 
-        if any(k in kwargs for k in ['figure_dpi', 'plot_theme', 'font_style']):
+        if any(k in kwargs for k in ["figure_dpi", "plot_theme", "font_style"]):
             from .settings import set_figure_params
+
             set_figure_params(
-                dpi=self.figure_dpi,
-                color_theme=self.plot_theme,
-                font_style=self.font_style
+                dpi=self.figure_dpi, color_theme=self.plot_theme, font_style=self.font_style
             )
 
     def reset(self):

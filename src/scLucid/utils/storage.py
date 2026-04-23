@@ -18,9 +18,9 @@ Usage:
 """
 
 import logging
-from typing import Any, Dict, Optional, Union
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 from anndata import AnnData
 
@@ -86,7 +86,7 @@ def save_result(
     key: str,
     data: Any,
     config: Optional[Dict[str, Any]] = None,
-    overwrite: bool = True
+    overwrite: bool = True,
 ) -> None:
     """
     Save analysis result to standardized storage location.
@@ -109,8 +109,9 @@ def save_result(
     storage = get_storage(adata, module, create=True)
 
     if key in storage and not overwrite:
-        raise KeyError(f"Key '{key}' already exists in {module} storage. "
-                      f"Use overwrite=True to replace.")
+        raise KeyError(
+            f"Key '{key}' already exists in {module} storage. " f"Use overwrite=True to replace."
+        )
 
     # Store result with metadata
     storage[key] = {
@@ -213,10 +214,7 @@ def list_results(adata: AnnData, module: Optional[str] = None) -> Dict[str, list
 
 
 def clear_storage(
-    adata: AnnData,
-    module: Optional[str] = None,
-    keys: Optional[list] = None,
-    dry_run: bool = False
+    adata: AnnData, module: Optional[str] = None, keys: Optional[list] = None, dry_run: bool = False
 ) -> Dict[str, Any]:
     """
     Clear stored results.
@@ -301,12 +299,9 @@ def migrate_legacy_storage(adata: AnnData, dry_run: bool = False) -> Dict[str, l
 
 # Convenience functions for common patterns
 
+
 def save_workflow_result(
-    adata: AnnData,
-    module: str,
-    workflow_name: str,
-    steps: list,
-    config: Dict[str, Any]
+    adata: AnnData, module: str, workflow_name: str, steps: list, config: Dict[str, Any]
 ) -> None:
     """
     Save workflow completion metadata.
@@ -322,17 +317,85 @@ def save_workflow_result(
             "steps_executed": steps,
             "completed_at": datetime.now().isoformat(),
         },
-        config=config
+        config=config,
     )
 
 
 def load_workflow_result(
-    adata: AnnData,
-    module: str,
-    workflow_name: str
+    adata: AnnData, module: str, workflow_name: str
 ) -> Optional[Dict[str, Any]]:
     """Load workflow completion metadata."""
     return load_result(adata, module, f"{workflow_name}_workflow")
+
+
+def export_review_summary(
+    review_summary: Dict[str, Any],
+    save_dir: Union[str, Path],
+    module: str,
+    title: Optional[str] = None,
+) -> Dict[str, Path]:
+    """
+    Export a review summary as JSON and Markdown sidecars.
+
+    This is the unified entry point for writing review-facing artifacts
+    from any scLucid module (qc, preprocess, analysis).
+
+    Args:
+        review_summary: Structured review summary dict
+        save_dir: Directory to write files
+        module: Module name (used in filenames, e.g. 'qc', 'preprocess', 'analysis')
+        title: Optional title override for Markdown header
+
+    Returns:
+        Dict mapping 'json' and 'md' to written Path objects
+
+    Example:
+        >>> export_review_summary(summary, "./results", "qc")
+        {'json': Path('.../qc_review_summary.json'), 'md': Path('.../qc_review_summary.md')}
+    """
+    import json as _json
+
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # JSON sidecar
+    json_path = save_dir / f"{module}_review_summary.json"
+    json_path.write_text(
+        _json.dumps(review_summary, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    # Markdown sidecar
+    md_title = title or f"{module.capitalize()} Review Summary"
+    md_lines = [f"# {md_title}", ""]
+
+    def _render_dict(d: Dict[str, Any], indent: int = 0) -> list[str]:
+        lines = []
+        prefix = "  " * indent
+        for key, val in d.items():
+            if isinstance(val, dict):
+                lines.append(f"{prefix}- **{key}**:")
+                lines.extend(_render_dict(val, indent + 1))
+            elif isinstance(val, list):
+                lines.append(f"{prefix}- **{key}**:")
+                for item in val:
+                    if isinstance(item, dict):
+                        lines.append(f"{prefix}  -")
+                        lines.extend(_render_dict(item, indent + 2))
+                    else:
+                        lines.append(f"{prefix}  - {item}")
+            else:
+                lines.append(f"{prefix}- **{key}**: {val}")
+        return lines
+
+    md_lines.extend(_render_dict(review_summary))
+    md_lines.append("")
+
+    md_path = save_dir / f"{module}_review_summary.md"
+    md_path.write_text("\n".join(md_lines), encoding="utf-8")
+
+    log.info(f"Review summary exported to {json_path} and {md_path}")
+    return {"json": json_path, "md": md_path}
 
 
 __all__ = [
@@ -348,6 +411,7 @@ __all__ = [
     # Convenience functions
     "save_workflow_result",
     "load_workflow_result",
+    "export_review_summary",
     # Constants
     "STORAGE_ROOT",
     "VALID_MODULES",

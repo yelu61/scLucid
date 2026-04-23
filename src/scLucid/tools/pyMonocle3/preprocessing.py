@@ -2,13 +2,13 @@
 Preprocessing functions for pyMonocle3 (R-free)
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from scipy.stats import pearsonr
 from sklearn.preprocessing import scale
-from typing import Optional, List, Union, Tuple
-import logging
 
 from .core import CellDataSet
 
@@ -32,7 +32,7 @@ def detect_genes(
     min_cells : int
         Minimum number of cells expressing the gene
 
-    Returns
+    Returns:
     -------
     CellDataSet
         Updated CellDataSet with gene statistics
@@ -55,12 +55,12 @@ def detect_genes(
     num_cells = np.sum(expr_dense > min_expr, axis=1)
 
     # Update gene metadata
-    cds.gene_metadata['mean_expression'] = mean_expr
-    cds.gene_metadata['prop_expressed'] = prop_expr
-    cds.gene_metadata['num_cells_expressed'] = num_cells
+    cds.gene_metadata["mean_expression"] = mean_expr
+    cds.gene_metadata["prop_expressed"] = prop_expr
+    cds.gene_metadata["num_cells_expressed"] = num_cells
 
     # Mark valid genes
-    cds.gene_metadata['use_for_ordering'] = num_cells >= min_cells
+    cds.gene_metadata["use_for_ordering"] = num_cells >= min_cells
 
     log.info(f"Detected {np.sum(num_cells >= min_cells)} genes expressed in >= {min_cells} cells")
 
@@ -71,7 +71,7 @@ def estimate_size_factors(
     cds: CellDataSet,
     locfunc: callable = np.median,
     round_exprs: bool = True,
-    method: str = "mean-geometric-mean-total"
+    method: str = "mean-geometric-mean-total",
 ) -> CellDataSet:
     """
     Estimate size factors for normalization
@@ -87,7 +87,7 @@ def estimate_size_factors(
     method : str
         Normalization method
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with size factors added to cell_metadata
@@ -113,9 +113,11 @@ def estimate_size_factors(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    cds.cell_metadata['Size_Factor'] = size_factors
+    cds.cell_metadata["Size_Factor"] = size_factors
 
-    log.info(f"Size factors estimated: mean={np.mean(size_factors):.3f}, std={np.std(size_factors):.3f}")
+    log.info(
+        f"Size factors estimated: mean={np.mean(size_factors):.3f}, std={np.std(size_factors):.3f}"
+    )
 
     return cds
 
@@ -152,7 +154,7 @@ def preprocess_cds(
     use_genes : list, optional
         Specific genes to use
 
-    Returns
+    Returns:
     -------
     CellDataSet
         Preprocessed CellDataSet with reduced dimensions
@@ -170,7 +172,7 @@ def preprocess_cds(
     if sp.issparse(expr):
         expr = expr.toarray()
 
-    size_factors = cds.cell_metadata['Size_Factor'].values
+    size_factors = cds.cell_metadata["Size_Factor"].values
 
     if norm_method == "log":
         # Size factor normalization + log transform
@@ -185,7 +187,7 @@ def preprocess_cds(
     if use_genes is not None:
         gene_mask = cds.gene_metadata.index.isin(use_genes)
     else:
-        gene_mask = cds.gene_metadata['use_for_ordering'].values
+        gene_mask = cds.gene_metadata["use_for_ordering"].values
 
     norm_expr_subset = norm_expr[gene_mask, :]
 
@@ -203,10 +205,10 @@ def preprocess_cds(
         pca = PCA(n_components=min(num_dim, norm_expr_subset.shape[0], norm_expr_subset.shape[1]))
         reduced = pca.fit_transform(norm_expr_subset.T)
 
-        cds.reducedDims['PCA'] = reduced
+        cds.reducedDims["PCA"] = reduced
 
         # Store variance explained
-        cds.preprocessing_params['pca_variance_explained'] = pca.explained_variance_ratio_
+        cds.preprocessing_params["pca_variance_explained"] = pca.explained_variance_ratio_
 
         log.info(f"PCA completed: {reduced.shape[1]} components")
 
@@ -217,10 +219,12 @@ def preprocess_cds(
         svd = TruncatedSVD(n_components=min(num_dim, norm_expr_subset.shape[0] - 1))
 
         # For LSI, use TF-IDF like transformation
-        tfidf = norm_expr_subset * np.log1p(norm_expr_subset.shape[1] / (1 + np.sum(norm_expr_subset > 0, axis=1)[:, np.newaxis]))
+        tfidf = norm_expr_subset * np.log1p(
+            norm_expr_subset.shape[1] / (1 + np.sum(norm_expr_subset > 0, axis=1)[:, np.newaxis])
+        )
 
         reduced = svd.fit_transform(tfidf.T)
-        cds.reducedDims['LSI'] = reduced
+        cds.reducedDims["LSI"] = reduced
 
         log.info(f"LSI completed: {reduced.shape[1]} components")
 
@@ -228,13 +232,15 @@ def preprocess_cds(
         raise ValueError(f"Unknown method: {method}")
 
     # Store preprocessing parameters
-    cds.preprocessing_params.update({
-        'num_dim': num_dim,
-        'norm_method': norm_method,
-        'pseudo_count': pseudo_count,
-        'scaling': scaling,
-        'method': method,
-    })
+    cds.preprocessing_params.update(
+        {
+            "num_dim": num_dim,
+            "norm_method": norm_method,
+            "pseudo_count": pseudo_count,
+            "scaling": scaling,
+            "method": method,
+        }
+    )
 
     log.info("Preprocessing completed")
 
@@ -258,7 +264,7 @@ def align_cds(
     k : int
         Number of nearest neighbors
 
-    Returns
+    Returns:
     -------
     CellDataSet
         Aligned CellDataSet
@@ -271,7 +277,7 @@ def align_cds(
         from sklearn.neighbors import NearestNeighbors
 
         # Get PCA representations
-        refs = [cds.reducedDims['PCA'] for cds in cds_list]
+        refs = [cds.reducedDims["PCA"] for cds in cds_list]
 
         # Find mutual nearest neighbors
         # This is a simplified version - full MNN is more complex
@@ -292,7 +298,7 @@ def align_cds(
         # Create merged CellDataSet
         merged_expr = sp.hstack([cds.expression_data for cds in cds_list])
         merged_meta = pd.concat([cds.cell_metadata for cds in cds_list], ignore_index=True)
-        merged_meta['batch'] = np.concatenate([[i] * cds.n_cells for i, cds in enumerate(cds_list)])
+        merged_meta["batch"] = np.concatenate([[i] * cds.n_cells for i, cds in enumerate(cds_list)])
         merged_gene_meta = cds_list[0].gene_metadata.copy()
 
         cds_aligned = CellDataSet(
@@ -300,7 +306,7 @@ def align_cds(
             cell_metadata=merged_meta,
             gene_metadata=merged_gene_meta,
         )
-        cds_aligned.reducedDims['PCA_aligned'] = aligned
+        cds_aligned.reducedDims["PCA_aligned"] = aligned
 
         log.info(f"Alignment completed: {cds_aligned.n_cells} cells from {len(cds_list)} batches")
 

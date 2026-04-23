@@ -30,9 +30,7 @@ class TumorAnalysisConfig(SclucidBaseConfig):
     )
 
     # TME analysis
-    run_tme: bool = Field(
-        default=True, description="Run tumor microenvironment deconvolution."
-    )
+    run_tme: bool = Field(default=True, description="Run tumor microenvironment deconvolution.")
     tme_cell_type_key: str = Field(
         default="cell_type_auto",
         description="Column in adata.obs containing cell type annotations for TME.",
@@ -49,9 +47,7 @@ class TumorAnalysisConfig(SclucidBaseConfig):
     )
 
     # Therapy analysis
-    run_therapy: bool = Field(
-        default=False, description="Run therapy response prediction."
-    )
+    run_therapy: bool = Field(default=False, description="Run therapy response prediction.")
     therapy_drugs: Optional[List[str]] = Field(
         default=None, description="List of drug names for resistance scoring."
     )
@@ -109,7 +105,7 @@ class TumorWorkflowConfig(WorkflowConfigBase):
     )
 
     @classmethod
-    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> "TumorWorkflowConfig":
+    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> TumorWorkflowConfig:
         """Create TumorWorkflowConfig from a simplified flat dictionary."""
         mapping = {
             "save_dir": "save_dir",
@@ -146,19 +142,23 @@ class TumorWorkflowConfig(WorkflowConfigBase):
         save_dir: Optional[str] = None,
         tissue_type: str = "tumor",
         batch_key: Optional[str] = None,
-    ) -> "TumorWorkflowConfig":
+    ) -> TumorWorkflowConfig:
         """Factory for a runnable default tumor workflow config."""
+        from ..analysis.config import AnalysisWorkflowConfig
+        from ..preprocess.config import (
+            IntegrationConfig,
+        )
+        from ..preprocess.config import (
+            WorkflowConfig as PreprocessWorkflowConfig,
+        )
         from ..qc.config import (
-            QCWorkflowConfig,
-            MetricsReportingConfig,
-            MarkingConfig,
             DoubletConfig,
             FilterConfig,
+            MarkingConfig,
+            MetricsReportingConfig,
+            QCThresholds,
+            QCWorkflowConfig,
         )
-        from ..preprocess.config import WorkflowConfig as PreprocessWorkflowConfig, IntegrationConfig
-        from ..analysis.config import AnalysisWorkflowConfig
-
-        from ..qc.config import QCThresholds
 
         qc_config = QCWorkflowConfig(
             metrics_reporting_config=MetricsReportingConfig(show_plots=False),
@@ -167,9 +167,7 @@ class TumorWorkflowConfig(WorkflowConfigBase):
                 thresholds=QCThresholds(min_genes=10, pc_mt=50.0),
             ),
             doublet_config=DoubletConfig(run_algorithm=False, use_heuristics=False),
-            filter_config=FilterConfig(
-                criteria_to_filter=["outlier_min_genes", "outlier_mt"]
-            ),
+            filter_config=FilterConfig(criteria_to_filter=["outlier_min_genes", "outlier_mt"]),
         )
 
         return cls(
@@ -178,9 +176,7 @@ class TumorWorkflowConfig(WorkflowConfigBase):
             batch_key=batch_key,
             use_recommendations=True,
             qc_config=qc_config,
-            preprocess_config=PreprocessWorkflowConfig(
-                integration=IntegrationConfig(method=None)
-            ),
+            preprocess_config=PreprocessWorkflowConfig(integration=IntegrationConfig(method=None)),
             analysis_config=AnalysisWorkflowConfig(),
             tumor_config=TumorAnalysisConfig(),
         )

@@ -2,8 +2,8 @@
 Command-line interface for launching scLucid web application.
 """
 
-import sys
 import logging
+import sys
 
 log = logging.getLogger(__name__)
 
@@ -38,9 +38,7 @@ def launch_web_app(
     import time
 
     # Import after logging setup
-    from scLucid.web.api.main import app as api_app
     from scLucid.web.dash_app import QCDashApp
-    import uvicorn
 
     log.info("Starting scLucid web application...")
     log.info(f"Backend API: http://{host}:{api_port}")

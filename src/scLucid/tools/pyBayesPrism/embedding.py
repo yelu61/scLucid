@@ -4,11 +4,12 @@ Embedding learning module for BayesPrism (R-free)
 NMF-based gene program learning for tumor expression deconvolution.
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Tuple, List
 from sklearn.decomposition import NMF
-import logging
 
 from .core import BayesPrism
 
@@ -31,7 +32,7 @@ class BayesPrismEmbedding:
     n_programs : int
         Number of gene programs to learn
 
-    Attributes
+    Attributes:
     ----------
     W_ : np.ndarray
         Gene program matrix (genes x programs)
@@ -42,7 +43,7 @@ class BayesPrismEmbedding:
     H_df_ : pd.DataFrame
         Program usage as DataFrame with sample names
 
-    Examples
+    Examples:
     --------
     >>> embedding = BayesPrismEmbedding(
     ...     prism=bp,
@@ -140,9 +141,7 @@ class BayesPrismEmbedding:
         )
 
         if verbose:
-            log.info(
-                f"NMF complete! Reconstruction error: {self.reconstruction_err_:.4f}"
-            )
+            log.info(f"NMF complete! Reconstruction error: {self.reconstruction_err_:.4f}")
 
     def get_gene_programs(self, top_n: Optional[int] = None) -> pd.DataFrame:
         """
@@ -153,7 +152,7 @@ class BayesPrismEmbedding:
         top_n : int, optional
             If provided, return only top N genes per program
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Gene program matrix
@@ -175,7 +174,7 @@ class BayesPrismEmbedding:
         """
         Get program usage coefficients
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Program usage across samples
@@ -200,7 +199,7 @@ class BayesPrismEmbedding:
         n : int
             Number of top genes to return
 
-        Returns
+        Returns:
         -------
         pd.Series
             Top genes with weights
@@ -228,7 +227,7 @@ class BayesPrismEmbedding:
         gene_expression : pd.DataFrame
             Gene expression data (genes x samples)
 
-        Returns
+        Returns:
         -------
         pd.Series
             Program scores for each sample
@@ -256,7 +255,7 @@ class BayesPrismEmbedding:
         """
         Compute cosine similarity between gene programs
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Similarity matrix between programs
@@ -283,7 +282,7 @@ class BayesPrismEmbedding:
         gene : str
             Gene name
 
-        Returns
+        Returns:
         -------
         pd.Series
             Gene weights across programs
@@ -333,7 +332,7 @@ def compare_programs_across_conditions(
     labels : List[str]
         Labels for each embedding
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Comparison statistics
@@ -347,11 +346,13 @@ def compare_programs_across_conditions(
         for program in emb.W_df_.columns:
             top_genes = set(emb.get_top_genes(program, n=50).index)
 
-            results.append({
-                'condition': label,
-                'program': program,
-                'n_genes': len(top_genes),
-                'top_genes': ','.join(list(top_genes)[:10]),
-            })
+            results.append(
+                {
+                    "condition": label,
+                    "program": program,
+                    "n_genes": len(top_genes),
+                    "top_genes": ",".join(list(top_genes)[:10]),
+                }
+            )
 
     return pd.DataFrame(results)

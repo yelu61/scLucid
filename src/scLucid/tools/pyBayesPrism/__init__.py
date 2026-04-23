@@ -12,7 +12,7 @@ Main Components
 - BayesPrismEmbedding : NMF-based gene program learning
 - GibbsSampler : Optimized Gibbs sampling for posterior inference
 
-Example
+Example:
 -------
 >>> from pyBayesPrism import BayesPrismReference, BayesPrism, PrismConfig
 >>>
@@ -38,38 +38,38 @@ __author__ = "scLucid"
 
 # Configuration
 from .config import (
+    DeconvolutionConfig,
     PrismConfig,
     ReferenceConfig,
-    DeconvolutionConfig,
 )
+from .core import BayesPrism
+from .embedding import BayesPrismEmbedding
 
 # Core classes
 from .reference import BayesPrismReference
-from .core import BayesPrism
-from .embedding import BayesPrismEmbedding
 from .sampling import GibbsSampler
-
-# Visualization
-from .visualization import (
-    plot_fraction,
-    plot_correlation,
-    plot_stacked_bar,
-    plot_gene_programs,
-    plot_program_usage,
-    plot_cv,
-    plot_validation_scatter,
-)
 
 # Utilities
 from .utils import (
+    batch_correct,
     cleanup_genes,
-    find_outlier_genes,
     compute_correlation,
     compute_rmse,
+    find_outlier_genes,
     normalize_expression,
-    batch_correct,
     subsample_cells,
     validate_inputs,
+)
+
+# Visualization
+from .visualization import (
+    plot_correlation,
+    plot_cv,
+    plot_fraction,
+    plot_gene_programs,
+    plot_program_usage,
+    plot_stacked_bar,
+    plot_validation_scatter,
 )
 
 __all__ = [
@@ -77,13 +77,11 @@ __all__ = [
     "PrismConfig",
     "ReferenceConfig",
     "DeconvolutionConfig",
-
     # Core classes
     "BayesPrismReference",
     "BayesPrism",
     "BayesPrismEmbedding",
     "GibbsSampler",
-
     # Visualization
     "plot_fraction",
     "plot_correlation",
@@ -92,7 +90,6 @@ __all__ = [
     "plot_program_usage",
     "plot_cv",
     "plot_validation_scatter",
-
     # Utilities
     "cleanup_genes",
     "find_outlier_genes",

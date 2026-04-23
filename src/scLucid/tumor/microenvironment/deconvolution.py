@@ -5,11 +5,11 @@ This module provides tools to deconvolve and characterize
 the tumor microenvironment composition.
 """
 
-import numpy as np
-import pandas as pd
-from typing import Optional, Union, List, Dict
-from anndata import AnnData
 import logging
+from typing import List, Optional
+
+import pandas as pd
+from anndata import AnnData
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class TMEProfiler:
         adata : AnnData
             Single-cell data with cell type annotations
 
-        Returns
+        Returns:
         -------
         TMEProfiler
             Fitted profiler
@@ -65,30 +65,29 @@ class TMEProfiler:
     def _get_immune_types(self) -> List[str]:
         """Get list of immune cell type names."""
         return [
-            "T_cell", "B_cell", "NK_cell", "Macrophage",
-            "Monocyte", "Neutrophil", "DC", "Mast_cell"
+            "T_cell",
+            "B_cell",
+            "NK_cell",
+            "Macrophage",
+            "Monocyte",
+            "Neutrophil",
+            "DC",
+            "Mast_cell",
         ]
 
     def _get_stromal_types(self) -> List[str]:
         """Get list of stromal cell type names."""
-        return [
-            "Fibroblast", "Endothelial", "Pericyte",
-            "Stromal", "CAF"
-        ]
+        return ["Fibroblast", "Endothelial", "Pericyte", "Stromal", "CAF"]
 
     def get_immune_infiltration(self) -> pd.Series:
         """Get immune infiltration scores by cell type."""
         immune_types = self._get_immune_types()
-        return self.proportions_[
-            self.proportions_.index.isin(immune_types)
-        ]
+        return self.proportions_[self.proportions_.index.isin(immune_types)]
 
     def get_stromal_content(self) -> pd.Series:
         """Get stromal content by cell type."""
         stromal_types = self._get_stromal_types()
-        return self.proportions_[
-            self.proportions_.index.isin(stromal_types)
-        ]
+        return self.proportions_[self.proportions_.index.isin(stromal_types)]
 
 
 def deconvolve_tme(
@@ -111,7 +110,7 @@ def deconvolve_tme(
     copy : bool
         Return a copy of adata
 
-    Returns
+    Returns:
     -------
     AnnData
         Annotated data with TME information
@@ -149,7 +148,7 @@ def estimate_stromal_content(
     method : str
         Method for estimation ("proportion", "score", "genes")
 
-    Returns
+    Returns:
     -------
     pd.Series
         Stromal content scores
@@ -168,7 +167,7 @@ def estimate_stromal_content(
             raise ValueError("No stromal signature genes found")
 
         expr = adata[:, available_genes].X.mean(axis=1)
-        if hasattr(expr, 'toarray'):
+        if hasattr(expr, "toarray"):
             expr = expr.toarray().flatten()
 
         return pd.Series(expr, index=adata.obs_names)
@@ -194,15 +193,23 @@ def analyze_immune_infiltration(
     groupby : str, optional
         Column to group by (e.g., patient_id)
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Immune infiltration summary
     """
     immune_types = [
-        "T_cell", "CD4_T", "CD8_T", "Treg",
-        "B_cell", "NK_cell", "Macrophage", "Monocyte",
-        "Neutrophil", "DC", "Mast_cell"
+        "T_cell",
+        "CD4_T",
+        "CD8_T",
+        "Treg",
+        "B_cell",
+        "NK_cell",
+        "Macrophage",
+        "Monocyte",
+        "Neutrophil",
+        "DC",
+        "Mast_cell",
     ]
 
     df = adata.obs.copy()
@@ -210,9 +217,9 @@ def analyze_immune_infiltration(
     df["is_immune"] = is_immune
 
     if groupby is not None:
-        summary = df.groupby(groupby)[cell_type_key].value_counts(
-            normalize=True
-        ).unstack(fill_value=0)
+        summary = (
+            df.groupby(groupby)[cell_type_key].value_counts(normalize=True).unstack(fill_value=0)
+        )
     else:
         # Overall proportions
         summary = df[cell_type_key].value_counts(normalize=True).to_frame().T

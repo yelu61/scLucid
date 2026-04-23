@@ -53,9 +53,9 @@ def test_characterize_clusters_stores_review_tables_and_exports(tmp_path, monkey
     }
 
     def fake_find_markers(adata_obj, config):
-        adata_obj.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-            "de", {}
-        )["rank_genes_groups_df"] = fake_markers.copy()
+        adata_obj.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
+            "rank_genes_groups_df"
+        ] = fake_markers.copy()
         return fake_markers.copy()
 
     monkeypatch.setattr(
@@ -108,9 +108,9 @@ def test_characterize_clusters_accepts_base_csv_path(tmp_path, monkeypatch):
     fake_enrichment = {"0": {"ora": pd.DataFrame({"Term": ["T cell activation"]})}}
 
     def fake_find_markers(adata_obj, config):
-        adata_obj.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-            "de", {}
-        )["rank_genes_groups_df"] = fake_markers.copy()
+        adata_obj.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})[
+            "rank_genes_groups_df"
+        ] = fake_markers.copy()
         return fake_markers.copy()
 
     monkeypatch.setattr(
@@ -131,4 +131,3 @@ def test_characterize_clusters_accepts_base_csv_path(tmp_path, monkeypatch):
 
     assert result.uns["cluster_characterization"]["export_paths"]["summary"] == str(output)
     assert output.exists()
-

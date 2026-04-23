@@ -2,20 +2,17 @@
 Analysis functions for CellChat (R-free)
 """
 
+import logging
+from typing import Dict, List
+
 import numpy as np
 import pandas as pd
-from scipy import stats
 from sklearn.decomposition import NMF
-from typing import Dict, List, Tuple, Optional
-import logging
 
 log = logging.getLogger(__name__)
 
 
-def compute_centrality(
-    prob_matrix: np.ndarray,
-    group_names: List[str]
-) -> Dict[str, pd.DataFrame]:
+def compute_centrality(prob_matrix: np.ndarray, group_names: List[str]) -> Dict[str, pd.DataFrame]:
     """
     Compute network centrality measures
 
@@ -26,7 +23,7 @@ def compute_centrality(
     group_names : List[str]
         Names of cell groups
 
-    Returns
+    Returns:
     -------
     Dict[str, pd.DataFrame]
         Dictionary containing centrality measures
@@ -56,24 +53,21 @@ def compute_centrality(
         betweenness = betweenness / total
 
     # Create results DataFrame
-    results = pd.DataFrame({
-        'group': group_names,
-        'out_degree': out_degree,
-        'in_degree': in_degree,
-        'betweenness': betweenness,
-        'total_strength': out_degree + in_degree
-    })
+    results = pd.DataFrame(
+        {
+            "group": group_names,
+            "out_degree": out_degree,
+            "in_degree": in_degree,
+            "betweenness": betweenness,
+            "total_strength": out_degree + in_degree,
+        }
+    )
 
-    return {
-        'centrality': results,
-        'network_matrix': network
-    }
+    return {"centrality": results, "network_matrix": network}
 
 
 def identify_roles(
-    pathway_prob: Dict[str, np.ndarray],
-    pattern: str = "outgoing",
-    k: int = 5
+    pathway_prob: Dict[str, np.ndarray], pattern: str = "outgoing", k: int = 5
 ) -> Dict:
     """
     Identify signaling roles using pattern recognition
@@ -113,14 +107,14 @@ def identify_roles(
 
     if k == 0:
         return {
-            'patterns': np.zeros((n_groups, 1)),
-            'pathway_patterns': np.zeros((1, n_pathways)),
-            'dominant_pattern': np.zeros(n_groups, dtype=int),
-            'feature_matrix': features,
-            'pathways': pathways
+            "patterns": np.zeros((n_groups, 1)),
+            "pathway_patterns": np.zeros((1, n_pathways)),
+            "dominant_pattern": np.zeros(n_groups, dtype=int),
+            "feature_matrix": features,
+            "pathways": pathways,
         }
 
-    nmf = NMF(n_components=k, init='nndsvda', random_state=42, max_iter=500)
+    nmf = NMF(n_components=k, init="nndsvda", random_state=42, max_iter=500)
     W = nmf.fit_transform(features)  # Cell group patterns
     H = nmf.components_  # Pathway patterns
 
@@ -128,21 +122,18 @@ def identify_roles(
     dominant_pattern = W.argmax(axis=1)
 
     results = {
-        'patterns': W,
-        'pathway_patterns': H,
-        'dominant_pattern': dominant_pattern,
-        'feature_matrix': features,
-        'pathways': pathways
+        "patterns": W,
+        "pathway_patterns": H,
+        "dominant_pattern": dominant_pattern,
+        "feature_matrix": features,
+        "pathways": pathways,
     }
 
     return results
 
 
 def identify_signaling_patterns(
-    cellchat_obj,
-    pattern: str = "outgoing",
-    k: int = 5,
-    height: float = 10
+    cellchat_obj, pattern: str = "outgoing", k: int = 5, height: float = 10
 ) -> Dict:
     """
     Identify and cluster signaling patterns
@@ -158,33 +149,25 @@ def identify_signaling_patterns(
     height : float
         Height for dendrogram cutting
     """
-    from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
+    from scipy.cluster.hierarchy import fcluster, linkage
     from scipy.spatial.distance import pdist
 
     # Get roles
-    roles = identify_roles(cellchat_obj.netP['prob'], pattern=pattern, k=k)
+    roles = identify_roles(cellchat_obj.netP["prob"], pattern=pattern, k=k)
 
     # Hierarchical clustering
-    distance_matrix = pdist(roles['patterns'], metric='euclidean')
-    linkage_matrix = linkage(distance_matrix, method='ward')
+    distance_matrix = pdist(roles["patterns"], metric="euclidean")
+    linkage_matrix = linkage(distance_matrix, method="ward")
 
     # Cut dendrogram
-    clusters = fcluster(linkage_matrix, height, criterion='distance')
+    clusters = fcluster(linkage_matrix, height, criterion="distance")
 
-    results = {
-        **roles,
-        'linkage': linkage_matrix,
-        'clusters': clusters
-    }
+    results = {**roles, "linkage": linkage_matrix, "clusters": clusters}
 
     return results
 
 
-def compute_network_similarity(
-    cellchat1,
-    cellchat2,
-    type: str = "functional"
-) -> Dict:
+def compute_network_similarity(cellchat1, cellchat2, type: str = "functional") -> Dict:
     """
     Compute similarity between two networks
 
@@ -197,35 +180,32 @@ def compute_network_similarity(
     """
     if type == "functional":
         # Compare pathway activities
-        pathways1 = set(cellchat1.netP['prob'].keys())
-        pathways2 = set(cellchat2.netP['prob'].keys())
+        pathways1 = set(cellchat1.netP["prob"].keys())
+        pathways2 = set(cellchat2.netP["prob"].keys())
         common_pathways = pathways1 & pathways2
 
         # Compute correlation for common pathways
         similarities = {}
         for pathway in common_pathways:
-            prob1 = cellchat1.netP['prob'][pathway].flatten()
-            prob2 = cellchat2.netP['prob'][pathway].flatten()
+            prob1 = cellchat1.netP["prob"][pathway].flatten()
+            prob2 = cellchat2.netP["prob"][pathway].flatten()
 
             if len(prob1) == len(prob2):
                 corr = np.corrcoef(prob1, prob2)[0, 1]
                 similarities[pathway] = corr
 
         return {
-            'type': 'functional',
-            'pathway_similarity': similarities,
-            'mean_similarity': np.mean(list(similarities.values())) if similarities else 0
+            "type": "functional",
+            "pathway_similarity": similarities,
+            "mean_similarity": np.mean(list(similarities.values())) if similarities else 0,
         }
 
     else:  # structural
         # Compare network topology
-        net1 = cellchat1.net['prob'].sum(axis=0)
-        net2 = cellchat2.net['prob'].sum(axis=0)
+        net1 = cellchat1.net["prob"].sum(axis=0)
+        net2 = cellchat2.net["prob"].sum(axis=0)
 
         # Flatten and correlate
         corr = np.corrcoef(net1.flatten(), net2.flatten())[0, 1]
 
-        return {
-            'type': 'structural',
-            'correlation': corr
-        }
+        return {"type": "structural", "correlation": corr}

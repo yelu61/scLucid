@@ -44,12 +44,10 @@ def _load_cell_cycle_genes() -> Dict[str, Dict[str, List[str]]]:
         }
     """
     try:
-        gene_path = resources.files("scLucid").joinpath(
-            "resources/cell_cycle_genes.json"
-        )
+        gene_path = resources.files("scLucid").joinpath("resources/cell_cycle_genes.json")
         log.debug(f"Loading cell cycle genes from: {gene_path}")
 
-        with open(gene_path, "r") as f:
+        with open(gene_path) as f:
             genes_dict = json.load(f)
 
         # Validate the structure of the loaded data
@@ -211,9 +209,7 @@ def _validate_gene_lists(
 
     # Log how many genes were found
     log.info(f"Found {len(s_genes_found)}/{len(s_genes)} S-phase genes in the dataset")
-    log.info(
-        f"Found {len(g2m_genes_found)}/{len(g2m_genes)} G2M-phase genes in the dataset"
-    )
+    log.info(f"Found {len(g2m_genes_found)}/{len(g2m_genes)} G2M-phase genes in the dataset")
 
     # Check if enough genes were found
     has_enough_genes = True
@@ -232,9 +228,7 @@ def _validate_gene_lists(
     return s_genes_found, g2m_genes_found, has_enough_genes
 
 
-def _plot_cell_cycle(
-    adata: AnnData, species: str, save_dir: Optional[str] = None
-) -> plt.Figure:
+def _plot_cell_cycle(adata: AnnData, species: str, save_dir: Optional[str] = None) -> plt.Figure:
     """
     Generates plots visualizing cell cycle scores and phase distribution.
 
@@ -247,9 +241,7 @@ def _plot_cell_cycle(
         The matplotlib Figure object.
     """
     fig, axes = plt.subplots(1, 2, figsize=(12, 5.5), facecolor="white")
-    fig.suptitle(
-        f"Cell Cycle Analysis ({species.capitalize()})", fontsize=16, fontweight="bold"
-    )
+    fig.suptitle(f"Cell Cycle Analysis ({species.capitalize()})", fontsize=16, fontweight="bold")
 
     # Scatter plot of scores
     sc.pl.scatter(
@@ -268,9 +260,7 @@ def _plot_cell_cycle(
 
     # Bar plot of phase distribution
     phase_counts = adata.obs["phase"].value_counts().sort_index()
-    axes[1].bar(
-        phase_counts.index, phase_counts.values, color=["#1f77b4", "#ff7f0e", "#2ca02c"]
-    )
+    axes[1].bar(phase_counts.index, phase_counts.values, color=["#1f77b4", "#ff7f0e", "#2ca02c"])
 
     # Add counts as text on bars
     for i, (phase, count) in enumerate(phase_counts.items()):
@@ -359,8 +349,7 @@ def _get_validated_genes(
             species_used = species
             # Even if a valid species is provided, check if another might fit better.
             current_genes_found = any(
-                g in adata.var_names
-                for g in SPECIES_GENES[species_used]["s_genes"][:10]
+                g in adata.var_names for g in SPECIES_GENES[species_used]["s_genes"][:10]
             )
             if not current_genes_found:
                 log.warning(
@@ -475,11 +464,13 @@ def score_cell_cycle(
     except Exception as e:
         log.error(f"Cell cycle scoring failed: {str(e)}")
         raise RuntimeError(f"Failed to compute cell cycle scores: {str(e)}")
-    
+
     # Mark cell cycle genes in var
-    adata.var['is_cell_cycle'] = False  # 默认False
-    adata.var.loc[s_genes_found + g2m_genes_found, 'is_cell_cycle'] = True
-    log.info(f"Marked {len(s_genes_found + g2m_genes_found)} cell cycle genes in adata.var['is_cell_cycle'].")
+    adata.var["is_cell_cycle"] = False  # 默认False
+    adata.var.loc[s_genes_found + g2m_genes_found, "is_cell_cycle"] = True
+    log.info(
+        f"Marked {len(s_genes_found + g2m_genes_found)} cell cycle genes in adata.var['is_cell_cycle']."
+    )
 
     # Calculate additional metrics
     adata.obs["cc_diff"] = adata.obs["S_score"] - adata.obs["G2M_score"]
@@ -515,59 +506,52 @@ def score_cell_cycle(
 
     return adata
 
+
 def score_cell_cycle_advanced(
     adata: AnnData,
-    species: str = 'human',
+    species: str = "human",
     regress_out: bool = False,  # 新功能
     plot_phase_markers: bool = True,  # 新功能
-    **kwargs
+    **kwargs,
 ) -> AnnData:
     """
     增强版细胞周期打分，可选回归。
     """
     # 现有打分逻辑
     adata = score_cell_cycle(adata, species, **kwargs)
-    
+
     # 新功能1: 可选的细胞周期效应回归
     if regress_out:
         import scanpy as sc
+
         log.info("Regressing out cell cycle effects...")
-        sc.pp.regress_out(adata, ['S_score', 'G2M_score'])
-        adata.uns['cell_cycle_regressed'] = True
-    
+        sc.pp.regress_out(adata, ["S_score", "G2M_score"])
+        adata.uns["cell_cycle_regressed"] = True
+
     # 新功能2: 每个phase的marker基因表达热图
     if plot_phase_markers:
         _plot_phase_specific_markers(adata, species)
-    
+
     return adata
 
 
-def _plot_phase_specific_markers(
-    adata: AnnData,
-    species: str,
-    save_path: Optional[str] = None
-):
+def _plot_phase_specific_markers(adata: AnnData, species: str, save_path: Optional[str] = None):
     """
     可视化不同cell cycle phase的marker基因表达。
     """
     import scanpy as sc
-    
-    s_genes = SPECIES_GENES[species]['s_genes'][:10]
-    g2m_genes = SPECIES_GENES[species]['g2m_genes'][:10]
-    
+
+    s_genes = SPECIES_GENES[species]["s_genes"][:10]
+    g2m_genes = SPECIES_GENES[species]["g2m_genes"][:10]
+
     marker_genes = s_genes + g2m_genes
     marker_genes = [g for g in marker_genes if g in adata.var_names]
-    
+
     if len(marker_genes) < 5:
         log.warning("Too few marker genes found for visualization")
         return
-    
+
     # Create dotplot
     sc.pl.dotplot(
-        adata,
-        marker_genes,
-        groupby='phase',
-        dendrogram=True,
-        standard_scale='var',
-        save=save_path
+        adata, marker_genes, groupby="phase", dendrogram=True, standard_scale="var", save=save_path
     )

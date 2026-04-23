@@ -185,9 +185,7 @@ class WorkflowRecommendations:
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a plain dictionary."""
         return {
-            "sections": {
-                name: section.to_dict() for name, section in self.sections.items()
-            },
+            "sections": {name: section.to_dict() for name, section in self.sections.items()},
             "overall_confidence": self.overall_confidence,
             "context": self.context,
             "concerns": self.concerns,

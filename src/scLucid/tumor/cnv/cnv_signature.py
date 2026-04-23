@@ -5,11 +5,11 @@ This module provides tools for extracting and analyzing
 copy number variation signatures similar to mutational signatures.
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
-from anndata import AnnData
 import logging
+from typing import Optional
+
+import pandas as pd
+from anndata import AnnData
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class CNVSigExtractor:
     method : str
         Decomposition method ("nmf", "pca")
 
-    Attributes
+    Attributes:
     ----------
     signatures_ : pd.DataFrame
         Extracted CNV signatures
@@ -91,7 +91,7 @@ class CNVSigExtractor:
         cnv_key : str
             Key for CNV matrix in adata.obsm
 
-        Returns
+        Returns:
         -------
         CNVSigExtractor
             Fitted extractor
@@ -103,29 +103,30 @@ class CNVSigExtractor:
 
         if self.method == "nmf":
             from sklearn.decomposition import NMF
+
             model = NMF(n_components=self.n_components, random_state=42, max_iter=500)
             self.exposures_ = pd.DataFrame(
                 model.fit_transform(cnv_matrix),
                 index=adata.obs_names,
-                columns=[f"CNV_Sig{i+1}" for i in range(self.n_components)]
+                columns=[f"CNV_Sig{i+1}" for i in range(self.n_components)],
             )
             self.signatures_ = pd.DataFrame(
                 model.components_,
                 index=[f"CNV_Sig{i+1}" for i in range(self.n_components)],
-                columns=range(cnv_matrix.shape[1]) if hasattr(cnv_matrix, 'shape') else None
+                columns=range(cnv_matrix.shape[1]) if hasattr(cnv_matrix, "shape") else None,
             )
 
         elif self.method == "pca":
             from sklearn.decomposition import PCA
+
             model = PCA(n_components=self.n_components)
             self.exposures_ = pd.DataFrame(
                 model.fit_transform(cnv_matrix),
                 index=adata.obs_names,
-                columns=[f"PC{i+1}" for i in range(self.n_components)]
+                columns=[f"PC{i+1}" for i in range(self.n_components)],
             )
             self.signatures_ = pd.DataFrame(
-                model.components_,
-                index=[f"PC{i+1}" for i in range(self.n_components)]
+                model.components_, index=[f"PC{i+1}" for i in range(self.n_components)]
             )
 
         else:
@@ -142,7 +143,7 @@ class CNVSigExtractor:
         adata : AnnData
             Expression data
 
-        Returns
+        Returns:
         -------
         pd.Series
             Dominant signature per cell
@@ -160,7 +161,7 @@ class CNVSigExtractor:
         """
         Compare extracted signatures to reference signatures.
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Comparison results
@@ -173,12 +174,14 @@ class CNVSigExtractor:
         # Simplified comparison using correlation
         for sig_name, sig_data in REFERENCE_CNV_SIGNATURES.items():
             # This is a placeholder for actual signature comparison
-            results.append({
-                "reference": sig_name,
-                "description": sig_data["description"],
-                "best_match": "unknown",
-                "correlation": 0.0,
-            })
+            results.append(
+                {
+                    "reference": sig_name,
+                    "description": sig_data["description"],
+                    "best_match": "unknown",
+                    "correlation": 0.0,
+                }
+            )
 
         return pd.DataFrame(results)
 
@@ -203,7 +206,7 @@ def extract_cnv_signatures(
     key_added : str
         Key prefix for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Signature exposures
@@ -237,7 +240,7 @@ def assign_cnv_signature(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.Series
         Signature assignments

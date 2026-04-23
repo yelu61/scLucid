@@ -19,9 +19,41 @@ wheels/
 .installed.cfg
 *.egg
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
 .idea/
 .vscode/
+
+# Test / coverage artifacts
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.benchmarks/
+.mypy_cache/
+.ruff_cache/
+
+# Test output directories (hardcoded paths in old tests)
+results/
+test_results/
+old_results/
+legacy_results/
+out/
+override/
+test_output/
+test/
+test_save/
+from_dict/
+from_json/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+
+# Validation / ad-hoc outputs
+validation_outputs/
+figures/

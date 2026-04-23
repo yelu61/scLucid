@@ -2,8 +2,8 @@
 
 import pytest
 
+from scLucid.qc.config import DoubletConfig, MarkingConfig, MetricsReportingConfig, QCWorkflowConfig
 from scLucid.qc.workflow import run_standard_qc
-from scLucid.qc.config import QCWorkflowConfig, MetricsReportingConfig, MarkingConfig, DoubletConfig
 from tests.fixtures.data_loader import load_test_data
 
 
@@ -49,13 +49,14 @@ def test_recommendation_affects_cell_counts(adata_pbmc):
     config_without = _make_config(use_recommendations=False)
     adata_with = run_standard_qc(adata_pbmc.copy(), config=config_with)
     adata_without = run_standard_qc(adata_pbmc.copy(), config=config_without)
-    assert adata_with.n_obs != adata_without.n_obs, (
-        "Recommended thresholds should produce different filtering results than defaults"
-    )
+    assert (
+        adata_with.n_obs != adata_without.n_obs
+    ), "Recommended thresholds should produce different filtering results than defaults"
 
 
 def test_caller_config_not_mutated(adata_pbmc):
     from scLucid.qc.config import QCThresholds
+
     config = QCWorkflowConfig(
         save_dir=None,
         use_recommendations=True,
@@ -76,6 +77,7 @@ def test_caller_config_not_mutated(adata_pbmc):
 
 def test_explicit_user_thresholds_survive_recommendations(adata_pbmc):
     from scLucid.qc.config import QCThresholds
+
     user_min_genes = 999
     user_pc_mt = 5.0
     config = QCWorkflowConfig(

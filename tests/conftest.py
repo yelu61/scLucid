@@ -9,17 +9,24 @@ This file is automatically discovered by pytest and provides:
 
 import os
 import tempfile
+
+# Force non-interactive matplotlib backend BEFORE any import that might load it
+os.environ.setdefault("MPLBACKEND", "Agg")
+
+import matplotlib  # noqa: E402
+matplotlib.use("Agg", force=True)
+
+import numpy as np
 import pytest
 from anndata import AnnData
-import numpy as np
 
 # Import all fixtures from synthetic_data module
 from tests.fixtures.synthetic_data import (
-    synthetic_generator,
+    doublet_test_adata,
+    integration_test_adata,
     minimal_adata,
     qc_test_adata,
-    integration_test_adata,
-    doublet_test_adata,
+    synthetic_generator,
 )
 
 # Ensure writable runtime caches for matplotlib/numba in sandboxed CI environments.
@@ -41,6 +48,7 @@ def pytest_configure(config):
 def test_data_dir():
     """Provide path to test data directory."""
     from pathlib import Path
+
     return Path(__file__).parent / "fixtures" / "data"
 
 

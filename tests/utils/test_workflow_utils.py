@@ -4,20 +4,19 @@ Tests for workflow utilities.
 Tests progress bars, workflow errors, checkpoints, and partial results.
 """
 
-import pytest
 import tempfile
-import json
 from pathlib import Path
 
+import pytest
+
 from scLucid.utils.workflow_utils import (
-    get_progress_bar,
-    WorkflowError,
-    StepError,
-    RecoveryError,
-    WorkflowCheckpoint,
     PartialResultManager,
+    RecoveryError,
+    StepError,
+    WorkflowCheckpoint,
+    WorkflowError,
+    get_progress_bar,
     with_error_recovery,
-    merge_partial_results,
 )
 
 
@@ -73,7 +72,7 @@ class TestWorkflowCheckpoint:
         checkpoint = WorkflowCheckpoint(
             completed_steps=["step1", "step2"],
             failed_step="step3",
-            error_message="Something went wrong"
+            error_message="Something went wrong",
         )
 
         assert checkpoint.completed_steps == ["step1", "step2"]
@@ -83,9 +82,7 @@ class TestWorkflowCheckpoint:
     def test_checkpoint_to_dict(self):
         """Test checkpoint serialization."""
         checkpoint = WorkflowCheckpoint(
-            completed_steps=["step1"],
-            failed_step="step2",
-            error_message="Error"
+            completed_steps=["step1"], failed_step="step2", error_message="Error"
         )
 
         data = checkpoint.to_dict()
@@ -101,7 +98,7 @@ class TestWorkflowCheckpoint:
             "failed_step": "step2",
             "error_message": "Error",
             "timestamp": "2024-01-01T00:00:00",
-            "config_hash": "abc123"
+            "config_hash": "abc123",
         }
 
         checkpoint = WorkflowCheckpoint.from_dict(data)
@@ -134,9 +131,7 @@ class TestPartialResultManager:
         # Create test data
         adata = AnnData(np.random.randn(10, 5))
         checkpoint = WorkflowCheckpoint(
-            completed_steps=["step1"],
-            failed_step="step2",
-            error_message="Test error"
+            completed_steps=["step1"], failed_step="step2", error_message="Test error"
         )
         config = {"param": "value"}
 
@@ -179,6 +174,7 @@ class TestGetProgressBar:
 
     def test_progress_bar_with_generator(self):
         """Test progress bar with generator."""
+
         def generator():
             yield from range(5)
 
@@ -249,9 +245,7 @@ class TestWorkflowUtilsIntegration:
         # Simulate workflow progress
         for i in range(3):
             adata = AnnData(np.random.randn(10 * (i + 1), 5))
-            checkpoint = WorkflowCheckpoint(
-                completed_steps=[f"step{j}" for j in range(i + 1)]
-            )
+            checkpoint = WorkflowCheckpoint(completed_steps=[f"step{j}" for j in range(i + 1)])
             config = {"iteration": i}
 
             manager.save(adata, checkpoint, config)

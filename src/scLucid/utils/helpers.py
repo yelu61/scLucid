@@ -15,11 +15,23 @@ from typing import Any, Dict, List, Optional, Union
 import anndata
 import numpy as np
 import pandas as pd
-import scanpy as sc
 from anndata import AnnData
 from scipy import io
 
 log = logging.getLogger(__name__)
+
+
+def _import_scanpy():
+    """Import scanpy lazily so lightweight scLucid imports stay robust."""
+    try:
+        import scanpy as sc
+    except Exception as exc:
+        raise ImportError(
+            "scanpy is required for this helper. Install/repair scanpy or use "
+            "a function that does not depend on 10x loading."
+        ) from exc
+    return sc
+
 
 __all__ = [
     "load_10x_data",
@@ -27,7 +39,7 @@ __all__ = [
     "sanitize_for_hdf5",
     "subset_adata",
     "subset_from_annotations",
-    "merge_obs_metadata"
+    "merge_obs_metadata",
 ]
 
 
@@ -72,9 +84,7 @@ def _find_sample_paths(
                     "genes.tsv.gz",
                 ]
 
-                has_mtx = any(
-                    os.path.exists(os.path.join(full_path, f)) for f in mtx_files
-                )
+                has_mtx = any(os.path.exists(os.path.join(full_path, f)) for f in mtx_files)
                 has_features = any(
                     os.path.exists(os.path.join(full_path, f)) for f in feature_files
                 )
@@ -120,9 +130,7 @@ def _read_10x_manually(sample_path: str) -> AnnData:
         barcodes_file = os.path.join(sample_path, "barcodes.tsv")
 
     if not all(os.path.exists(f) for f in [matrix_file, features_file, barcodes_file]):
-        raise FileNotFoundError(
-            f"Could not find all required 10x files in {sample_path}"
-        )
+        raise FileNotFoundError(f"Could not find all required 10x files in {sample_path}")
 
     # --- Read Files with Explicit Type Control ---
     X = io.mmread(matrix_file).T.tocsr()
@@ -154,31 +162,27 @@ def _read_10x_manually(sample_path: str) -> AnnData:
 
     adata.var_names_make_unique()  # Ensure gene names are unique
     adata.layers["counts"] = adata.X.copy()
-    
+
     if X.shape[0] != len(barcodes):
         raise ValueError(
-            f"Mismatch: {X.shape[0]} cells in matrix, "
-            f"but {len(barcodes)} barcodes"
+            f"Mismatch: {X.shape[0]} cells in matrix, " f"but {len(barcodes)} barcodes"
         )
-    
+
     if X.shape[1] != len(gene_names):
         raise ValueError(
-            f"Mismatch: {X.shape[1]} genes in matrix, "
-            f"but {len(gene_names)} gene names"
+            f"Mismatch: {X.shape[1]} genes in matrix, " f"but {len(gene_names)} gene names"
         )
-    
+
     # Check for empty matrix
     if X.sum() == 0:
-        raise ValueError(f"Matrix contains no data (all zeros)")
-    
+        raise ValueError("Matrix contains no data (all zeros)")
+
     # Check for genes with zero expression across all cells
     cells_per_gene = (X > 0).sum(axis=0).A1
     if (cells_per_gene == 0).sum() > 0.5 * X.shape[1]:
         log.warning(
-            f"Over 50% of genes have zero expression. "
-            "Check if matrix is correctly oriented."
+            "Over 50% of genes have zero expression. " "Check if matrix is correctly oriented."
         )
-    
 
     return adata
 
@@ -192,7 +196,7 @@ def load_10x_data(
     output_file: Optional[str] = None,
     compression: Optional[str] = "gzip",
     backup_existing: bool = True,
-    chunk_size: Optional[int] = None
+    chunk_size: Optional[int] = None,
 ) -> AnnData:
     """
     Load multiple 10x Genomics samples with a robust fallback mechanism.
@@ -216,9 +220,7 @@ def load_10x_data(
 
     valid_samples = [s for s in samples if s in path_dict]
     if len(valid_samples) < len(samples):
-        log.warning(
-            f"Found valid paths for {len(valid_samples)}/{len(samples)} samples"
-        )
+        log.warning(f"Found valid paths for {len(valid_samples)}/{len(samples)} samples")
 
     for sample in valid_samples:
         sample_path = path_dict[sample]
@@ -226,6 +228,7 @@ def load_10x_data(
 
         # --- Main method with fallback ---
         try:
+            sc = _import_scanpy()
             log.info(f"Loading {sample} with standard method from {sample_path}")
             adata = sc.read_10x_mtx(
                 sample_path, var_names="gene_symbols", cache=True, make_unique=True
@@ -246,9 +249,7 @@ def load_10x_data(
                 for meta_key, meta_value in sample_metadata[sample].items():
                     adata.obs[meta_key] = meta_value
 
-            log.info(
-                f"Successfully loaded {sample}: {adata.n_obs} cells, {adata.n_vars} genes"
-            )
+            log.info(f"Successfully loaded {sample}: {adata.n_obs} cells, {adata.n_vars} genes")
             adata_list.append(adata)
             gc.collect()
 
@@ -261,9 +262,7 @@ def load_10x_data(
         adata_list, join="outer", keys=valid_samples, label="batch", index_unique="_"
     )
 
-    log.info(
-        f"Combined dataset: {combined_adata.n_obs} cells, {combined_adata.n_vars} genes"
-    )
+    log.info(f"Combined dataset: {combined_adata.n_obs} cells, {combined_adata.n_vars} genes")
 
     if output_file:
         if os.path.exists(output_file) and backup_existing:
@@ -308,9 +307,7 @@ def sanitize_for_hdf5(obj):
     2. Converting integer keys to strings in dictionaries
     3. Handling other non-HDF5 compatible types
     """
-    if isinstance(obj, tuple):
-        return [sanitize_for_hdf5(item) for item in obj]
-    elif isinstance(obj, list):
+    if isinstance(obj, tuple) or isinstance(obj, list):
         return [sanitize_for_hdf5(item) for item in obj]
     elif isinstance(obj, dict):
         return {str(k): sanitize_for_hdf5(v) for k, v in obj.items()}
@@ -328,7 +325,7 @@ def subset_adata(
     adata: AnnData,
     filters: Dict[str, Union[Any, List[Any]]],
     keep_raw_genes: bool = True,
-    raise_on_empty: bool = True
+    raise_on_empty: bool = True,
 ) -> AnnData:
     """
     Subset an AnnData object based on metadata criteria, retaining raw gene data.
@@ -357,9 +354,7 @@ def subset_adata(
 
     for key, value in filters.items():
         if key not in adata.obs.columns:
-            log.warning(
-                f"Metadata column '{key}' not found in adata.obs. Skipping filter."
-            )
+            log.warning(f"Metadata column '{key}' not found in adata.obs. Skipping filter.")
             continue
 
         if isinstance(value, list):
@@ -381,12 +376,9 @@ def subset_adata(
         else:
             log.warning(msg)
             return AnnData()
-        
+
     if final_cells < 10:
-        log.warning(
-            f"Only {final_cells} cells remaining. "
-            "Results may be unreliable."
-        )
+        log.warning(f"Only {final_cells} cells remaining. " "Results may be unreliable.")
 
     # The core slicing operation
     adata_subset = adata[combined_mask, :].copy()
@@ -396,9 +388,7 @@ def subset_adata(
     if keep_raw_genes and adata.raw is not None:
         # Create a new raw object from the original raw data, but with subsetted cells
         adata_subset.raw = adata.raw[adata_subset.obs_names, :].copy()
-        log.info(
-            f"Subset .raw created, retaining all {adata.raw.n_vars} original genes."
-        )
+        log.info(f"Subset .raw created, retaining all {adata.raw.n_vars} original genes.")
 
     return adata_subset
 
@@ -438,9 +428,7 @@ def subset_from_annotations(
     # Check if columns exist in the source
     missing_cols = [col for col in columns_to_merge if col not in adata_source.obs]
     if missing_cols:
-        raise ValueError(
-            f"Columns {missing_cols} not found in the source AnnData object's .obs"
-        )
+        raise ValueError(f"Columns {missing_cols} not found in the source AnnData object's .obs")
 
     annotations = adata_source.obs[columns_to_merge]
 
@@ -460,9 +448,7 @@ def subset_from_annotations(
     temp_adata.obs = obs_merged
 
     # --- Step 2: Subset ---
-    log.info(
-        f"Subsetting target object based on new annotations with filters: {filters}"
-    )
+    log.info(f"Subsetting target object based on new annotations with filters: {filters}")
 
     # Now we can call the original, simple subset_adata function
     adata_subset = subset_adata(temp_adata, filters=filters)
@@ -473,10 +459,10 @@ def subset_from_annotations(
 def merge_obs_metadata(
     adata: AnnData,
     metadata_path: str,
-    left_on: Optional[str] = None, # If None, uses adata.obs.index
-    right_on: Optional[str] = None, # If None, uses metadata_df.index
+    left_on: Optional[str] = None,  # If None, uses adata.obs.index
+    right_on: Optional[str] = None,  # If None, uses metadata_df.index
     how: str = "left",
-    handle_duplicates: str = 'warn'  # 'warn', 'error', 'overwrite'
+    handle_duplicates: str = "warn",  # 'warn', 'error', 'overwrite'
 ) -> AnnData:
     """
     Merges metadata from an external file into the AnnData object's .obs DataFrame.
@@ -502,44 +488,36 @@ def merge_obs_metadata(
         raise ValueError("Unsupported file format. Please use .csv, .tsv, or .xlsx.")
 
     initial_cols = set(adata.obs.columns)
-    meta_cols = set(meta_df.columns if right_on is None 
-                   else meta_df.columns.drop(right_on))
-    
+    meta_cols = set(meta_df.columns if right_on is None else meta_df.columns.drop(right_on))
+
     overlapping = initial_cols & meta_cols
-    
+
     if overlapping:
-        if handle_duplicates == 'error':
-            raise ValueError(
-                f"Columns already exist in adata.obs: {overlapping}"
-            )
-        elif handle_duplicates == 'warn':
+        if handle_duplicates == "error":
+            raise ValueError(f"Columns already exist in adata.obs: {overlapping}")
+        elif handle_duplicates == "warn":
             log.warning(
-                f"Columns {overlapping} already exist. "
-                f"New columns will be suffixed with '_new'"
+                f"Columns {overlapping} already exist. " f"New columns will be suffixed with '_new'"
             )
             suffixes = ("", "_new")
-        elif handle_duplicates == 'overwrite':
+        elif handle_duplicates == "overwrite":
             log.info(f"Overwriting columns: {overlapping}")
             # Drop existing columns before merge
             adata.obs.drop(columns=overlapping, inplace=True)
             suffixes = ("", "")
     else:
         suffixes = ("", "")
-    
+
     # Perform merge
     if left_on is None:
         adata.obs = adata.obs.join(
-            meta_df.set_index(right_on) if right_on else meta_df, 
+            meta_df.set_index(right_on) if right_on else meta_df,
             how=how,
-            rsuffix='_new' if handle_duplicates == 'warn' else ''
+            rsuffix="_new" if handle_duplicates == "warn" else "",
         )
     else:
         adata.obs = adata.obs.merge(
-            meta_df, 
-            left_on=left_on, 
-            right_on=right_on, 
-            how=how, 
-            suffixes=suffixes
+            meta_df, left_on=left_on, right_on=right_on, how=how, suffixes=suffixes
         )
-    
+
     return adata

@@ -9,10 +9,9 @@ This module provides comprehensive validation functions for:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-import pandas as pd
 from anndata import AnnData
 
 log = logging.getLogger(__name__)
@@ -144,12 +143,16 @@ def validate_adata(
             errors.append("No counts data found. Expected 'counts' layer or integer X matrix")
         elif "counts" in adata.layers:
             if not _is_counts_matrix(adata.layers["counts"]):
-                warnings.append("'counts' layer may not contain raw counts (contains non-integer values)")
+                warnings.append(
+                    "'counts' layer may not contain raw counts (contains non-integer values)"
+                )
 
     # Check normalized layer
     if check_normalized:
         if "normalized" not in adata.layers and not hasattr(adata, "raw"):
-            warnings.append("No normalized data found. Expected 'normalized' layer or .raw attribute")
+            warnings.append(
+                "No normalized data found. Expected 'normalized' layer or .raw attribute"
+            )
 
     # Additional sanity checks
     if adata.obs_names.duplicated().any():
@@ -165,7 +168,7 @@ def validate_adata(
         errors=errors,
         warnings=warnings,
         layer_info=layer_info,
-        shape=(adata.n_obs, adata.n_vars)
+        shape=(adata.n_obs, adata.n_vars),
     )
 
     if raise_on_error and errors:
@@ -398,11 +401,7 @@ def _is_counts_matrix(data) -> bool:
 
 
 def _make_result(
-    valid: bool,
-    errors: List[str],
-    warnings: List[str],
-    layer_info: Dict,
-    shape: tuple
+    valid: bool, errors: List[str], warnings: List[str], layer_info: Dict, shape: tuple
 ) -> Dict[str, Any]:
     """Create standardized validation result dict."""
     return {
@@ -421,31 +420,18 @@ def _make_result(
 
 def assert_qc_ready(adata: AnnData) -> None:
     """Assert that adata is ready for QC (has raw counts)."""
-    validate_adata(
-        adata,
-        check_counts=True,
-        raise_on_error=True
-    )
+    validate_adata(adata, check_counts=True, raise_on_error=True)
 
 
 def assert_preprocessing_ready(adata: AnnData) -> None:
     """Assert that adata has completed QC and is ready for preprocessing."""
-    validate_adata(
-        adata,
-        required_layers=["counts"],
-        check_counts=True,
-        raise_on_error=True
-    )
+    validate_adata(adata, required_layers=["counts"], check_counts=True, raise_on_error=True)
     validate_analysis_results(adata, "qc", raise_on_error=True)
 
 
 def assert_analysis_ready(adata: AnnData) -> None:
     """Assert that adata is ready for analysis (clustering, annotation)."""
-    validate_adata(
-        adata,
-        required_obsm=["X_pca"],
-        raise_on_error=True
-    )
+    validate_adata(adata, required_obsm=["X_pca"], raise_on_error=True)
     validate_analysis_results(adata, "preprocess", raise_on_error=True)
 
 

@@ -5,11 +5,12 @@ This module provides tools for discovering and prioritizing
 druggable targets in tumor cells.
 """
 
+import logging
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -18,64 +19,228 @@ DRUGGABLE_CATEGORIES = {
     "kinase": {
         "description": "Protein kinases",
         "genes": [
-            "EGFR", "ERBB2", "ERBB3", "ERBB4", "MET", "ROS1", "ALK", "RET",
-            "BRAF", "RAF1", "MAPK1", "MAPK3", "MAP2K1", "MAP2K2",
-            "PIK3CA", "PIK3CB", "PIK3CD", "PIK3CG", "MTOR", "AKT1", "AKT2", "AKT3",
-            "SRC", "LCK", "FYN", "YES1", "ABL1", "ABL2", "KIT", "PDGFRA", "PDGFRB",
-            "FLT1", "FLT3", "FLT4", "KDR", "CSF1R", "CSF3R",
-            "JAK1", "JAK2", "JAK3", "TYK2", "STAT1", "STAT3", "STAT5A", "STAT5B",
+            "EGFR",
+            "ERBB2",
+            "ERBB3",
+            "ERBB4",
+            "MET",
+            "ROS1",
+            "ALK",
+            "RET",
+            "BRAF",
+            "RAF1",
+            "MAPK1",
+            "MAPK3",
+            "MAP2K1",
+            "MAP2K2",
+            "PIK3CA",
+            "PIK3CB",
+            "PIK3CD",
+            "PIK3CG",
+            "MTOR",
+            "AKT1",
+            "AKT2",
+            "AKT3",
+            "SRC",
+            "LCK",
+            "FYN",
+            "YES1",
+            "ABL1",
+            "ABL2",
+            "KIT",
+            "PDGFRA",
+            "PDGFRB",
+            "FLT1",
+            "FLT3",
+            "FLT4",
+            "KDR",
+            "CSF1R",
+            "CSF3R",
+            "JAK1",
+            "JAK2",
+            "JAK3",
+            "TYK2",
+            "STAT1",
+            "STAT3",
+            "STAT5A",
+            "STAT5B",
         ],
     },
     "receptor": {
         "description": "Cell surface receptors",
         "genes": [
-            "EGFR", "ERBB2", "ERBB3", "ERBB4", "MET", "IGF1R", "INSR",
-            "FGFR1", "FGFR2", "FGFR3", "FGFR4", "PDGFRA", "PDGFRB",
-            "VEGFA", "VEGFB", "VEGFC", "VEGFD", "KDR", "FLT1", "FLT4",
-            "TNFRSF1A", "TNFRSF1B", "FAS", "TNFRSF10A", "TNFRSF10B",
-            "CD40", "CD27", "TNFRSF4", "TNFRSF9", "TNFRSF18",
-            "CCR1", "CCR2", "CCR4", "CCR5", "CXCR4", "CXCR2", "CXCR3",
+            "EGFR",
+            "ERBB2",
+            "ERBB3",
+            "ERBB4",
+            "MET",
+            "IGF1R",
+            "INSR",
+            "FGFR1",
+            "FGFR2",
+            "FGFR3",
+            "FGFR4",
+            "PDGFRA",
+            "PDGFRB",
+            "VEGFA",
+            "VEGFB",
+            "VEGFC",
+            "VEGFD",
+            "KDR",
+            "FLT1",
+            "FLT4",
+            "TNFRSF1A",
+            "TNFRSF1B",
+            "FAS",
+            "TNFRSF10A",
+            "TNFRSF10B",
+            "CD40",
+            "CD27",
+            "TNFRSF4",
+            "TNFRSF9",
+            "TNFRSF18",
+            "CCR1",
+            "CCR2",
+            "CCR4",
+            "CCR5",
+            "CXCR4",
+            "CXCR2",
+            "CXCR3",
         ],
     },
     "immune_checkpoint": {
         "description": "Immune checkpoint molecules",
         "genes": [
-            "CD274", "PDCD1", "CTLA4", "CD28", "CD80", "CD86",
-            "LAG3", "HAVCR2", "TIGIT", "SIGLEC15", "VTCN1",
-            "ICOS", "ICOSLG", "TNFSF4", "TNFRSF4", "TNFSF9", "TNFRSF9",
-            "TNFSF18", "TNFRSF18", "CD40", "CD40LG",
-            "CD47", "SIRPA", "SIRPB1", "NECTIN2", "CD96",
+            "CD274",
+            "PDCD1",
+            "CTLA4",
+            "CD28",
+            "CD80",
+            "CD86",
+            "LAG3",
+            "HAVCR2",
+            "TIGIT",
+            "SIGLEC15",
+            "VTCN1",
+            "ICOS",
+            "ICOSLG",
+            "TNFSF4",
+            "TNFRSF4",
+            "TNFSF9",
+            "TNFRSF9",
+            "TNFSF18",
+            "TNFRSF18",
+            "CD40",
+            "CD40LG",
+            "CD47",
+            "SIRPA",
+            "SIRPB1",
+            "NECTIN2",
+            "CD96",
         ],
     },
     "epigenetic": {
         "description": "Epigenetic regulators",
         "genes": [
-            "DNMT1", "DNMT3A", "DNMT3B", "DNMT3L",
-            "HDAC1", "HDAC2", "HDAC3", "HDAC6", "HDAC8", "SIRT1", "SIRT2", "SIRT3",
-            "EZH2", "EED", "SUZ12",
-            "KDM1A", "KDM4A", "KDM4B", "KDM5A", "KDM5B", "KDM5C", "KDM6A", "KDM6B",
-            "BRD2", "BRD3", "BRD4", "BRDT",
-            "IDH1", "IDH2", "TET1", "TET2", "TET3",
+            "DNMT1",
+            "DNMT3A",
+            "DNMT3B",
+            "DNMT3L",
+            "HDAC1",
+            "HDAC2",
+            "HDAC3",
+            "HDAC6",
+            "HDAC8",
+            "SIRT1",
+            "SIRT2",
+            "SIRT3",
+            "EZH2",
+            "EED",
+            "SUZ12",
+            "KDM1A",
+            "KDM4A",
+            "KDM4B",
+            "KDM5A",
+            "KDM5B",
+            "KDM5C",
+            "KDM6A",
+            "KDM6B",
+            "BRD2",
+            "BRD3",
+            "BRD4",
+            "BRDT",
+            "IDH1",
+            "IDH2",
+            "TET1",
+            "TET2",
+            "TET3",
         ],
     },
     "dna_repair": {
         "description": "DNA repair enzymes",
         "genes": [
-            "PARP1", "PARP2", "PARP3",
-            "BRCA1", "BRCA2", "RAD51", "RAD51C", "RAD51D", "RAD54L",
-            "ATM", "ATR", "CHEK1", "CHEK2", "TP53", "MDM2", "MDM4",
-            "ERCC1", "ERCC2", "ERCC3", "ERCC4", "ERCC5", "XPF", "XPG",
-            "MLH1", "MSH2", "MSH6", "PMS2", "MLH3",
+            "PARP1",
+            "PARP2",
+            "PARP3",
+            "BRCA1",
+            "BRCA2",
+            "RAD51",
+            "RAD51C",
+            "RAD51D",
+            "RAD54L",
+            "ATM",
+            "ATR",
+            "CHEK1",
+            "CHEK2",
+            "TP53",
+            "MDM2",
+            "MDM4",
+            "ERCC1",
+            "ERCC2",
+            "ERCC3",
+            "ERCC4",
+            "ERCC5",
+            "XPF",
+            "XPG",
+            "MLH1",
+            "MSH2",
+            "MSH6",
+            "PMS2",
+            "MLH3",
         ],
     },
     "metabolism": {
         "description": "Metabolic enzymes",
         "genes": [
-            "IDH1", "IDH2", "FH", "SDHA", "SDHB", "SDHC", "SDHD",
-            "LDHA", "LDHB", "PKM", "HK1", "HK2", "HK3", "PFKFB3", "PFKL",
-            "GLS", "GLS2", "GLUL", "ASNS",
-            "ACLY", "ACC1", "FASN", "SCD", "ACACA",
-            "NAMPT", "NNMT", "IDO1", "IDO2", "TDO2",
+            "IDH1",
+            "IDH2",
+            "FH",
+            "SDHA",
+            "SDHB",
+            "SDHC",
+            "SDHD",
+            "LDHA",
+            "LDHB",
+            "PKM",
+            "HK1",
+            "HK2",
+            "HK3",
+            "PFKFB3",
+            "PFKL",
+            "GLS",
+            "GLS2",
+            "GLUL",
+            "ASNS",
+            "ACLY",
+            "ACC1",
+            "FASN",
+            "SCD",
+            "ACACA",
+            "NAMPT",
+            "NNMT",
+            "IDO1",
+            "IDO2",
+            "TDO2",
         ],
     },
 }
@@ -87,7 +252,11 @@ DRUG_TARGETS = {
     "pertuzumab": {"targets": ["ERBB2"], "category": "mAb", "indications": ["breast"]},
     "ado-trastuzumab": {"targets": ["ERBB2"], "category": "ADC", "indications": ["breast"]},
     "lapatinib": {"targets": ["EGFR", "ERBB2"], "category": "TKI", "indications": ["breast"]},
-    "neratinib": {"targets": ["EGFR", "ERBB2", "ERBB4"], "category": "TKI", "indications": ["breast"]},
+    "neratinib": {
+        "targets": ["EGFR", "ERBB2", "ERBB4"],
+        "category": "TKI",
+        "indications": ["breast"],
+    },
     "gefitinib": {"targets": ["EGFR"], "category": "TKI", "indications": ["lung"]},
     "erlotinib": {"targets": ["EGFR"], "category": "TKI", "indications": ["lung", "pancreatic"]},
     "afatinib": {"targets": ["EGFR", "ERBB2", "ERBB4"], "category": "TKI", "indications": ["lung"]},
@@ -98,27 +267,79 @@ DRUG_TARGETS = {
     "lorlatinib": {"targets": ["ALK", "ROS1"], "category": "TKI", "indications": ["lung"]},
     "vemurafenib": {"targets": ["BRAF"], "category": "TKI", "indications": ["melanoma"]},
     "dabrafenib": {"targets": ["BRAF"], "category": "TKI", "indications": ["melanoma", "lung"]},
-    "trametinib": {"targets": ["MAP2K1", "MAP2K2"], "category": "TKI", "indications": ["melanoma", "lung"]},
-    "imatinib": {"targets": ["ABL1", "KIT", "PDGFRA"], "category": "TKI", "indications": ["CML", "GIST"]},
+    "trametinib": {
+        "targets": ["MAP2K1", "MAP2K2"],
+        "category": "TKI",
+        "indications": ["melanoma", "lung"],
+    },
+    "imatinib": {
+        "targets": ["ABL1", "KIT", "PDGFRA"],
+        "category": "TKI",
+        "indications": ["CML", "GIST"],
+    },
     "dasatinib": {"targets": ["ABL1", "SRC"], "category": "TKI", "indications": ["CML", "ALL"]},
     "nilotinib": {"targets": ["ABL1"], "category": "TKI", "indications": ["CML"]},
-    "ponatinib": {"targets": ["ABL1", "FGFR", "FLT3"], "category": "TKI", "indications": ["CML", "ALL"]},
-    "sunitinib": {"targets": ["KIT", "PDGFRA", "PDGFRB", "VEGFR", "FLT3"], "category": "TKI", "indications": ["GIST", "RCC"]},
-    "sorafenib": {"targets": ["RAF", "VEGFR", "PDGFR", "KIT", "FLT3"], "category": "TKI", "indications": ["HCC", "RCC", "thyroid"]},
-    "lenvatinib": {"targets": ["VEGFR", "FGFR", "PDGFR", "KIT", "RET"], "category": "TKI", "indications": ["thyroid", "HCC", "RCC"]},
-    "regorafenib": {"targets": ["KIT", "PDGFR", "VEGFR", "RAF"], "category": "TKI", "indications": ["CRC", "GIST", "HCC"]},
-    "cabozantinib": {"targets": ["MET", "VEGFR", "RET", "KIT", "FLT3"], "category": "TKI", "indications": ["thyroid", "RCC", "HCC"]},
-    "vandetanib": {"targets": ["RET", "VEGFR", "EGFR"], "category": "TKI", "indications": ["thyroid"]},
+    "ponatinib": {
+        "targets": ["ABL1", "FGFR", "FLT3"],
+        "category": "TKI",
+        "indications": ["CML", "ALL"],
+    },
+    "sunitinib": {
+        "targets": ["KIT", "PDGFRA", "PDGFRB", "VEGFR", "FLT3"],
+        "category": "TKI",
+        "indications": ["GIST", "RCC"],
+    },
+    "sorafenib": {
+        "targets": ["RAF", "VEGFR", "PDGFR", "KIT", "FLT3"],
+        "category": "TKI",
+        "indications": ["HCC", "RCC", "thyroid"],
+    },
+    "lenvatinib": {
+        "targets": ["VEGFR", "FGFR", "PDGFR", "KIT", "RET"],
+        "category": "TKI",
+        "indications": ["thyroid", "HCC", "RCC"],
+    },
+    "regorafenib": {
+        "targets": ["KIT", "PDGFR", "VEGFR", "RAF"],
+        "category": "TKI",
+        "indications": ["CRC", "GIST", "HCC"],
+    },
+    "cabozantinib": {
+        "targets": ["MET", "VEGFR", "RET", "KIT", "FLT3"],
+        "category": "TKI",
+        "indications": ["thyroid", "RCC", "HCC"],
+    },
+    "vandetanib": {
+        "targets": ["RET", "VEGFR", "EGFR"],
+        "category": "TKI",
+        "indications": ["thyroid"],
+    },
     "selpercatinib": {"targets": ["RET"], "category": "TKI", "indications": ["thyroid", "lung"]},
     "pralsetinib": {"targets": ["RET"], "category": "TKI", "indications": ["thyroid", "lung"]},
-    "larotrectinib": {"targets": ["NTRK1", "NTRK2", "NTRK3"], "category": "TKI", "indications": ["solid_tumors"]},
-    "entrectinib": {"targets": ["NTRK1", "NTRK2", "NTRK3", "ROS1", "ALK"], "category": "TKI", "indications": ["solid_tumors", "lung"]},
+    "larotrectinib": {
+        "targets": ["NTRK1", "NTRK2", "NTRK3"],
+        "category": "TKI",
+        "indications": ["solid_tumors"],
+    },
+    "entrectinib": {
+        "targets": ["NTRK1", "NTRK2", "NTRK3", "ROS1", "ALK"],
+        "category": "TKI",
+        "indications": ["solid_tumors", "lung"],
+    },
     "alpelisib": {"targets": ["PIK3CA"], "category": "TKI", "indications": ["breast"]},
     "copanlisib": {"targets": ["PIK3CA"], "category": "TKI", "indications": ["lymphoma"]},
     "idelalisib": {"targets": ["PIK3CD"], "category": "TKI", "indications": ["lymphoma", "CLL"]},
-    "everolimus": {"targets": ["MTOR"], "category": "TKI", "indications": ["RCC", "breast", "pNET"]},
+    "everolimus": {
+        "targets": ["MTOR"],
+        "category": "TKI",
+        "indications": ["RCC", "breast", "pNET"],
+    },
     "temsirolimus": {"targets": ["MTOR"], "category": "TKI", "indications": ["RCC"]},
-    "ruxolitinib": {"targets": ["JAK1", "JAK2"], "category": "TKI", "indications": ["myelofibrosis"]},
+    "ruxolitinib": {
+        "targets": ["JAK1", "JAK2"],
+        "category": "TKI",
+        "indications": ["myelofibrosis"],
+    },
     "fedratinib": {"targets": ["JAK2"], "category": "TKI", "indications": ["myelofibrosis"]},
     "pacritinib": {"targets": ["JAK2"], "category": "TKI", "indications": ["myelofibrosis"]},
     # Immunotherapies
@@ -132,10 +353,22 @@ DRUG_TARGETS = {
     "ipilimumab": {"targets": ["CTLA4"], "category": "mAb", "indications": ["melanoma"]},
     "tremelimumab": {"targets": ["CTLA4"], "category": "mAb", "indications": ["HCC"]},
     # PARP inhibitors
-    "olaparib": {"targets": ["PARP1", "PARP2"], "category": "PARPi", "indications": ["ovarian", "breast", "pancreatic", "prostate"]},
-    "rucaparib": {"targets": ["PARP1", "PARP2"], "category": "PARPi", "indications": ["ovarian", "prostate"]},
+    "olaparib": {
+        "targets": ["PARP1", "PARP2"],
+        "category": "PARPi",
+        "indications": ["ovarian", "breast", "pancreatic", "prostate"],
+    },
+    "rucaparib": {
+        "targets": ["PARP1", "PARP2"],
+        "category": "PARPi",
+        "indications": ["ovarian", "prostate"],
+    },
     "niraparib": {"targets": ["PARP1", "PARP2"], "category": "PARPi", "indications": ["ovarian"]},
-    "talazoparib": {"targets": ["PARP1", "PARP2"], "category": "PARPi", "indications": ["breast", "prostate"]},
+    "talazoparib": {
+        "targets": ["PARP1", "PARP2"],
+        "category": "PARPi",
+        "indications": ["breast", "prostate"],
+    },
 }
 
 
@@ -148,7 +381,7 @@ class TargetDiscovery:
     druggable_categories : dict
         Dictionary of druggable gene categories
 
-    Attributes
+    Attributes:
     ----------
     targets_ : pd.DataFrame
         Prioritized targets
@@ -182,7 +415,7 @@ class TargetDiscovery:
         min_expression : float
             Minimum expression threshold
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Discovered targets with scores
@@ -212,21 +445,25 @@ class TargetDiscovery:
                 malignant_mask = adata.obs[malignant_key]
 
                 mal_expr = adata[malignant_mask, gene].X
-                if hasattr(mal_expr, 'toarray'):
+                if hasattr(mal_expr, "toarray"):
                     mal_expr = mal_expr.toarray().flatten()
 
-                normal_expr = adata[~malignant_mask, gene].X if (~malignant_mask).sum() > 0 else np.array([0])
-                if hasattr(normal_expr, 'toarray'):
+                normal_expr = (
+                    adata[~malignant_mask, gene].X if (~malignant_mask).sum() > 0 else np.array([0])
+                )
+                if hasattr(normal_expr, "toarray"):
                     normal_expr = normal_expr.toarray().flatten()
 
                 gene_data["malignant_mean"] = np.mean(mal_expr)
                 gene_data["normal_mean"] = np.mean(normal_expr)
-                gene_data["fold_change"] = gene_data["malignant_mean"] / (gene_data["normal_mean"] + 1e-6)
+                gene_data["fold_change"] = gene_data["malignant_mean"] / (
+                    gene_data["normal_mean"] + 1e-6
+                )
                 gene_data["pct_expressed_malignant"] = np.mean(mal_expr > min_expression)
             else:
                 # Overall expression
                 expr = adata[:, gene].X
-                if hasattr(expr, 'toarray'):
+                if hasattr(expr, "toarray"):
                     expr = expr.toarray().flatten()
 
                 gene_data["mean_expression"] = np.mean(expr)
@@ -239,8 +476,7 @@ class TargetDiscovery:
         # Calculate priority score
         if malignant_key in adata.obs.columns and "fold_change" in self.targets_.columns:
             self.targets_["priority_score"] = (
-                np.log1p(self.targets_["fold_change"]) *
-                self.targets_["pct_expressed_malignant"]
+                np.log1p(self.targets_["fold_change"]) * self.targets_["pct_expressed_malignant"]
             )
             self.targets_ = self.targets_.sort_values("priority_score", ascending=False)
 
@@ -272,7 +508,7 @@ class TargetDiscovery:
         category_filter : str, optional
             Filter by category
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Prioritized genes
@@ -305,7 +541,7 @@ class TargetDiscovery:
         n_drugs : int
             Number of drugs in combination
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Suggested drug combinations
@@ -316,13 +552,15 @@ class TargetDiscovery:
         for drug_name, drug_info in DRUG_TARGETS.items():
             overlap = set(drug_info["targets"]) & set(resistance_genes)
             if len(overlap) > 0:
-                combinations.append({
-                    "drug": drug_name,
-                    "targets": ",".join(drug_info["targets"]),
-                    "category": drug_info["category"],
-                    "overlap_with_resistance": len(overlap),
-                    "resistance_targets": ",".join(overlap),
-                })
+                combinations.append(
+                    {
+                        "drug": drug_name,
+                        "targets": ",".join(drug_info["targets"]),
+                        "category": drug_info["category"],
+                        "overlap_with_resistance": len(overlap),
+                        "resistance_targets": ",".join(overlap),
+                    }
+                )
 
         return pd.DataFrame(combinations).sort_values("overlap_with_resistance", ascending=False)
 
@@ -347,7 +585,7 @@ def discover_therapeutic_targets(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Top therapeutic targets
@@ -379,7 +617,7 @@ def prioritize_druggable_genes(
     n_top : int
         Number of top genes
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Prioritized genes
@@ -409,7 +647,7 @@ def suggest_targeted_therapies(
     indication : str, optional
         Cancer type indication
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Suggested therapies
@@ -430,17 +668,19 @@ def suggest_targeted_therapies(
 
         # Calculate mean expression of targets
         expr = adata[:, available_targets].X.mean(axis=1)
-        if hasattr(expr, 'toarray'):
+        if hasattr(expr, "toarray"):
             expr = expr.toarray().flatten()
 
-        suggestions.append({
-            "drug": drug_name,
-            "targets": ",".join(targets),
-            "category": drug_info["category"],
-            "indications": ",".join(drug_info["indications"]),
-            "mean_target_expression": np.mean(expr),
-            "pct_cells_with_expression": np.mean(expr > 0.1),
-        })
+        suggestions.append(
+            {
+                "drug": drug_name,
+                "targets": ",".join(targets),
+                "category": drug_info["category"],
+                "indications": ",".join(drug_info["indications"]),
+                "mean_target_expression": np.mean(expr),
+                "pct_cells_with_expression": np.mean(expr > 0.1),
+            }
+        )
 
     suggestions_df = pd.DataFrame(suggestions)
 

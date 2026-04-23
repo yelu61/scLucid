@@ -1,9 +1,8 @@
 """Public API checks for scLucid.utils."""
 
-import pytest
-
-from anndata import AnnData
 import numpy as np
+import pytest
+from anndata import AnnData
 
 import scLucid.utils as utils
 

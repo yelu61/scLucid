@@ -9,31 +9,31 @@ DEPRECATED: Import from scLucid.plotting instead:
 """
 
 # Re-export all functions from submodules for backward compatibility
+from .advanced_plots import (
+    plot_coexpression,
+    plot_differential_abundance,
+    plot_feature_correlation,
+    plot_ridge,
+)
+from .annotation_plots import (
+    export_annotation_report,
+    plot_annotation_evidence_panel,
+)
 from .embedding_plots import (
     plot_embedding,
     plot_faceted_embedding,
 )
 from .feature_plots import (
     plot_dotplot,
-    plot_stacked_violin,
-    plot_split_violin_with_stats,
     plot_marker_expression,
+    plot_split_violin_with_stats,
+    plot_stacked_violin,
 )
 from .marker_plots import (
     plot_faceted_feature,
     plot_marker_heatmap,
     plot_ranked_genes,
     plot_volcano,
-)
-from .advanced_plots import (
-    plot_feature_correlation,
-    plot_ridge,
-    plot_coexpression,
-    plot_differential_abundance,
-)
-from .annotation_plots import (
-    plot_annotation_evidence_panel,
-    export_annotation_report,
 )
 
 __all__ = [

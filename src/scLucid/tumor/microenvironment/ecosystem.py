@@ -5,11 +5,12 @@ This module provides tools for analyzing the tumor ecosystem
 as a whole, including cellular composition and spatial organization.
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class EcosystemAnalyzer:
     cell_type_key : str
         Column containing cell type annotations
 
-    Attributes
+    Attributes:
     ----------
     composition_ : pd.DataFrame
         Cellular composition of ecosystem
@@ -51,7 +52,7 @@ class EcosystemAnalyzer:
         groupby : str, optional
             Column to group by (e.g., sample, patient)
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Ecosystem composition
@@ -104,7 +105,7 @@ class EcosystemAnalyzer:
         groupby : str, optional
             Column to group by
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Diversity metrics
@@ -114,10 +115,7 @@ class EcosystemAnalyzer:
         if groupby is None:
             groups = [("all", adata)]
         else:
-            groups = [
-                (g, adata[adata.obs[groupby] == g])
-                for g in adata.obs[groupby].unique()
-            ]
+            groups = [(g, adata[adata.obs[groupby] == g]) for g in adata.obs[groupby].unique()]
 
         for group_name, group_adata in groups:
             composition = group_adata.obs[self.cell_type_key].value_counts(normalize=True)
@@ -127,20 +125,22 @@ class EcosystemAnalyzer:
             shannon = -np.sum(proportions * np.log(proportions + 1e-10))
 
             # Simpson diversity
-            simpson = 1 - np.sum(proportions ** 2)
+            simpson = 1 - np.sum(proportions**2)
 
             # Richness
             richness = len(proportions)
 
-            results.append({
-                "group": group_name,
-                "shannon_diversity": shannon,
-                "simpson_diversity": simpson,
-                "richness": richness,
-                "evenness": shannon / np.log(richness) if richness > 1 else 0,
-                "dominant_type": composition.index[0],
-                "dominant_freq": proportions[0],
-            })
+            results.append(
+                {
+                    "group": group_name,
+                    "shannon_diversity": shannon,
+                    "simpson_diversity": simpson,
+                    "richness": richness,
+                    "evenness": shannon / np.log(richness) if richness > 1 else 0,
+                    "dominant_type": composition.index[0],
+                    "dominant_freq": proportions[0],
+                }
+            )
 
         return pd.DataFrame(results)
 
@@ -159,7 +159,7 @@ class EcosystemAnalyzer:
         n_clusters : int
             Number of ecosystem subtypes
 
-        Returns
+        Returns:
         -------
         pd.Series
             Ecosystem subtype assignments
@@ -197,7 +197,7 @@ def analyze_ecosystem_composition(
     groupby : str, optional
         Column to group by
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Ecosystem composition
@@ -226,7 +226,7 @@ def calculate_tumor_microenvironment_score(
     stromal_types : list, optional
         List of stromal cell types
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         TME scores
@@ -247,13 +247,17 @@ def calculate_tumor_microenvironment_score(
     tumor_score = 1 - immune_score - stromal_score
     immune_to_tumor = immune_score / (tumor_score + 1e-6)
 
-    return pd.DataFrame([{
-        "immune_score": immune_score,
-        "stromal_score": stromal_score,
-        "tumor_score": tumor_score,
-        "immune_to_tumor_ratio": immune_to_tumor,
-        "stromal_to_tumor_ratio": stromal_score / (tumor_score + 1e-6),
-    }])
+    return pd.DataFrame(
+        [
+            {
+                "immune_score": immune_score,
+                "stromal_score": stromal_score,
+                "tumor_score": tumor_score,
+                "immune_to_tumor_ratio": immune_to_tumor,
+                "stromal_to_tumor_ratio": stromal_score / (tumor_score + 1e-6),
+            }
+        ]
+    )
 
 
 def compare_ecosystems(
@@ -273,7 +277,7 @@ def compare_ecosystems(
     cell_type_key : str
         Column with cell types
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Comparison results
@@ -286,11 +290,13 @@ def compare_ecosystems(
 
     results = []
     for cell_type in all_types:
-        results.append({
-            "cell_type": cell_type,
-            "freq_ecosystem1": comp1.get(cell_type, 0),
-            "freq_ecosystem2": comp2.get(cell_type, 0),
-            "difference": comp2.get(cell_type, 0) - comp1.get(cell_type, 0),
-        })
+        results.append(
+            {
+                "cell_type": cell_type,
+                "freq_ecosystem1": comp1.get(cell_type, 0),
+                "freq_ecosystem2": comp2.get(cell_type, 0),
+                "difference": comp2.get(cell_type, 0) - comp1.get(cell_type, 0),
+            }
+        )
 
     return pd.DataFrame(results).sort_values("difference", ascending=False)

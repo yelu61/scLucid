@@ -8,10 +8,9 @@ Provides a dual-layer API:
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from anndata import AnnData
 
@@ -45,7 +44,7 @@ def run_tumor_analysis(
     **kwargs
         Overrides for top-level config fields (e.g., ``save_dir=..., cancer_type=...``).
 
-    Returns
+    Returns:
     -------
     AnnData
         Annotated data with QC, preprocessing, analysis, and tumor results.
@@ -118,7 +117,7 @@ def run_tumor_analysis_expert(
     random_state : int
         Random seed.
 
-    Returns
+    Returns:
     -------
     AnnData
         Annotated data with full workflow results and execution trace.
@@ -131,19 +130,26 @@ def run_tumor_analysis_expert(
     # Resolve default configs if not provided
     if qc_config is None:
         from ..qc.config import QCWorkflowConfig
+
         qc_config = QCWorkflowConfig()
     if preprocess_config is None:
         from ..preprocess.config import WorkflowConfig as PreprocessWorkflowConfig
+
         preprocess_config = PreprocessWorkflowConfig()
     if analysis_config is None:
         from ..analysis.config import AnalysisWorkflowConfig
+
         analysis_config = AnalysisWorkflowConfig()
 
     # Ensure save_dir propagates
     if save_dir:
         for cfg in (qc_config, preprocess_config, analysis_config):
-            if hasattr(cfg, "save_dir") and getattr(cfg, "save_dir") is None:
-                object.__setattr__(cfg, "save_dir", save_dir) if hasattr(cfg, "model_config") else setattr(cfg, "save_dir", save_dir)
+            if hasattr(cfg, "save_dir") and cfg.save_dir is None:
+                (
+                    object.__setattr__(cfg, "save_dir", save_dir)
+                    if hasattr(cfg, "model_config")
+                    else setattr(cfg, "save_dir", save_dir)
+                )
 
     recommendations = None
     warnings_list: List[str] = []
@@ -169,19 +175,29 @@ def run_tumor_analysis_expert(
                 plot=False,
                 save_dir=Path(save_dir) if save_dir else None,
             )
-            log.info(f"Recommendations generated with overall confidence: {recommendations.overall_confidence:.2f}")
+            log.info(
+                f"Recommendations generated with overall confidence: {recommendations.overall_confidence:.2f}"
+            )
 
             # Apply recommended configs where not explicitly overridden by user
             if recommendations.get_section("qc") is not None:
                 qc_config = _apply_qc_recommendations(qc_config, recommendations.get_section("qc"))
             if recommendations.get_section("preprocess") is not None:
-                preprocess_config = _apply_preprocess_recommendations(preprocess_config, recommendations.get_section("preprocess"))
+                preprocess_config = _apply_preprocess_recommendations(
+                    preprocess_config, recommendations.get_section("preprocess")
+                )
             if recommendations.get_section("clustering") is not None:
-                analysis_config = _apply_clustering_recommendations(analysis_config, recommendations.get_section("clustering"))
+                analysis_config = _apply_clustering_recommendations(
+                    analysis_config, recommendations.get_section("clustering")
+                )
             if recommendations.get_section("annotation") is not None:
-                analysis_config = _apply_annotation_recommendations(analysis_config, recommendations.get_section("annotation"))
+                analysis_config = _apply_annotation_recommendations(
+                    analysis_config, recommendations.get_section("annotation")
+                )
             if recommendations.get_section("tumor") is not None:
-                tumor_config = _apply_tumor_recommendations(tumor_config, recommendations.get_section("tumor"))
+                tumor_config = _apply_tumor_recommendations(
+                    tumor_config, recommendations.get_section("tumor")
+                )
         except Exception as exc:
             log.warning(f"Recommendation engine failed: {exc}. Proceeding with default configs.")
             warnings_list.append(f"recommendation_engine_failed: {exc}")
@@ -192,6 +208,7 @@ def run_tumor_analysis_expert(
     log.info("=" * 60)
     try:
         from ..qc.workflow import run_standard_qc
+
         adata = run_standard_qc(adata, config=qc_config, tissue_type=tissue_type)
         steps_executed.append("qc")
     except Exception as exc:
@@ -205,6 +222,7 @@ def run_tumor_analysis_expert(
     log.info("=" * 60)
     try:
         from ..preprocess.workflow import run_preprocessing
+
         adata = run_preprocessing(adata, config=preprocess_config, tissue_type=tissue_type)
         steps_executed.append("preprocessing")
     except Exception as exc:
@@ -218,6 +236,7 @@ def run_tumor_analysis_expert(
     log.info("=" * 60)
     try:
         from ..analysis.workflow import run_standard_analysis
+
         adata = run_standard_analysis(adata, config=analysis_config)
         steps_executed.append("analysis")
     except Exception as exc:
@@ -238,18 +257,23 @@ def run_tumor_analysis_expert(
         raise
 
     # --- Execution Trace ---
-    user_overrides = _diff_recommendations(recommendations, {
-        "qc": qc_config,
-        "preprocess": preprocess_config,
-        "analysis": analysis_config,
-        "tumor": tumor_config,
-    })
+    user_overrides = _diff_recommendations(
+        recommendations,
+        {
+            "qc": qc_config,
+            "preprocess": preprocess_config,
+            "analysis": analysis_config,
+            "tumor": tumor_config,
+        },
+    )
 
     execution_trace = {
         "recommended_params": recommendations.to_dict() if recommendations else None,
         "actual_params": {
             "qc": qc_config.to_dict() if hasattr(qc_config, "to_dict") else {},
-            "preprocess": preprocess_config.to_dict() if hasattr(preprocess_config, "to_dict") else {},
+            "preprocess": (
+                preprocess_config.to_dict() if hasattr(preprocess_config, "to_dict") else {}
+            ),
             "analysis": analysis_config.to_dict() if hasattr(analysis_config, "to_dict") else {},
             "tumor": tumor_config.to_dict(),
         },
@@ -295,8 +319,8 @@ def _run_tumor_stage(
     # Malignancy
     if config.run_malignancy:
         try:
-            from .malignancy.scoring import score_malignancy
             from .malignancy.classification import classify_malignant_cells
+            from .malignancy.scoring import score_malignancy
 
             log.info("Tumor stage: scoring malignancy")
             adata = score_malignancy(adata, key_added="malignancy")
@@ -309,16 +333,28 @@ def _run_tumor_stage(
                 ref_key = config.malignancy_reference_key
                 if ref_key and ref_key in adata.obs.columns:
                     # current classify_malignant_cells takes reference_adata, not key
-                    ref_adata = adata[adata.obs[ref_key].astype(str).str.lower().isin(
-                        {"normal", "healthy", "reference", "immune", "stromal"}
-                    )].copy()
+                    ref_adata = adata[
+                        adata.obs[ref_key]
+                        .astype(str)
+                        .str.lower()
+                        .isin({"normal", "healthy", "reference", "immune", "stromal"})
+                    ].copy()
                     if ref_adata.n_obs == 0:
-                        log.warning(f"No reference cells found via '{ref_key}'. Falling back to unsupervised.")
+                        log.warning(
+                            f"No reference cells found via '{ref_key}'. Falling back to unsupervised."
+                        )
                         ref_adata = None
                 else:
-                    log.warning(f"malignancy_method='{config.malignancy_method}' may require reference cells.")
+                    log.warning(
+                        f"malignancy_method='{config.malignancy_method}' may require reference cells."
+                    )
                     ref_adata = None
-                classify_malignant_cells(adata, method=config.malignancy_method, reference_adata=ref_adata, key_added="is_malignant")
+                classify_malignant_cells(
+                    adata,
+                    method=config.malignancy_method,
+                    reference_adata=ref_adata,
+                    key_added="is_malignant",
+                )
         except Exception as exc:
             log.warning(f"Malignancy analysis failed: {exc}. Skipping.")
 
@@ -344,12 +380,20 @@ def _run_tumor_stage(
             log.info("Tumor stage: inferring CNV")
             ref_key = config.cnv_reference_key
             if ref_key and ref_key in adata.obs.columns:
-                ref_cells = adata.obs[ref_key].astype(str).str.lower().isin(
-                    {"normal", "healthy", "reference", "immune", "stromal"}
+                ref_cells = (
+                    adata.obs[ref_key]
+                    .astype(str)
+                    .str.lower()
+                    .isin({"normal", "healthy", "reference", "immune", "stromal"})
                 )
                 ref_values = adata.obs[ref_key].unique().tolist() if not ref_cells.any() else None
                 if ref_values is None:
-                    ref_mask = adata.obs[ref_key].astype(str).str.lower().isin({"normal", "healthy", "reference", "immune", "stromal"})
+                    ref_mask = (
+                        adata.obs[ref_key]
+                        .astype(str)
+                        .str.lower()
+                        .isin({"normal", "healthy", "reference", "immune", "stromal"})
+                    )
                     ref_values = adata.obs.loc[ref_mask, ref_key].unique().tolist()
                 infer_cnv(adata, reference_cells=ref_values, reference_key=ref_key, key_added="cnv")
             else:
@@ -444,6 +488,7 @@ def _apply_clustering_recommendations(analysis_config: Any, section: Any) -> Any
     """Apply recommended clustering parameters to analysis config."""
     if not hasattr(analysis_config, "clustering") or analysis_config.clustering is None:
         from ..analysis.config import ClusteringConfig
+
         analysis_config.clustering = ClusteringConfig()
     for param in section.parameters:
         if hasattr(analysis_config.clustering, param.name) and param.value is not None:
@@ -455,6 +500,7 @@ def _apply_annotation_recommendations(analysis_config: Any, section: Any) -> Any
     """Apply recommended annotation parameters to analysis config."""
     if not hasattr(analysis_config, "annotation") or analysis_config.annotation is None:
         from ..analysis.config import AnnotationConfig
+
         analysis_config.annotation = AnnotationConfig()
     raw = section.raw_result
     if isinstance(raw, type(analysis_config.annotation)):
@@ -469,7 +515,9 @@ def _apply_annotation_recommendations(analysis_config: Any, section: Any) -> Any
     return analysis_config
 
 
-def _apply_tumor_recommendations(tumor_config: TumorAnalysisConfig, section: Any) -> TumorAnalysisConfig:
+def _apply_tumor_recommendations(
+    tumor_config: TumorAnalysisConfig, section: Any
+) -> TumorAnalysisConfig:
     """Apply recommended tumor parameters to TumorAnalysisConfig."""
     raw = section.raw_result
     if isinstance(raw, type(tumor_config)):

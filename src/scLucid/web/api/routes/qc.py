@@ -8,10 +8,11 @@ Provides endpoints for:
 - Data callbacks for Dash interactive components
 """
 
-from fastapi import APIRouter, HTTPException
-from typing import Optional, Dict, Any, List
-import pandas as pd
+from typing import Optional
+
 import numpy as np
+import pandas as pd
+from fastapi import APIRouter, HTTPException
 
 from ....base_config import SclucidBaseConfig
 
@@ -20,6 +21,7 @@ router = APIRouter()
 
 class QCConfig(SclucidBaseConfig):
     """QC configuration model for web API."""
+
     sample_key: str = "sampleID"
     species: str = "human"
     min_genes: Optional[int] = None
@@ -40,8 +42,8 @@ async def calculate_qc_metrics(project_id: str):
     Returns:
         Calculated metrics summary for Plotly.js visualization
     """
-    from scLucid.web.services.data_manager import get_project_data
     import scLucid as scl
+    from scLucid.web.services.data_manager import get_project_data
 
     adata = get_project_data(project_id)
     if adata is None:
@@ -92,8 +94,8 @@ async def preview_qc_filtering(
     Returns:
         Filtered data and statistics for Plotly.js visualization
     """
-    from scLucid.web.services.data_manager import get_project_data
     import scLucid as scl
+    from scLucid.web.services.data_manager import get_project_data
 
     adata = get_project_data(project_id)
     if adata is None:
@@ -229,8 +231,8 @@ async def apply_qc_filter(project_id: str, config: QCConfig):
     Returns:
         Filtered AnnData data summary
     """
-    from scLucid.web.services.data_manager import get_project_data, update_project_data
     import scLucid as scl
+    from scLucid.web.services.data_manager import get_project_data, update_project_data
 
     adata = get_project_data(project_id)
     if adata is None:

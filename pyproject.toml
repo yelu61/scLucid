@@ -59,39 +59,64 @@ dependencies = [
 # e.g., pip install .[analysis, tools]
 # ===================================================================
 [project.optional-dependencies]
-# Dependencies for the standard `analysis` module
+# Core analysis: doublet detection, annotation, clustering
 analysis = [
     "scrublet",   # For doublet detection in qc/doublet.py
     "celltypist", # For run_celltypist in analysis/annotation.py
-    "gseapy",     # For run_enrichment in analysis/differential.py
     "cosg",       # For the 'cosg' method in analysis/differential.py
     "hdbscan",    # For HDBSCAN clustering in analysis/cluster.py
     "networkx",   # For merge_clusters in analysis/cluster.py
 ]
 
-# Dependencies for the advanced `tools` module (R-free)
-tools = [
-    "infercnvpy", # For CNV analysis
-    "scvelo",     # For RNA velocity analysis
-    # "rpy2",        # REMOVED: R bridge no longer needed (Python-native tools)
-    "sccoda",      # For compositional analysis
-    "pyscenic",    # For SCENIC workflow (GRN inference)
-    "loompy",      # Required for SCENIC data format
-    "cellphonedb", # For CellPhoneDB analysis
+# Batch correction and integration methods
+integration = [
     "harmonypy",   # For Harmony integration
     "scanorama",   # For Scanorama integration
     "scvi-tools",  # For scVI integration
     "bbknn",       # For BBKNN integration
     "combat",      # For ComBat batch correction
-    "triku",       # For Triku HVG selection
-    "squidpy",     # For spatial analysis functions
-    # Python-native implementations (replacing R tools)
-    # "pyBayesPrism",  # Included in package
-    # "pyDWLS",        # Included in package
 ]
 
-# A convenience group to install everything
-all = ["scLucid[analysis]", "scLucid[tools]"]
+# Differential expression and enrichment
+de = [
+    "pydeseq2",    # For DESeq2-based DE testing
+    "gseapy",      # For ORA/GSEA enrichment analysis
+]
+
+# Cell type proportion analysis
+proportion = [
+    "sccoda",      # For compositional data analysis
+]
+
+# RNA velocity
+velocity = [
+    "scvelo",      # For RNA velocity analysis
+]
+
+# CNV analysis
+cnv = [
+    "infercnvpy",  # For CNV inference
+]
+
+# Advanced tools bundle (includes velocity, cnv, proportion + extras)
+tools = [
+    "scLucid[velocity]",
+    "scLucid[cnv]",
+    "scLucid[proportion]",
+    "pyscenic",    # For SCENIC workflow (GRN inference)
+    "loompy",      # Required for SCENIC data format
+    "cellphonedb", # For CellPhoneDB analysis
+    "triku",       # For Triku HVG selection
+    "squidpy",     # For spatial analysis functions
+]
+
+# Install everything
+all = [
+    "scLucid[analysis]",
+    "scLucid[integration]",
+    "scLucid[de]",
+    "scLucid[tools]",
+]
 
 # Dependencies for developers (e.g., for running tests)
 dev = [
@@ -127,3 +152,167 @@ scLucid = [
     "resources/**/*.gmt",
     "resources/**/*.md",
 ]
+
+# ===================================================================
+# === Development Tools Configuration ===
+# ===================================================================
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+include = "\\.pyi?$"
+exclude = """
+/(
+    \\.git
+  | \\.hg
+  | \\.mypy_cache
+  | \\.tox
+  | \\.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | \\.claude
+)/
+"""
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "D",   # pydocstyle
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+]
+ignore = [
+    # Docstring rules - too many to fix at once, address in module-by-module refactoring
+    "D100",  # Missing docstring in public module
+    "D101",  # Missing docstring in public class
+    "D102",  # Missing docstring in public method
+    "D103",  # Missing docstring in public function
+    "D104",  # Missing docstring in public package
+    "D105",  # Missing docstring in magic method
+    "D107",  # Missing docstring in __init__
+    "D200",  # One-line docstring should fit on one line
+    "D202",  # No blank lines allowed after function docstring
+    "D203",  # 1 blank line required before class docstring (conflicts with D211)
+    "D205",  # 1 blank line required between summary line and description
+    "D212",  # Multi-line docstring summary should start at the first line (conflicts with D213)
+    "D400",  # First line should end with a period
+    "D401",  # First line should be in imperative mood
+    "D413",  # Missing blank line after last section
+    "D415",  # First line should end with a period, question mark, or exclamation point
+    "D417",  # Missing argument descriptions
+    # pyupgrade - typing generics deprecation, fix during Python 3.9+ migration
+    "UP006",  # Use dict/list instead of Dict/List
+    "UP035",  # typing.Dict/List/etc deprecated
+    "UP007",  # Use X | Y instead of Union
+    "UP008",  # Use super() instead of super(__class__, self)
+    "UP015",  # Unnecessary open mode parameters
+    "UP028",  # Replace yield over for loop with yield from
+    "UP031",  # Use format specifiers instead of percent format
+    "UP032",  # Use f-string instead of .format
+    "UP034",  # Avoid extraneous parentheses
+    "UP039",  # Unnecessary parentheses after class definition
+    "UP045",  # Use X | None for type annotations
+    # Naming conventions - address in module-by-module refactoring
+    "N806",  # Variable in function should be lowercase
+    "N999",  # Invalid module name
+    "N803",  # Argument name should be lowercase
+    "N802",  # Function name should be lowercase
+    "N813",  # Camelcase imported as lowercase
+    "N801",  # Class name should use CapWords
+    "N811",  # Constant imported as non constant
+    "N812",  # Lowercase imported as non-lowercase
+    "N817",  # Camelcase imported as acronym
+    # Code style - address in module-by-module refactoring
+    "B006",  # Mutable default argument
+    "B007",  # Loop control variable not used
+    "B028",  # No explicit stacklevel in warnings.warn
+    "B904",  # raise ... from e
+    "C408",  # Use dict() instead of {}
+    "C414",  # Unnecessary list/dict comprehension
+    "C416",  # Unnecessary list comprehension
+    "E402",  # Module level import not at top of file
+    "E501",  # Line too long (handled by black)
+    "E741",  # Ambiguous variable name (l, I, O)
+    "SIM102",  # Use a single if statement instead of nested if
+    "SIM108",  # Use ternary operator instead of if-else
+    "SIM114",  # Combine if branches using logical or
+    "SIM115",  # Use context manager for file opening
+    "SIM118",  # Use key in dict instead of key in dict.keys()
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["scLucid"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+show_error_codes = true
+exclude = [
+    "tests/",
+    "docs/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--cov=src/scLucid",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-report=xml:coverage.xml",
+    "--cov-fail-under=10",
+]
+markers = [
+    "unit: Unit tests (fast, isolated)",
+    "integration: Integration tests (may use real data)",
+    "slow: Slow tests (skip in quick runs)",
+    "config: Configuration system tests",
+    "optional: Optional dependency/backend tests",
+    "smoke: Import/public-surface smoke tests",
+]
+
+[tool.coverage.run]
+source = ["src/scLucid"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "pass",
+]
+precision = 1
+skip_covered = false
+show_missing = true

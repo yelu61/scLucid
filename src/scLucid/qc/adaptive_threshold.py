@@ -6,15 +6,71 @@ optimal QC thresholds from data distributions.
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from anndata import AnnData
-from scipy import stats
-from sklearn.mixture import GaussianMixture
 from sklearn.cluster import DBSCAN
+from sklearn.mixture import GaussianMixture
 
 log = logging.getLogger(__name__)
+
+#: Scale factor to convert MAD to approximate standard deviation for a normal distribution.
+#: For normally distributed data, std ≈ MAD * 1.4826.
+MAD_SCALE_FACTOR: float = 1.4826
+
+
+def compute_mad_bounds(
+    values: np.ndarray,
+    nmads: float = 5.0,
+    direction: str = "both",
+) -> Tuple[float, float]:
+    """Compute outlier bounds using Median Absolute Deviation (MAD).
+
+    This is the canonical MAD-based outlier detection implementation used
+    throughout scLucid. It replaces duplicated MAD logic in
+    ``filtering.py`` and ``adaptive_threshold.py``.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Input metric values (may contain NaNs).
+    nmads : float, default=5.0
+        Number of MADs from the median to use as the bound.
+    direction : {'upper', 'lower', 'both'}, default='both'
+        Which bound(s) to compute.
+
+    Returns:
+    -------
+    Tuple[float, float]
+        ``(lower_bound, upper_bound)``. For ``direction='upper'`` the
+        lower bound is ``-inf``; for ``direction='lower'`` the upper
+        bound is ``inf``.
+    """
+    clean = values[~np.isnan(values)]
+    if len(clean) == 0:
+        return -np.inf, np.inf
+
+    median = float(np.median(clean))
+    mad = float(np.median(np.abs(clean - median)))
+
+    if mad == 0:
+        log.debug("MAD is zero; bounds collapse to the median.")
+        scaled_mad = 0.0
+    else:
+        scaled_mad = mad * MAD_SCALE_FACTOR
+
+    lower = median - nmads * scaled_mad
+    upper = median + nmads * scaled_mad
+
+    if direction == "upper":
+        lower = -np.inf
+    elif direction == "lower":
+        upper = np.inf
+    elif direction != "both":
+        raise ValueError(f"direction must be 'upper', 'lower', or 'both', got {direction!r}")
+
+    return lower, upper
 
 
 class AdaptiveThresholdLearner:
@@ -30,7 +86,7 @@ class AdaptiveThresholdLearner:
 
     def __init__(
         self,
-        method: str = 'gmm',
+        method: str = "gmm",
         min_quality_cells: float = 0.5,
         random_state: int = 42,
     ):
@@ -53,7 +109,7 @@ class AdaptiveThresholdLearner:
         self,
         metric_values: np.ndarray,
         metric_name: str,
-        direction: str = 'upper',
+        direction: str = "upper",
     ) -> float:
         """
         Learn optimal threshold for a single QC metric.
@@ -74,23 +130,21 @@ class AdaptiveThresholdLearner:
             log.warning(f"No valid values for metric {metric_name}")
             return np.nan
 
-        if self.method == 'gmm':
+        if self.method == "gmm":
             threshold = self._learn_threshold_gmm(clean_values, direction)
-        elif self.method == 'mad':
+        elif self.method == "mad":
             threshold = self._learn_threshold_mad(clean_values, direction)
-        elif self.method == 'percentile':
+        elif self.method == "percentile":
             threshold = self._learn_threshold_percentile(clean_values, direction)
-        elif self.method == 'kde':
+        elif self.method == "kde":
             threshold = self._learn_threshold_kde(clean_values, direction)
-        elif self.method == 'dbscan':
+        elif self.method == "dbscan":
             threshold = self._learn_threshold_dbscan(clean_values, direction)
         else:
             raise ValueError(f"Unknown method: {self.method}")
 
         # Apply minimum quality constraint
-        threshold = self._apply_min_quality_constraint(
-            clean_values, threshold, direction
-        )
+        threshold = self._apply_min_quality_constraint(clean_values, threshold, direction)
 
         self._learned_thresholds[metric_name] = threshold
 
@@ -134,7 +188,7 @@ class AdaptiveThresholdLearner:
 
         # For upper threshold (filter high values like MT%)
         # Use the boundary between the two components
-        if direction == 'upper':
+        if direction == "upper":
             # Threshold between distributions
             if n_components == 2:
                 # Use weighted average of means as threshold
@@ -154,7 +208,7 @@ class AdaptiveThresholdLearner:
                 threshold = np.mean(means[bottom_two])
 
         # Store model for potential use
-        self._fitted_models['gmm'] = gmm
+        self._fitted_models["gmm"] = gmm
 
         return float(threshold)
 
@@ -167,20 +221,15 @@ class AdaptiveThresholdLearner:
         """
         Learn threshold using Median Absolute Deviation.
 
-        More robust than standard deviation for outliers.
+        Delegates to the canonical ``compute_mad_bounds`` so that the
+        same MAD logic is used everywhere in the QC module.
         """
-        median = np.median(values)
-        mad = np.median(np.abs(values - median))
+        lower, upper = compute_mad_bounds(values, nmads=nmads, direction=direction)
 
-        # Scale MAD (for normal distribution, MAD ≈ 0.6745 * std)
-        scaled_mad = mad * 1.4826
-
-        if direction == 'upper':
-            threshold = median + nmads * scaled_mad
+        if direction == "upper":
+            return upper
         else:
-            threshold = max(0, median - nmads * scaled_mad)
-
-        return float(threshold)
+            return max(0.0, lower)
 
     def _learn_threshold_percentile(
         self,
@@ -192,7 +241,7 @@ class AdaptiveThresholdLearner:
 
         Conservative approach based on distribution statistics.
         """
-        if direction == 'upper':
+        if direction == "upper":
             # Use 95th percentile for upper threshold
             threshold = np.percentile(values, 95)
         else:
@@ -229,7 +278,7 @@ class AdaptiveThresholdLearner:
                 # No clear minima, fall back to percentile
                 return self._learn_threshold_percentile(values, direction)
 
-            if direction == 'upper':
+            if direction == "upper":
                 # Use rightmost local minimum
                 threshold_idx = minima_indices[-1]
             else:
@@ -270,7 +319,7 @@ class AdaptiveThresholdLearner:
                 # No outliers detected, use percentile
                 return self._learn_threshold_percentile(values, direction)
 
-            if direction == 'upper':
+            if direction == "upper":
                 # Threshold is minimum of upper outliers
                 threshold = np.min(outlier_values)
             else:
@@ -297,7 +346,7 @@ class AdaptiveThresholdLearner:
         n_cells = len(values)
         min_cells_to_keep = int(n_cells * self.min_quality_cells)
 
-        if direction == 'upper':
+        if direction == "upper":
             # At most this fraction can fail
             max_failures = n_cells - min_cells_to_keep
 
@@ -338,10 +387,10 @@ class AdaptiveThresholdLearner:
         """
         if metrics is None:
             metrics = {
-                'log1p_n_genes_by_counts': 'lower',
-                'log1p_total_counts': 'lower',
-                'pct_counts_mt': 'upper',
-                'pct_counts_in_top_20_genes': 'upper',
+                "log1p_n_genes_by_counts": "lower",
+                "log1p_total_counts": "lower",
+                "pct_counts_mt": "upper",
+                "pct_counts_in_top_20_genes": "upper",
             }
 
         learned_thresholds = {}
@@ -384,7 +433,7 @@ class AdaptiveThresholdLearner:
 
         threshold = self._learned_thresholds[metric_name]
 
-        if direction == 'upper':
+        if direction == "upper":
             quality = metric_values <= threshold
         else:
             quality = metric_values >= threshold
@@ -401,7 +450,7 @@ class MultiMetricAdaptiveLearner:
 
     def __init__(
         self,
-        method: str = 'isolation_forest',
+        method: str = "isolation_forest",
         contamination: float = 0.1,
         random_state: int = 42,
     ):
@@ -437,7 +486,7 @@ class MultiMetricAdaptiveLearner:
         # Handle missing values
         X = np.nan_to_num(X, nan=0.0)
 
-        if self.method == 'isolation_forest':
+        if self.method == "isolation_forest":
             from sklearn.ensemble import IsolationForest
 
             self._model = IsolationForest(
@@ -447,7 +496,7 @@ class MultiMetricAdaptiveLearner:
             )
             self._model.fit(X)
 
-        elif self.method == 'local_outlier_factor':
+        elif self.method == "local_outlier_factor":
             from sklearn.neighbors import LocalOutlierFactor
 
             self._model = LocalOutlierFactor(
@@ -457,12 +506,12 @@ class MultiMetricAdaptiveLearner:
             )
             self._model.fit(X)
 
-        elif self.method == 'one_class_svm':
+        elif self.method == "one_class_svm":
             from sklearn.svm import OneClassSVM
 
             self._model = OneClassSVM(
                 nu=self.contamination,
-                kernel='rbf',
+                kernel="rbf",
             )
             self._model.fit(X)
 
@@ -488,7 +537,7 @@ class MultiMetricAdaptiveLearner:
         X = np.nan_to_num(X, nan=0.0)
 
         # Get predictions
-        if self.method == 'local_outlier_factor':
+        if self.method == "local_outlier_factor":
             # LOF has fit_predict instead of predict
             predictions = self._model.fit_predict(X)
         else:

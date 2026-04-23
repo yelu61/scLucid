@@ -5,10 +5,10 @@ This module provides interfaces to cancer databases like
 COSMIC, TCGA, and other cancer genomics resources.
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 import logging
+from typing import Optional
+
+import pandas as pd
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def query_cancer_gene_census(
     role : str, optional
         Filter by gene role ("oncogene" or "TSG")
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Query results
@@ -151,11 +151,13 @@ def query_cancer_gene_census(
         if role and info["role"] != role:
             continue
 
-        results.append({
-            "gene": gene_symbol,
-            "role": info["role"],
-            "cancer_types": ", ".join(info["cancer_types"]),
-        })
+        results.append(
+            {
+                "gene": gene_symbol,
+                "role": info["role"],
+                "cancer_types": ", ".join(info["cancer_types"]),
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -177,7 +179,7 @@ def get_drug_targets(
     cancer_type : str, optional
         Filter by cancer type
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Drug-target information
@@ -197,12 +199,14 @@ def get_drug_targets(
         if cancer_type and cancer_type.lower() not in [ct.lower() for ct in info["cancer_types"]]:
             continue
 
-        results.append({
-            "drug": drug_name,
-            "targets": ", ".join(info["targets"]),
-            "cancer_types": ", ".join(info["cancer_types"]),
-            "mechanism": info["mechanism"],
-        })
+        results.append(
+            {
+                "drug": drug_name,
+                "targets": ", ".join(info["targets"]),
+                "cancer_types": ", ".join(info["cancer_types"]),
+                "mechanism": info["mechanism"],
+            }
+        )
 
     return pd.DataFrame(results)
 
@@ -224,7 +228,7 @@ def query_tcga_data(
     data_type : str
         Type of data ("expression", "mutation", "cnv")
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         TCGA data (placeholder)
@@ -232,12 +236,14 @@ def query_tcga_data(
     log.warning("TCGA query requires external data source - returning placeholder")
 
     # Placeholder return
-    return pd.DataFrame({
-        "gene": [gene],
-        "cancer_type": [cancer_type],
-        "data_type": [data_type],
-        "note": ["External data source required"],
-    })
+    return pd.DataFrame(
+        {
+            "gene": [gene],
+            "cancer_type": [cancer_type],
+            "data_type": [data_type],
+            "note": ["External data source required"],
+        }
+    )
 
 
 def is_cancer_gene(
@@ -254,7 +260,7 @@ def is_cancer_gene(
     cancer_type : str, optional
         Specific cancer type
 
-    Returns
+    Returns:
     -------
     bool
         Whether gene is a known cancer gene
@@ -278,7 +284,7 @@ def get_gene_role(
     gene : str
         Gene symbol
 
-    Returns
+    Returns:
     -------
     str or None
         Gene role or None if not in census

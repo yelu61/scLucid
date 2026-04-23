@@ -30,11 +30,11 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import matplotlib.pyplot as plt
-from anndata import AnnData
 import pandas as pd
+from anndata import AnnData
 
 from .base_config import SclucidBaseConfig
 
@@ -79,12 +79,12 @@ class AnalysisStep(ABC):
         adata : AnnData
             Input data to validate
 
-        Returns
+        Returns:
         -------
         bool
             True if input is valid, False otherwise
 
-        Raises
+        Raises:
         ------
         ValueError
             If input is invalid and cannot be processed
@@ -103,7 +103,7 @@ class AnalysisStep(ABC):
         **kwargs
             Additional parameters
 
-        Returns
+        Returns:
         -------
         AnnData
             Processed data with results stored
@@ -114,7 +114,7 @@ class AnalysisStep(ABC):
         """
         Get a summary of the analysis results.
 
-        Returns
+        Returns:
         -------
         dict
             Dictionary containing summary statistics and metadata
@@ -155,7 +155,7 @@ class QCFilter(ABC):
         adata : AnnData
             Input data
 
-        Returns
+        Returns:
         -------
         pd.Series
             Series of metric values
@@ -172,7 +172,7 @@ class QCFilter(ABC):
         metric : pd.Series
             Metric values
 
-        Returns
+        Returns:
         -------
         float
             Threshold value
@@ -191,7 +191,7 @@ class QCFilter(ABC):
         threshold : float
             Filtering threshold
 
-        Returns
+        Returns:
         -------
         AnnData
             Filtered data
@@ -212,12 +212,7 @@ class CellAnnotator(ABC):
     """
 
     @abstractmethod
-    def predict(
-        self,
-        adata: AnnData,
-        reference: Optional[AnnData] = None,
-        **kwargs
-    ) -> AnnData:
+    def predict(self, adata: AnnData, reference: Optional[AnnData] = None, **kwargs) -> AnnData:
         """
         Predict cell types for the data.
 
@@ -230,7 +225,7 @@ class CellAnnotator(ABC):
         **kwargs
             Additional parameters
 
-        Returns
+        Returns:
         -------
         AnnData
             Data with cell type predictions stored in adata.obs
@@ -247,7 +242,7 @@ class CellAnnotator(ABC):
         adata : AnnData
             Data with predictions
 
-        Returns
+        Returns:
         -------
         pd.Series
             Confidence scores
@@ -268,12 +263,7 @@ class ScoringMethod(ABC):
     """
 
     @abstractmethod
-    def score(
-        self,
-        adata: AnnData,
-        gene_sets: Dict[str, List[str]],
-        **kwargs
-    ) -> AnnData:
+    def score(self, adata: AnnData, gene_sets: Dict[str, List[str]], **kwargs) -> AnnData:
         """
         Calculate functional scores for cells.
 
@@ -286,7 +276,7 @@ class ScoringMethod(ABC):
         **kwargs
             Additional parameters
 
-        Returns
+        Returns:
         -------
         AnnData
             Data with scores stored in adata.obs
@@ -305,7 +295,7 @@ class ScoringMethod(ABC):
         score_key : str
             Key of score column in adata.obs
 
-        Returns
+        Returns:
         -------
         AnnData
             Data with normalized scores
@@ -337,7 +327,7 @@ class PlottingBackend(ABC):
         **kwargs
             Plotting parameters
 
-        Returns
+        Returns:
         -------
         matplotlib.figure.Figure
             Created figure
@@ -375,12 +365,7 @@ class ProportionMethod(ABC):
     """
 
     @abstractmethod
-    def analyze(
-        self,
-        adata: AnnData,
-        groupby: str,
-        **kwargs
-    ) -> pd.DataFrame:
+    def analyze(self, adata: AnnData, groupby: str, **kwargs) -> pd.DataFrame:
         """
         Analyze cell type proportions.
 
@@ -393,7 +378,7 @@ class ProportionMethod(ABC):
         **kwargs
             Additional parameters
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Proportion data
@@ -401,11 +386,7 @@ class ProportionMethod(ABC):
         pass
 
     @abstractmethod
-    def test_significance(
-        self,
-        proportions: pd.DataFrame,
-        **kwargs
-    ) -> pd.DataFrame:
+    def test_significance(self, proportions: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """
         Test statistical significance of proportion differences.
 
@@ -416,7 +397,7 @@ class ProportionMethod(ABC):
         **kwargs
             Test parameters
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Statistical test results
@@ -424,11 +405,7 @@ class ProportionMethod(ABC):
         pass
 
     @abstractmethod
-    def plot_results(
-        self,
-        proportions: pd.DataFrame,
-        **kwargs
-    ) -> plt.Figure:
+    def plot_results(self, proportions: pd.DataFrame, **kwargs) -> plt.Figure:
         """
         Visualize proportion analysis results.
 
@@ -439,7 +416,7 @@ class ProportionMethod(ABC):
         **kwargs
             Plotting parameters
 
-        Returns
+        Returns:
         -------
         matplotlib.figure.Figure
             Figure with plots
@@ -487,12 +464,12 @@ class AnalysisStepFactory:
         **kwargs
             Parameters to pass to the step constructor
 
-        Returns
+        Returns:
         -------
         AnalysisStep
             Instance of the requested step
 
-        Raises
+        Raises:
         ------
         KeyError
             If step name is not registered

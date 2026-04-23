@@ -39,7 +39,9 @@ class DataProfile:
     strategy_type: Literal["minimal", "standard", "aggressive", "large_scale"] = "standard"
 
     @classmethod
-    def from_adata(cls, adata: Any, batch_key: Optional[str] = None, config: Optional[Any] = None) -> "DataProfile":
+    def from_adata(
+        cls, adata: Any, batch_key: Optional[str] = None, config: Optional[Any] = None
+    ) -> "DataProfile":
         """Analyze AnnData and create profile."""
         # Handle default config
         if config is None:
@@ -52,14 +54,14 @@ class DataProfile:
             large_threshold = config.large_dataset_threshold
 
         # Calculate sparsity
-        if hasattr(adata.X, 'nnz'):
+        if hasattr(adata.X, "nnz"):
             sparsity = 1 - (adata.X.nnz / (adata.X.shape[0] * adata.X.shape[1]))
         else:
             sparsity = np.mean(adata.X == 0)
 
         # Count statistics
-        total_counts = adata.obs.get('total_counts', np.array([0]))
-        n_genes = adata.obs.get('n_genes_by_counts', np.array([0]))
+        total_counts = adata.obs.get("total_counts", np.array([0]))
+        n_genes = adata.obs.get("n_genes_by_counts", np.array([0]))
         median_counts = np.median(total_counts) if len(total_counts) > 0 else 0
         median_genes = np.median(n_genes) if len(n_genes) > 0 else 0
 
@@ -116,19 +118,19 @@ class DataProfile:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
-            'n_cells': self.n_cells,
-            'n_genes': self.n_genes,
-            'sparsity': self.sparsity,
-            'median_counts_per_cell': self.median_counts_per_cell,
-            'median_genes_per_cell': self.median_genes_per_cell,
-            'is_sparse': self.is_sparse,
-            'is_small_dataset': self.is_small_dataset,
-            'is_large_dataset': self.is_large_dataset,
-            'has_batch_info': self.has_batch_info,
-            'n_batches': self.n_batches,
-            'data_quality_score': self.data_quality_score,
-            'potential_issues': self.potential_issues,
-            'strategy_type': self.strategy_type,
+            "n_cells": self.n_cells,
+            "n_genes": self.n_genes,
+            "sparsity": self.sparsity,
+            "median_counts_per_cell": self.median_counts_per_cell,
+            "median_genes_per_cell": self.median_genes_per_cell,
+            "is_sparse": self.is_sparse,
+            "is_small_dataset": self.is_small_dataset,
+            "is_large_dataset": self.is_large_dataset,
+            "has_batch_info": self.has_batch_info,
+            "n_batches": self.n_batches,
+            "data_quality_score": self.data_quality_score,
+            "potential_issues": self.potential_issues,
+            "strategy_type": self.strategy_type,
         }
 
 
@@ -146,13 +148,13 @@ class HVGRecommendation:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'n_top_genes': self.n_top_genes,
-            'variance_explained': self.variance_explained,
-            'ci_lower': self.ci_lower,
-            'ci_upper': self.ci_upper,
-            'method': self.method,
-            'confidence': self.confidence,
-            'evidence': self.evidence,
+            "n_top_genes": self.n_top_genes,
+            "variance_explained": self.variance_explained,
+            "ci_lower": self.ci_lower,
+            "ci_upper": self.ci_upper,
+            "method": self.method,
+            "confidence": self.confidence,
+            "evidence": self.evidence,
         }
 
 
@@ -170,13 +172,13 @@ class PCARecommendation:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'n_pcs': self.n_pcs,
-            'variance_explained': self.variance_explained,
-            'ci_lower': self.ci_lower,
-            'ci_upper': self.ci_upper,
-            'method': self.method,
-            'confidence': self.confidence,
-            'evidence': self.evidence,
+            "n_pcs": self.n_pcs,
+            "variance_explained": self.variance_explained,
+            "ci_lower": self.ci_lower,
+            "ci_upper": self.ci_upper,
+            "method": self.method,
+            "confidence": self.confidence,
+            "evidence": self.evidence,
         }
 
 
@@ -198,16 +200,16 @@ class NeighborsRecommendation:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'n_neighbors': self.n_neighbors,
-            'n_pcs': self.n_pcs,
-            'silhouette_score': self.silhouette_score,
-            'ci_lower_neighbors': self.ci_lower_neighbors,
-            'ci_upper_neighbors': self.ci_upper_neighbors,
-            'ci_lower_pcs': self.ci_lower_pcs,
-            'ci_upper_pcs': self.ci_upper_pcs,
-            'method': self.method,
-            'confidence': self.confidence,
-            'evidence': self.evidence,
+            "n_neighbors": self.n_neighbors,
+            "n_pcs": self.n_pcs,
+            "silhouette_score": self.silhouette_score,
+            "ci_lower_neighbors": self.ci_lower_neighbors,
+            "ci_upper_neighbors": self.ci_upper_neighbors,
+            "ci_lower_pcs": self.ci_lower_pcs,
+            "ci_upper_pcs": self.ci_upper_pcs,
+            "method": self.method,
+            "confidence": self.confidence,
+            "evidence": self.evidence,
         }
 
 
@@ -226,14 +228,14 @@ class ResolutionRecommendation:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'resolution': self.resolution,
-            'n_clusters': self.n_clusters,
-            'stability_score': self.stability_score,
-            'ci_lower': self.ci_lower,
-            'ci_upper': self.ci_upper,
-            'method': self.method,
-            'confidence': self.confidence,
-            'evidence': self.evidence,
+            "resolution": self.resolution,
+            "n_clusters": self.n_clusters,
+            "stability_score": self.stability_score,
+            "ci_lower": self.ci_lower,
+            "ci_upper": self.ci_upper,
+            "method": self.method,
+            "confidence": self.confidence,
+            "evidence": self.evidence,
         }
 
 
@@ -251,13 +253,13 @@ class BatchCorrectionRecommendation:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'needs_correction': self.needs_correction,
-            'severity_score': self.severity_score,
-            'recommended_method': self.recommended_method,
-            'alternative_methods': self.alternative_methods,
-            'method_scores': self.method_scores,
-            'confidence': self.confidence,
-            'evidence': self.evidence,
+            "needs_correction": self.needs_correction,
+            "severity_score": self.severity_score,
+            "recommended_method": self.recommended_method,
+            "alternative_methods": self.alternative_methods,
+            "method_scores": self.method_scores,
+            "confidence": self.confidence,
+            "evidence": self.evidence,
         }
 
 
@@ -278,15 +280,15 @@ class PreprocessingStrategy:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            'data_profile': self.data_profile.to_dict(),
-            'hvg': self.hvg.to_dict(),
-            'pca': self.pca.to_dict(),
-            'neighbors': self.neighbors.to_dict(),
-            'resolution': self.resolution.to_dict(),
-            'batch_correction': self.batch_correction.to_dict() if self.batch_correction else None,
-            'overall_confidence': self.overall_confidence,
-            'concerns': self.concerns,
-            'recommendations': self.recommendations,
+            "data_profile": self.data_profile.to_dict(),
+            "hvg": self.hvg.to_dict(),
+            "pca": self.pca.to_dict(),
+            "neighbors": self.neighbors.to_dict(),
+            "resolution": self.resolution.to_dict(),
+            "batch_correction": self.batch_correction.to_dict() if self.batch_correction else None,
+            "overall_confidence": self.overall_confidence,
+            "concerns": self.concerns,
+            "recommendations": self.recommendations,
         }
 
     def to_config(self, base_config: Optional[Any] = None) -> Any:
@@ -309,9 +311,7 @@ class PreprocessingStrategy:
             config = copy.deepcopy(base_config)
 
         # Apply HVG recommendation
-        config.hvg = config.hvg.model_copy(
-            update={"n_top_genes": self.hvg.n_top_genes}
-        )
+        config.hvg = config.hvg.model_copy(update={"n_top_genes": self.hvg.n_top_genes})
 
         # Apply PCA/Graph recommendation
         config.graph = config.graph.model_copy(
@@ -325,7 +325,7 @@ class PreprocessingStrategy:
         config.scaling = config.scaling.model_copy()
 
         # Store resolution in uns for later use
-        if not hasattr(config, '_resolution'):
+        if not hasattr(config, "_resolution"):
             config._resolution = self.resolution.resolution
 
         # Apply batch correction recommendation

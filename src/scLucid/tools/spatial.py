@@ -7,16 +7,17 @@ Integrates with Squidpy, Scanpy, and outputs results in structured AnnData.
 
 import logging
 import os
-from typing import Optional, Literal, List, Dict, Any
+from typing import Dict, List, Literal, Optional
 
 import anndata
-import scanpy as sc
-import pandas as pd
-import squidpy as sq
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import squidpy as sq
 
 log = logging.getLogger(__name__)
+
 
 def run_spatial_analysis(
     adata: anndata.AnnData,
@@ -39,8 +40,8 @@ def run_spatial_analysis(
     """
     if copy:
         adata = adata.copy()
-    adata.uns.setdefault('sclucid', {}).setdefault('spatial', {})
-    spat_uns = adata.uns['sclucid']['spatial']
+    adata.uns.setdefault("sclucid", {}).setdefault("spatial", {})
+    spat_uns = adata.uns["sclucid"]["spatial"]
 
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
@@ -50,7 +51,9 @@ def run_spatial_analysis(
 
     # --- Spatial neighbors graph ---
     log.info("Calculating spatial neighbors...")
-    sq.gr.spatial_neighbors(adata, coord_type="generic", n_neigh=spatial_neighbors, key_added="spatial_neighbors")
+    sq.gr.spatial_neighbors(
+        adata, coord_type="generic", n_neigh=spatial_neighbors, key_added="spatial_neighbors"
+    )
 
     # --- Clustering ---
     log.info("Running spatial clustering...")
@@ -90,6 +93,7 @@ def run_spatial_analysis(
         log.info("Computing LISI spatial diversity...")
         try:
             import lisi
+
             spatial_lisi = lisi.compute_lisi(adata.obsm[spatial_key], adata.obs[cluster_key])
             spat_uns["lisi"] = spatial_lisi
             if save_dir:
@@ -102,6 +106,7 @@ def run_spatial_analysis(
 
     log.info("Spatial analysis complete.")
     return adata
+
 
 def plot_spatial(
     adata: anndata.AnnData,
@@ -127,7 +132,7 @@ def plot_spatial(
         show=False,
     )
     if save_dir:
-        plt.savefig(os.path.join(save_dir, f"spatial_cluster.png"))
+        plt.savefig(os.path.join(save_dir, "spatial_cluster.png"))
     else:
         plt.show()
     plt.close()
@@ -170,6 +175,7 @@ def plot_spatial(
 
     log.info("Spatial plotting complete.")
 
+
 def run_spatial_batch(
     adatas: List[anndata.AnnData],
     out_dir: str,
@@ -183,7 +189,7 @@ def run_spatial_batch(
     results = {}
     os.makedirs(out_dir, exist_ok=True)
     for i, adata in enumerate(adatas):
-        sample_id = getattr(adata, 'sample_id', f"sample{i+1}")
+        sample_id = getattr(adata, "sample_id", f"sample{i+1}")
         sample_dir = os.path.join(out_dir, sample_id)
         try:
             results[sample_id] = run_spatial_analysis(
@@ -196,11 +202,8 @@ def run_spatial_batch(
             results[sample_id] = None
     return results
 
-def export_spatial_report(
-    adata: anndata.AnnData,
-    out_dir: str,
-    top_n: int = 10
-):
+
+def export_spatial_report(adata: anndata.AnnData, out_dir: str, top_n: int = 10):
     """
     Export spatial analysis results and summary report.
     """
@@ -208,7 +211,9 @@ def export_spatial_report(
     spatial = adata.uns.get("sclucid", {}).get("spatial", {})
     # Export marker genes and Moran's I results
     if "marker_genes" in spatial:
-        spatial["marker_genes"].head(top_n).to_csv(os.path.join(out_dir, "top_markers.csv"), index=False)
+        spatial["marker_genes"].head(top_n).to_csv(
+            os.path.join(out_dir, "top_markers.csv"), index=False
+        )
     if "moran_top" in spatial:
         spatial["moran_top"].head(top_n).to_csv(os.path.join(out_dir, "top_moran.csv"), index=False)
     # Export parameters

@@ -7,7 +7,7 @@ BayesPrism configuration for deconvolution parameters and Gibbs sampling control
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from pydantic import Field, field_validator, model_validator
 
@@ -41,7 +41,7 @@ class PrismConfig(SclucidBaseConfig):
     gibbs_control : Dict[str, Any]
         Additional Gibbs sampler control parameters
 
-    Examples
+    Examples:
     --------
     >>> config = PrismConfig(n_iter=200, n_chains=4, burnin=100)
     >>> config.gibbs_control['thinning'] = 5
@@ -52,12 +52,16 @@ class PrismConfig(SclucidBaseConfig):
     n_iter: int = Field(default=100, gt=0, description="Number of Gibbs sampling iterations")
     n_chains: int = Field(default=4, gt=0, description="Number of Markov chains for MCMC")
     burnin: int = Field(default=50, ge=0, description="Number of burn-in iterations")
-    update_bulk: bool = Field(default=True, description="Whether to update bulk expression estimates")
+    update_bulk: bool = Field(
+        default=True, description="Whether to update bulk expression estimates"
+    )
     pseudo_min: float = Field(default=1e-8, gt=0, description="Minimum pseudo-count to avoid zeros")
     key: Optional[str] = Field(default=None, description="Keyword for tumor samples")
     outlier_cutoff: float = Field(default=0.01, gt=0, description="Outlier detection cutoff")
     max_outlier: int = Field(default=10, gt=0, description="Maximum number of outlier genes")
-    gibbs_control: Dict[str, Any] = Field(default_factory=dict, description="Additional Gibbs sampler control parameters")
+    gibbs_control: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional Gibbs sampler control parameters"
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -71,15 +75,15 @@ class PrismConfig(SclucidBaseConfig):
             n_iter = data.get("n_iter", 1000)
             burnin = data.get("burnin", 500)
             data["gibbs_control"] = {
-                'chain_length': n_iter,
-                'burn_in': burnin,
-                'thinning': 1,
-                'verbose': False,
+                "chain_length": n_iter,
+                "burn_in": burnin,
+                "thinning": 1,
+                "verbose": False,
             }
         return data
 
     @model_validator(mode="after")
-    def validate_parameters(self) -> "PrismConfig":
+    def validate_parameters(self) -> PrismConfig:
         """Validate configuration parameters"""
         if self.burnin >= self.n_iter:
             raise ValueError(f"burnin ({self.burnin}) must be < n_iter ({self.n_iter})")
@@ -106,8 +110,12 @@ class ReferenceConfig(SclucidBaseConfig):
 
     input_type: str = Field(default="count.matrix", description="Type of input data")
     pseudo_min: float = Field(default=1e-8, gt=0, description="Minimum pseudo-count")
-    min_cells_per_type: int = Field(default=10, gt=0, description="Minimum cells required per cell type")
-    min_genes_per_cell: int = Field(default=200, gt=0, description="Minimum genes expressed per cell")
+    min_cells_per_type: int = Field(
+        default=10, gt=0, description="Minimum cells required per cell type"
+    )
+    min_genes_per_cell: int = Field(
+        default=200, gt=0, description="Minimum genes expressed per cell"
+    )
 
     @field_validator("input_type")
     @classmethod
@@ -139,8 +147,12 @@ class DeconvolutionConfig(SclucidBaseConfig):
 
     n_cores: int = Field(default=1, ge=1, description="Number of CPU cores for parallel processing")
     verbose: bool = Field(default=True, description="Whether to display progress")
-    return_samples: bool = Field(default=False, description="Whether to return full posterior samples")
-    confidence_level: float = Field(default=0.95, gt=0, lt=1, description="Confidence level for credible intervals")
+    return_samples: bool = Field(
+        default=False, description="Whether to return full posterior samples"
+    )
+    confidence_level: float = Field(
+        default=0.95, gt=0, lt=1, description="Confidence level for credible intervals"
+    )
 
 
 __all__ = [

@@ -4,42 +4,36 @@ Tests for Pydantic-based configuration system.
 Validates all config classes have correct validation and serialization.
 """
 
-import pytest
 import json
+import sys
 import tempfile
 from pathlib import Path
 
-import sys
+import pytest
+
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
-
-from scLucid.base_config import SclucidBaseConfig, WorkflowConfigBase
-
-
-# QC Configs
-from scLucid.qc.config import (
-    QCWorkflowConfig,
-    MetricsReportingConfig,
-    QCThresholds,
-    DoubletConfig,
-    FilterConfig,
-)
-
-# Preprocess Configs
-from scLucid.preprocess.config import (
-    PreprocessingWorkflowConfig,
-    NormalizationConfig,
-    HVGConfig,
-    ScalingConfig,
-    IntegrationConfig,
-)
 
 # Analysis Configs
 from scLucid.analysis.config import (
     AnalysisWorkflowConfig,
-    ClusteringConfig,
     AnnotationConfig,
-    DifferentialConfig,
+    ClusteringConfig,
     EnrichmentConfig,
+)
+from scLucid.base_config import SclucidBaseConfig, WorkflowConfigBase
+
+# Preprocess Configs
+from scLucid.preprocess.config import (
+    HVGConfig,
+    NormalizationConfig,
+    PreprocessingWorkflowConfig,
+)
+
+# QC Configs
+from scLucid.qc.config import (
+    DoubletConfig,
+    QCThresholds,
+    QCWorkflowConfig,
 )
 
 
@@ -91,7 +85,7 @@ class TestBaseConfig:
         """Test saving and loading from file."""
         config = SclucidBaseConfig(save_dir="./test_save")
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             temp_path = f.name
 
         try:

@@ -12,7 +12,6 @@ from ..preprocess.intelligent.config import IntelligentPreprocessConfig
 from ..qc.intelligent_qc import IntelligentQCConfig
 from ..tumor.config import TumorAnalysisConfig
 
-
 RecommendationModule = Literal["qc", "preprocess", "clustering", "annotation", "tumor"]
 
 
@@ -29,9 +28,7 @@ class RecommendationConfig(SclucidBaseConfig):
     annotation: Optional[AnnotationConfig] = Field(default=None)
     tumor: Optional[TumorAnalysisConfig] = Field(default=None)
     resolution_search: Optional[ResolutionSearchConfig] = Field(default=None)
-    clustering_selection_strategy: Literal["elbow", "peak", "balanced"] = Field(
-        default="balanced"
-    )
+    clustering_selection_strategy: Literal["elbow", "peak", "balanced"] = Field(default="balanced")
     clustering_method: Literal["leiden", "louvain"] = Field(default="leiden")
     clustering_use_rep: str = Field(default="X_pca")
     prepare_clustering_rep_if_missing: bool = Field(default=True)

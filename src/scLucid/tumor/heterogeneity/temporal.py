@@ -5,11 +5,12 @@ This module provides tools for tracking tumor heterogeneity
 dynamics over time and treatment response.
 """
 
+import logging
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class TemporalAnalyzer:
     time_key : str
         Column containing time points
 
-    Attributes
+    Attributes:
     ----------
     dynamics_ : pd.DataFrame
         Temporal dynamics metrics
@@ -54,7 +55,7 @@ class TemporalAnalyzer:
         patient_key : str, optional
             Column containing patient IDs
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Temporal dynamics metrics
@@ -85,7 +86,7 @@ class TemporalAnalyzer:
 
                 # Calculate diversity
                 shannon = -np.sum(clone_props * np.log(clone_props + 1e-10))
-                simpson = 1 - np.sum(clone_props ** 2)
+                simpson = 1 - np.sum(clone_props**2)
 
                 result = {
                     "patient": patient,
@@ -128,7 +129,7 @@ class TemporalAnalyzer:
         clone_key : str
             Column containing clone IDs
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Treatment response trajectories
@@ -158,7 +159,8 @@ class TemporalAnalyzer:
             clone_counts = time_adata.obs[clone_key].value_counts()
             result["n_clones"] = len(clone_counts)
             result["shannon_diversity"] = -np.sum(
-                (clone_counts / clone_counts.sum()) * np.log(clone_counts / clone_counts.sum() + 1e-10)
+                (clone_counts / clone_counts.sum())
+                * np.log(clone_counts / clone_counts.sum() + 1e-10)
             )
 
             results.append(result)
@@ -183,7 +185,7 @@ class TemporalAnalyzer:
         patient_key : str, optional
             Column containing patient IDs
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Clone turnover metrics
@@ -220,16 +222,18 @@ class TemporalAnalyzer:
 
                 jaccard = shared / len(clones1 | clones2) if len(clones1 | clones2) > 0 else 0
 
-                results.append({
-                    "patient": patient,
-                    "time_from": t1,
-                    "time_to": t2,
-                    "shared_clones": shared,
-                    "lost_clones": lost,
-                    "gained_clones": gained,
-                    "jaccard_index": jaccard,
-                    "turnover_rate": (lost + gained) / len(clones1) if len(clones1) > 0 else 0,
-                })
+                results.append(
+                    {
+                        "patient": patient,
+                        "time_from": t1,
+                        "time_to": t2,
+                        "shared_clones": shared,
+                        "lost_clones": lost,
+                        "gained_clones": gained,
+                        "jaccard_index": jaccard,
+                        "turnover_rate": (lost + gained) / len(clones1) if len(clones1) > 0 else 0,
+                    }
+                )
 
         return pd.DataFrame(results)
 
@@ -254,7 +258,7 @@ def track_temporal_dynamics(
     patient_key : str, optional
         Column containing patient IDs
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Temporal dynamics metrics
@@ -286,7 +290,7 @@ def analyze_treatment_response_trajectory(
     clone_key : str
         Column containing clone IDs
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Treatment response trajectories
@@ -317,7 +321,7 @@ def detect_clonal_sweep(
     frequency_threshold : float
         Threshold for detecting sweep
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Detected clonal sweeps
@@ -340,12 +344,14 @@ def detect_clonal_sweep(
 
         # Detect sweep: initial low frequency -> final high frequency
         if frequencies[0] < 0.2 and frequencies[-1] > frequency_threshold:
-            results.append({
-                "clone": clone,
-                "initial_freq": frequencies[0],
-                "final_freq": frequencies[-1],
-                "fold_change": frequencies[-1] / (frequencies[0] + 1e-6),
-                "is_sweep": True,
-            })
+            results.append(
+                {
+                    "clone": clone,
+                    "initial_freq": frequencies[0],
+                    "final_freq": frequencies[-1],
+                    "fold_change": frequencies[-1] / (frequencies[0] + 1e-6),
+                    "is_sweep": True,
+                }
+            )
 
     return pd.DataFrame(results)

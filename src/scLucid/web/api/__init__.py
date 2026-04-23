@@ -12,7 +12,7 @@ Provides REST API for:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from scLucid.web.api.routes import qc, preprocess, analysis, data
+from scLucid.web.api.routes import analysis, data, preprocess, qc
 
 app = FastAPI(
     title="scLucid API",

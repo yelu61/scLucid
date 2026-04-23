@@ -5,7 +5,6 @@ This module provides comprehensive tools for analyzing cell type proportions,
 including multiple statistical methods:
 - Pseudo-bulk: Traditional statistical tests (DESeq2, t-test, Wilcoxon)
 - scCODA: Bayesian compositional data analysis
-- Milo: Neighborhood-based cell-level analysis (TODO)
 
 Usage:
 ------
@@ -19,37 +18,39 @@ Usage:
 >>> prop_df, stat_df = analyze_celltype_proportion(adata, method='pseudobulk')
 """
 
-from .config import ProportionConfig, MethodSelectionConfig
+from .config import MethodSelectionConfig, ProportionConfig
 from .pseudobulk import (
     celltype_proportion_analysis,
     compute_celltype_proportion,
     run_statistical_test,
 )
+
 # Alias for backward compatibility
 pb_analysis = celltype_proportion_analysis
-from .stats import export_analysis_data
+from .methods import ProportionMethod, compare_methods, recommend_method
 from .plots import (
-    plot_cell_counts,
-    plot_proportion_bar,
-    plot_grouped_celltype_counts,
-    plot_grouped_proportion_bar,
-    plot_celltype_alluvial,
+    plot_batch_effect,
     plot_box_summary,
-    plot_proportion_heatmap,
+    plot_cell_counts,
+    plot_celltype_alluvial,
     plot_celltype_correlation,
     plot_effect_size_volcano,
+    plot_grouped_celltype_counts,
+    plot_grouped_proportion_bar,
+    plot_proportion_bar,
+    plot_proportion_heatmap,
     plot_proportion_timeseries,
-    plot_batch_effect,
 )
-from .methods import ProportionMethod, recommend_method, compare_methods
+from .stats import export_analysis_data
 from .workflow import (
-    analyze_celltype_proportion,
     analyze_all_methods,
+    analyze_celltype_proportion,
 )
 
 # Optional scCODA import (may fail if sccoda not installed)
 try:
     from .sccoda import run_sccoda, summarize_sccoda
+
     _sccoda_available = True
 except ImportError:
     _sccoda_available = False
