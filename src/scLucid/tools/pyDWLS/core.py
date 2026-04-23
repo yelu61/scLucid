@@ -6,14 +6,15 @@ deconvolution workflow, including signature building, gene selection,
 and proportion estimation.
 """
 
+import logging
+from typing import List, Optional, Union
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, List, Dict, Any
-import logging
 
+from .markers import MarkerSelector
 from .signature import SignatureBuilder
 from .solver import DampenedWLS
-from .markers import MarkerSelector
 from .utils import align_data
 
 log = logging.getLogger(__name__)
@@ -38,14 +39,14 @@ class DWLS:
     use_nonneg : bool, default=True
         Enforce non-negative proportion constraints.
 
-    Attributes
+    Attributes:
     ----------
     signature_matrix_ : pd.DataFrame
         The signature matrix used for deconvolution.
     results_ : pd.DataFrame
         Deconvolution results (samples x cell types).
 
-    Examples
+    Examples:
     --------
     >>> dwls = DWLS()
     >>> signature = dwls.build_signature_matrix(sc_data, cell_labels)
@@ -98,12 +99,12 @@ class DWLS:
         min_cells : int, default=10
             Minimum cells required per cell type.
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Signature matrix (genes x cell types).
 
-        Examples
+        Examples:
         --------
         >>> signature = dwls.build_signature_matrix(
         ...     sc_data, cell_labels, method="trimmed_mean"
@@ -142,7 +143,7 @@ class DWLS:
         log_transform : bool, default=True
             Log-transform data before selection.
 
-        Returns
+        Returns:
         -------
         list
             Selected marker gene names.
@@ -171,17 +172,17 @@ class DWLS:
         verbose : bool, default=True
             Print progress messages.
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Cell type proportions (samples x cell types).
 
-        Raises
+        Raises:
         ------
         ValueError
             If signature matrix or bulk data is not provided.
 
-        Examples
+        Examples:
         --------
         >>> proportions = dwls.deconvolve(bulk_data)
         >>> print(proportions.head())
@@ -245,7 +246,7 @@ class DWLS:
         bulk_sample : pd.Series or np.ndarray
             Expression values for one sample.
 
-        Returns
+        Returns:
         -------
         pd.Series
             Cell type proportions.
@@ -255,9 +256,7 @@ class DWLS:
 
         # Align genes
         if isinstance(bulk_sample, pd.Series):
-            common_genes = self.signature_matrix.index.intersection(
-                bulk_sample.index
-            )
+            common_genes = self.signature_matrix.index.intersection(bulk_sample.index)
             sig = self.signature_matrix.loc[common_genes]
             bulk = bulk_sample.loc[common_genes].values
         else:

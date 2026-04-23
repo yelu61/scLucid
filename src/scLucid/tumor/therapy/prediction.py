@@ -5,44 +5,99 @@ This module provides tools for predicting therapy response
 and stratifying patients based on molecular features.
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
-from anndata import AnnData
 import logging
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.linear_model import LogisticRegression
+from typing import Dict, Optional
+
+import pandas as pd
+from anndata import AnnData
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import cross_val_score
 
 log = logging.getLogger(__name__)
 
 # Therapy response signatures
 RESPONSE_SIGNATURES = {
     "chemotherapy_sensitive": [
-        "BCL2L11", "BAD", "BAK1", "BAX", "CASP8", "FAS", "TNFRSF10A",
-        "CHEK1", "CHEK2", "TP53", "ATM", "ATR",
+        "BCL2L11",
+        "BAD",
+        "BAK1",
+        "BAX",
+        "CASP8",
+        "FAS",
+        "TNFRSF10A",
+        "CHEK1",
+        "CHEK2",
+        "TP53",
+        "ATM",
+        "ATR",
     ],
     "chemotherapy_resistant": [
-        "ABCB1", "ABCC1", "ABCC2", "ABCG2", "GSTP1", "MGMT",
-        "BCL2", "BCL2L1", "MCL1", "BIRC5", "XIAP",
+        "ABCB1",
+        "ABCC1",
+        "ABCC2",
+        "ABCG2",
+        "GSTP1",
+        "MGMT",
+        "BCL2",
+        "BCL2L1",
+        "MCL1",
+        "BIRC5",
+        "XIAP",
     ],
     "immunotherapy_responsive": [
-        "CD8A", "CD8B", "GZMA", "GZMB", "PRF1", "IFNG",
-        "CXCL9", "CXCL10", "CXCL11", "TBX21", "EOMES",
-        "PDCD1", "CTLA4", "LAG3", "HAVCR2", "TIGIT",
+        "CD8A",
+        "CD8B",
+        "GZMA",
+        "GZMB",
+        "PRF1",
+        "IFNG",
+        "CXCL9",
+        "CXCL10",
+        "CXCL11",
+        "TBX21",
+        "EOMES",
+        "PDCD1",
+        "CTLA4",
+        "LAG3",
+        "HAVCR2",
+        "TIGIT",
     ],
     "immunotherapy_nonresponsive": [
-        "FOXP3", "IL10", "TGFB1", "VEGFA", "ARG1", "IDO1",
-        "PDL1", "PDL2", "SIGLEC15", "VTCN1",
+        "FOXP3",
+        "IL10",
+        "TGFB1",
+        "VEGFA",
+        "ARG1",
+        "IDO1",
+        "PDL1",
+        "PDL2",
+        "SIGLEC15",
+        "VTCN1",
     ],
     "targeted_therapy_sensitive": [
-        "EGFR", "ERBB2", "BRAF", "ALK", "ROS1", "RET",
-        "KIT", "PDGFRA", "MET", "NTRK1", "NTRK2", "NTRK3",
+        "EGFR",
+        "ERBB2",
+        "BRAF",
+        "ALK",
+        "ROS1",
+        "RET",
+        "KIT",
+        "PDGFRA",
+        "MET",
+        "NTRK1",
+        "NTRK2",
+        "NTRK3",
     ],
     "targeted_therapy_resistant": [
-        "NRAS", "KRAS", "PIK3CA", "PTEN", "MTOR", "AKT1",
-        "EGFR_T790M", "EGFR_C797S", "BRAF_V600E",
+        "NRAS",
+        "KRAS",
+        "PIK3CA",
+        "PTEN",
+        "MTOR",
+        "AKT1",
+        "EGFR_T790M",
+        "EGFR_C797S",
+        "BRAF_V600E",
     ],
 }
 
@@ -73,7 +128,11 @@ DRUG_BIOMARKERS = {
         "genes": ["CD274", "PDCD1", "LAG3", "IDO1"],
     },
     "olaparib": {
-        "predictive": {"BRCA1_mutation": "positive", "BRCA2_mutation": "positive", "HRD": "positive"},
+        "predictive": {
+            "BRCA1_mutation": "positive",
+            "BRCA2_mutation": "positive",
+            "HRD": "positive",
+        },
         "genes": ["BRCA1", "BRCA2", "RAD51", "PARP1"],
     },
 }
@@ -90,7 +149,7 @@ class ResponsePredictor:
     signatures : dict
         Response signatures
 
-    Attributes
+    Attributes:
     ----------
     predictions_ : pd.DataFrame
         Response predictions per cell
@@ -106,7 +165,9 @@ class ResponsePredictor:
         self.predictions_: Optional[pd.DataFrame] = None
         self.model_: Optional[object] = None
 
-    def fit(self, adata: AnnData, response_labels: Optional[pd.Series] = None) -> "ResponsePredictor":
+    def fit(
+        self, adata: AnnData, response_labels: Optional[pd.Series] = None
+    ) -> "ResponsePredictor":
         """
         Fit response predictor.
 
@@ -117,7 +178,7 @@ class ResponsePredictor:
         response_labels : pd.Series, optional
             Known response labels for ML training
 
-        Returns
+        Returns:
         -------
         ResponsePredictor
             Fitted predictor
@@ -144,7 +205,7 @@ class ResponsePredictor:
                 continue
 
             expr = adata[:, available].X.mean(axis=1)
-            if hasattr(expr, 'toarray'):
+            if hasattr(expr, "toarray"):
                 expr = expr.toarray().flatten()
 
             scores[signature_name] = expr
@@ -155,7 +216,7 @@ class ResponsePredictor:
         """Fit using machine learning."""
         # Prepare features
         X = adata.X
-        if hasattr(X, 'toarray'):
+        if hasattr(X, "toarray"):
             X = X.toarray()
 
         y = response_labels.loc[adata.obs_names]
@@ -174,9 +235,7 @@ class ResponsePredictor:
         # Get predictions
         probs = model.predict_proba(X_scaled)
         self.predictions_ = pd.DataFrame(
-            probs,
-            columns=[f"prob_{c}" for c in model.classes_],
-            index=adata.obs_names
+            probs, columns=[f"prob_{c}" for c in model.classes_], index=adata.obs_names
         )
 
     def _fit_hybrid(self, adata: AnnData, response_labels: Optional[pd.Series] = None):
@@ -203,7 +262,7 @@ class ResponsePredictor:
         therapy_type : str
             Type of therapy ("chemotherapy", "immunotherapy", "targeted")
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Response predictions
@@ -254,7 +313,7 @@ class ResponsePredictor:
         by : str
             Stratification basis ("resistance", "sensitivity")
 
-        Returns
+        Returns:
         -------
         pd.Series
             Stratum assignments
@@ -266,7 +325,9 @@ class ResponsePredictor:
         if by == "resistance":
             score_cols = [c for c in self.predictions_.columns if "resistant" in c]
         else:
-            score_cols = [c for c in self.predictions_.columns if "sensitive" in c or "responsive" in c]
+            score_cols = [
+                c for c in self.predictions_.columns if "sensitive" in c or "responsive" in c
+            ]
 
         if len(score_cols) == 0:
             score_cols = self.predictions_.columns
@@ -306,7 +367,7 @@ def predict_therapy_response(
     key_added : str
         Key prefix for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Response predictions
@@ -343,7 +404,7 @@ def stratify_patients(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.Series
         Stratum assignments
@@ -375,7 +436,7 @@ def evaluate_biomarker(
     expression_threshold : float
         Threshold for positive expression
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Biomarker evaluation results
@@ -391,7 +452,11 @@ def evaluate_biomarker(
 
     for gene in genes:
         if gene in adata.var_names:
-            expr = adata[:, gene].X.toarray().flatten() if hasattr(adata[:, gene].X, 'toarray') else adata[:, gene].X
+            expr = (
+                adata[:, gene].X.toarray().flatten()
+                if hasattr(adata[:, gene].X, "toarray")
+                else adata[:, gene].X
+            )
             results[f"{gene}_expression"] = expr
             results[f"{gene}_positive"] = expr > expression_threshold
 
@@ -399,7 +464,7 @@ def evaluate_biomarker(
     available_genes = [g for g in genes if g in adata.var_names]
     if len(available_genes) > 0:
         expr_matrix = adata[:, available_genes].X
-        if hasattr(expr_matrix, 'toarray'):
+        if hasattr(expr_matrix, "toarray"):
             expr_matrix = expr_matrix.toarray()
         results["biomarker_score"] = expr_matrix.mean(axis=1)
 

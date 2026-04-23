@@ -2,13 +2,13 @@
 Visualization functions for pyMonocle3 (R-free)
 """
 
+import logging
+from typing import List, Optional, Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from typing import Optional, List, Tuple, Union
-import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
-import logging
 
 from .core import CellDataSet
 
@@ -42,7 +42,7 @@ def plot_cells(
     label_groups: bool = False,
     figsize: Tuple[int, int] = (10, 8),
     cmap: str = "viridis",
-    **kwargs
+    **kwargs,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot cells in reduced dimensional space
@@ -102,7 +102,7 @@ def plot_cells(
     **kwargs
         Additional arguments for scatter
 
-    Returns
+    Returns:
     -------
     fig, ax : matplotlib Figure and Axes
     """
@@ -139,12 +139,12 @@ def plot_cells(
                 s=cell_size * 100,
                 cmap=cmap,
                 alpha=alpha or 0.6,
-                edgecolors='black',
+                edgecolors="black",
                 linewidths=cell_stroke_size,
-                **kwargs
+                **kwargs,
             )
-            plt.colorbar(scatter, label=f'{gene} expression')
-            ax.set_title(f'Gene expression: {gene}')
+            plt.colorbar(scatter, label=f"{gene} expression")
+            ax.set_title(f"Gene expression: {gene}")
 
     elif color_cells_by is not None:
         # Plot by metadata
@@ -153,7 +153,7 @@ def plot_cells(
 
         values = cds.cell_metadata[color_cells_by]
 
-        if values.dtype in ['object', 'category']:
+        if values.dtype in ["object", "category"]:
             # Categorical
             categories = values.unique()
             colors = plt.cm.tab20(np.linspace(0, 1, len(categories)))
@@ -167,13 +167,13 @@ def plot_cells(
                     s=cell_size * 100,
                     label=cat,
                     alpha=alpha or 0.6,
-                    edgecolors='black',
+                    edgecolors="black",
                     linewidths=cell_stroke_size,
-                    **kwargs
+                    **kwargs,
                 )
 
             if show_group_labels:
-                ax.legend(loc='best', fontsize=group_label_font_size)
+                ax.legend(loc="best", fontsize=group_label_font_size)
         else:
             # Continuous
             scatter = ax.scatter(
@@ -183,13 +183,13 @@ def plot_cells(
                 s=cell_size * 100,
                 cmap=cmap,
                 alpha=alpha or 0.6,
-                edgecolors='black',
+                edgecolors="black",
                 linewidths=cell_stroke_size,
-                **kwargs
+                **kwargs,
             )
             plt.colorbar(scatter, label=color_cells_by)
 
-        ax.set_title(f'Colored by {color_cells_by}')
+        ax.set_title(f"Colored by {color_cells_by}")
 
     else:
         # Simple scatter
@@ -198,23 +198,23 @@ def plot_cells(
             coords[:, 1],
             s=cell_size * 100,
             alpha=alpha or 0.6,
-            edgecolors='black',
+            edgecolors="black",
             linewidths=cell_stroke_size,
-            **kwargs
+            **kwargs,
         )
 
     # Add trajectory graph
     if show_trajectory_graph and cds.principal_graph is not None:
         graph = cds.principal_graph
 
-        for edge in graph['edge_list']:
+        for edge in graph["edge_list"]:
             i, j, _ = edge
             x = [coords[i, 0], coords[j, 0]]
             y = [coords[i, 1], coords[j, 1]]
-            ax.plot(x, y, 'k-', linewidth=trajectory_graph_segment_size, alpha=0.5)
+            ax.plot(x, y, "k-", linewidth=trajectory_graph_segment_size, alpha=0.5)
 
-    ax.set_xlabel(f'{reduction_method}_1')
-    ax.set_ylabel(f'{reduction_method}_2')
+    ax.set_xlabel(f"{reduction_method}_1")
+    ax.set_ylabel(f"{reduction_method}_2")
 
     plt.tight_layout()
     return fig, ax
@@ -258,14 +258,14 @@ def plot_genes_by_group(
     cmap : str
         Colormap
 
-    Returns
+    Returns:
     -------
     fig, ax : matplotlib Figure and Axes
     """
     import seaborn as sns
 
     # Get top markers per group
-    top_markers = markers.groupby('cell_group').head(10)['gene'].unique()
+    top_markers = markers.groupby("cell_group").head(10)["gene"].unique()
 
     # Get expression matrix
     expr = cds.expression_data
@@ -285,24 +285,19 @@ def plot_genes_by_group(
         agg_expr.append(group_expr)
 
     heatmap_data = pd.DataFrame(
-        np.array(agg_expr).T,
-        index=cds.gene_metadata.index[gene_mask],
-        columns=groups
+        np.array(agg_expr).T, index=cds.gene_metadata.index[gene_mask], columns=groups
     )
 
     # Normalize
-    heatmap_data = heatmap_data.apply(
-        lambda x: (x - x.mean()) / (x.std() + 1e-10),
-        axis=1
-    )
+    heatmap_data = heatmap_data.apply(lambda x: (x - x.mean()) / (x.std() + 1e-10), axis=1)
     heatmap_data = heatmap_data.clip(scale_min, scale_max)
 
     # Plot
     fig, ax = plt.subplots(figsize=figsize)
     sns.heatmap(heatmap_data, cmap=cmap, center=0, ax=ax, xticklabels=True, yticklabels=True)
-    ax.set_xlabel('Cell Group')
-    ax.set_ylabel('Gene')
-    ax.set_title('Marker Gene Expression by Group')
+    ax.set_xlabel("Cell Group")
+    ax.set_ylabel("Gene")
+    ax.set_title("Marker Gene Expression by Group")
 
     plt.tight_layout()
     return fig, ax
@@ -349,16 +344,16 @@ def plot_pseudotime_heatmap(
     cmap : str
         Colormap
 
-    Returns
+    Returns:
     -------
     fig, ax : matplotlib Figure and Axes
     """
     import seaborn as sns
 
-    if 'pseudotime' not in cds.cell_metadata.columns:
+    if "pseudotime" not in cds.cell_metadata.columns:
         raise ValueError("No pseudotime found. Run order_cells first.")
 
-    pseudotime = cds.cell_metadata['pseudotime'].values
+    pseudotime = cds.cell_metadata["pseudotime"].values
 
     # Get expression
     expr = cds.expression_data
@@ -381,31 +376,20 @@ def plot_pseudotime_heatmap(
             binned_expr.append(np.zeros(expr_subset.shape[0]))
 
     heatmap_data = pd.DataFrame(
-        np.array(binned_expr).T,
-        index=cds.gene_metadata.index[gene_mask],
-        columns=bin_centers
+        np.array(binned_expr).T, index=cds.gene_metadata.index[gene_mask], columns=bin_centers
     )
 
     # Normalize by gene
     if normalize:
-        heatmap_data = heatmap_data.apply(
-            lambda x: (x - x.mean()) / (x.std() + 1e-10),
-            axis=1
-        )
+        heatmap_data = heatmap_data.apply(lambda x: (x - x.mean()) / (x.std() + 1e-10), axis=1)
         heatmap_data = heatmap_data.clip(min_col, max_col)
 
     # Plot
     fig, ax = plt.subplots(figsize=figsize)
-    sns.heatmap(
-        heatmap_data,
-        cmap=cmap,
-        xticklabels=10,
-        yticklabels=True,
-        ax=ax
-    )
-    ax.set_xlabel('Pseudotime')
-    ax.set_ylabel('Gene')
-    ax.set_title('Gene Expression along Pseudotime')
+    sns.heatmap(heatmap_data, cmap=cmap, xticklabels=10, yticklabels=True, ax=ax)
+    ax.set_xlabel("Pseudotime")
+    ax.set_ylabel("Gene")
+    ax.set_title("Gene Expression along Pseudotime")
 
     plt.tight_layout()
 
@@ -449,7 +433,7 @@ def plot_trajectory(
     cmap : str
         Colormap
 
-    Returns
+    Returns:
     -------
     fig, ax : matplotlib Figure and Axes
     """
@@ -476,26 +460,26 @@ def plot_trajectory(
         s=cell_size * 100,
         cmap=cmap,
         alpha=0.6,
-        edgecolors='black',
+        edgecolors="black",
         linewidths=0.1,
     )
     plt.colorbar(scatter, label=color_by)
 
     # Plot graph
     if show_graph and cds.principal_graph is not None:
-        for edge in cds.principal_graph['edge_list']:
+        for edge in cds.principal_graph["edge_list"]:
             i, j, _ = edge
             ax.plot(
                 [coords[i, 0], coords[j, 0]],
                 [coords[i, 1], coords[j, 1]],
-                'k-',
+                "k-",
                 linewidth=edge_width,
-                alpha=0.5
+                alpha=0.5,
             )
 
-    ax.set_xlabel(f'{reduction_method}_1')
-    ax.set_ylabel(f'{reduction_method}_2')
-    ax.set_title(f'Trajectory colored by {color_by}')
+    ax.set_xlabel(f"{reduction_method}_1")
+    ax.set_ylabel(f"{reduction_method}_2")
+    ax.set_title(f"Trajectory colored by {color_by}")
 
     plt.tight_layout()
     return fig, ax

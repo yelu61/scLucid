@@ -14,7 +14,7 @@ Main Components
 - order_cells : Calculate pseudotime
 - plot_cells : Visualization of cells and trajectories
 
-Example
+Example:
 -------
 >>> from pyMonocle3 import CellDataSet, preprocess_cds, reduce_dimension
 >>> from pyMonocle3 import cluster_cells, learn_graph, order_cells, plot_cells
@@ -41,19 +41,27 @@ __version__ = "0.1.0"
 __author__ = "scLucid"
 
 # Core data structure
+# Clustering
+from .clustering import (
+    cluster_cells,
+    find_cluster_markers,
+    group_cells,
+    partition_cells,
+)
 from .core import (
     CellDataSet,
-    new_cell_data_set,
     create_cds_from_scanpy,
     export_to_scanpy,
+    new_cell_data_set,
 )
 
-# Preprocessing
-from .preprocessing import (
-    detect_genes,
-    estimate_size_factors,
-    preprocess_cds,
-    align_cds,
+# Differential expression
+from .differential import (
+    aggregate_gene_expression,
+    calculate_gene_modules,
+    compare_genes,
+    pseudotime_de,
+    top_markers,
 )
 
 # Dimensionality reduction
@@ -63,29 +71,33 @@ from .dimensionality import (
     run_umap,
 )
 
-# Clustering
-from .clustering import (
-    cluster_cells,
-    partition_cells,
-    group_cells,
-    find_cluster_markers,
+# Preprocessing
+from .preprocessing import (
+    align_cds,
+    detect_genes,
+    estimate_size_factors,
+    preprocess_cds,
 )
 
 # Trajectory inference
 from .trajectory import (
+    choose_graph_segments,
+    graph_test,
     learn_graph,
     order_cells,
-    graph_test,
-    choose_graph_segments,
 )
 
-# Differential expression
-from .differential import (
-    top_markers,
-    aggregate_gene_expression,
-    compare_genes,
-    pseudotime_de,
-    calculate_gene_modules,
+# Utilities
+from .utils import (
+    convert_to_dense,
+    convert_to_sparse,
+    detect_sparse_type,
+    estimate_memory_usage,
+    merge_datasets,
+    normalize_expression,
+    select_highly_variable_genes,
+    subsample_cells,
+    validate_cds,
 )
 
 # Visualization
@@ -96,70 +108,50 @@ from .visualization import (
     plot_trajectory,
 )
 
-# Utilities
-from .utils import (
-    detect_sparse_type,
-    convert_to_dense,
-    convert_to_sparse,
-    normalize_expression,
-    select_highly_variable_genes,
-    subsample_cells,
-    merge_datasets,
-    validate_cds,
-    estimate_memory_usage,
-)
-
 __all__ = [
     # Core
-    'CellDataSet',
-    'new_cell_data_set',
-    'create_cds_from_scanpy',
-    'export_to_scanpy',
-
+    "CellDataSet",
+    "new_cell_data_set",
+    "create_cds_from_scanpy",
+    "export_to_scanpy",
     # Preprocessing
-    'detect_genes',
-    'estimate_size_factors',
-    'preprocess_cds',
-    'align_cds',
-
+    "detect_genes",
+    "estimate_size_factors",
+    "preprocess_cds",
+    "align_cds",
     # Dimensionality
-    'reduce_dimension',
-    'run_pca',
-    'run_umap',
-
+    "reduce_dimension",
+    "run_pca",
+    "run_umap",
     # Clustering
-    'cluster_cells',
-    'partition_cells',
-    'group_cells',
-    'find_cluster_markers',
-
+    "cluster_cells",
+    "partition_cells",
+    "group_cells",
+    "find_cluster_markers",
     # Trajectory
-    'learn_graph',
-    'order_cells',
-    'graph_test',
-    'choose_graph_segments',
-
+    "learn_graph",
+    "order_cells",
+    "graph_test",
+    "choose_graph_segments",
     # Differential
-    'top_markers',
-    'aggregate_gene_expression',
-    'compare_genes',
-    'pseudotime_de',
-    'calculate_gene_modules',
-
+    "top_markers",
+    "aggregate_gene_expression",
+    "compare_genes",
+    "pseudotime_de",
+    "calculate_gene_modules",
     # Visualization
-    'plot_cells',
-    'plot_genes_by_group',
-    'plot_pseudotime_heatmap',
-    'plot_trajectory',
-
+    "plot_cells",
+    "plot_genes_by_group",
+    "plot_pseudotime_heatmap",
+    "plot_trajectory",
     # Utils
-    'detect_sparse_type',
-    'convert_to_dense',
-    'convert_to_sparse',
-    'normalize_expression',
-    'select_highly_variable_genes',
-    'subsample_cells',
-    'merge_datasets',
-    'validate_cds',
-    'estimate_memory_usage',
+    "detect_sparse_type",
+    "convert_to_dense",
+    "convert_to_sparse",
+    "normalize_expression",
+    "select_highly_variable_genes",
+    "subsample_cells",
+    "merge_datasets",
+    "validate_cds",
+    "estimate_memory_usage",
 ]

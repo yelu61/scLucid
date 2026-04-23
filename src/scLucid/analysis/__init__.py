@@ -1,8 +1,8 @@
 """Analysis public API for scLucid."""
 
-from importlib import import_module
-from typing import Iterable
 import warnings
+from collections.abc import Iterable
+from importlib import import_module
 
 __version__ = "1.0.0"
 __all__ = []

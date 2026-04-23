@@ -3,19 +3,13 @@ Plotting functions for single-cell RNA-seq data.
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
-import matplotlib.gridspec as gridspec
-import matplotlib.patches as mpatches
-import matplotlib.patheffects as PathEffects
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import scipy.sparse
 import seaborn as sns
-from scipy.cluster import hierarchy
-from scipy.spatial import distance
 
 # Try importing adjustText softly
 try:
@@ -99,7 +93,7 @@ def plot_dotplot(
     **kwargs
         Additional keyword arguments passed to `sc.pl.dotplot`.
 
-    Returns
+    Returns:
     -------
     sc.pl.DotPlot
         The DotPlot object from scanpy, which can be used for further
@@ -107,9 +101,7 @@ def plot_dotplot(
     """
     # --- 1. Input Validation ---
     if not (groupby or (groupby_main and groupby_sub)):
-        raise ValueError(
-            "Provide either 'groupby' or both 'groupby_main' and 'groupby_sub'."
-        )
+        raise ValueError("Provide either 'groupby' or both 'groupby_main' and 'groupby_sub'.")
 
     # --- 2. Handle Subsetting and Grouping using Helper Functions ---
     adata_to_plot = _subset_adata(adata, subset)
@@ -120,9 +112,7 @@ def plot_dotplot(
     # --- 3. Handle Category Ordering ---
     if auto_order_categories and "categories_order" not in kwargs:
         if pd.api.types.is_categorical_dtype(adata_to_plot.obs[groupby]):
-            kwargs["categories_order"] = adata_to_plot.obs[
-                groupby
-            ].cat.categories.tolist()
+            kwargs["categories_order"] = adata_to_plot.obs[groupby].cat.categories.tolist()
 
     # --- 4. Call sc.pl.dotplot with show=False to get the object ---
     dp = sc.pl.dotplot(
@@ -137,7 +127,7 @@ def plot_dotplot(
         dot_max=dot_max,
         title=title,
         swap_axes=swap_axes,
-        show=False,  
+        show=False,
         **kwargs,
     )
 
@@ -205,12 +195,12 @@ def plot_stacked_violin(
     **kwargs
         Additional keyword arguments passed to `sc.pl.stacked_violin`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object.
 
-    Examples
+    Examples:
     --------
     >>> # Standard stacked violin plot
     >>> plot_stacked_violin(adata, var_names=['LYZ', 'S100A8'], groupby='cell_type')
@@ -220,9 +210,7 @@ def plot_stacked_violin(
     """
     # --- 1. Input Validation and Data Preparation ---
     if not (groupby or (groupby_main and groupby_sub)):
-        raise ValueError(
-            "Provide either 'groupby' or both 'groupby_main' and 'groupby_sub'."
-        )
+        raise ValueError("Provide either 'groupby' or both 'groupby_main' and 'groupby_sub'.")
 
     adata_to_plot = _subset_adata(adata, subset)
 
@@ -237,7 +225,7 @@ def plot_stacked_violin(
         use_raw=use_raw,
         layer=layer,
         title=title,
-        show=False, 
+        show=False,
         **kwargs,
     )
 
@@ -308,12 +296,12 @@ def plot_split_violin_with_stats(
     **kwargs
         Additional keyword arguments passed to `seaborn.violinplot`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object.
 
-    Raises
+    Raises:
     ------
     ImportError
         If the `statannotations` library is not installed.
@@ -350,9 +338,7 @@ def plot_split_violin_with_stats(
 
     groups = df[condition_col].unique()
     if len(groups) != 2:
-        raise ValueError(
-            f"'{condition_col}' must have exactly 2 groups, found {len(groups)}"
-        )
+        raise ValueError(f"'{condition_col}' must have exactly 2 groups, found {len(groups)}")
 
     for i, gene in enumerate(genes):
         ax = axes[i]
@@ -373,14 +359,9 @@ def plot_split_violin_with_stats(
         ax.tick_params(axis="x", rotation=45)
 
         # Stats
-        box_pairs = [
-            ((ct, groups[0]), (ct, groups[1]))
-            for ct in df[celltype_col].unique()
-        ]
+        box_pairs = [((ct, groups[0]), (ct, groups[1])) for ct in df[celltype_col].unique()]
         try:
-            annot = Annotator(
-                ax, box_pairs, data=df, x=celltype_col, y=gene, hue=condition_col
-            )
+            annot = Annotator(ax, box_pairs, data=df, x=celltype_col, y=gene, hue=condition_col)
             annot.configure(test=test, text_format="star", loc="inside", verbose=0)
             annot.apply_and_annotate()
         except Exception as e:
@@ -456,12 +437,12 @@ def plot_marker_expression(
     **kwargs
         Additional keyword arguments passed to `sc.pl.embedding`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object.
 
-    Examples
+    Examples:
     --------
     >>> # Plot expression of two genes
     >>> plot_marker_expression(adata, markers=['CD3D', 'MS4A1'])
@@ -488,9 +469,7 @@ def plot_marker_expression(
     n_plots = len(valid_markers)
     n_rows = int(np.ceil(n_plots / ncols))
 
-    fig, axes = plt.subplots(
-        n_rows, ncols, figsize=(4 * ncols, 3.5 * n_rows), squeeze=False
-    )
+    fig, axes = plt.subplots(n_rows, ncols, figsize=(4 * ncols, 3.5 * n_rows), squeeze=False)
     axes = axes.flatten()
 
     for i, m in enumerate(valid_markers):
@@ -503,9 +482,9 @@ def plot_marker_expression(
             use_raw=use_raw,
             layer=layer,
             legend_loc="none",
-            vmin=vmin, # Apply consistent color scale
-            vmax=vmax, # Apply consistent color scale
-            cmap=cmap,   # Apply consistent colormap
+            vmin=vmin,  # Apply consistent color scale
+            vmax=vmax,  # Apply consistent color scale
+            cmap=cmap,  # Apply consistent colormap
             **kwargs,
         )
         axes[i].set_title(m)
@@ -524,5 +503,3 @@ def plot_marker_expression(
         plt.show()
 
     return fig
-
-

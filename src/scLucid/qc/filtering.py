@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 from scipy import stats
-from scipy.stats import median_abs_deviation
 
+from .adaptive_threshold import compute_mad_bounds
 from .config import FilterConfig, MarkingConfig, QCThresholds
 
 log = logging.getLogger(__name__)
@@ -40,9 +40,7 @@ class AdaptiveThresholdCalculator:
     inherently different QC distributions (e.g., fresh vs. frozen samples).
     """
 
-    def __init__(
-        self, adata: AnnData, batch_key: str, reference_batch: Optional[str] = None
-    ):
+    def __init__(self, adata: AnnData, batch_key: str, reference_batch: Optional[str] = None):
         """
         Initialize adaptive threshold calculator.
 
@@ -175,7 +173,7 @@ class AdaptiveThresholdCalculator:
                 "upper": values.quantile(percentile / 100),
                 "method": "pooled",
             }
-            thresholds = {batch: global_threshold for batch in batches}
+            thresholds = dict.fromkeys(batches, global_threshold)
 
         elif method == "hierarchical":
             # Hierarchical: adjust batch-specific thresholds toward global mean
@@ -209,7 +207,11 @@ class AdaptiveThresholdCalculator:
                 # Domain-aware clipping
                 if metric in ("n_genes_by_counts", "total_counts"):
                     lower = max(0.0, lower)
-                elif metric.startswith("pct_counts_") or metric in ("pct_counts_mt", "pct_counts_hb", "pct_counts_ribo"):
+                elif metric.startswith("pct_counts_") or metric in (
+                    "pct_counts_mt",
+                    "pct_counts_hb",
+                    "pct_counts_ribo",
+                ):
                     lower = max(0.0, lower)
                     upper = min(100.0, upper)
 
@@ -247,9 +249,7 @@ class AdaptiveThresholdCalculator:
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
         # Violin plot
-        sns.violinplot(
-            data=self.adata.obs, x=self.batch_key, y=metric, ax=axes[0], inner="box"
-        )
+        sns.violinplot(data=self.adata.obs, x=self.batch_key, y=metric, ax=axes[0], inner="box")
         axes[0].set_title(f"{metric} Distribution by Batch")
         axes[0].tick_params(axis="x", rotation=45)
 
@@ -319,9 +319,7 @@ def _safe_threshold_check(
 
     count = result.sum()
     percentage = count / len(data) * 100
-    log.info(
-        f"Cells failing {name} ({operator} {threshold}): {count} ({percentage:.2f}%)"
-    )
+    log.info(f"Cells failing {name} ({operator} {threshold}): {count} ({percentage:.2f}%)")
 
     return result
 
@@ -339,9 +337,7 @@ def _identify_outliers_subset(
 
     for metric, direction, threshold in metrics:
         if metric not in obs_subset.columns:
-            log.warning(
-                f"Metric '{metric}' not found in data for group '{group_name}', skipping."
-            )
+            log.warning(f"Metric '{metric}' not found in data for group '{group_name}', skipping.")
             continue
 
         values = obs_subset[metric]
@@ -362,24 +358,21 @@ def _identify_outliers_subset(
                 )
                 continue
             else:
-                log.warning(
-                    f"Invalid direction '{direction}' for '{metric}', skipping."
-                )
+                log.warning(f"Invalid direction '{direction}' for '{metric}', skipping.")
                 continue
         else:
-            # Calculate threshold using MAD
-            median = np.nanmedian(values)
-            mad = median_abs_deviation(values, scale="normal", nan_policy="omit")
+            # Calculate threshold using canonical MAD implementation
+            lower_bound, upper_bound = compute_mad_bounds(
+                values.values, nmads=nmads, direction=direction
+            )
 
-            if mad == 0:
+            # Detect degenerate case (all values identical → MAD == 0)
+            if lower_bound == upper_bound:
                 log.warning(
                     f"MAD is zero for '{metric}' in group '{group_name}'. "
                     "Cannot perform outlier detection for this metric."
                 )
                 continue
-
-            upper_bound = median + nmads * mad
-            lower_bound = median - nmads * mad
 
             if direction == "upper":
                 metric_outliers = values > upper_bound
@@ -388,9 +381,7 @@ def _identify_outliers_subset(
             elif direction == "both":
                 metric_outliers = (values > upper_bound) | (values < lower_bound)
             else:
-                log.warning(
-                    f"Invalid direction '{direction}' for '{metric}', skipping."
-                )
+                log.warning(f"Invalid direction '{direction}' for '{metric}', skipping.")
                 continue
 
         outlier_count = metric_outliers.sum()
@@ -442,9 +433,7 @@ def _plot_qc_outliers(
                 default_cols.append(col)
 
         # Add custom outlier columns
-        custom_cols = [
-            col for col in adata.obs.columns if col.startswith("outlier_custom_")
-        ]
+        custom_cols = [col for col in adata.obs.columns if col.startswith("outlier_custom_")]
         default_cols.extend(custom_cols)
 
         cols_to_plot = [col for col in default_cols if col in adata.obs.columns]
@@ -466,9 +455,7 @@ def _plot_qc_outliers(
         n_cols = min(3, n_plots)
         n_rows = (n_plots + n_cols - 1) // n_cols
 
-        fig, axs = plt.subplots(
-            n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows), facecolor="white"
-        )
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows), facecolor="white")
         if n_plots == 1:
             axs = [axs]
         elif n_rows == 1:
@@ -488,9 +475,7 @@ def _plot_qc_outliers(
                 # Determine coloring based on data type
                 col_data = data_view.obs[col]
 
-                if col_data.dtype == "bool" or set(col_data.unique()).issubset(
-                    {0, 1, True, False}
-                ):
+                if col_data.dtype == "bool" or set(col_data.unique()).issubset({0, 1}):
                     # Boolean data - color by outlier status
                     colors = col_data.map(
                         {
@@ -520,9 +505,11 @@ def _plot_qc_outliers(
                     alpha=0.7,
                     edgecolors="none",
                     rasterized=True,
-                    cmap="viridis"
-                    if not isinstance(colors, pd.Series) or colors.dtype != "object"
-                    else None,
+                    cmap=(
+                        "viridis"
+                        if not isinstance(colors, pd.Series) or colors.dtype != "object"
+                        else None
+                    ),
                 )
 
                 ax.set_title(title, fontsize=10)
@@ -532,8 +519,7 @@ def _plot_qc_outliers(
 
                 # Add colorbar for continuous data
                 if not (
-                    col_data.dtype == "bool"
-                    or set(col_data.unique()).issubset({0, 1, True, False})
+                    col_data.dtype == "bool" or set(col_data.unique()).issubset({0, 1})
                 ):
                     plt.colorbar(scatter, ax=ax, shrink=0.8)
 
@@ -567,7 +553,6 @@ def _plot_before_after_comparison(
     qc_metrics: List[str],
 ) -> None:
     """Plot before/after filtering comparison."""
-
     # Cell count comparison
     before_counts = adata_before.obs[sample_key].value_counts()
     after_counts = adata_after.obs[sample_key].value_counts()
@@ -580,9 +565,7 @@ def _plot_before_after_comparison(
     ).fillna(0)
 
     comparison_df["removed"] = comparison_df["before"] - comparison_df["after"]
-    comparison_df["retention_rate"] = (
-        comparison_df["after"] / comparison_df["before"] * 100
-    )
+    comparison_df["retention_rate"] = comparison_df["after"] / comparison_df["before"] * 100
 
     # Plot cell count comparison
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
@@ -624,9 +607,7 @@ def _plot_before_after_comparison(
     ax2.legend()
 
     plt.tight_layout()
-    plt.savefig(
-        Path(save_dir) / "filtering_comparison.png", dpi=300, bbox_inches="tight"
-    )
+    plt.savefig(Path(save_dir) / "filtering_comparison.png", dpi=300, bbox_inches="tight")
     plt.close()
 
     # Save comparison statistics
@@ -688,16 +669,11 @@ def suggest_qc_thresholds(
         metrics["pct_counts_hb"] = "Hemoglobin percentage"
 
     top_gene_cols = [
-        col
-        for col in adata.obs.columns
-        if re.match(r"pct_counts_in_top_\d+_genes", col)
+        col for col in adata.obs.columns if re.match(r"pct_counts_in_top_\d+_genes", col)
     ]
     for col in top_gene_cols:
         metrics[col] = (
-            col.replace("_", " ")
-            .replace("pct counts in ", "")
-            .replace(" genes", "")
-            .title()
+            col.replace("_", " ").replace("pct counts in ", "").replace(" genes", "").title()
         )
 
     if plot_distributions:
@@ -920,14 +896,10 @@ def suggest_qc_thresholds(
     default_thresholds_obj = QCThresholds()
     if not suggested_thresholds_df.empty:
         default_series = suggested_thresholds_df.iloc[0]
-        pc_top_genes_dict = {
-            k: v for k, v in default_series.items() if k.startswith("pc_top_")
-        }
+        pc_top_genes_dict = {k: v for k, v in default_series.items() if k.startswith("pc_top_")}
 
         final_kwargs = {
-            k: v
-            for k, v in default_series.items()
-            if not k.startswith("pc_top_") and pd.notna(v)
+            k: v for k, v in default_series.items() if not k.startswith("pc_top_") and pd.notna(v)
         }
         final_kwargs["pc_top_genes"] = pc_top_genes_dict
 
@@ -978,9 +950,7 @@ def identify_outliers(
             final_outliers[group_outliers.index] = group_outliers
     else:
         log.info("Identifying outliers on the entire dataset...")
-        global_outliers = _identify_outliers_subset(
-            adata.obs, metrics, nmads, group_name="global"
-        )
+        global_outliers = _identify_outliers_subset(adata.obs, metrics, nmads, group_name="global")
         final_outliers = global_outliers
 
     total_count = final_outliers.sum()
@@ -1056,8 +1026,7 @@ def mark_low_quality_cell(
 
     # Precompute sample indices for efficiency
     sample_indices = {
-        sample: adata.obs[sample_key] == sample
-        for sample in adata.obs[sample_key].unique()
+        sample: adata.obs[sample_key] == sample for sample in adata.obs[sample_key].unique()
     }
 
     log.info(f"Processing {len(sample_indices)} samples with {adata.n_obs} total cells")
@@ -1126,9 +1095,7 @@ def mark_low_quality_cell(
     # === MAD-BASED OUTLIER DETECTION ===
 
     # Format metrics for identify_outliers function
-    formatted_metrics = [
-        (metric, direction, None) for metric, direction in cfg.qc_metrics_mad
-    ]
+    formatted_metrics = [(metric, direction, None) for metric, direction in cfg.qc_metrics_mad]
 
     # Run MAD-based outlier detection
     adata.obs["outlier_qc_metrics"] = identify_outliers(
@@ -1161,9 +1128,7 @@ def mark_low_quality_cell(
                 )
 
     qc_count = adata.obs["outlier_qc_metrics"].sum()
-    log.info(
-        f"Cells marked as QC metric outliers: {qc_count} ({qc_count / adata.n_obs:.2%})"
-    )
+    log.info(f"Cells marked as QC metric outliers: {qc_count} ({qc_count / adata.n_obs:.2%})")
 
     # === CUSTOM OUTLIER DETECTION ===
 
@@ -1175,13 +1140,9 @@ def mark_low_quality_cell(
             try:
                 custom_outliers = func(adata)
                 if not isinstance(custom_outliers, pd.Series):
-                    raise ValueError(
-                        f"Custom function {func_name} must return a pandas Series"
-                    )
+                    raise ValueError(f"Custom function {func_name} must return a pandas Series")
                 if len(custom_outliers) != adata.n_obs:
-                    raise ValueError(
-                        f"Custom function {func_name} returned wrong length"
-                    )
+                    raise ValueError(f"Custom function {func_name} returned wrong length")
 
                 col_name = f"outlier_custom_{func_name}"
                 adata.obs[col_name] = custom_outliers.astype(bool)
@@ -1241,26 +1202,18 @@ def mark_low_quality_cell(
         if doublet_col in adata.obs.columns:
             count = adata.obs[doublet_col].sum()
             percentage = count / total_cells * 100
-            log.info(
-                f"{doublet_col.replace('_', ' ').title()}: {count} cells ({percentage:.2f}%)"
-            )
+            log.info(f"{doublet_col.replace('_', ' ').title()}: {count} cells ({percentage:.2f}%)")
 
     log.info("=" * 50)
 
     # === VISUALIZATION ===
 
     if cfg.plot_outliers:
-        _plot_qc_outliers(
-            adata, sample_indices, cfg.cols_to_plot, cfg.save_dir, cfg.show_plots
-        )
+        _plot_qc_outliers(adata, sample_indices, cfg.cols_to_plot, cfg.save_dir, cfg.show_plots)
 
     # === Final Type Casting for Robustness ===
-    log.info(
-        "Finalizing data types for all 'outlier_' columns to ensure save compatibility."
-    )
-    outlier_cols_to_cast = [
-        col for col in adata.obs.columns if col.startswith("outlier_")
-    ]
+    log.info("Finalizing data types for all 'outlier_' columns to ensure save compatibility.")
+    outlier_cols_to_cast = [col for col in adata.obs.columns if col.startswith("outlier_")]
 
     for col in outlier_cols_to_cast:
         if col in adata.obs:
@@ -1401,9 +1354,7 @@ def filter_cells(
     missing_criteria = set(criteria) - set(valid_criteria)
 
     if missing_criteria:
-        log.warning(
-            f"Criteria not found in adata.obs and will be ignored: {missing_criteria}"
-        )
+        log.warning(f"Criteria not found in adata.obs and will be ignored: {missing_criteria}")
 
     if not valid_criteria:
         log.warning("No valid filtering criteria selected. Returning original object.")
@@ -1454,20 +1405,14 @@ def filter_cells(
         try:
             # Create a namespace with all criteria for evaluation
             namespace = {col: criteria_masks[col] for col in valid_criteria}
-            combined_removal_mask = eval(
-                cfg.custom_logic_expr, {"__builtins__": {}}, namespace
-            )
+            combined_removal_mask = eval(cfg.custom_logic_expr, {"__builtins__": {}}, namespace)
 
             if not isinstance(combined_removal_mask, pd.Series):
-                combined_removal_mask = pd.Series(
-                    combined_removal_mask, index=adata.obs_names
-                )
+                combined_removal_mask = pd.Series(combined_removal_mask, index=adata.obs_names)
 
         except Exception as e:
             log.error(f"Error evaluating custom logic expression: {e}")
-            raise ValueError(
-                f"Invalid custom logic expression: {cfg.custom_logic_expr}"
-            )
+            raise ValueError(f"Invalid custom logic expression: {cfg.custom_logic_expr}")
 
     elif cfg.combination_logic == "threshold":
         # Remove if at least min_criteria_for_removal criteria are true
@@ -1518,9 +1463,7 @@ def filter_cells(
             count = (criteria_sum == i).sum()
             if count > 0:
                 percentage = count / total_cells * 100
-                log.info(
-                    f"  Cells with exactly {i} issues: {count} ({percentage:.2f}%)"
-                )
+                log.info(f"  Cells with exactly {i} issues: {count} ({percentage:.2f}%)")
 
     log.info("=" * 40)
 
@@ -1565,9 +1508,7 @@ def filter_cells(
         ] = stats
         return adata_filtered
     else:
-        adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
-            "filtering_results"
-        ] = stats
+        adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["filtering_results"] = stats
         adata._inplace_subset_obs(keep_mask)
         return None
 
@@ -1597,9 +1538,7 @@ def generate_qc_report(
     log.info(f"Generating QC report in {save_dir}")
 
     if include_before_after and adata_before is None:
-        log.warning(
-            "`adata_before` not provided, cannot generate before/after comparison plots."
-        )
+        log.warning("`adata_before` not provided, cannot generate before/after comparison plots.")
         include_before_after = False
 
     # QC metrics to analyze
@@ -1666,9 +1605,7 @@ def generate_qc_report(
 
     # 3. Before/after comparison if requested
     if include_before_after and adata_before is not None:
-        _plot_before_after_comparison(
-            adata_before, adata, save_dir, sample_key, qc_metrics
-        )
+        _plot_before_after_comparison(adata_before, adata, save_dir, sample_key, qc_metrics)
 
     # 4. Outlier summary
     outlier_cols = [col for col in adata.obs.columns if col.startswith("outlier_")]
@@ -1702,7 +1639,9 @@ def generate_qc_report(
 
     report_summary = {
         "dataset_shape_after": [adata.n_obs, adata.n_vars],
-        "dataset_shape_before": [adata_before.n_obs, adata_before.n_vars] if adata_before is not None else None,
+        "dataset_shape_before": (
+            [adata_before.n_obs, adata_before.n_vars] if adata_before is not None else None
+        ),
         "context": trace_context,
         "recommendation": trace_recommendation,
         "filtering_summary": trace_filtering,

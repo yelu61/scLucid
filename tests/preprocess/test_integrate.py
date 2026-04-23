@@ -105,7 +105,12 @@ class TestBatchCorrection:
             ),
         )
 
-        assert "X_combat" in result.obsm or "combat" in result.layers or "combat" in result.uns.get("sclucid", {}).get("preprocess", {}).get("integration", {})
+        assert (
+            "X_combat" in result.obsm
+            or "combat" in result.layers
+            or "combat"
+            in result.uns.get("sclucid", {}).get("preprocess", {}).get("integration", {})
+        )
 
     def test_no_method_returns_early_without_error(self, minimal_adata):
         adata = minimal_adata.copy()

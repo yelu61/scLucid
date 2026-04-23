@@ -5,7 +5,6 @@ import warnings
 
 import pytest
 
-
 CORE_MODULES = [
     "scLucid",
     "scLucid.qc",
@@ -27,7 +26,14 @@ def test_core_module_imports(module_name):
 @pytest.mark.smoke
 @pytest.mark.parametrize(
     "module_name",
-    ["scLucid", "scLucid.qc", "scLucid.preprocess", "scLucid.analysis", "scLucid.tools", "scLucid.utils"],
+    [
+        "scLucid",
+        "scLucid.qc",
+        "scLucid.preprocess",
+        "scLucid.analysis",
+        "scLucid.tools",
+        "scLucid.utils",
+    ],
 )
 def test_all_exports_resolve(module_name):
     """Every symbol listed in __all__ must resolve on the module."""

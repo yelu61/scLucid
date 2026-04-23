@@ -13,6 +13,19 @@ The module is organized into:
 """
 
 # Embedding plots
+# Advanced plots
+from .advanced_plots import (
+    plot_coexpression,
+    plot_differential_abundance,
+    plot_feature_correlation,
+    plot_ridge,
+)
+
+# Annotation evidence plots
+from .annotation_plots import (
+    export_annotation_report,
+    plot_annotation_evidence_panel,
+)
 from .embedding_plots import (
     plot_embedding,
     plot_faceted_embedding,
@@ -21,9 +34,9 @@ from .embedding_plots import (
 # Feature/gene expression plots
 from .feature_plots import (
     plot_dotplot,
-    plot_stacked_violin,
-    plot_split_violin_with_stats,
     plot_marker_expression,
+    plot_split_violin_with_stats,
+    plot_stacked_violin,
 )
 
 # Marker plots
@@ -32,20 +45,6 @@ from .marker_plots import (
     plot_marker_heatmap,
     plot_ranked_genes,
     plot_volcano,
-)
-
-# Advanced plots
-from .advanced_plots import (
-    plot_feature_correlation,
-    plot_ridge,
-    plot_coexpression,
-    plot_differential_abundance,
-)
-
-# Annotation evidence plots
-from .annotation_plots import (
-    plot_annotation_evidence_panel,
-    export_annotation_report,
 )
 
 # Define what should be accessible when a user does `from scLucid.plotting import *`

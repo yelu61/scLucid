@@ -2,14 +2,14 @@
 Trajectory inference for pyMonocle3 (R-free)
 """
 
+import logging
+from typing import List, Optional, Tuple, Union
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from scipy.sparse.csgraph import minimum_spanning_tree, dijkstra
-from scipy.spatial.distance import cdist
+from scipy.sparse.csgraph import dijkstra, minimum_spanning_tree
 from sklearn.neighbors import NearestNeighbors
-from typing import Optional, Union, List, Dict, Tuple
-import logging
 
 from .core import CellDataSet
 
@@ -63,15 +63,13 @@ def learn_graph(
     random_seed : int
         Random seed
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with principal graph
     """
     if reduction_method not in cds.reducedDims:
-        raise ValueError(
-            f"{reduction_method} not found. Run reduce_dimension first."
-        )
+        raise ValueError(f"{reduction_method} not found. Run reduce_dimension first.")
 
     reduced_data = cds.reducedDims[reduction_method]
 
@@ -88,11 +86,11 @@ def learn_graph(
 
     # Build graph for each partition
     graph_dict = {
-        'partitions': partitions,
-        'reduction_method': reduction_method,
-        'partition_graphs': {},
-        'edge_list': [],
-        'node_positions': {},
+        "partitions": partitions,
+        "reduction_method": reduction_method,
+        "partition_graphs": {},
+        "edge_list": [],
+        "node_positions": {},
     }
 
     np.random.seed(random_seed)
@@ -107,7 +105,7 @@ def learn_graph(
             continue
 
         # Build nearest neighbor graph
-        nbrs = NearestNeighbors(n_neighbors=min(k, len(part_data) - 1), metric='euclidean')
+        nbrs = NearestNeighbors(n_neighbors=min(k, len(part_data) - 1), metric="euclidean")
         nbrs.fit(part_data)
         distances, indices = nbrs.kneighbors(part_data)
 
@@ -134,22 +132,22 @@ def learn_graph(
                 edges.append((global_i, global_j, w))
 
         # Store graph info
-        graph_dict['partition_graphs'][part_id] = {
-            'mst': mst,
-            'edges': edges,
-            'n_nodes': n_part,
-            'indices': part_indices,
+        graph_dict["partition_graphs"][part_id] = {
+            "mst": mst,
+            "edges": edges,
+            "n_nodes": n_part,
+            "indices": part_indices,
         }
 
-        graph_dict['edge_list'].extend(edges)
+        graph_dict["edge_list"].extend(edges)
 
     # Build full adjacency matrix
     full_adj = sp.lil_matrix((cds.n_cells, cds.n_cells))
-    for i, j, w in graph_dict['edge_list']:
+    for i, j, w in graph_dict["edge_list"]:
         full_adj[i, j] = w
         full_adj[j, i] = w
 
-    graph_dict['adj_matrix'] = full_adj.tocsr()
+    graph_dict["adj_matrix"] = full_adj.tocsr()
 
     cds.principal_graph = graph_dict
 
@@ -190,7 +188,7 @@ def order_cells(
     verbose : bool
         Verbose output
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with pseudotime values
@@ -200,16 +198,16 @@ def order_cells(
 
     # Detect reduction method
     if reduction_method is None:
-        if 'UMAP' in cds.reducedDims:
-            reduction_method = 'UMAP'
-        elif 'tSNE' in cds.reducedDims:
-            reduction_method = 'tSNE'
-        elif 'PCA' in cds.reducedDims:
-            reduction_method = 'PCA'
+        if "UMAP" in cds.reducedDims:
+            reduction_method = "UMAP"
+        elif "tSNE" in cds.reducedDims:
+            reduction_method = "tSNE"
+        elif "PCA" in cds.reducedDims:
+            reduction_method = "PCA"
         else:
             raise ValueError("No reduction found. Run reduce_dimension first.")
 
-    adj_matrix = cds.principal_graph['adj_matrix']
+    adj_matrix = cds.principal_graph["adj_matrix"]
 
     # Determine root cells
     if root_cells is None:
@@ -238,9 +236,11 @@ def order_cells(
     pseudotime[np.isinf(pseudotime)] = pseudotime[~np.isinf(pseudotime)].max() * 1.5
 
     # Store pseudotime
-    cds.cell_metadata['pseudotime'] = pseudotime
+    cds.cell_metadata["pseudotime"] = pseudotime
 
-    log.info(f"Pseudotime calculation completed: range [{pseudotime.min():.2f}, {pseudotime.max():.2f}]")
+    log.info(
+        f"Pseudotime calculation completed: range [{pseudotime.min():.2f}, {pseudotime.max():.2f}]"
+    )
 
     return cds
 
@@ -268,14 +268,11 @@ def graph_test(
     cores : int
         Number of cores to use
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Gene statistics with Moran's I values
     """
-    from scipy.sparse import csr_matrix
-    from scipy.spatial.distance import pdist, squareform
-
     # Get expression data
     expr = cds.expression_data
     if sp.issparse(expr):
@@ -283,14 +280,14 @@ def graph_test(
 
     # Build weight matrix based on principal graph or kNN
     if neighbor_graph == "principal_graph" and cds.principal_graph is not None:
-        W = cds.principal_graph['adj_matrix'].copy()
+        W = cds.principal_graph["adj_matrix"].copy()
         # Normalize rows
         row_sums = np.array(W.sum(axis=1)).flatten()
         row_sums[row_sums == 0] = 1
         W = W / row_sums[:, np.newaxis]
     else:
         # Build kNN graph from reduced dimensions
-        reduced = cds.reducedDims.get('UMAP') or cds.reducedDims.get('PCA')
+        reduced = cds.reducedDims.get("UMAP") or cds.reducedDims.get("PCA")
         nbrs = NearestNeighbors(n_neighbors=k)
         nbrs.fit(reduced)
         distances, indices = nbrs.kneighbors(reduced)
@@ -319,7 +316,7 @@ def graph_test(
 
         # Moran's I formula
         numerator = (x_centered.reshape(1, -1) @ W @ x_centered.reshape(-1, 1)).item()
-        denominator = np.sum(x_centered ** 2)
+        denominator = np.sum(x_centered**2)
 
         if denominator > 0:
             morans_i = (n / W_sum) * (numerator / denominator)
@@ -328,13 +325,15 @@ def graph_test(
 
         # Z-score (simplified)
         # In practice, you'd use permutation tests
-        results.append({
-            'gene': gene,
-            'morans_i': morans_i,
-            'status': 'OK',
-        })
+        results.append(
+            {
+                "gene": gene,
+                "morans_i": morans_i,
+                "status": "OK",
+            }
+        )
 
-    results_df = pd.DataFrame(results).sort_values('morans_i', ascending=False)
+    results_df = pd.DataFrame(results).sort_values("morans_i", ascending=False)
 
     log.info(f"Graph test completed for {len(results_df)} genes")
 
@@ -358,7 +357,7 @@ def choose_graph_segments(
     end_cells : list
         Ending cell indices
 
-    Returns
+    Returns:
     -------
     list
         List of edges in the selected segment
@@ -366,17 +365,14 @@ def choose_graph_segments(
     if cds.principal_graph is None:
         raise ValueError("No principal graph found")
 
-    adj_matrix = cds.principal_graph['adj_matrix']
+    adj_matrix = cds.principal_graph["adj_matrix"]
 
     segments = []
     for start in start_cells:
         for end in end_cells:
             # Find shortest path
             dist, predecessors = dijkstra(
-                adj_matrix,
-                directed=False,
-                indices=start,
-                return_predecessors=True
+                adj_matrix, directed=False, indices=start, return_predecessors=True
             )
 
             # Reconstruct path

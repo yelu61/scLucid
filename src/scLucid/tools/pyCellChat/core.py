@@ -2,12 +2,13 @@
 Core CellChat class implementation (R-free)
 """
 
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Union
+
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from typing import Optional, Dict, List, Union, Tuple
-from dataclasses import dataclass, field
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class CellChatConfig:
     """Configuration for CellChat analysis"""
+
     species: str = "human"
     min_cells: int = 10
     thresh: float = 0.05
@@ -45,7 +47,7 @@ class CellChat:
         meta: pd.DataFrame,
         group_by: str,
         spatial_coords: Optional[pd.DataFrame] = None,
-        config: Optional[CellChatConfig] = None
+        config: Optional[CellChatConfig] = None,
     ):
         self.config = config or CellChatConfig()
 
@@ -79,8 +81,10 @@ class CellChat:
         self.data_project = None
         self.distance_matrix = None
 
-        log.info(f"Created CellChat object: {len(self.unique_groups)} cell groups, "
-                 f"{self.data_expr.shape[1]} cells, {self.data_expr.shape[0]} genes")
+        log.info(
+            f"Created CellChat object: {len(self.unique_groups)} cell groups, "
+            f"{self.data_expr.shape[1]} cells, {self.data_expr.shape[0]} genes"
+        )
 
     @property
     def n_cells(self) -> int:
@@ -92,17 +96,13 @@ class CellChat:
         """Number of genes in the expression matrix."""
         return int(self.data_expr.shape[0])
 
-    def set_database(self, db: 'CellChatDB'):
+    def set_database(self, db: "CellChatDB"):
         """Set CellChatDB database"""
         self.db = db
         self.LR = db.interaction
         log.info(f"Set database with {len(self.LR)} interactions")
 
-    def preprocess_data(
-        self,
-        subset_data: bool = True,
-        do_sparse: bool = True
-    ):
+    def preprocess_data(self, subset_data: bool = True, do_sparse: bool = True):
         """
         Preprocess expression data
 
@@ -137,7 +137,9 @@ class CellChat:
         if do_sparse and not sparse.issparse(self.data_expr):
             self.data_expr = sparse.csr_matrix(self.data_expr)
 
-        log.info(f"Preprocessed data: {self.data_expr.shape[0]} genes x {self.data_expr.shape[1]} cells")
+        log.info(
+            f"Preprocessed data: {self.data_expr.shape[0]} genes x {self.data_expr.shape[1]} cells"
+        )
 
     def identify_overexpressed_genes(self, thresh: float = 0.05):
         """
@@ -173,7 +175,7 @@ class CellChat:
         type: str = "truncatedMean",
         trim: float = 0.1,
         population_size: bool = False,
-        distance_threshold: Optional[float] = None
+        distance_threshold: Optional[float] = None,
     ):
         """
         Compute communication probability
@@ -208,8 +210,8 @@ class CellChat:
 
         # For each LR pair
         for idx, (lr_name, lr_info) in enumerate(self.LR.iterrows()):
-            ligand = lr_info.get('ligand')
-            receptor = lr_info.get('receptor')
+            ligand = lr_info.get("ligand")
+            receptor = lr_info.get("receptor")
 
             if pd.isna(ligand) or pd.isna(receptor):
                 continue
@@ -231,17 +233,15 @@ class CellChat:
                     # Apply spatial constraint if needed
                     spatial_weight = 1.0
                     if self.is_spatial and distance_threshold is not None:
-                        spatial_weight = self._compute_spatial_weight(
-                            i, j, distance_threshold
-                        )
+                        spatial_weight = self._compute_spatial_weight(i, j, distance_threshold)
 
                     # Compute probability using mass action law
                     prob[idx, i, j] = L_expr * R_expr * spatial_weight
 
         # Store results
-        self.net['prob'] = prob
-        self.net['pval'] = pval
-        self.net['LR'] = self.LR
+        self.net["prob"] = prob
+        self.net["pval"] = pval
+        self.net["LR"] = self.LR
 
         # Compute pathway-level probability
         self._compute_pathway_prob()
@@ -282,15 +282,12 @@ class CellChat:
             centroids[i] = self.spatial_coords[mask].mean(axis=0)
 
         # Compute pairwise distances
-        dist_matrix = cdist(centroids, centroids, metric='euclidean')
+        dist_matrix = cdist(centroids, centroids, metric="euclidean")
 
         return dist_matrix
 
     def _compute_spatial_weight(
-        self,
-        group_i: int,
-        group_j: int,
-        distance_threshold: float
+        self, group_i: int, group_j: int, distance_threshold: float
     ) -> float:
         """Compute spatial weight based on distance"""
         if self.distance_matrix is None:
@@ -305,11 +302,11 @@ class CellChat:
 
     def _compute_pathway_prob(self):
         """Compute pathway-level communication probability"""
-        if 'prob' not in self.net:
+        if "prob" not in self.net:
             raise ValueError("Run compute_communication_prob first")
 
         # Group interactions by pathway
-        pathways = self.LR['pathway_name'].unique()
+        pathways = self.LR["pathway_name"].unique()
         n_groups = len(self.unique_groups)
 
         pathway_prob = {}
@@ -320,29 +317,25 @@ class CellChat:
                 continue
 
             # Get interactions in this pathway
-            pathway_mask = self.LR['pathway_name'] == pathway
+            pathway_mask = self.LR["pathway_name"] == pathway
             pathway_indices = np.where(pathway_mask)[0]
 
             if len(pathway_indices) == 0:
                 continue
 
             # Aggregate probabilities
-            prob_pathway = self.net['prob'][pathway_indices].sum(axis=0)
-            pval_pathway = self.net['pval'][pathway_indices].min(axis=0)
+            prob_pathway = self.net["prob"][pathway_indices].sum(axis=0)
+            pval_pathway = self.net["pval"][pathway_indices].min(axis=0)
 
             pathway_prob[pathway] = prob_pathway
             pathway_pval[pathway] = pval_pathway
 
-        self.netP['prob'] = pathway_prob
-        self.netP['pval'] = pathway_pval
+        self.netP["prob"] = pathway_prob
+        self.netP["pval"] = pathway_pval
 
         log.info(f"Computed pathway-level probabilities for {len(pathway_prob)} pathways")
 
-    def filter_communication(
-        self,
-        min_cells: int = 10,
-        thresh_p: float = 0.05
-    ):
+    def filter_communication(self, min_cells: int = 10, thresh_p: float = 0.05):
         """
         Filter communications based on significance
 
@@ -358,13 +351,13 @@ class CellChat:
         valid_groups = group_sizes[group_sizes >= min_cells].index.tolist()
 
         # Filter by p-value
-        if 'pval' in self.net:
-            prob = self.net['prob']
-            pval = self.net['pval']
+        if "pval" in self.net:
+            prob = self.net["prob"]
+            pval = self.net["pval"]
 
             # Set non-significant to 0
             prob[pval > thresh_p] = 0
-            self.net['prob'] = prob
+            self.net["prob"] = prob
 
         log.info(f"Filtered communications: {len(valid_groups)} valid groups")
 
@@ -372,11 +365,11 @@ class CellChat:
         """Compute network centrality measures"""
         from .analysis import compute_centrality
 
-        if 'prob' not in self.net:
+        if "prob" not in self.net:
             raise ValueError("Run compute_communication_prob first")
 
-        centrality_results = compute_centrality(self.net['prob'], self.unique_groups)
-        self.net['centrality'] = centrality_results
+        centrality_results = compute_centrality(self.net["prob"], self.unique_groups)
+        self.net["centrality"] = centrality_results
 
         return centrality_results
 
@@ -391,18 +384,14 @@ class CellChat:
         """
         from .analysis import identify_roles
 
-        if 'prob' not in self.netP:
+        if "prob" not in self.netP:
             raise ValueError("No pathway-level network computed")
 
-        roles = identify_roles(self.netP['prob'], pattern=pattern)
+        roles = identify_roles(self.netP["prob"], pattern=pattern)
 
         return roles
 
-    def compare_interactions(
-        self,
-        other: 'CellChat',
-        comparison_type: str = "functional"
-    ):
+    def compare_interactions(self, other: "CellChat", comparison_type: str = "functional"):
         """
         Compare with another CellChat object
 
@@ -415,16 +404,15 @@ class CellChat:
         """
         from .comparison import compare_cellchat_objects
 
-        comparison_results = compare_cellchat_objects(
-            self, other, comparison_type=comparison_type
-        )
+        comparison_results = compare_cellchat_objects(self, other, comparison_type=comparison_type)
 
         return comparison_results
 
     def save(self, filename: str):
         """Save CellChat object to file"""
         import pickle
-        with open(filename, 'wb') as f:
+
+        with open(filename, "wb") as f:
             pickle.dump(self, f)
         log.info(f"Saved CellChat object to {filename}")
 
@@ -432,7 +420,8 @@ class CellChat:
     def load(cls, filename: str):
         """Load CellChat object from file"""
         import pickle
-        with open(filename, 'rb') as f:
+
+        with open(filename, "rb") as f:
             obj = pickle.load(f)
         log.info(f"Loaded CellChat object from {filename}")
         return obj

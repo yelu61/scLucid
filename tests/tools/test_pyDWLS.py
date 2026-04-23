@@ -2,24 +2,24 @@
 Tests for pyDWLS (R-free DWLS implementation)
 """
 
-import pytest
+import sys
+
 import numpy as np
 import pandas as pd
-import sys
+import pytest
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 try:
     from scLucid.tools.pyDWLS import (
         DWLS,
-        SignatureBuilder,
+        CrossValidator,
         DampenedWLS,
         MarkerSelector,
-        CrossValidator,
-        solve_nnls,
-        normalize_data,
-        filter_genes,
+        SignatureBuilder,
         create_pseudo_bulk,
+        filter_genes,
+        normalize_data,
     )
 except Exception as exc:  # pragma: no cover - optional backend availability
     pytest.skip(f"Skipping pyDWLS tests: {exc}", allow_module_level=True)
@@ -39,7 +39,7 @@ def sample_sc_data():
     )
 
     cell_types = pd.Series(
-        np.random.choice(['T_cell', 'B_cell', 'Macrophage'], n_cells),
+        np.random.choice(["T_cell", "B_cell", "Macrophage"], n_cells),
         index=sc_data.columns,
     )
 
@@ -217,9 +217,7 @@ class TestDWLS:
 
         dwls = DWLS()
         markers = dwls.select_marker_genes(sc_data, cell_types, n_markers=10)
-        signature = dwls.build_signature_matrix(
-            sc_data, cell_types, genes_to_use=markers
-        )
+        signature = dwls.build_signature_matrix(sc_data, cell_types, genes_to_use=markers)
 
         assert signature.shape[0] == len(markers)
 
@@ -277,9 +275,9 @@ class TestCrossValidator:
         cv = CrossValidator(n_folds=3, n_cells_per_bulk=50)
         results = cv.run(sc_data, cell_types, verbose=False)
 
-        assert 'mean_correlation' in results
-        assert 'mean_rmse' in results
-        assert len(results['fold_correlations']) == 3
+        assert "mean_correlation" in results
+        assert "mean_rmse" in results
+        assert len(results["fold_correlations"]) == 3
 
 
 @pytest.mark.integration
@@ -296,7 +294,7 @@ class TestFullWorkflow:
         n_cell_types = 3
 
         cell_types = pd.Series(
-            np.random.choice(['A', 'B', 'C'], n_cells),
+            np.random.choice(["A", "B", "C"], n_cells),
             index=[f"cell_{i}" for i in range(n_cells)],
         )
 
@@ -321,9 +319,7 @@ class TestFullWorkflow:
         markers = dwls.select_marker_genes(sc_data, cell_types, n_markers=20)
 
         # Build signature with markers
-        signature = dwls.build_signature_matrix(
-            sc_data, cell_types, genes_to_use=markers
-        )
+        signature = dwls.build_signature_matrix(sc_data, cell_types, genes_to_use=markers)
 
         # Deconvolve
         proportions = dwls.deconvolve(bulk_data, verbose=False)

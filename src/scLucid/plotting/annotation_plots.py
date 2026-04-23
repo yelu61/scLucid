@@ -30,11 +30,7 @@ def _load_annotation_evidence(
     evidence_key: Optional[str] = None,
 ) -> pd.DataFrame:
     """Load and validate annotation evidence table from ``adata.uns``."""
-    annotation_ns = (
-        adata.uns.get("sclucid", {})
-        .get("analysis", {})
-        .get("annotation", {})
-    )
+    annotation_ns = adata.uns.get("sclucid", {}).get("analysis", {}).get("annotation", {})
     evidence_key = evidence_key or f"{annotation_key}_evidence"
     if evidence_key not in annotation_ns:
         raise KeyError(
@@ -49,7 +45,9 @@ def _load_annotation_evidence(
     return evidence.copy()
 
 
-def _resolve_annotation_palette(df: pd.DataFrame, palette: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+def _resolve_annotation_palette(
+    df: pd.DataFrame, palette: Optional[Dict[str, str]] = None
+) -> Dict[str, str]:
     """Build a label palette for annotation plots."""
     if palette is not None:
         return palette
@@ -88,13 +86,7 @@ def _compute_top_markers_summary(
             if marker_df.empty or "names" not in marker_df.columns:
                 markers[str(cluster)] = []
                 continue
-            top_genes = (
-                marker_df["names"]
-                .astype(str)
-                .dropna()
-                .head(n_markers)
-                .tolist()
-            )
+            top_genes = marker_df["names"].astype(str).dropna().head(n_markers).tolist()
             markers[str(cluster)] = top_genes
     except Exception as exc:
         log.warning(f"Could not compute top marker summary for report: {exc}")
@@ -170,7 +162,9 @@ def _build_warning_records(
                 action_hints.append("verify marker coverage before accepting majority-vote labels")
                 priority = "Optional Check"
             elif str(hybrid_decision) == "insufficient_evidence":
-                action_hints.append("flag for manual annotation and inspect raw expression patterns")
+                action_hints.append(
+                    "flag for manual annotation and inspect raw expression patterns"
+                )
                 priority = "Review Now"
 
         if reasons:
@@ -194,9 +188,7 @@ def _build_warning_records(
         warning_records,
         key=lambda item: (
             item["priority_rank"],
-            item["annotation_confidence"]
-            if item["annotation_confidence"] is not None
-            else 1.0,
+            item["annotation_confidence"] if item["annotation_confidence"] is not None else 1.0,
         ),
     )[:max_warnings]
 
@@ -236,7 +228,7 @@ def _build_risk_summary(
     warning_records: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Aggregate high-level risk counts for report overview and sidecars."""
-    priority_counts = {priority: 0 for priority in _PRIORITY_RANK}
+    priority_counts = dict.fromkeys(_PRIORITY_RANK, 0)
     flagged_clusters = []
     for record in warning_records:
         priority = record.get("priority", "Safe To Proceed")
@@ -251,18 +243,16 @@ def _build_risk_summary(
     return {
         "n_clusters": int(df["cluster"].astype(str).nunique()),
         "n_labels": int(unique_labels),
-        "mean_annotation_confidence": round(float(confidence.mean()), 4)
-        if confidence.notna().any()
-        else None,
-        "median_annotation_confidence": round(float(confidence.median()), 4)
-        if confidence.notna().any()
-        else None,
-        "mean_label_purity": round(float(purity.mean()), 4)
-        if purity.notna().any()
-        else None,
-        "mean_celltypist_agreement": round(float(agreement.mean()), 4)
-        if agreement.notna().any()
-        else None,
+        "mean_annotation_confidence": (
+            round(float(confidence.mean()), 4) if confidence.notna().any() else None
+        ),
+        "median_annotation_confidence": (
+            round(float(confidence.median()), 4) if confidence.notna().any() else None
+        ),
+        "mean_label_purity": round(float(purity.mean()), 4) if purity.notna().any() else None,
+        "mean_celltypist_agreement": (
+            round(float(agreement.mean()), 4) if agreement.notna().any() else None
+        ),
         "priority_counts": priority_counts,
         "flagged_clusters": flagged_clusters,
     }
@@ -398,9 +388,7 @@ def _write_report_sidecars(
         "",
     ]
     for priority in ["Review Now", "Optional Check", "Safe To Proceed"]:
-        markdown_lines.append(
-            f"- {priority}: `{summary['priority_counts'].get(priority, 0)}`"
-        )
+        markdown_lines.append(f"- {priority}: `{summary['priority_counts'].get(priority, 0)}`")
     markdown_lines.extend(["", "## Warnings", ""])
     for line in _format_warning_records(warning_records):
         markdown_lines.append(f"- {line}")
@@ -551,9 +539,7 @@ def _draw_annotation_evidence_panel(
 
     # Decision strip appended to the right side of heatmap panel.
     decision_series = (
-        df.set_index("cluster").get("hybrid_decision")
-        if "hybrid_decision" in df.columns
-        else None
+        df.set_index("cluster").get("hybrid_decision") if "hybrid_decision" in df.columns else None
     )
     if decision_series is not None and decision_series.notna().any():
         unique_decisions = [str(x) for x in decision_series.dropna().unique().tolist()]
@@ -835,7 +821,9 @@ def export_annotation_report(
         edgecolor="#cad5e6",
     )
 
-    _draw_annotation_evidence_panel(bottom_subfig, df.sort_values(by="annotation_confidence", ascending=True), palette)
+    _draw_annotation_evidence_panel(
+        bottom_subfig, df.sort_values(by="annotation_confidence", ascending=True), palette
+    )
     bottom_subfig.suptitle("Evidence Review", fontsize=13, y=0.99)
 
     fig.suptitle(

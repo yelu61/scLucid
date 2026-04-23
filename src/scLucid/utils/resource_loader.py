@@ -3,9 +3,9 @@ Unified resource loader for scLucid.
 Handles loading of internal data (TOML, JSON, GMT, CSV) robustly.
 """
 
-import sys
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -24,6 +24,7 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 RESOURCE_PACKAGE = "scLucid.resources"
+
 
 def _resolve_resource(filename: str):
     """Resolve a package resource from a slash-delimited relative path."""
@@ -65,23 +66,26 @@ def resource_exists(filename: str) -> bool:
     except FileNotFoundError:
         return False
 
+
 def load_toml(filename: str) -> Dict[str, Any]:
     """Load a TOML file from resources."""
     path = get_resource_path(filename)
     with open(path, "rb") as f:
         return tomllib.load(f)
 
+
 def load_json(filename: str) -> Dict[str, Any]:
     """Load a JSON file from resources."""
     path = get_resource_path(filename)
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
+
 
 def load_gmt(filename: str) -> Dict[str, list]:
     """Load a GMT file into a dictionary."""
     path = get_resource_path(filename)
     gene_sets = {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split("\t")
             if len(parts) < 3:

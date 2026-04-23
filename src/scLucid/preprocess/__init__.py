@@ -6,6 +6,22 @@ scaling, batch correction, and other essential preprocessing steps.
 """
 
 # --- Configuration Objects ---
+from .adaptive_normalize import (
+    AdaptiveNormalizationConfig,
+    adaptive_normalize,
+    estimate_cell_size_factors,
+    quality_aware_normalize,
+)
+
+# --- Backend Abstraction ---
+from .backend import (
+    PreprocessingBackend,
+    RapidsBackend,
+    ScanpyBackend,
+    get_backend,
+    list_available_backends,
+    set_backend,
+)
 from .config import (
     GraphConfig,
     HVGConfig,
@@ -16,6 +32,16 @@ from .config import (
     ScalingConfig,
     WorkflowConfig,
 )
+from .gene_biotype import (
+    annotate_gene_biotypes,
+    apply_gene_biotype_strategy,
+    filter_genes_by_biotype,
+    get_biotype_statistics,
+    get_gene_biotype_cache_dir,
+    list_gene_biotype_resources,
+    load_gene_biotypes,
+    recommend_biotype_strategy,
+)
 from .hvg import (
     evaluate_hvg_stability,
     find_hvgs,
@@ -24,46 +50,6 @@ from .hvg import (
     suggest_hvg_choice,
 )
 from .integrate import batch_correction, evaluate_integration
-from .neighbors import optimize_neighbors_pcs
-
-# --- Core Functions ---
-# --- Plotting & Evaluation Functions ---
-from .normalize import normalize_data, plot_normalization_effect
-from .scale import plot_scaling_effect, regress_out, scale_data
-
-# --- High-Level Workflow ---
-from .workflow import (
-    WORKFLOW_STEPS,
-    PartialWorkflowResult,
-    WorkflowError,
-    run_preprocessing,
-)
-
-# --- Backend Abstraction ---
-from .backend import (
-    PreprocessingBackend,
-    ScanpyBackend,
-    RapidsBackend,
-    get_backend,
-    set_backend,
-    list_available_backends,
-)
-from .gene_biotype import (
-    apply_gene_biotype_strategy,
-    annotate_gene_biotypes,
-    filter_genes_by_biotype,
-    get_biotype_statistics,
-    get_gene_biotype_cache_dir,
-    list_gene_biotype_resources,
-    load_gene_biotypes,
-    recommend_biotype_strategy,
-)
-from .adaptive_normalize import (
-    AdaptiveNormalizationConfig,
-    adaptive_normalize,
-    estimate_cell_size_factors,
-    quality_aware_normalize,
-)
 
 # --- Intelligent Preprocessing ---
 from .intelligent import (
@@ -78,6 +64,20 @@ from .intelligent import (
     ResolutionRecommendation,
     recommend_intelligent_preprocessing,
     run_intelligent_preprocessing,
+)
+from .neighbors import optimize_neighbors_pcs
+
+# --- Core Functions ---
+# --- Plotting & Evaluation Functions ---
+from .normalize import normalize_data, plot_normalization_effect
+from .scale import plot_scaling_effect, regress_out, scale_data
+
+# --- High-Level Workflow ---
+from .workflow import (
+    WORKFLOW_STEPS,
+    PartialWorkflowResult,
+    WorkflowError,
+    run_preprocessing,
 )
 
 # --- Public API Definition ---

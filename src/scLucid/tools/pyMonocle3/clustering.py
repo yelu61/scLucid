@@ -2,10 +2,11 @@
 Clustering functions for pyMonocle3 (R-free)
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Optional, List
-import logging
 
 from .core import CellDataSet
 
@@ -47,16 +48,13 @@ def cluster_cells(
     random_seed : int
         Random seed
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with cluster assignments
     """
     if reduction_method not in cds.reducedDims:
-        raise ValueError(
-            f"{reduction_method} not found. "
-            f"Run reduce_dimension first."
-        )
+        raise ValueError(f"{reduction_method} not found. " f"Run reduce_dimension first.")
 
     reduced_data = cds.reducedDims[reduction_method]
 
@@ -66,7 +64,7 @@ def cluster_cells(
     adj_matrix = kneighbors_graph(
         reduced_data,
         n_neighbors=k,
-        mode='connectivity',
+        mode="connectivity",
         include_self=False,
     )
 
@@ -80,15 +78,11 @@ def cluster_cells(
             import leidenalg as la
         except ImportError:
             raise ImportError(
-                "leidenalg and igraph are required. "
-                "Install with: pip install leidenalg igraph"
+                "leidenalg and igraph are required. " "Install with: pip install leidenalg igraph"
             )
 
         # Convert to igraph
-        g = ig.Graph.Adjacency(
-            (adj_matrix > 0).toarray().tolist(),
-            mode='UNDIRECTED'
-        )
+        g = ig.Graph.Adjacency((adj_matrix > 0).toarray().tolist(), mode="UNDIRECTED")
 
         # Run Leiden algorithm
         resolution = resolution or 1.0
@@ -102,11 +96,7 @@ def cluster_cells(
             seed=random_seed,
         )
 
-        clusters = pd.Series(
-            partition.membership,
-            index=cds.cell_metadata.index,
-            name="cluster"
-        )
+        clusters = pd.Series(partition.membership, index=cds.cell_metadata.index, name="cluster")
 
     elif cluster_method == "louvain":
         try:
@@ -114,15 +104,11 @@ def cluster_cells(
             import louvain
         except ImportError:
             raise ImportError(
-                "louvain and igraph are required. "
-                "Install with: pip install louvain igraph"
+                "louvain and igraph are required. " "Install with: pip install louvain igraph"
             )
 
         # Convert to igraph
-        g = ig.Graph.Adjacency(
-            (adj_matrix > 0).toarray().tolist(),
-            mode='UNDIRECTED'
-        )
+        g = ig.Graph.Adjacency((adj_matrix > 0).toarray().tolist(), mode="UNDIRECTED")
 
         # Run Louvain algorithm
         partition = louvain.find_partition(
@@ -131,17 +117,13 @@ def cluster_cells(
             weights=adj_matrix[adj_matrix.nonzero()].tolist() if weight else None,
         )
 
-        clusters = pd.Series(
-            partition.membership,
-            index=cds.cell_metadata.index,
-            name="cluster"
-        )
+        clusters = pd.Series(partition.membership, index=cds.cell_metadata.index, name="cluster")
 
     else:
         raise ValueError(f"Unknown cluster_method: {cluster_method}")
 
     cds.clusters = clusters
-    cds.cell_metadata['cluster'] = clusters
+    cds.cell_metadata["cluster"] = clusters
 
     n_clusters = len(np.unique(clusters))
     log.info(f"Clustering completed: {n_clusters} clusters found using {cluster_method}")
@@ -166,17 +148,13 @@ def partition_cells(
     partition_list : list, optional
         Pre-defined partitions
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with partition assignments
     """
     if partition_list is not None:
-        partitions = pd.Series(
-            partition_list,
-            index=cds.cell_metadata.index,
-            name="partition"
-        )
+        partitions = pd.Series(partition_list, index=cds.cell_metadata.index, name="partition")
     else:
         # Use clusters as partitions by default
         if cds.clusters is None:
@@ -186,7 +164,7 @@ def partition_cells(
         partitions.name = "partition"
 
     cds.partitions = partitions
-    cds.cell_metadata['partition'] = partitions
+    cds.cell_metadata["partition"] = partitions
 
     n_partitions = len(np.unique(partitions))
     log.info(f"Partitioning completed: {n_partitions} partitions")
@@ -208,7 +186,7 @@ def group_cells(
     group_cells_by : str
         Column to group by
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Group statistics
@@ -218,10 +196,14 @@ def group_cells(
 
     groups = cds.cell_metadata.groupby(group_cells_by)
 
-    stats = pd.DataFrame({
-        'n_cells': groups.size(),
-        'mean_size_factor': groups['Size_Factor'].mean() if 'Size_Factor' in cds.cell_metadata.columns else None,
-    })
+    stats = pd.DataFrame(
+        {
+            "n_cells": groups.size(),
+            "mean_size_factor": (
+                groups["Size_Factor"].mean() if "Size_Factor" in cds.cell_metadata.columns else None
+            ),
+        }
+    )
 
     return stats
 
@@ -246,18 +228,22 @@ def find_cluster_markers(
     verbose : bool
         Verbose output
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Marker genes with statistics
     """
-    from scipy.stats import ranksums, mannwhitneyu
+    from scipy.stats import mannwhitneyu, ranksums
 
     if group_cells_by not in cds.cell_metadata.columns:
         raise ValueError(f"Column '{group_cells_by}' not found")
 
     clusters = cds.cell_metadata[group_cells_by].unique()
-    expr = cds.expression_data.toarray() if hasattr(cds.expression_data, 'toarray') else cds.expression_data
+    expr = (
+        cds.expression_data.toarray()
+        if hasattr(cds.expression_data, "toarray")
+        else cds.expression_data
+    )
 
     markers = []
 
@@ -283,23 +269,27 @@ def find_cluster_markers(
                     pval = 1.0
             elif test_type == "mannwhitney":
                 try:
-                    stat, pval = mannwhitneyu(cluster_expr[i, :], other_expr[i, :], alternative='two-sided')
+                    stat, pval = mannwhitneyu(
+                        cluster_expr[i, :], other_expr[i, :], alternative="two-sided"
+                    )
                 except:
                     pval = 1.0
             else:
                 pval = 1.0
 
             if cluster_mean > other_mean and pval < 0.05:
-                markers.append({
-                    'gene': gene,
-                    'cluster': cluster,
-                    'cluster_mean': cluster_mean,
-                    'other_mean': other_mean,
-                    'log2fc': np.log2(fc + 1e-10),
-                    'pval': pval,
-                })
+                markers.append(
+                    {
+                        "gene": gene,
+                        "cluster": cluster,
+                        "cluster_mean": cluster_mean,
+                        "other_mean": other_mean,
+                        "log2fc": np.log2(fc + 1e-10),
+                        "pval": pval,
+                    }
+                )
 
-    markers_df = pd.DataFrame(markers).sort_values(['cluster', 'pval'])
+    markers_df = pd.DataFrame(markers).sort_values(["cluster", "pval"])
 
     log.info(f"Found markers for {len(clusters)} clusters")
 

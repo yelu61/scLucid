@@ -6,7 +6,7 @@ import scipy.sparse
 from anndata import AnnData
 
 from scLucid.preprocess.config import ScalingConfig
-from scLucid.preprocess.scale import scale_data, regress_out, _robust_scale, _minmax_scale
+from scLucid.preprocess.scale import _minmax_scale, _robust_scale, regress_out, scale_data
 
 
 @pytest.mark.unit
@@ -17,7 +17,13 @@ class TestScaleDataZScore:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="zscore", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="zscore",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         assert "scaled" in result.layers
 
@@ -25,7 +31,13 @@ class TestScaleDataZScore:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="zscore", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="zscore",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         scaled = result.layers["scaled"]
         mean = np.mean(scaled, axis=0)
@@ -37,7 +49,14 @@ class TestScaleDataZScore:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="zscore", max_value=5, regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="zscore",
+                max_value=5,
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         scaled = result.layers["scaled"]
         assert np.max(scaled) <= 5
@@ -48,7 +67,13 @@ class TestScaleDataZScore:
         original_x = adata.X.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="zscore", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="zscore",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         # X should be updated to scaled values
         with np.testing.assert_raises(AssertionError):
@@ -63,7 +88,13 @@ class TestScaleDataRobust:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="robust", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="robust",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         assert "scaled" in result.layers
 
@@ -72,7 +103,13 @@ class TestScaleDataRobust:
         adata = AnnData(X=x.copy())
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="robust", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="robust",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         assert "scaled" in result.layers
 
@@ -82,7 +119,13 @@ class TestScaleDataRobust:
         adata = AnnData(X=x.copy())
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="robust", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="robust",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         assert "scaled" in result.layers
         assert scipy.sparse.issparse(result.layers["scaled"])
@@ -91,7 +134,14 @@ class TestScaleDataRobust:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="robust", max_value=3, regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="robust",
+                max_value=3,
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         scaled = result.layers["scaled"]
         assert np.max(scaled) <= 3
@@ -106,7 +156,13 @@ class TestScaleDataMinMax:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="minmax", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="minmax",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         assert "scaled" in result.layers
 
@@ -114,7 +170,13 @@ class TestScaleDataMinMax:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="minmax", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="minmax",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         scaled = result.layers["scaled"]
         assert np.min(scaled) >= 0
@@ -126,7 +188,13 @@ class TestScaleDataMinMax:
         adata = AnnData(X=x.copy())
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="minmax", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="minmax",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         assert "scaled" in result.layers
         scaled = result.layers["scaled"]
@@ -145,7 +213,9 @@ class TestRegressOut:
         adata.obs["total_counts"] = adata.X.sum(axis=1)
         result = regress_out(
             adata,
-            config=ScalingConfig(vars_to_regress=["total_counts"], plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                vars_to_regress=["total_counts"], plot=False, report=False, verbose=False
+            ),
         )
         assert "regressed" in result.layers
 
@@ -160,11 +230,14 @@ class TestRegressOut:
 
     def test_regress_out_warns_on_missing_vars(self, minimal_adata, caplog):
         import logging
+
         adata = minimal_adata.copy()
         with caplog.at_level(logging.WARNING):
             regress_out(
                 adata,
-                config=ScalingConfig(vars_to_regress=["missing_var"], plot=False, report=False, verbose=False),
+                config=ScalingConfig(
+                    vars_to_regress=["missing_var"], plot=False, report=False, verbose=False
+                ),
             )
         assert "not found" in caplog.text.lower() or "missing" in caplog.text.lower()
 
@@ -195,6 +268,7 @@ class TestScaleDataInlineRegression:
 
     def test_inline_regression_skips_when_vars_missing(self, minimal_adata, caplog):
         import logging
+
         adata = minimal_adata.copy()
         adata.layers["normalized"] = adata.X.copy()
         with caplog.at_level(logging.INFO):
@@ -236,7 +310,13 @@ class TestScaleDataMetadata:
         adata = minimal_adata.copy()
         result = scale_data(
             adata,
-            config=ScalingConfig(scale_method="zscore", regress_in_scale=False, plot=False, report=False, verbose=False),
+            config=ScalingConfig(
+                scale_method="zscore",
+                regress_in_scale=False,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
         )
         meta = result.uns["sclucid"]["preprocess"]["scaling"]
         assert meta["params"]["scale_method"] == "zscore"
@@ -244,7 +324,9 @@ class TestScaleDataMetadata:
 
     def test_config_not_mutated(self, minimal_adata):
         adata = minimal_adata.copy()
-        config = ScalingConfig(scale_method="zscore", regress_in_scale=False, plot=False, report=False, verbose=False)
+        config = ScalingConfig(
+            scale_method="zscore", regress_in_scale=False, plot=False, report=False, verbose=False
+        )
         original_dict = config.to_dict()
         scale_data(adata, config=config)
         assert config.to_dict() == original_dict

@@ -5,11 +5,12 @@ This module provides tools for analyzing interactions between
 tumor cells and microenvironment components.
 """
 
+import logging
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ class InteractionAnalyzer:
     lr_pairs : dict
         Dictionary of ligand-receptor pairs by category
 
-    Attributes
+    Attributes:
     ----------
     interaction_scores_ : pd.DataFrame
         Interaction scores between cell types
@@ -97,7 +98,7 @@ class InteractionAnalyzer:
         method : str
             Scoring method ("product", "mean")
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Interaction scores
@@ -117,9 +118,9 @@ class InteractionAnalyzer:
                 ligand_expr = adata[:, ligand].X
                 receptor_expr = adata[:, receptor].X
 
-                if hasattr(ligand_expr, 'toarray'):
+                if hasattr(ligand_expr, "toarray"):
                     ligand_expr = ligand_expr.toarray().flatten()
-                if hasattr(receptor_expr, 'toarray'):
+                if hasattr(receptor_expr, "toarray"):
                     receptor_expr = receptor_expr.toarray().flatten()
 
                 # Calculate for each sender-receiver pair
@@ -141,16 +142,18 @@ class InteractionAnalyzer:
                         else:
                             raise ValueError(f"Unknown method: {method}")
 
-                        results.append({
-                            "category": category,
-                            "ligand": ligand,
-                            "receptor": receptor,
-                            "sender": sender,
-                            "receiver": receiver,
-                            "interaction_score": score,
-                            "ligand_expression": ligand_mean,
-                            "receptor_expression": receptor_mean,
-                        })
+                        results.append(
+                            {
+                                "category": category,
+                                "ligand": ligand,
+                                "receptor": receptor,
+                                "sender": sender,
+                                "receiver": receiver,
+                                "interaction_score": score,
+                                "ligand_expression": ligand_mean,
+                                "receptor_expression": receptor_mean,
+                            }
+                        )
 
         self.interaction_scores_ = pd.DataFrame(results)
         return self.interaction_scores_
@@ -173,7 +176,7 @@ class InteractionAnalyzer:
         pvalue_threshold : float
             P-value threshold
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Significant interactions
@@ -222,7 +225,7 @@ def analyze_cell_interactions(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Interaction scores
@@ -252,7 +255,7 @@ def find_dominant_interactions(
     top_n : int
         Number of top interactions
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Top interactions per cell type
@@ -287,7 +290,7 @@ def score_immune_interactions(
     immune_key : str
         Column indicating immune cell types
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Tumor-immune interaction scores
@@ -314,9 +317,9 @@ def score_immune_interactions(
         ligand_expr = adata[:, ligand].X
         receptor_expr = adata[:, receptor].X
 
-        if hasattr(ligand_expr, 'toarray'):
+        if hasattr(ligand_expr, "toarray"):
             ligand_expr = ligand_expr.toarray().flatten()
-        if hasattr(receptor_expr, 'toarray'):
+        if hasattr(receptor_expr, "toarray"):
             receptor_expr = receptor_expr.toarray().flatten()
 
         # Tumor expression of ligand
@@ -330,14 +333,16 @@ def score_immune_interactions(
 
             score = tumor_ligand * immune_receptor
 
-            results.append({
-                "checkpoint_pair": f"{ligand}-{receptor}",
-                "ligand": ligand,
-                "receptor": receptor,
-                "immune_type": immune_type,
-                "interaction_score": score,
-                "ligand_expression_tumor": tumor_ligand,
-                "receptor_expression_immune": immune_receptor,
-            })
+            results.append(
+                {
+                    "checkpoint_pair": f"{ligand}-{receptor}",
+                    "ligand": ligand,
+                    "receptor": receptor,
+                    "immune_type": immune_type,
+                    "interaction_score": score,
+                    "ligand_expression_tumor": tumor_ligand,
+                    "receptor_expression_immune": immune_receptor,
+                }
+            )
 
     return pd.DataFrame(results)

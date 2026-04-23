@@ -5,13 +5,13 @@ This module provides tools for calculating various diversity indices
 to quantify intratumoral heterogeneity.
 """
 
+import logging
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
 from anndata import AnnData
-import logging
-from scipy.spatial.distance import pdist, squareform
-from scipy.stats import entropy
+from scipy.spatial.distance import pdist
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def shannon_diversity_index(proportions: np.ndarray) -> float:
     proportions : np.ndarray
         Proportion of each clone/type
 
-    Returns
+    Returns:
     -------
     float
         Shannon diversity index
@@ -49,12 +49,12 @@ def simpson_diversity_index(proportions: np.ndarray) -> float:
     proportions : np.ndarray
         Proportion of each clone/type
 
-    Returns
+    Returns:
     -------
     float
         Simpson's diversity index
     """
-    return 1 - np.sum(proportions ** 2)
+    return 1 - np.sum(proportions**2)
 
 
 def inverse_simpson_index(proportions: np.ndarray) -> float:
@@ -68,7 +68,7 @@ def inverse_simpson_index(proportions: np.ndarray) -> float:
     proportions : np.ndarray
         Proportion of each clone/type
 
-    Returns
+    Returns:
     -------
     float
         Inverse Simpson's index
@@ -76,7 +76,7 @@ def inverse_simpson_index(proportions: np.ndarray) -> float:
     proportions = proportions[proportions > 0]
     if len(proportions) == 0:
         return 0.0
-    return 1 / np.sum(proportions ** 2)
+    return 1 / np.sum(proportions**2)
 
 
 def gini_simpson_index(proportions: np.ndarray) -> float:
@@ -90,12 +90,12 @@ def gini_simpson_index(proportions: np.ndarray) -> float:
     proportions : np.ndarray
         Proportion of each clone/type
 
-    Returns
+    Returns:
     -------
     float
         Gini-Simpson index
     """
-    return 1 - np.sum(proportions ** 2)
+    return 1 - np.sum(proportions**2)
 
 
 def berger_parker_index(proportions: np.ndarray) -> float:
@@ -109,7 +109,7 @@ def berger_parker_index(proportions: np.ndarray) -> float:
     proportions : np.ndarray
         Proportion of each clone/type
 
-    Returns
+    Returns:
     -------
     float
         Berger-Parker index
@@ -129,7 +129,7 @@ def fisher_alpha(counts: np.ndarray) -> float:
     counts : np.ndarray
         Count of each clone/type
 
-    Returns
+    Returns:
     -------
     float
         Fisher's alpha
@@ -161,7 +161,7 @@ class DiversityAnalyzer:
     metrics : list
         List of diversity metrics to calculate
 
-    Attributes
+    Attributes:
     ----------
     diversity_scores_ : pd.DataFrame
         Diversity scores per sample
@@ -172,8 +172,12 @@ class DiversityAnalyzer:
         metrics: Optional[List[str]] = None,
     ):
         self.metrics = metrics or [
-            "shannon", "simpson", "inverse_simpson",
-            "gini_simpson", "berger_parker", "fisher_alpha"
+            "shannon",
+            "simpson",
+            "inverse_simpson",
+            "gini_simpson",
+            "berger_parker",
+            "fisher_alpha",
         ]
         self.diversity_scores_: Optional[pd.DataFrame] = None
 
@@ -195,7 +199,7 @@ class DiversityAnalyzer:
         sample_key : str, optional
             Column defining samples
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Diversity indices
@@ -272,7 +276,7 @@ class DiversityAnalyzer:
         sample_key : str, optional
             Column containing sample IDs
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Heterogeneity estimates
@@ -326,7 +330,7 @@ def calculate_diversity_indices(
     sample_key : str, optional
         Column defining samples
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Diversity indices
@@ -352,7 +356,7 @@ def estimate_intratumoral_heterogeneity(
     sample_key : str, optional
         Column containing sample IDs
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Heterogeneity estimates
@@ -380,7 +384,7 @@ def calculate_transcriptional_diversity(
     n_pcs : int
         Number of principal components
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Transcriptional diversity metrics
@@ -390,6 +394,7 @@ def calculate_transcriptional_diversity(
     # Ensure PCA exists
     if "X_pca" not in adata.obsm:
         from scanpy.preprocessing import pca
+
         pca(adata, n_comps=n_pcs)
 
     samples = [None] if sample_key is None else adata.obs[sample_key].unique()
@@ -408,7 +413,7 @@ def calculate_transcriptional_diversity(
         X = sample_adata.obsm["X_pca"][:, :n_pcs]
 
         # Calculate pairwise distances
-        distances = pdist(X, metric='euclidean')
+        distances = pdist(X, metric="euclidean")
 
         result = {
             "sample": sample or "all",

@@ -4,20 +4,20 @@ Tests for performance profiling utilities.
 Tests time and memory tracking functionality.
 """
 
-import pytest
 import time
+
 import numpy as np
 from anndata import AnnData
 
 from scLucid.utils.profiling import (
-    PerformanceStats,
-    PerformanceProfiler,
     BenchmarkRunner,
-    profile_performance,
-    profile_function,
-    memory_tracker,
-    get_memory_usage,
+    PerformanceProfiler,
+    PerformanceStats,
     estimate_adata_memory,
+    get_memory_usage,
+    memory_tracker,
+    profile_function,
+    profile_performance,
 )
 
 

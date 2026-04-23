@@ -10,13 +10,13 @@ All implementations use only Python/NumPy/SciPy/scikit-learn, no rpy2 required.
 """
 
 import logging
-from typing import Literal, Optional, Union
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 from scipy.optimize import nnls
-from scipy.stats import ttest_ind, mannwhitneyu, pearsonr, spearmanr
+from scipy.stats import mannwhitneyu, pearsonr, spearmanr, ttest_ind
 
 from .pyBayesPrism import BayesPrismReference, PrismConfig
 from .pyDWLS import DWLS
@@ -31,7 +31,7 @@ def deconvolve_bulk(
     sample_key: str = "sampleID",
     method: Literal["DWLS", "BayesPrism", "Bisque", "NNLS"] = "BayesPrism",
     key_added: str = "bulk_deconvolution",
-    **method_kwargs
+    **method_kwargs,
 ) -> AnnData:
     """
     Estimate cell type proportions in bulk RNA-seq data using pure Python.
@@ -85,30 +85,24 @@ def deconvolve_bulk(
             adata_ref_sub, bulk_data_sub, cell_type_key, sample_key, **method_kwargs
         )
     elif method == "DWLS":
-        proportions_df = _run_dwls(
-            adata_ref_sub, bulk_data_sub, cell_type_key, **method_kwargs
-        )
+        proportions_df = _run_dwls(adata_ref_sub, bulk_data_sub, cell_type_key, **method_kwargs)
     elif method == "Bisque":
-        proportions_df = _run_bisque(
-            adata_ref_sub, bulk_data_sub, cell_type_key, **method_kwargs
-        )
+        proportions_df = _run_bisque(adata_ref_sub, bulk_data_sub, cell_type_key, **method_kwargs)
     elif method == "NNLS":
-        proportions_df = _run_nnls(
-            adata_ref_sub, bulk_data_sub, cell_type_key
-        )
+        proportions_df = _run_nnls(adata_ref_sub, bulk_data_sub, cell_type_key)
     else:
         raise ValueError(f"Unknown method: {method}")
 
     # Store results
-    adata_ref.uns.setdefault('sclucid', {}).setdefault('tools', {})
-    adata_ref.uns['sclucid']['tools'][key_added] = {
-        'proportions': proportions_df,
-        'params': {
-            'method': method,
-            'n_genes': len(common_genes),
-            'n_cell_types': len(adata_ref.obs[cell_type_key].unique()),
-            'n_samples': bulk_data.shape[1],
-        }
+    adata_ref.uns.setdefault("sclucid", {}).setdefault("tools", {})
+    adata_ref.uns["sclucid"]["tools"][key_added] = {
+        "proportions": proportions_df,
+        "params": {
+            "method": method,
+            "n_genes": len(common_genes),
+            "n_cell_types": len(adata_ref.obs[cell_type_key].unique()),
+            "n_samples": bulk_data.shape[1],
+        },
     }
 
     log.info(f"Deconvolution complete. Results stored in .uns['sclucid']['tools']['{key_added}']")
@@ -123,25 +117,23 @@ def _run_bayesprism(
     n_iter: int = 100,
     n_chains: int = 4,
     burnin: int = 50,
-    **kwargs
+    **kwargs,
 ) -> pd.DataFrame:
     """Run BayesPrism deconvolution."""
     log.info(f"Running BayesPrism with {n_iter} iterations, {n_chains} chains...")
 
     # Create reference
     reference = pd.DataFrame(
-        adata_ref.X.T if hasattr(adata_ref.X, 'toarray') else adata_ref.X.T,
+        adata_ref.X.T if hasattr(adata_ref.X, "toarray") else adata_ref.X.T,
         index=adata_ref.var_names,
-        columns=adata_ref.obs_names
+        columns=adata_ref.obs_names,
     )
 
     cell_type_labels = adata_ref.obs[cell_type_key]
 
     # Initialize BayesPrism
     prism_ref = BayesPrismReference(
-        reference=reference,
-        cell_type_labels=cell_type_labels,
-        pseudo_min=1e-8
+        reference=reference, cell_type_labels=cell_type_labels, pseudo_min=1e-8
     )
 
     # Run deconvolution for each bulk sample
@@ -151,20 +143,11 @@ def _run_bayesprism(
         bulk_expr = bulk_data[sample_id].values
 
         # Initialize BayesPrism model
-        config = PrismConfig(
-            n_iter=n_iter,
-            n_chains=n_chains,
-            burnin=burnin,
-            **kwargs
-        )
+        config = PrismConfig(n_iter=n_iter, n_chains=n_chains, burnin=burnin, **kwargs)
 
         # Run Gibbs sampling (simplified version)
         # Note: Full implementation would use the complete BayesPrism class
-        theta = _bayesprism_gibbs_sample(
-            prism_ref.phi,
-            bulk_expr,
-            config
-        )
+        theta = _bayesprism_gibbs_sample(prism_ref.phi, bulk_expr, config)
 
         proportions[sample_id] = theta
 
@@ -172,7 +155,9 @@ def _run_bayesprism(
     return proportions_df
 
 
-def _bayesprism_gibbs_sample(phi: np.ndarray, bulk_expr: np.ndarray, config: PrismConfig) -> np.ndarray:
+def _bayesprism_gibbs_sample(
+    phi: np.ndarray, bulk_expr: np.ndarray, config: PrismConfig
+) -> np.ndarray:
     """Simplified Gibbs sampling for BayesPrism."""
     n_cell_types = phi.shape[1]
 
@@ -207,7 +192,7 @@ def _run_dwls(
     bulk_data: pd.DataFrame,
     cell_type_key: str,
     dampening_factor: float = 0.1,
-    **kwargs
+    **kwargs,
 ) -> pd.DataFrame:
     """Run DWLS deconvolution."""
     log.info("Running DWLS deconvolution...")
@@ -223,11 +208,7 @@ def _run_dwls(
 
     for sample_id in bulk_data.columns:
         # Solve with dampening
-        theta = _dwls_solve(
-            signature_matrix.values,
-            bulk_data[sample_id].values,
-            dampening_factor
-        )
+        theta = _dwls_solve(signature_matrix.values, bulk_data[sample_id].values, dampening_factor)
         proportions[sample_id] = theta
 
     proportions_df = pd.DataFrame(proportions, index=signature_matrix.columns).T
@@ -269,7 +250,7 @@ def _run_bisque(
     bulk_data: pd.DataFrame,
     cell_type_key: str,
     marker_genes: Optional[list] = None,
-    **kwargs
+    **kwargs,
 ) -> pd.DataFrame:
     """
     Simplified Bisque-like deconvolution using marker genes.
@@ -307,11 +288,7 @@ def _run_bisque(
     return proportions_df
 
 
-def _run_nnls(
-    adata_ref: AnnData,
-    bulk_data: pd.DataFrame,
-    cell_type_key: str
-) -> pd.DataFrame:
+def _run_nnls(adata_ref: AnnData, bulk_data: pd.DataFrame, cell_type_key: str) -> pd.DataFrame:
     """Baseline NNLS deconvolution."""
     log.info("Running NNLS baseline deconvolution...")
 
@@ -335,7 +312,7 @@ def _build_signature_matrix(adata_ref: AnnData, cell_type_key: str) -> pd.DataFr
     for ct in cell_types:
         mask = adata_ref.obs[cell_type_key] == ct
         # Mean expression per cell type
-        if hasattr(adata_ref.X, 'toarray'):
+        if hasattr(adata_ref.X, "toarray"):
             sig = np.array(adata_ref[mask].X.mean(axis=0)).flatten()
         else:
             sig = adata_ref[mask].X.mean(axis=0).flatten()
@@ -376,7 +353,7 @@ def differential_abundance(
     group_col: str,
     group1: str,
     group2: str,
-    method: Literal["ttest", "wilcoxon"] = "wilcoxon"
+    method: Literal["ttest", "wilcoxon"] = "wilcoxon",
 ) -> pd.DataFrame:
     """
     Perform differential abundance analysis on deconvolution results.
@@ -393,7 +370,7 @@ def differential_abundance(
         DataFrame with differential abundance results
     """
     # Align data
-    data = proportions_df.join(metadata_df, how='inner')
+    data = proportions_df.join(metadata_df, how="inner")
 
     group1_samples = data[data[group_col] == group1].index
     group2_samples = data[data[group_col] == group2].index
@@ -407,18 +384,20 @@ def differential_abundance(
             continue
 
         if method == "wilcoxon":
-            stat, pval = mannwhitneyu(scores1, scores2, alternative='two-sided')
+            stat, pval = mannwhitneyu(scores1, scores2, alternative="two-sided")
         else:
             stat, pval = ttest_ind(scores1, scores2)
 
-        results.append({
-            "cell_type": cell_type,
-            "statistic": stat,
-            "pvalue": pval,
-            "mean_abundance_group1": scores1.mean(),
-            "mean_abundance_group2": scores2.mean(),
-            "log2fc_abundance": np.log2(scores1.mean() / (scores2.mean() + 1e-10))
-        })
+        results.append(
+            {
+                "cell_type": cell_type,
+                "statistic": stat,
+                "pvalue": pval,
+                "mean_abundance_group1": scores1.mean(),
+                "mean_abundance_group2": scores2.mean(),
+                "log2fc_abundance": np.log2(scores1.mean() / (scores2.mean() + 1e-10)),
+            }
+        )
 
     results_df = pd.DataFrame(results).sort_values("pvalue")
     return results_df
@@ -428,7 +407,7 @@ def correlate_abundance_with_clinical(
     proportions_df: pd.DataFrame,
     metadata_df: pd.DataFrame,
     clinical_variable: str,
-    method: Literal["pearson", "spearman"] = "spearman"
+    method: Literal["pearson", "spearman"] = "spearman",
 ) -> pd.DataFrame:
     """
     Correlate cell type abundance with continuous clinical variable.
@@ -442,7 +421,7 @@ def correlate_abundance_with_clinical(
     Returns:
         DataFrame with correlation results
     """
-    data = proportions_df.join(metadata_df, how='inner')
+    data = proportions_df.join(metadata_df, how="inner")
 
     results = []
     for cell_type in proportions_df.columns:
@@ -455,12 +434,14 @@ def correlate_abundance_with_clinical(
         else:
             corr, pval = spearmanr(subset[cell_type], subset[clinical_variable])
 
-        results.append({
-            "cell_type": cell_type,
-            "clinical_variable": clinical_variable,
-            "correlation_coefficient": corr,
-            "pvalue": pval
-        })
+        results.append(
+            {
+                "cell_type": cell_type,
+                "clinical_variable": clinical_variable,
+                "correlation_coefficient": corr,
+                "pvalue": pval,
+            }
+        )
 
     return pd.DataFrame(results).sort_values("pvalue")
 

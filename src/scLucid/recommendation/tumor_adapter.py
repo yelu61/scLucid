@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import numpy as np
 from anndata import AnnData
@@ -68,7 +68,7 @@ def adapt_tumor_recommendation(
             notes.append("Using 'cell_type' as fallback for TME deconvolution.")
         else:
             run_tme = False
-            concerns.append(f"No cell type annotations found for TME deconvolution.")
+            concerns.append("No cell type annotations found for TME deconvolution.")
             tme_confidence = 0.3
 
     parameters.append(
@@ -100,9 +100,7 @@ def adapt_tumor_recommendation(
         cnv_confidence = 0.9
         notes.append("Existing CNV scores detected; enabling CNV analysis.")
     elif infercnvpy_available:
-        if config.cnv_reference_key is None or (
-            config.cnv_reference_key not in adata.obs.columns
-        ):
+        if config.cnv_reference_key is None or (config.cnv_reference_key not in adata.obs.columns):
             concerns.append(
                 "CNV inference recommended but no reference cell key specified. "
                 "Consider setting cnv_reference_key."
@@ -133,9 +131,7 @@ def adapt_tumor_recommendation(
     if cancer_type is None:
         run_therapy = False
         therapy_confidence = 0.4
-        concerns.append(
-            "Therapy response prediction requires cancer_type to be specified."
-        )
+        concerns.append("Therapy response prediction requires cancer_type to be specified.")
     else:
         notes.append(f"Cancer type '{cancer_type}' provided for therapy prediction.")
 
@@ -154,7 +150,9 @@ def adapt_tumor_recommendation(
     recommended_method = config.malignancy_method
     if recommended_method == "cnv" and not run_cnv:
         recommended_method = "threshold"
-        notes.append("CNV-based malignancy method unavailable without CNV inference; fallback to threshold.")
+        notes.append(
+            "CNV-based malignancy method unavailable without CNV inference; fallback to threshold."
+        )
 
     parameters.append(
         ParameterRecommendation(

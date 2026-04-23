@@ -161,7 +161,7 @@ def setup_logging(
         raise ValueError(f"Invalid log level: {level}")
 
     root_logger = logging.getLogger()
-    
+
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
@@ -170,15 +170,15 @@ def setup_logging(
         handlers.append(logging.FileHandler(file_path))
 
     from .config import _config
+
     _config.verbosity = {"WARNING": 0, "INFO": 1, "DEBUG": 2}[level]
 
     logging.basicConfig(
         level=numeric_level,
         format=log_format,
         handlers=handlers,
-        force=True,  
+        force=True,
     )
-    
 
     logging.getLogger("harmonypy").setLevel(logging.ERROR)
     logging.getLogger("scvi").setLevel(logging.WARNING)
@@ -279,9 +279,7 @@ def set_figure_params(
             plt.style.use(style)
             log.info(f"Applied matplotlib style: {style}")
         except Exception as e:
-            log.warning(
-                f"Could not apply style '{style}'. Error: {e}. Falling back to default."
-            )
+            log.warning(f"Could not apply style '{style}'. Error: {e}. Falling back to default.")
             plt.style.use("default")
 
     # Apply academic font style if specified
@@ -305,8 +303,8 @@ def set_figure_params(
     plt.rcParams.update(applied_styles)
 
     # Set font type for PDF/EPS output to embed fonts (avoid Type 3 fonts)
-    mpl.rcParams['pdf.fonttype'] = 42
-    mpl.rcParams['ps.fonttype'] = 42
+    mpl.rcParams["pdf.fonttype"] = 42
+    mpl.rcParams["ps.fonttype"] = 42
 
     # Configure IPython display format if in Jupyter
     try:

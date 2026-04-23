@@ -11,7 +11,13 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ..base_config import SclucidBaseConfig, WorkflowConfigBase, apply_config_overrides as _apply_config_overrides
+from ..base_config import (
+    SclucidBaseConfig,
+    WorkflowConfigBase,
+)
+from ..base_config import (
+    apply_config_overrides as _apply_config_overrides,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +48,7 @@ class NormalizationConfig(SclucidBaseConfig):
         return v
 
     @model_validator(mode="after")
-    def validate_method_params(self) -> "NormalizationConfig":
+    def validate_method_params(self) -> NormalizationConfig:
         """Validate method-specific constraints."""
         if self.method == "pearson_residuals" and self.target_sum != 1e4:
             logger.warning("Pearson residuals normalization ignores target_sum parameter")
@@ -115,10 +121,13 @@ class IntegrationConfig(SclucidBaseConfig):
     harmony_params: Dict[str, Any] = Field(
         default_factory=lambda: {"max_iter_harmony": 20, "theta": 2.0}
     )
-    scvi_params: Dict[str, Any] = Field(
-        default_factory=lambda: {"n_latent": 30, "max_epochs": 500}
-    )
+    scvi_params: Dict[str, Any] = Field(default_factory=lambda: {"n_latent": 30, "max_epochs": 500})
     hvg_key: Optional[str] = Field(default=None, description="For Scanorama")
+    method_kwargs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional kwargs passed directly to the underlying integration method. "
+        "These override any values in harmony_params / scvi_params.",
+    )
 
 
 class NeighborsConfig(SclucidBaseConfig):
@@ -179,7 +188,7 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
     # Note: save_dir is inherited from SclucidBaseConfig
 
     @classmethod
-    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> "PreprocessingWorkflowConfig":
+    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> PreprocessingWorkflowConfig:
         """
         Create PreprocessingWorkflowConfig from a simplified flat dictionary.
 
@@ -263,7 +272,7 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         return cls(**kwargs)
 
     @classmethod
-    def default(cls, **kwargs) -> "PreprocessingWorkflowConfig":
+    def default(cls, **kwargs) -> PreprocessingWorkflowConfig:
         """
         Default configuration factory for the standard preprocessing path.
 
@@ -292,7 +301,7 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
             run_pca=True,
             run_neighbors=True,
             run_integration=True,
-            **kwargs
+            **kwargs,
         )
 
     @classmethod
@@ -301,8 +310,8 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         n_top_genes: int = 2000,
         run_regression: bool = False,
         run_integration: bool = False,
-        **kwargs
-    ) -> "PreprocessingWorkflowConfig":
+        **kwargs,
+    ) -> PreprocessingWorkflowConfig:
         """
         Quick configuration factory for standard analyses.
 
@@ -326,7 +335,7 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
             hvg=HVGConfig(n_top_genes=n_top_genes),
             run_regression=run_regression,
             run_integration=run_integration,
-            **kwargs
+            **kwargs,
         )
 
 

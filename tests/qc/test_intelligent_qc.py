@@ -5,26 +5,23 @@ This test module validates the core innovation of scLucid:
 data-driven QC threshold recommendations with confidence intervals.
 """
 
-import pytest
+
 import numpy as np
-import pandas as pd
-from pathlib import Path
-from anndata import AnnData
-from tests.fixtures.synthetic_data import SyntheticDataGenerator
+import pytest
 
 from scLucid.qc.intelligent_qc import (
     IntelligentQCRecommender,
-    recommend_intelligent_qc,
     QCRecommendation,
+    StrategyType,
     ThresholdRecommendation,
-    StrategyType
+    recommend_intelligent_qc,
 )
-from scLucid.qc.metrics import calculate_qc_metric
-
+from tests.fixtures.synthetic_data import SyntheticDataGenerator
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 def _make_qc_ready_adata(n_cells: int = 1000, n_genes: int = 1200, random_state: int = 42):
     """Create synthetic AnnData with the QC columns expected by intelligent QC."""
@@ -56,12 +53,12 @@ def tumor_like_adata():
 
     # Simulate tumor characteristics
     # 1. Higher mitochondrial content
-    adata.obs['pct_counts_mt'] = adata.obs['pct_counts_mt'] * 1.5 + 5
+    adata.obs["pct_counts_mt"] = adata.obs["pct_counts_mt"] * 1.5 + 5
 
     # 2. Add some doublet-like cells
     n_doublets = int(0.1 * adata.n_obs)
     doublet_idx = np.random.choice(adata.n_obs, n_doublets, replace=False)
-    adata.obs.loc[adata.obs.index[doublet_idx], 'n_genes'] *= 2
+    adata.obs.loc[adata.obs.index[doublet_idx], "n_genes"] *= 2
 
     return adata
 
@@ -73,10 +70,10 @@ def low_quality_adata():
 
     # Simulate low quality
     # 1. Low gene counts
-    adata.obs['n_genes'] = adata.obs['n_genes'] * 0.5
+    adata.obs["n_genes"] = adata.obs["n_genes"] * 0.5
 
     # 2. High mitochondrial content
-    adata.obs['pct_counts_mt'] = adata.obs['pct_counts_mt'] * 2
+    adata.obs["pct_counts_mt"] = adata.obs["pct_counts_mt"] * 2
 
     return adata
 
@@ -92,6 +89,7 @@ def temp_output_dir(tmp_path):
 # =============================================================================
 # Test Basic Functionality
 # =============================================================================
+
 
 class TestIntelligentQCRecommender:
     """Test IntelligentQCRecommender class."""
@@ -109,9 +107,7 @@ class TestIntelligentQCRecommender:
         recommender = IntelligentQCRecommender()
 
         result = recommender.recommend(
-            sample_adata_with_qc,
-            tissue_type="normal",
-            save_dir=temp_output_dir
+            sample_adata_with_qc, tissue_type="normal", save_dir=temp_output_dir
         )
 
         # Check return type
@@ -153,6 +149,7 @@ class TestIntelligentQCRecommender:
 # Test Different Strategies
 # =============================================================================
 
+
 class TestStrategies:
     """Test different QC strategies."""
 
@@ -187,8 +184,6 @@ class TestStrategies:
 
     def test_conservative_strategy(self, low_quality_adata):
         """Test CONSERVATIVE strategy keeps more cells."""
-        import scanpy as sc
-
         adata = low_quality_adata
 
         # Get conservative recommendations
@@ -201,12 +196,16 @@ class TestStrategies:
 
         # Conservative should have lower thresholds (keep more cells)
         assert result_conservative.min_genes.threshold <= result_aggressive.min_genes.threshold
-        assert result_conservative.max_mt_percent.threshold >= result_aggressive.max_mt_percent.threshold
+        assert (
+            result_conservative.max_mt_percent.threshold
+            >= result_aggressive.max_mt_percent.threshold
+        )
 
 
 # =============================================================================
 # Test Confidence Intervals
 # =============================================================================
+
 
 class TestConfidenceIntervals:
     """Test confidence interval calculations."""
@@ -254,6 +253,7 @@ class TestConfidenceIntervals:
 # Test Data-Driven vs Fixed Thresholds
 # =============================================================================
 
+
 class TestDataDrivenRecommendations:
     """Test that recommendations differ from fixed thresholds."""
 
@@ -268,9 +268,9 @@ class TestDataDrivenRecommendations:
         # by testing multiple datasets
 
         # Create dataset with low gene counts
-        import scanpy as sc
+
         adata_low = sample_adata_with_qc.copy()
-        adata_low.obs['n_genes'] = adata_low.obs['n_genes'] * 0.5
+        adata_low.obs["n_genes"] = adata_low.obs["n_genes"] * 0.5
 
         result_low = recommender.recommend(adata_low, tissue_type="normal", plot=False)
 
@@ -282,7 +282,9 @@ class TestDataDrivenRecommendations:
         recommender = IntelligentQCRecommender()
 
         # Normal tissue
-        result_normal = recommender.recommend(sample_adata_with_qc, tissue_type="normal", plot=False)
+        result_normal = recommender.recommend(
+            sample_adata_with_qc, tissue_type="normal", plot=False
+        )
 
         # Tumor tissue
         result_tumor = recommender.recommend(tumor_like_adata, tissue_type="lung_tumor", plot=False)
@@ -292,13 +294,14 @@ class TestDataDrivenRecommendations:
         # Note: This depends on the data distributions
 
         # Check that tissue_type is in evidence
-        assert 'tissue_type' in result_tumor.max_mt_percent.evidence
-        assert result_tumor.max_mt_percent.evidence['tissue_type'] == "lung_tumor"
+        assert "tissue_type" in result_tumor.max_mt_percent.evidence
+        assert result_tumor.max_mt_percent.evidence["tissue_type"] == "lung_tumor"
 
 
 # =============================================================================
 # Test Tumor vs Normal Differentiation
 # =============================================================================
+
 
 class TestTumorVsNormal:
     """Test tumor-aware recommendations."""
@@ -308,23 +311,21 @@ class TestTumorVsNormal:
         # Get recommendation with tumor_aware strategy
         recommender_tumor = IntelligentQCRecommender(strategy=StrategyType.TUMOR_AWARE)
         result_tumor = recommender_tumor.recommend(
-            tumor_like_adata,
-            tissue_type="lung_tumor",
-            plot=False
+            tumor_like_adata, tissue_type="lung_tumor", plot=False
         )
 
         # Get recommendation with standard strategy
         recommender_standard = IntelligentQCRecommender(strategy=StrategyType.STANDARD)
         result_standard = recommender_standard.recommend(
-            tumor_like_adata,
-            tissue_type="normal",
-            plot=False
+            tumor_like_adata, tissue_type="normal", plot=False
         )
 
         # Tumor-aware should have higher MT threshold
         # (or at least consider tissue type)
-        assert 'tumor' in result_tumor.tumor_specific_considerations or \
-               len(result_tumor.tumor_specific_considerations) > 0
+        assert (
+            "tumor" in result_tumor.tumor_specific_considerations
+            or len(result_tumor.tumor_specific_considerations) > 0
+        )
 
     def test_tumor_considerations_generated(self, tumor_like_adata):
         """Test that tumor-specific considerations are generated."""
@@ -342,13 +343,15 @@ class TestTumorVsNormal:
         result = recommender.recommend(sample_adata_with_qc, tissue_type="normal", plot=False)
 
         # Should have fewer or no tumor-specific considerations
-        assert len(result.tumor_specific_considerations) == 0 or \
-               all('normal' in c.lower() for c in result.tumor_specific_considerations)
+        assert len(result.tumor_specific_considerations) == 0 or all(
+            "normal" in c.lower() for c in result.tumor_specific_considerations
+        )
 
 
 # =============================================================================
 # Test Data Quality Assessment
 # =============================================================================
+
 
 class TestDataQualityAssessment:
     """Test data quality scoring."""
@@ -387,6 +390,7 @@ class TestDataQualityAssessment:
 # Test Missing Metrics
 # =============================================================================
 
+
 class TestMissingMetrics:
     """Test handling of missing QC metrics."""
 
@@ -412,12 +416,13 @@ class TestMissingMetrics:
         assert isinstance(result, QCRecommendation)
 
         # Should have concerns about missing metrics
-        assert any('missing' in c.lower() or 'metric' in c.lower() for c in result.concerns)
+        assert any("missing" in c.lower() or "metric" in c.lower() for c in result.concerns)
 
 
 # =============================================================================
 # Test Convenience Function
 # =============================================================================
+
 
 class TestConvenienceFunction:
     """Test recommend_intelligent_qc() convenience function."""
@@ -425,21 +430,16 @@ class TestConvenienceFunction:
     def test_convenience_function_works(self, sample_adata_with_qc, temp_output_dir):
         """Test that convenience function works."""
         result = recommend_intelligent_qc(
-            sample_adata_with_qc,
-            tissue_type="normal",
-            save_dir=temp_output_dir
+            sample_adata_with_qc, tissue_type="normal", save_dir=temp_output_dir
         )
 
         assert isinstance(result, QCRecommendation)
 
     def test_convenience_function_all_strategies(self, sample_adata_with_qc):
         """Test convenience function with all strategies."""
-        for strategy in ['auto', 'tumor_aware', 'conservative', 'aggressive']:
+        for strategy in ["auto", "tumor_aware", "conservative", "aggressive"]:
             result = recommend_intelligent_qc(
-                sample_adata_with_qc.copy(),
-                tissue_type="normal",
-                strategy=strategy,
-                plot=False
+                sample_adata_with_qc.copy(), tissue_type="normal", strategy=strategy, plot=False
             )
 
             assert isinstance(result, QCRecommendation)
@@ -448,6 +448,7 @@ class TestConvenienceFunction:
 # =============================================================================
 # Test Serialization
 # =============================================================================
+
 
 class TestSerialization:
     """Test QCRecommendation serialization."""
@@ -462,22 +463,23 @@ class TestSerialization:
         result_dict = result.to_dict()
 
         # Check structure
-        assert 'min_genes' in result_dict
-        assert 'max_mt_percent' in result_dict
-        assert 'overall_strategy' in result_dict
-        assert 'overall_confidence' in result_dict
-        assert 'data_quality_score' in result_dict
+        assert "min_genes" in result_dict
+        assert "max_mt_percent" in result_dict
+        assert "overall_strategy" in result_dict
+        assert "overall_confidence" in result_dict
+        assert "data_quality_score" in result_dict
 
         # Check nested structure
-        assert 'threshold' in result_dict['min_genes']
-        assert 'ci_lower' in result_dict['min_genes']
-        assert 'ci_upper' in result_dict['min_genes']
-        assert 'confidence' in result_dict['min_genes']
+        assert "threshold" in result_dict["min_genes"]
+        assert "ci_lower" in result_dict["min_genes"]
+        assert "ci_upper" in result_dict["min_genes"]
+        assert "confidence" in result_dict["min_genes"]
 
 
 # =============================================================================
 # Test Plot Generation
 # =============================================================================
+
 
 class TestPlotGeneration:
     """Test diagnostic plot generation."""
@@ -487,10 +489,7 @@ class TestPlotGeneration:
         recommender = IntelligentQCRecommender()
 
         result = recommender.recommend(
-            sample_adata_with_qc,
-            tissue_type="normal",
-            plot=True,
-            save_dir=temp_output_dir
+            sample_adata_with_qc, tissue_type="normal", plot=True, save_dir=temp_output_dir
         )
 
         # Check that plot files were created
@@ -504,6 +503,7 @@ class TestPlotGeneration:
 # Integration Tests
 # =============================================================================
 
+
 class TestIntegration:
     """Integration tests for intelligent QC."""
 
@@ -513,9 +513,7 @@ class TestIntegration:
 
         # Get recommendations
         result = recommend_intelligent_qc(
-            sample_adata_with_qc,
-            tissue_type="normal",
-            save_dir=temp_output_dir
+            sample_adata_with_qc, tissue_type="normal", save_dir=temp_output_dir
         )
 
         # Check JSON report was saved
@@ -523,20 +521,16 @@ class TestIntegration:
         assert json_path.exists()
 
         # Load and check JSON
-        with open(json_path, 'r') as f:
+        with open(json_path) as f:
             saved_data = json.load(f)
 
-        assert 'min_genes' in saved_data
-        assert 'max_mt_percent' in saved_data
+        assert "min_genes" in saved_data
+        assert "max_mt_percent" in saved_data
 
     def test_comparison_with_fixed_thresholds(self, sample_adata_with_qc):
         """Test intelligent QC vs traditional fixed thresholds."""
         # Get intelligent recommendations
-        result = recommend_intelligent_qc(
-            sample_adata_with_qc,
-            tissue_type="normal",
-            plot=False
-        )
+        result = recommend_intelligent_qc(sample_adata_with_qc, tissue_type="normal", plot=False)
 
         # Traditional fixed thresholds
         fixed_min_genes = 200
@@ -557,9 +551,9 @@ class TestIntegration:
 
         # Check that we have evidence
         # (which fixed thresholds don't provide)
-        assert 'method' in result.min_genes.evidence
-        assert 'method' in result.max_mt_percent.evidence
+        assert "method" in result.min_genes.evidence
+        assert "method" in result.max_mt_percent.evidence
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

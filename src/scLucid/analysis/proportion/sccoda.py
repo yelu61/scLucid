@@ -8,7 +8,7 @@ integrated visualization, including overlaying significance from scCODA on cell 
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import anndata
 import matplotlib.pyplot as plt
@@ -64,8 +64,6 @@ def run_sccoda(
     Returns:
         AnnData object with results stored in .uns.
     """
-    import os
-
     if copy:
         adata = adata.copy()
 
@@ -89,9 +87,7 @@ def run_sccoda(
         count_df[count_df < min_cells] += pseudo_count
 
     # Create covariate DataFrame
-    covariate_df = (
-        obs_df[[sample_col, condition_col]].drop_duplicates().set_index(sample_col)
-    )
+    covariate_df = obs_df[[sample_col, condition_col]].drop_duplicates().set_index(sample_col)
 
     # Align data
     count_df, covariate_df = count_df.align(covariate_df, axis=0, join="inner")
@@ -105,14 +101,10 @@ def run_sccoda(
         reference_level = covariate_df[condition_col].unique()[0]
         log.info(f"Using first condition as reference level: {reference_level}")
 
-    data_coda = com_data.from_pandas(
-        count_df, covariate_df, covariate_columns=[condition_col]
-    )
+    data_coda = com_data.from_pandas(count_df, covariate_df, covariate_columns=[condition_col])
 
     # 4. Run the scCODA model
-    log.info(
-        f"Running scCODA model with {n_samples} samples and {n_burnin} burn-in iterations"
-    )
+    log.info(f"Running scCODA model with {n_samples} samples and {n_burnin} burn-in iterations")
     model = scCODAModel.from_formula(
         f"~{condition_col}", data_coda, reference_cell_type=reference_cell_type
     )
@@ -175,12 +167,8 @@ def run_sccoda(
             )
             plt.close()
             # Export main tables
-            result.summary_df.to_csv(
-                out_dir / f"{key_added}_summary.csv", index=False
-            )
-            final_effects.to_csv(
-                out_dir / f"{key_added}_final_effects.csv", index=False
-            )
+            result.summary_df.to_csv(out_dir / f"{key_added}_summary.csv", index=False)
+            final_effects.to_csv(out_dir / f"{key_added}_final_effects.csv", index=False)
             log.info(f"Saved visualizations and tables to {out_dir}")
         except Exception as e:
             log.warning(f"Error during plotting or export: {e}")
@@ -247,9 +235,7 @@ def summarize_sccoda(
     if effects is not None and save_dir:
         effects.to_csv(save_dir / f"{key_added}_final_effects.csv", index=False)
         sig = effects[effects["Final"]].copy()
-        sig.head(top_n).to_csv(
-            save_dir / f"{key_added}_top_effects.csv", index=False
-        )
+        sig.head(top_n).to_csv(save_dir / f"{key_added}_top_effects.csv", index=False)
     # Export params
     if params and save_dir:
         with open(save_dir / f"{key_added}_params.txt", "w") as f:
@@ -283,13 +269,11 @@ def plot_sccoda_proportion_with_significance(
         star_threshold: p-value threshold for significance.
     """
     # 1. Compute cell type proportions
-    count_df = (
-        adata.obs.groupby([sample_col, celltype_col]).size().unstack(fill_value=0)
-    )
+    count_df = adata.obs.groupby([sample_col, celltype_col]).size().unstack(fill_value=0)
     prop_df = count_df.div(count_df.sum(axis=1), axis=0)
-    cond_map = adata.obs.drop_duplicates(sample_col)[
-        [sample_col, condition_col]
-    ].set_index(sample_col)[condition_col]
+    cond_map = adata.obs.drop_duplicates(sample_col)[[sample_col, condition_col]].set_index(
+        sample_col
+    )[condition_col]
     df_long = prop_df.reset_index().melt(
         id_vars=sample_col, var_name="celltype", value_name="proportion"
     )
@@ -303,13 +287,15 @@ def plot_sccoda_proportion_with_significance(
             (effects["Final"]) & (effects["p-value"] < star_threshold), "Cell Type"
         ].tolist()
     else:
-        significant_cts = effects.loc[effects["Final"], "Cell Type"].tolist() if "Final" in effects else []
+        significant_cts = (
+            effects.loc[effects["Final"], "Cell Type"].tolist() if "Final" in effects else []
+        )
 
     # 3. Plot
     plt.figure(figsize=figsize)
     ax = sns.boxplot(data=df_long, x="celltype", y="proportion", hue="condition")
     plt.xticks(rotation=45)
-    ymax = df_long['proportion'].max()
+    ymax = df_long["proportion"].max()
     for i, ct in enumerate(ax.get_xticklabels()):
         label = ct.get_text()
         if label in significant_cts:

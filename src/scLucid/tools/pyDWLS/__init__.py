@@ -12,7 +12,7 @@ Main Components
 - DampenedWLS : Solve weighted least squares with dampening
 - CrossValidator : Cross-validation utilities
 
-Example
+Example:
 -------
 >>> from pyDWLS import DWLS
 >>>
@@ -28,7 +28,7 @@ Example
 >>> # Results
 >>> print(proportions.head())
 
-References
+References:
 ----------
 - DWLS paper: https://doi.org/10.1016/j.celrep.2019.04.045
 """
@@ -37,16 +37,16 @@ __version__ = "0.1.0"
 __author__ = "scLucid"
 
 from .core import DWLS
+from .markers import MarkerSelector
 from .signature import SignatureBuilder
 from .solver import DampenedWLS, solve_nnls
-from .markers import MarkerSelector
-from .validation import CrossValidator
 from .utils import (
-    normalize_data,
-    filter_genes,
-    create_pseudo_bulk,
     align_data,
+    create_pseudo_bulk,
+    filter_genes,
+    normalize_data,
 )
+from .validation import CrossValidator
 
 __all__ = [
     # Main class

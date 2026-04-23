@@ -2,12 +2,13 @@
 Differential expression analysis for pyMonocle3 (R-free)
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from scipy.stats import ranksums, mannwhitneyu, ttest_ind, chi2_contingency
-from typing import Optional, List, Union
-import logging
+from scipy.stats import ranksums, ttest_ind
 
 from .core import CellDataSet
 
@@ -49,7 +50,7 @@ def top_markers(
     verbose : bool
         Verbose output
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Top markers with statistics
@@ -98,17 +99,19 @@ def top_markers(
             else:
                 pval = 1.0
 
-            markers.append({
-                'gene': gene,
-                'cell_group': group,
-                'mean_expr': group_mean,
-                'mean_other': other_mean,
-                'pct_expr': group_pct,
-                'pct_other': other_pct,
-                'log2fc': log2fc,
-                'pval': pval,
-                'qval': pval,  # Placeholder, should do FDR correction
-            })
+            markers.append(
+                {
+                    "gene": gene,
+                    "cell_group": group,
+                    "mean_expr": group_mean,
+                    "mean_other": other_mean,
+                    "pct_expr": group_pct,
+                    "pct_other": other_pct,
+                    "log2fc": log2fc,
+                    "pval": pval,
+                    "qval": pval,  # Placeholder, should do FDR correction
+                }
+            )
 
     markers_df = pd.DataFrame(markers)
 
@@ -116,12 +119,9 @@ def top_markers(
         # Multiple testing correction
         from statsmodels.stats.multitest import multipletests
 
-        markers_df['qval'] = multipletests(
-            markers_df['pval'].fillna(1),
-            method='fdr_bh'
-        )[1]
+        markers_df["qval"] = multipletests(markers_df["pval"].fillna(1), method="fdr_bh")[1]
 
-        markers_df = markers_df.sort_values(['cell_group', 'qval'])
+        markers_df = markers_df.sort_values(["cell_group", "qval"])
 
     log.info(f"Found {len(markers_df)} marker gene entries for {len(groups)} groups")
 
@@ -151,7 +151,7 @@ def aggregate_gene_expression(
     max_agg_value : float
         Maximum value after scaling
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Aggregated expression matrix
@@ -161,11 +161,7 @@ def aggregate_gene_expression(
         expr = expr.toarray()
 
     # Convert to DataFrame
-    expr_df = pd.DataFrame(
-        expr,
-        index=cds.gene_metadata.index,
-        columns=cds.cell_metadata.index
-    )
+    expr_df = pd.DataFrame(expr, index=cds.gene_metadata.index, columns=cds.cell_metadata.index)
 
     # Aggregate by cell groups
     cell_groups = cell_group_df.groupby(cell_group_df.columns[0])
@@ -177,9 +173,7 @@ def aggregate_gene_expression(
         agg_expr.append(group_expr)
 
     result = pd.DataFrame(
-        agg_expr,
-        index=[name for name, _ in cell_groups],
-        columns=cds.gene_metadata.index
+        agg_expr, index=[name for name, _ in cell_groups], columns=cds.gene_metadata.index
     )
 
     # Scale if requested
@@ -213,7 +207,7 @@ def compare_genes(
     min_pct : float
         Minimum percentage of cells expressing the gene
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Differential expression results
@@ -260,23 +254,26 @@ def compare_genes(
         else:
             pval = 1.0
 
-        results.append({
-            'gene': gene,
-            'group1_mean': g1_mean,
-            'group2_mean': g2_mean,
-            'group1_pct': g1_pct,
-            'group2_pct': g2_pct,
-            'log2fc': log2fc,
-            'pval': pval,
-        })
+        results.append(
+            {
+                "gene": gene,
+                "group1_mean": g1_mean,
+                "group2_mean": g2_mean,
+                "group1_pct": g1_pct,
+                "group2_pct": g2_pct,
+                "log2fc": log2fc,
+                "pval": pval,
+            }
+        )
 
     results_df = pd.DataFrame(results)
 
     if len(results_df) > 0:
         # Multiple testing correction
         from statsmodels.stats.multitest import multipletests
-        results_df['qval'] = multipletests(results_df['pval'].fillna(1), method='fdr_bh')[1]
-        results_df = results_df.sort_values('qval')
+
+        results_df["qval"] = multipletests(results_df["pval"].fillna(1), method="fdr_bh")[1]
+        results_df = results_df.sort_values("qval")
 
     return results_df
 
@@ -301,18 +298,18 @@ def pseudotime_de(
     cores : int
         Number of cores
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Pseudotime DE results
     """
-    if 'pseudotime' not in cds.cell_metadata.columns:
+    if "pseudotime" not in cds.cell_metadata.columns:
         raise ValueError("No pseudotime found. Run order_cells first.")
 
     # For now, simplified version using correlation
     # Full implementation would use regression models
 
-    pseudotime = cds.cell_metadata['pseudotime'].values
+    pseudotime = cds.cell_metadata["pseudotime"].values
     expr = cds.expression_data
     if sp.issparse(expr):
         expr = expr.toarray()
@@ -334,14 +331,16 @@ def pseudotime_de(
         ss_tot = np.sum((gene_expr - np.mean(gene_expr)) ** 2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
 
-        results.append({
-            'gene': gene,
-            'correlation': correlation,
-            'r_squared': r_squared,
-            'trend': 'up' if correlation > 0 else 'down',
-        })
+        results.append(
+            {
+                "gene": gene,
+                "correlation": correlation,
+                "r_squared": r_squared,
+                "trend": "up" if correlation > 0 else "down",
+            }
+        )
 
-    return pd.DataFrame(results).sort_values('r_squared', ascending=False)
+    return pd.DataFrame(results).sort_values("r_squared", ascending=False)
 
 
 def calculate_gene_modules(
@@ -364,7 +363,7 @@ def calculate_gene_modules(
     k : int
         Number of neighbors
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Gene module assignments
@@ -397,15 +396,17 @@ def calculate_gene_modules(
     distance_matrix = 1 - np.abs(corr_matrix)
 
     # Cluster genes using hierarchical clustering
-    from scipy.cluster.hierarchy import linkage, fcluster
+    from scipy.cluster.hierarchy import fcluster, linkage
 
-    linkage_matrix = linkage(distance_matrix, method='ward')
-    clusters = fcluster(linkage_matrix, t=resolution, criterion='maxclust')
+    linkage_matrix = linkage(distance_matrix, method="ward")
+    clusters = fcluster(linkage_matrix, t=resolution, criterion="maxclust")
 
-    results = pd.DataFrame({
-        'gene': gene_names,
-        'module': clusters,
-    })
+    results = pd.DataFrame(
+        {
+            "gene": gene_names,
+            "module": clusters,
+        }
+    )
 
     log.info(f"Identified {len(np.unique(clusters))} gene modules")
 

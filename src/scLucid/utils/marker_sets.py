@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Tuple, Union
 import numpy as np
 import pandas as pd
 
-
 GeneSetTree = Dict[str, Any]
 
 
@@ -23,7 +22,7 @@ def flatten_marker_dict(markers: Mapping[str, Any], prefix: str = "") -> Dict[st
     prefix : str
         Optional prefix used during recursive traversal.
 
-    Returns
+    Returns:
     -------
     dict
         Flattened dictionary where nested keys are joined by ``.``.
@@ -63,15 +62,12 @@ def filter_marker_dict(
     return_missing : bool
         If True, also return a ``{path: missing_genes}`` dictionary.
 
-    Returns
+    Returns:
     -------
     dict or tuple(dict, dict)
         Filtered marker dictionary, optionally with missing-gene report.
     """
-    present = {
-        str(g).upper() if uppercase else str(g)
-        for g in pd.Index(var_names).astype(str)
-    }
+    present = {str(g).upper() if uppercase else str(g) for g in pd.Index(var_names).astype(str)}
     missing: Dict[str, List[str]] = {}
 
     def _recurse(node: Any, path: str = "") -> Any:

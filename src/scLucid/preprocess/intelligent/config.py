@@ -5,7 +5,7 @@ This module provides Pydantic-based configuration for automated
 preprocessing parameter selection.
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Literal
 
 from pydantic import ConfigDict, Field, field_validator
 
@@ -63,9 +63,7 @@ class IntelligentPreprocessConfig(SclucidBaseConfig):
     optimize_neighbors: bool = Field(
         default=True, description="Whether to optimize n_neighbors and n_pcs"
     )
-    neighbors_search_space: List[int] = Field(
-        default_factory=lambda: [5, 10, 15, 20, 30, 50]
-    )
+    neighbors_search_space: List[int] = Field(default_factory=lambda: [5, 10, 15, 20, 30, 50])
     silhouette_sample_size: int = Field(
         default=10000, ge=1000, description="Sample size for silhouette calculation"
     )
@@ -87,9 +85,7 @@ class IntelligentPreprocessConfig(SclucidBaseConfig):
     )
 
     # Bootstrap parameters
-    n_bootstrap: int = Field(
-        default=20, ge=10, le=100, description="Bootstrap iterations for CI"
-    )
+    n_bootstrap: int = Field(default=20, ge=10, le=100, description="Bootstrap iterations for CI")
     confidence_level: float = Field(
         default=0.95, ge=0.8, le=0.99, description="Confidence level for intervals"
     )

@@ -4,30 +4,26 @@ Tests for the analysis annotation module.
 Tests cell type annotation, scoring, and label transfer.
 """
 
-import pytest
-import numpy as np
-import pandas as pd
-from anndata import AnnData
-import scanpy as sc
+import sys
 from pathlib import Path
 
-import sys
+import numpy as np
+import pandas as pd
+import pytest
+import scanpy as sc
+
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
-import scLucid as scl
 from scLucid.analysis.annotation import (
-    score_cell_types,
     annotate_clusters,
     build_annotation_review_table,
     filter_marker_table_for_annotation,
     flag_suspect_clusters,
     run_lineage_state_annotation,
-    run_annotation,
+    score_cell_types,
 )
-from scLucid.analysis.config import AnnotationConfig, ScoringConfig
+from scLucid.analysis.config import AnnotationConfig
 from scLucid.utils.manager import Manager
-
-from tests.fixtures.synthetic_data import minimal_adata, synthetic_generator
 
 
 def _write_marker_toml(path: Path, genes_a, genes_b) -> str:
@@ -156,7 +152,14 @@ class TestAnnotation:
 
         markers_df = pd.DataFrame(
             {
-                "group": [target_cluster, target_cluster, target_cluster, other_cluster, other_cluster, other_cluster],
+                "group": [
+                    target_cluster,
+                    target_cluster,
+                    target_cluster,
+                    other_cluster,
+                    other_cluster,
+                    other_cluster,
+                ],
                 "names": ["RPL13A", "RPS18", "RPLP0", "NKG7", "CCL5", "TRBC1"],
                 "logfoldchanges": [3.0, 2.5, 2.0, 3.0, 2.5, 2.0],
             }
@@ -183,7 +186,8 @@ class TestAnnotation:
         adata.obs["time"] = np.where(np.arange(adata.n_obs) % 2 == 0, "6h", "24h")
         adata.obs["lineage_score"] = np.linspace(0, 1, adata.n_obs)
         adata.obs["celltype"] = np.where(
-            adata.obs["leiden_clusters"].astype(str) == adata.obs["leiden_clusters"].astype(str).iloc[0],
+            adata.obs["leiden_clusters"].astype(str)
+            == adata.obs["leiden_clusters"].astype(str).iloc[0],
             "T cells",
             "NK cells",
         )
@@ -197,8 +201,12 @@ class TestAnnotation:
             }
         )
         enrichment_dict = {
-            cluster_codes[0]: pd.DataFrame({"Term": ["T cell activation"], "Adjusted P-value": [0.001]}),
-            cluster_codes[1]: pd.DataFrame({"Term": ["NK mediated cytotoxicity"], "Adjusted P-value": [0.002]}),
+            cluster_codes[0]: pd.DataFrame(
+                {"Term": ["T cell activation"], "Adjusted P-value": [0.001]}
+            ),
+            cluster_codes[1]: pd.DataFrame(
+                {"Term": ["NK mediated cytotoxicity"], "Adjusted P-value": [0.002]}
+            ),
         }
 
         review_df = build_annotation_review_table(
@@ -213,7 +221,9 @@ class TestAnnotation:
             score_cols=["lineage_score"],
         )
 
-        assert {"cluster", "annotation", "top_markers", "top_terms", "mean_scores"}.issubset(review_df.columns)
+        assert {"cluster", "annotation", "top_markers", "top_terms", "mean_scores"}.issubset(
+            review_df.columns
+        )
         assert "leiden_clusters_review_table" in adata.uns["sclucid"]["analysis"]["annotation"]
 
     def test_run_annotation_scoring_only(self, clustered_adata):
@@ -288,14 +298,43 @@ markers = {subtype_genes[3:6]}
 
         result = run_lineage_state_annotation(adata, config)
 
-        assert {"lineage_auto", "subtype_auto", "state_auto", "celltype_display"}.issubset(result.obs.columns)
-        assert result.obs.loc[clusters == cluster_a, "lineage_auto"].astype(str).str.contains("Type_A").all()
-        assert result.obs.loc[clusters == cluster_a, "subtype_auto"].astype(str).str.contains("Naive-like T").all()
-        assert result.obs.loc[clusters == cluster_a, "state_auto"].astype(str).str.contains("Activated").all()
-        assert result.obs.loc[clusters == cluster_a, "celltype_display"].astype(str).str.contains("\\|", regex=True).any()
-        assert result.obs.loc[clusters == cluster_b, "subtype_auto"].astype(str).eq("Not_applicable").all()
+        assert {"lineage_auto", "subtype_auto", "state_auto", "celltype_display"}.issubset(
+            result.obs.columns
+        )
+        assert (
+            result.obs.loc[clusters == cluster_a, "lineage_auto"]
+            .astype(str)
+            .str.contains("Type_A")
+            .all()
+        )
+        assert (
+            result.obs.loc[clusters == cluster_a, "subtype_auto"]
+            .astype(str)
+            .str.contains("Naive-like T")
+            .all()
+        )
+        assert (
+            result.obs.loc[clusters == cluster_a, "state_auto"]
+            .astype(str)
+            .str.contains("Activated")
+            .all()
+        )
+        assert (
+            result.obs.loc[clusters == cluster_a, "celltype_display"]
+            .astype(str)
+            .str.contains("\\|", regex=True)
+            .any()
+        )
+        assert (
+            result.obs.loc[clusters == cluster_b, "subtype_auto"]
+            .astype(str)
+            .eq("Not_applicable")
+            .all()
+        )
 
-    def test_run_lineage_state_annotation_respects_state_scope_metadata(self, clustered_adata, tmp_path):
+    def test_run_lineage_state_annotation_respects_state_scope_metadata(
+        self, clustered_adata, tmp_path
+    ):
         """State assignments should obey scope/applies_to metadata instead of only taking the highest score."""
         adata = clustered_adata.copy()
         clusters = adata.obs["leiden_clusters"].astype(str)
@@ -349,8 +388,18 @@ metadata = {{ kind = "state", scope = "lineage_restricted", applies_to = ["Type_
 
         result = run_lineage_state_annotation(adata, config)
 
-        assert result.obs.loc[clusters == cluster_a, "state_auto"].astype(str).eq("Type_A_only_state").all()
-        assert result.obs.loc[clusters == cluster_b, "state_auto"].astype(str).eq("Type_B_only_state").all()
+        assert (
+            result.obs.loc[clusters == cluster_a, "state_auto"]
+            .astype(str)
+            .eq("Type_A_only_state")
+            .all()
+        )
+        assert (
+            result.obs.loc[clusters == cluster_b, "state_auto"]
+            .astype(str)
+            .eq("Type_B_only_state")
+            .all()
+        )
 
 
 @pytest.mark.integration

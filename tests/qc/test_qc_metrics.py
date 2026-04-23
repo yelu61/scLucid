@@ -4,7 +4,6 @@ Test basic QC metrics calculation.
 Converted from examples/quick_qc_test.py
 """
 
-import pytest
 
 from scLucid.qc import calculate_qc_metric
 from tests.fixtures.synthetic_data import generate_minimal_adata
@@ -50,6 +49,7 @@ def test_qc_metrics_with_samples():
 
     # Simulate multiple samples
     import numpy as np
+
     adata.obs["sampleID"] = np.random.choice(["sample1", "sample2"], adata.n_obs)
 
     calculate_qc_metric(

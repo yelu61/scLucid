@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-from anndata import AnnData
 
 from scLucid.preprocess.config import NeighborsConfig
 from scLucid.preprocess.neighbors import optimize_neighbors_pcs

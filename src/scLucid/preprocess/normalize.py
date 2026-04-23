@@ -46,9 +46,7 @@ def _validate_normalization_input(
     """Validate matrix properties before normalization."""
     count_based_methods = {"standard", "scran", "pearson_residuals", "clr"}
     allow_negative = method not in count_based_methods
-    validate_matrix_input(
-        source_data, name=source_name, allow_negative=allow_negative
-    )
+    validate_matrix_input(source_data, name=source_name, allow_negative=allow_negative)
 
 
 def _diagnose_matrix(data, name="input", max_n=10000):
@@ -279,9 +277,7 @@ def normalize_data(
     except Exception:
         pass
 
-    log.info(
-        f"Normalizing data from '{source_name}' using method '{active_config.method}'."
-    )
+    log.info(f"Normalizing data from '{source_name}' using method '{active_config.method}'.")
 
     # --- 4. Core Normalization Logic ---
     norm_kwargs = {}
@@ -289,16 +285,12 @@ def normalize_data(
         if hasattr(active_config, param):
             norm_kwargs[param] = getattr(active_config, param)
 
-    temp_adata = AnnData(
-        X=source_data.copy(), obs=adata.obs.copy(), var=adata.var.copy()
-    )
+    temp_adata = AnnData(X=source_data.copy(), obs=adata.obs.copy(), var=adata.var.copy())
     method_is_log_transformed = False
 
     try:
         if active_config.method == "standard":
-            log.info(
-                f"Applying standard library size normalization (params: {norm_kwargs})"
-            )
+            log.info(f"Applying standard library size normalization (params: {norm_kwargs})")
             sc.pp.normalize_total(temp_adata, inplace=True, **norm_kwargs)
         elif active_config.method == "scran":
             try:
@@ -352,9 +344,7 @@ def normalize_data(
     stats_after = _diagnose_matrix(adata.layers[output_layer], name="normalized")
 
     # --- 6. Store metadata in .uns ---
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
-        "normalization"
-    ] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["normalization"] = {
         "params": active_config.to_dict(),  # Pydantic's built-in serialization
         "input_stats": stats_before,
         "output_stats": stats_after,
@@ -429,9 +419,7 @@ def plot_normalization_effect(
     if original_layer not in adata.layers:
         raise ValueError(f"Original layer '{original_layer}' not found in adata.layers")
     if normalized_layer not in adata.layers:
-        raise ValueError(
-            f"Normalized layer '{normalized_layer}' not found in adata.layers"
-        )
+        raise ValueError(f"Normalized layer '{normalized_layer}' not found in adata.layers")
 
     import scipy.sparse
 
@@ -455,9 +443,7 @@ def plot_normalization_effect(
         if not genes_to_plot:
             raise ValueError("None of the specified genes were found in the data")
         if len(genes_to_plot) < len(gene_subset):
-            log.warning(
-                f"Only {len(genes_to_plot)}/{len(gene_subset)} specified genes were found"
-            )
+            log.warning(f"Only {len(genes_to_plot)}/{len(gene_subset)} specified genes were found")
     else:
         # Select top expressed genes
         mean_expr = np.array(orig_data.mean(axis=0)).flatten()

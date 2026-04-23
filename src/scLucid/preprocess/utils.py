@@ -47,6 +47,4 @@ def validate_matrix_input(
         raise ValueError(f"{name} contains NaN or Inf values.")
 
     if not allow_negative and min_val < 0:
-        raise ValueError(
-            f"{name} contains negative values. Use raw non-negative counts as input."
-        )
+        raise ValueError(f"{name} contains negative values. Use raw non-negative counts as input.")

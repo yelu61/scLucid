@@ -3,11 +3,10 @@ Plotting functions for single-cell RNA-seq data.
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
-import matplotlib.patheffects as PathEffects
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,7 +14,6 @@ import scanpy as sc
 import scipy.sparse
 import seaborn as sns
 from scipy.cluster import hierarchy
-from scipy.spatial import distance
 
 # Try importing adjustText softly
 try:
@@ -108,7 +106,7 @@ def plot_faceted_feature(
     **kwargs
         Additional keyword arguments passed to `ax.scatter`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object.
@@ -133,26 +131,18 @@ def plot_faceted_feature(
     if n_groups == 0:
         raise ValueError(f"No valid groups found in '{split_by}'.")
 
-    log.info(
-        f"Plotting feature '{feature}' for {n_groups} groups: {', '.join(map(str, groups))}"
-    )
+    log.info(f"Plotting feature '{feature}' for {n_groups} groups: {', '.join(map(str, groups))}")
 
     # Get coordinates
     coords = adata.obsm[embed_key][:, :2]
     plot_df = pd.DataFrame(coords, columns=["Dim1", "Dim2"])
-    plot_df["group"] = pd.Categorical(
-        adata.obs[split_by], categories=groups, ordered=True
-    )
+    plot_df["group"] = pd.Categorical(adata.obs[split_by], categories=groups, ordered=True)
 
     # Get feature expression
     try:
-        expr = sc.get.obs_df(adata, keys=[feature], use_raw=use_raw, layer=layer)[
-            feature
-        ].values
+        expr = sc.get.obs_df(adata, keys=[feature], use_raw=use_raw, layer=layer)[feature].values
     except KeyError:
-        raise ValueError(
-            f"Feature '{feature}' not found. Check `use_raw` and `layer` parameters."
-        )
+        raise ValueError(f"Feature '{feature}' not found. Check `use_raw` and `layer` parameters.")
     plot_df["expression"] = expr
 
     # Determine color range
@@ -232,9 +222,7 @@ def plot_faceted_feature(
 
     # --- 5. Final Adjustments ---
     if main_title:
-        fig.suptitle(
-            main_title, y=0.98 if colorbar_loc == "right" else 0.97, fontsize=16
-        )
+        fig.suptitle(main_title, y=0.98 if colorbar_loc == "right" else 0.97, fontsize=16)
 
     # Adjust layout to prevent overlap
     top_space = 0.96 if main_title else 1.0
@@ -320,7 +308,7 @@ def plot_marker_heatmap(
     **kwargs
         Additional keyword arguments passed to `sns.clustermap`.
 
-    Returns
+    Returns:
     -------
     Tuple[plt.Figure, pd.DataFrame]
         The matplotlib Figure object and the DataFrame used for plotting (genes x groups).
@@ -350,9 +338,7 @@ def plot_marker_heatmap(
             # Fallback
             for group in markers_df["group"].unique():
                 marker_dict[group] = (
-                    markers_df[markers_df["group"] == group]["names"]
-                    .head(n_genes)
-                    .tolist()
+                    markers_df[markers_df["group"] == group]["names"].head(n_genes).tolist()
                 )
 
     elif isinstance(markers, dict):
@@ -538,7 +524,7 @@ def plot_ranked_genes(
     key : str
         Key in adata.uns for results
 
-    Examples
+    Examples:
     --------
     >>> sc.tl.rank_genes_groups(adata, 'leiden')
     >>> plot_ranked_genes(adata, group='0', n_genes=15)
@@ -646,9 +632,7 @@ def plot_volcano(
         subset = df[df[gene_col].isin(highlight_genes)]
         for _, row in subset.iterrows():
             texts.append(
-                ax.text(
-                    row[x], row["nlog10p"], row[gene_col], fontweight="bold", fontsize=9
-                )
+                ax.text(row[x], row["nlog10p"], row[gene_col], fontweight="bold", fontsize=9)
             )
 
     # Add top significant if space permits and no specific highlights
@@ -658,9 +642,7 @@ def plot_volcano(
             texts.append(ax.text(row[x], row["nlog10p"], row[gene_col], fontsize=8))
 
     if adjust_text and texts:
-        adjust_text(
-            texts, ax=ax, arrowprops=dict(arrowstyle="-", color="black", lw=0.5)
-        )
+        adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle="-", color="black", lw=0.5))
 
     ax.set_xlabel("Log2 Fold Change")
     ax.set_ylabel("-Log10 Adj. P-value")
@@ -670,5 +652,3 @@ def plot_volcano(
     if show:
         plt.show()
     return fig
-
-

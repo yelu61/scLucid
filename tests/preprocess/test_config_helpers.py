@@ -1,6 +1,7 @@
 """Unit tests for preprocess config helper utilities."""
 
 import logging
+
 import pytest
 
 from scLucid.preprocess.config import NormalizationConfig, ScalingConfig, apply_config_overrides
@@ -37,9 +38,7 @@ class TestApplyConfigOverrides:
 
     def test_multiple_overrides(self):
         cfg = NormalizationConfig()
-        result = apply_config_overrides(
-            cfg, method="clr", target_sum=1, output_layer="custom"
-        )
+        result = apply_config_overrides(cfg, method="clr", target_sum=1, output_layer="custom")
         assert result.method == "clr"
         assert result.target_sum == 1
         assert result.output_layer == "custom"

@@ -6,7 +6,8 @@
 """
 
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
+
 import scanpy as sc
 from anndata import AnnData
 
@@ -18,7 +19,7 @@ def load_pbmc3k() -> AnnData:
     """
     加载PBMC3K数据集（正常组织，人源）
 
-    Returns
+    Returns:
     -------
     adata : AnnData
         PBMC数据，已计算QC指标
@@ -29,10 +30,10 @@ def load_pbmc3k() -> AnnData:
     adata = calculate_qc_metrics(adata)
 
     # 添加元数据
-    adata.obs['sample_id'] = 'pbmc'
-    adata.obs['tissue_type'] = 'normal'
-    adata.obs['species'] = 'human'
-    adata.obs['batch'] = 'pbmc_batch'  # 单批次
+    adata.obs["sample_id"] = "pbmc"
+    adata.obs["tissue_type"] = "normal"
+    adata.obs["species"] = "human"
+    adata.obs["batch"] = "pbmc_batch"  # 单批次
 
     return adata
 
@@ -41,7 +42,7 @@ def load_luad() -> AnnData:
     """
     加载LUAD数据集（肺腺癌，人源，肿瘤组织）
 
-    Returns
+    Returns:
     -------
     adata : AnnData
         LUAD数据，已计算QC指标
@@ -59,13 +60,13 @@ def load_luad() -> AnnData:
     adata = calculate_qc_metrics(adata)
 
     # 添加元数据
-    adata.obs['sample_id'] = 'luad'
-    adata.obs['tissue_type'] = 'lung_tumor'
-    adata.obs['species'] = 'human'
+    adata.obs["sample_id"] = "luad"
+    adata.obs["tissue_type"] = "lung_tumor"
+    adata.obs["species"] = "human"
 
     # 检查批次信息
-    if 'batch' not in adata.obs.columns:
-        adata.obs['batch'] = 'luad_batch'  # 如果没有批次信息
+    if "batch" not in adata.obs.columns:
+        adata.obs["batch"] = "luad_batch"  # 如果没有批次信息
 
     return adata
 
@@ -74,7 +75,7 @@ def load_melanoma() -> AnnData:
     """
     加载黑色素瘤数据集（鼠源，多批次，肿瘤组织）
 
-    Returns
+    Returns:
     -------
     adata : AnnData
         黑色素瘤数据，已计算QC指标
@@ -92,17 +93,14 @@ def load_melanoma() -> AnnData:
     adata = calculate_qc_metrics(adata)
 
     # 添加元数据
-    adata.obs['sample_id'] = 'melanoma'
-    adata.obs['tissue_type'] = 'melanoma'
-    adata.obs['species'] = 'mouse'  # 鼠源
+    adata.obs["sample_id"] = "melanoma"
+    adata.obs["tissue_type"] = "melanoma"
+    adata.obs["species"] = "mouse"  # 鼠源
 
     # 多批次（如果没有批次信息，创建模拟批次）
-    if 'batch' not in adata.obs.columns:
+    if "batch" not in adata.obs.columns:
         n_batches = 3
-        adata.obs['batch'] = [
-            f'melanoma_batch_{i % n_batches}'
-            for i in range(adata.n_obs)
-        ]
+        adata.obs["batch"] = [f"melanoma_batch_{i % n_batches}" for i in range(adata.n_obs)]
 
     return adata
 
@@ -111,19 +109,19 @@ def load_all_datasets() -> Dict[str, AnnData]:
     """
     加载所有数据集
 
-    Returns
+    Returns:
     -------
     datasets : dict
         {dataset_name: AnnData}
 
-    Note
+    Note:
     ----
     数据集特征：
     - PBMC: 人源，正常组织，单批次
     - LUAD: 人源，肺腺癌，肿瘤组织
     - 黑色素瘤: 鼠源，多批次，肿瘤组织
 
-    Example
+    Example:
     -------
     >>> from scLucid.utils.data_loader import load_all_datasets
     >>>
@@ -141,17 +139,17 @@ def load_all_datasets() -> Dict[str, AnnData]:
     datasets = {}
 
     try:
-        datasets['PBMC'] = load_pbmc3k()
+        datasets["PBMC"] = load_pbmc3k()
     except Exception as e:
         print(f"⚠ PBMC加载失败: {e}")
 
     try:
-        datasets['LUAD'] = load_luad()
+        datasets["LUAD"] = load_luad()
     except Exception as e:
         print(f"⚠ LUAD加载失败: {e}")
 
     try:
-        datasets['Melanoma'] = load_melanoma()
+        datasets["Melanoma"] = load_melanoma()
     except Exception as e:
         print(f"⚠ 黑色素瘤加载失败: {e}")
 
@@ -172,12 +170,12 @@ def get_dataset_info(adata: AnnData) -> Dict[str, any]:
     adata : AnnData
         Annotated data matrix
 
-    Returns
+    Returns:
     -------
     info : dict
         数据集信息字典
 
-    Example
+    Example:
     -------
     >>> from scLucid.utils.data_loader import load_pbmc3k, get_dataset_info
     >>>
@@ -192,22 +190,24 @@ def get_dataset_info(adata: AnnData) -> Dict[str, any]:
     >>> print(f"批次数: {info['n_batches']}")
     """
     info = {
-        'sample_id': adata.obs['sample_id'].iloc[0] if 'sample_id' in adata.obs else 'unknown',
-        'species': adata.obs['species'].iloc[0] if 'species' in adata.obs else 'unknown',
-        'tissue_type': adata.obs['tissue_type'].iloc[0] if 'tissue_type' in adata.obs else 'unknown',
-        'n_cells': adata.n_obs,
-        'n_genes': adata.n_vars,
-        'n_batches': adata.obs['batch'].nunique() if 'batch' in adata.obs else 1,
+        "sample_id": adata.obs["sample_id"].iloc[0] if "sample_id" in adata.obs else "unknown",
+        "species": adata.obs["species"].iloc[0] if "species" in adata.obs else "unknown",
+        "tissue_type": (
+            adata.obs["tissue_type"].iloc[0] if "tissue_type" in adata.obs else "unknown"
+        ),
+        "n_cells": adata.n_obs,
+        "n_genes": adata.n_vars,
+        "n_batches": adata.obs["batch"].nunique() if "batch" in adata.obs else 1,
     }
 
     # QC指标
-    if 'n_genes' in adata.obs.columns:
-        info['median_n_genes'] = adata.obs['n_genes'].median()
-        info['mean_n_genes'] = adata.obs['n_genes'].mean()
+    if "n_genes" in adata.obs.columns:
+        info["median_n_genes"] = adata.obs["n_genes"].median()
+        info["mean_n_genes"] = adata.obs["n_genes"].mean()
 
-    if 'pct_counts_mt' in adata.obs.columns:
-        info['median_mt'] = adata.obs['pct_counts_mt'].median()
-        info['mean_mt'] = adata.obs['pct_counts_mt'].mean()
+    if "pct_counts_mt" in adata.obs.columns:
+        info["median_mt"] = adata.obs["pct_counts_mt"].median()
+        info["mean_mt"] = adata.obs["pct_counts_mt"].mean()
 
     return info
 
@@ -221,7 +221,7 @@ def print_dataset_summary(datasets: Dict[str, AnnData]):
     datasets : dict
         {dataset_name: AnnData}
 
-    Example
+    Example:
     -------
     >>> from scLucid.utils.data_loader import load_all_datasets, print_dataset_summary
     >>>
@@ -242,21 +242,18 @@ def print_dataset_summary(datasets: Dict[str, AnnData]):
         print(f"  基因数: {info['n_genes']:,}")
         print(f"  批次数: {info['n_batches']}")
 
-        if 'median_n_genes' in info:
+        if "median_n_genes" in info:
             print(f"  中位基因数: {info['median_n_genes']:.0f}")
             print(f"  平均基因数: {info['mean_n_genes']:.0f}")
 
-        if 'median_mt' in info:
+        if "median_mt" in info:
             print(f"  中位线粒体%: {info['median_mt']:.1f}%")
             print(f"  平均线粒体%: {info['mean_mt']:.1f}%")
 
     print("\n" + "=" * 70)
 
 
-def filter_by_species(
-    datasets: Dict[str, AnnData],
-    species: str
-) -> Dict[str, AnnData]:
+def filter_by_species(datasets: Dict[str, AnnData], species: str) -> Dict[str, AnnData]:
     """
     按物种过滤数据集
 
@@ -267,12 +264,12 @@ def filter_by_species(
     species : str
         物种 ('human' 或 'mouse')
 
-    Returns
+    Returns:
     -------
     filtered : dict
         只包含指定物种的数据集
 
-    Example
+    Example:
     -------
     >>> from scLucid.utils.data_loader import load_all_datasets, filter_by_species
     >>>
@@ -283,18 +280,13 @@ def filter_by_species(
     >>> # ['PBMC', 'LUAD']
     """
     filtered = {
-        name: adata
-        for name, adata in datasets.items()
-        if adata.obs['species'].iloc[0] == species
+        name: adata for name, adata in datasets.items() if adata.obs["species"].iloc[0] == species
     }
 
     return filtered
 
 
-def filter_by_tissue_type(
-    datasets: Dict[str, AnnData],
-    tissue_type: str
-) -> Dict[str, AnnData]:
+def filter_by_tissue_type(datasets: Dict[str, AnnData], tissue_type: str) -> Dict[str, AnnData]:
     """
     按组织类型过滤数据集
 
@@ -305,12 +297,12 @@ def filter_by_tissue_type(
     tissue_type : str
         组织类型 ('normal' 或 'tumor')
 
-    Returns
+    Returns:
     -------
     filtered : dict
         只包含指定组织类型的数据集
 
-    Example
+    Example:
     -------
     >>> from scLucid.utils.data_loader import load_all_datasets, filter_by_tissue_type
     >>>
@@ -323,7 +315,7 @@ def filter_by_tissue_type(
     filtered = {}
 
     for name, adata in datasets.items():
-        ttype = adata.obs['tissue_type'].iloc[0]
+        ttype = adata.obs["tissue_type"].iloc[0]
         # 检查是否包含关键词
         if tissue_type.lower() in ttype.lower():
             filtered[name] = adata
@@ -332,12 +324,12 @@ def filter_by_tissue_type(
 
 
 __all__ = [
-    'load_pbmc3k',
-    'load_luad',
-    'load_melanoma',
-    'load_all_datasets',
-    'get_dataset_info',
-    'print_dataset_summary',
-    'filter_by_species',
-    'filter_by_tissue_type',
+    "load_pbmc3k",
+    "load_luad",
+    "load_melanoma",
+    "load_all_datasets",
+    "get_dataset_info",
+    "print_dataset_summary",
+    "filter_by_species",
+    "filter_by_tissue_type",
 ]

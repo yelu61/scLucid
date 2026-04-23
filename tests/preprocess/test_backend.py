@@ -3,12 +3,12 @@
 import pytest
 
 from scLucid.preprocess.backend import (
-    ScanpyBackend,
-    RapidsBackend,
-    get_backend,
-    set_backend,
-    list_available_backends,
     PreprocessingBackend,
+    RapidsBackend,
+    ScanpyBackend,
+    get_backend,
+    list_available_backends,
+    set_backend,
 )
 
 

@@ -6,11 +6,10 @@ with embedded visualizations and recommendations.
 """
 
 import logging
-import json
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from anndata import AnnData
@@ -79,7 +78,7 @@ class EnhancedQCReport:
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(html_content)
 
         log.info(f"QC report saved to {output_path}")
@@ -88,14 +87,14 @@ class EnhancedQCReport:
         """Gather all data for the report."""
         qc_trace = self._get_qc_trace()
         data = {
-            'trace': qc_trace,
-            'metadata': self._get_metadata(),
-            'summary': self._get_summary_statistics(),
-            'metrics': self._get_metrics_summary(),
-            'filtering': self._get_filtering_summary(),
-            'plots': self._get_plot_data() if include_plots else {},
-            'recommendations': self._get_recommendations(),
-            'tables': self._get_table_data(),
+            "trace": qc_trace,
+            "metadata": self._get_metadata(),
+            "summary": self._get_summary_statistics(),
+            "metrics": self._get_metrics_summary(),
+            "filtering": self._get_filtering_summary(),
+            "plots": self._get_plot_data() if include_plots else {},
+            "recommendations": self._get_recommendations(),
+            "tables": self._get_table_data(),
         }
         return data
 
@@ -115,32 +114,32 @@ class EnhancedQCReport:
         context = self._extract_data(qc_trace.get("context"), {})
         recommendation = self._extract_data(qc_trace.get("recommendation"), {})
         return {
-            'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'n_cells_after': self.adata.n_obs,
-            'n_cells_before': self.adata_before.n_obs,
-            'n_genes': self.adata.n_vars,
-            'retention_rate': self.adata.n_obs / self.adata_before.n_obs,
-            'sample_key': context.get("sample_key"),
-            'n_samples': context.get("n_samples"),
-            'threshold_mode': context.get("threshold_mode"),
-            'tissue_type': context.get("tissue_type"),
-            'strategy': recommendation.get("overall_strategy"),
-            'overall_confidence': recommendation.get("overall_confidence"),
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "n_cells_after": self.adata.n_obs,
+            "n_cells_before": self.adata_before.n_obs,
+            "n_genes": self.adata.n_vars,
+            "retention_rate": self.adata.n_obs / self.adata_before.n_obs,
+            "sample_key": context.get("sample_key"),
+            "n_samples": context.get("n_samples"),
+            "threshold_mode": context.get("threshold_mode"),
+            "tissue_type": context.get("tissue_type"),
+            "strategy": recommendation.get("overall_strategy"),
+            "overall_confidence": recommendation.get("overall_confidence"),
         }
 
     def _get_summary_statistics(self) -> Dict[str, Any]:
         """Get summary statistics."""
         stats = {
-            'total_cells': self.adata.n_obs,
-            'total_genes': self.adata.n_vars,
+            "total_cells": self.adata.n_obs,
+            "total_genes": self.adata.n_vars,
         }
 
         # QC metric statistics
         qc_metrics = [
-            'n_genes_by_counts',
-            'total_counts',
-            'log1p_total_counts',
-            'pct_counts_mt',
+            "n_genes_by_counts",
+            "total_counts",
+            "log1p_total_counts",
+            "pct_counts_mt",
         ]
 
         for metric in qc_metrics:
@@ -149,11 +148,11 @@ class EnhancedQCReport:
                 if len(values) == 0:
                     continue
                 stats[metric] = {
-                    'mean': float(np.mean(values)),
-                    'median': float(np.median(values)),
-                    'std': float(np.std(values)),
-                    'min': float(np.min(values)),
-                    'max': float(np.max(values)),
+                    "mean": float(np.mean(values)),
+                    "median": float(np.median(values)),
+                    "std": float(np.std(values)),
+                    "min": float(np.min(values)),
+                    "max": float(np.max(values)),
                 }
 
         return stats
@@ -163,18 +162,20 @@ class EnhancedQCReport:
         summary = []
 
         for metric in self.adata.obs.columns:
-            if not metric.startswith(('log1p_', 'pct_', 'n_', 'total_')):
+            if not metric.startswith(("log1p_", "pct_", "n_", "total_")):
                 continue
 
             values = self.adata.obs[metric].values
             if len(values) == 0:
                 continue
-            summary.append({
-                'name': metric,
-                'mean': float(np.mean(values)),
-                'median': float(np.median(values)),
-                'std': float(np.std(values)),
-            })
+            summary.append(
+                {
+                    "name": metric,
+                    "mean": float(np.mean(values)),
+                    "median": float(np.median(values)),
+                    "std": float(np.std(values)),
+                }
+            )
 
         return summary
 
@@ -187,14 +188,14 @@ class EnhancedQCReport:
         n_removed = int(filtering_results.get("removed_cells", n_before - n_after))
 
         return {
-            'n_before': n_before,
-            'n_after': n_after,
-            'n_removed': n_removed,
-            'retention_rate': n_after / n_before if n_before else 0.0,
-            'removal_rate': n_removed / n_before if n_before else 0.0,
-            'criteria_used': filtering_results.get("criteria_used", []),
-            'combination_logic': filtering_results.get("combination_logic"),
-            'criteria_counts': filtering_results.get("criteria_counts", {}),
+            "n_before": n_before,
+            "n_after": n_after,
+            "n_removed": n_removed,
+            "retention_rate": n_after / n_before if n_before else 0.0,
+            "removal_rate": n_removed / n_before if n_before else 0.0,
+            "criteria_used": filtering_results.get("criteria_used", []),
+            "combination_logic": filtering_results.get("combination_logic"),
+            "criteria_counts": filtering_results.get("criteria_counts", {}),
         }
 
     def _get_recommendations(self) -> List[Dict[str, str]]:
@@ -209,71 +210,87 @@ class EnhancedQCReport:
         retention_rate = self.adata.n_obs / self.adata_before.n_obs
 
         if retention_rate > 0.95:
-            recommendations.append({
-                'category': 'Filtering',
-                'severity': 'warning',
-                'message': 'Very few cells were filtered. Consider if QC thresholds are appropriate.',
-            })
+            recommendations.append(
+                {
+                    "category": "Filtering",
+                    "severity": "warning",
+                    "message": "Very few cells were filtered. Consider if QC thresholds are appropriate.",
+                }
+            )
         elif retention_rate < 0.5:
-            recommendations.append({
-                'category': 'Filtering',
-                'severity': 'warning',
-                'message': 'More than 50% of cells were removed. Review QC parameters.',
-            })
+            recommendations.append(
+                {
+                    "category": "Filtering",
+                    "severity": "warning",
+                    "message": "More than 50% of cells were removed. Review QC parameters.",
+                }
+            )
 
         # Check mitochondrial percentage
-        if 'pct_counts_mt' in self.adata.obs:
-            mt_values = self.adata.obs['pct_counts_mt'].values
+        if "pct_counts_mt" in self.adata.obs:
+            mt_values = self.adata.obs["pct_counts_mt"].values
             mean_mt = np.mean(mt_values)
 
             if mean_mt > 20:
-                recommendations.append({
-                    'category': 'Mitochondrial',
-                    'severity': 'info',
-                    'message': f'High mean MT% ({mean_mt:.1f}%). Possible cell stress or dying cells.',
-                })
+                recommendations.append(
+                    {
+                        "category": "Mitochondrial",
+                        "severity": "info",
+                        "message": f"High mean MT% ({mean_mt:.1f}%). Possible cell stress or dying cells.",
+                    }
+                )
 
         # Check gene counts
-        if 'n_genes_by_counts' in self.adata.obs:
-            gene_counts = self.adata.obs['n_genes_by_counts'].values
+        if "n_genes_by_counts" in self.adata.obs:
+            gene_counts = self.adata.obs["n_genes_by_counts"].values
 
             if np.median(gene_counts) < 500:
-                recommendations.append({
-                    'category': 'Gene Detection',
-                    'severity': 'warning',
-                    'message': f'Low median gene count ({np.median(gene_counts):.0}). Possible low-quality data.',
-                })
+                recommendations.append(
+                    {
+                        "category": "Gene Detection",
+                        "severity": "warning",
+                        "message": f"Low median gene count ({np.median(gene_counts):.0}). Possible low-quality data.",
+                    }
+                )
 
         for concern in recommendation_trace.get("concerns", []):
-            recommendations.append({
-                'category': 'Recommendation Engine',
-                'severity': 'warning',
-                'message': concern,
-            })
+            recommendations.append(
+                {
+                    "category": "Recommendation Engine",
+                    "severity": "warning",
+                    "message": concern,
+                }
+            )
 
         for consideration in recommendation_trace.get("tumor_specific_considerations", []):
-            recommendations.append({
-                'category': 'Tumor Context',
-                'severity': 'info',
-                'message': consideration,
-            })
+            recommendations.append(
+                {
+                    "category": "Tumor Context",
+                    "severity": "info",
+                    "message": consideration,
+                }
+            )
 
         if tumor_flags.get("tumor_aware_enabled"):
-            recommendations.append({
-                'category': 'Tumor-aware QC',
-                'severity': 'info',
-                'message': tumor_flags.get(
-                    "note",
-                    "Tumor-aware QC is enabled; flagged populations should be reviewed before hard filtering.",
-                ),
-            })
+            recommendations.append(
+                {
+                    "category": "Tumor-aware QC",
+                    "severity": "info",
+                    "message": tumor_flags.get(
+                        "note",
+                        "Tumor-aware QC is enabled; flagged populations should be reviewed before hard filtering.",
+                    ),
+                }
+            )
 
         for warning in warnings:
-            recommendations.append({
-                'category': 'Workflow Warning',
-                'severity': 'warning',
-                'message': warning,
-            })
+            recommendations.append(
+                {
+                    "category": "Workflow Warning",
+                    "severity": "warning",
+                    "message": warning,
+                }
+            )
 
         return recommendations
 
@@ -282,11 +299,11 @@ class EnhancedQCReport:
         plots = {}
 
         # Prepare data for violin plots
-        for metric in ['n_genes_by_counts', 'total_counts', 'pct_counts_mt']:
+        for metric in ["n_genes_by_counts", "total_counts", "pct_counts_mt"]:
             if metric in self.adata.obs:
                 plots[metric] = {
-                    'values': self.adata.obs[metric].tolist(),
-                    'name': metric,
+                    "values": self.adata.obs[metric].tolist(),
+                    "name": metric,
                 }
 
         return plots
@@ -304,67 +321,79 @@ class EnhancedQCReport:
         summary_data = []
         for metric, stats in self._get_summary_statistics().items():
             if isinstance(stats, dict):
-                summary_data.append({
-                    'Metric': metric,
-                    'Mean': f"{stats.get('mean', 0):.2f}",
-                    'Median': f"{stats.get('median', 0):.2f}",
-                    'Std': f"{stats.get('std', 0):.2f}",
-                })
+                summary_data.append(
+                    {
+                        "Metric": metric,
+                        "Mean": f"{stats.get('mean', 0):.2f}",
+                        "Median": f"{stats.get('median', 0):.2f}",
+                        "Std": f"{stats.get('std', 0):.2f}",
+                    }
+                )
 
-        tables['summary'] = summary_data
+        tables["summary"] = summary_data
 
         # QC metrics table
         qc_metrics_data = []
         for item in self._get_metrics_summary():
-            qc_metrics_data.append({
-                'Metric': item['name'],
-                'Mean': f"{item['mean']:.2f}",
-                'Median': f"{item['median']:.2f}",
-                'Std': f"{item['std']:.2f}",
-            })
+            qc_metrics_data.append(
+                {
+                    "Metric": item["name"],
+                    "Mean": f"{item['mean']:.2f}",
+                    "Median": f"{item['median']:.2f}",
+                    "Std": f"{item['std']:.2f}",
+                }
+            )
 
-        tables['metrics'] = qc_metrics_data
+        tables["metrics"] = qc_metrics_data
 
         recommendation_rows = []
         for name in ["min_genes", "n_counts", "max_mt_percent", "doublet_threshold"]:
             rec = recommendation.get(name)
             if not isinstance(rec, dict):
                 continue
-            recommendation_rows.append({
-                'Parameter': name,
-                'Threshold': f"{rec.get('threshold')}",
-                'CI': f"{rec.get('ci_lower')} - {rec.get('ci_upper')}",
-                'Confidence': f"{float(rec.get('confidence', 0.0)):.2f}",
-                'Method': rec.get('method', ''),
-            })
+            recommendation_rows.append(
+                {
+                    "Parameter": name,
+                    "Threshold": f"{rec.get('threshold')}",
+                    "CI": f"{rec.get('ci_lower')} - {rec.get('ci_upper')}",
+                    "Confidence": f"{float(rec.get('confidence', 0.0)):.2f}",
+                    "Method": rec.get("method", ""),
+                }
+            )
         tables["recommendations"] = recommendation_rows
 
         filtering_rows = []
         for criterion, count in filtering.get("criteria_counts", {}).items():
-            filtering_rows.append({
-                "Criterion": criterion,
-                "Flagged Cells": str(count),
-            })
+            filtering_rows.append(
+                {
+                    "Criterion": criterion,
+                    "Flagged Cells": str(count),
+                }
+            )
         tables["filtering"] = filtering_rows
 
         threshold_rows = []
         for sample_id, metrics in sample_thresholds.items():
             for metric_name, bounds in metrics.items():
-                threshold_rows.append({
-                    "Sample": sample_id,
-                    "Metric": metric_name,
-                    "Lower": f"{bounds.get('lower')}",
-                    "Upper": f"{bounds.get('upper')}",
-                })
+                threshold_rows.append(
+                    {
+                        "Sample": sample_id,
+                        "Metric": metric_name,
+                        "Lower": f"{bounds.get('lower')}",
+                        "Upper": f"{bounds.get('upper')}",
+                    }
+                )
         tables["sample_thresholds"] = threshold_rows
 
         override_rows = []
         for name, values in overrides.items():
-            override_rows.append({
-                "Parameter": name,
-                "Recommended": f"{values.get('recommended')}",
-                "User Config": f"{values.get('actual')}",
-            })
+            override_rows.append(
+                {
+                    "Parameter": name,
+                    "Recommended": f"{values.get('recommended')}",
+                    "User Config": f"{values.get('actual')}",
+                }
+            )
         tables["overrides"] = override_rows
 
         return tables
@@ -378,11 +407,11 @@ class EnhancedQCReport:
         include_recommendations: bool,
     ) -> str:
         """Generate complete HTML report."""
-        metadata = data['metadata']
-        summary = data['summary']
-        filtering = data['filtering']
-        recommendations = data.get('recommendations', [])
-        tables = data.get('tables', {})
+        metadata = data["metadata"]
+        summary = data["summary"]
+        filtering = data["filtering"]
+        recommendations = data.get("recommendations", [])
+        tables = data.get("tables", {})
         trace = data.get("trace", {})
         warnings = self._extract_data(trace.get("warnings"), [])
 
@@ -597,20 +626,20 @@ class EnhancedQCReport:
 """
 
         # Add summary table
-        if 'summary' in tables:
-            html += self._generate_table('Summary Statistics', tables['summary'])
+        if "summary" in tables:
+            html += self._generate_table("Summary Statistics", tables["summary"])
 
         # Add metrics table
-        if 'metrics' in tables:
-            html += self._generate_table('QC Metrics', tables['metrics'])
-        if tables.get('recommendations'):
-            html += self._generate_table('Recommended Thresholds', tables['recommendations'])
-        if tables.get('filtering'):
-            html += self._generate_table('Filtering Criteria Summary', tables['filtering'])
-        if tables.get('sample_thresholds'):
-            html += self._generate_table('Per-sample Thresholds', tables['sample_thresholds'])
-        if tables.get('overrides'):
-            html += self._generate_table('User Overrides', tables['overrides'])
+        if "metrics" in tables:
+            html += self._generate_table("QC Metrics", tables["metrics"])
+        if tables.get("recommendations"):
+            html += self._generate_table("Recommended Thresholds", tables["recommendations"])
+        if tables.get("filtering"):
+            html += self._generate_table("Filtering Criteria Summary", tables["filtering"])
+        if tables.get("sample_thresholds"):
+            html += self._generate_table("Per-sample Thresholds", tables["sample_thresholds"])
+        if tables.get("overrides"):
+            html += self._generate_table("User Overrides", tables["overrides"])
 
         # Add recommendations
         html += """
@@ -622,7 +651,7 @@ class EnhancedQCReport:
 
         if recommendations:
             for rec in recommendations:
-                severity_class = rec['severity']
+                severity_class = rec["severity"]
                 html += f"""
             <div class="recommendation {severity_class}">
                 <strong>{escape(rec['category'])}:</strong> <span class="badge {severity_class}">{escape(rec['severity'].upper())}</span><br>
@@ -757,24 +786,25 @@ class InteractiveReportGenerator:
         html = self._generate_interactive_html(title, plots)
 
         # Write to file
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write(html)
 
         log.info(f"Interactive report saved to {output_path}")
 
-    def _create_interactive_plots(self) -> Dict[str, 'go.Figure']:
+    def _create_interactive_plots(self) -> Dict[str, "go.Figure"]:
         """Create interactive Plotly figures."""
         plots = {}
 
         # Violin plot for key metrics
-        metrics_to_plot = ['n_genes_by_counts', 'total_counts', 'pct_counts_mt']
+        metrics_to_plot = ["n_genes_by_counts", "total_counts", "pct_counts_mt"]
         available_metrics = [m for m in metrics_to_plot if m in self.adata.obs]
 
         if available_metrics:
             from plotly.subplots import make_subplots
 
             fig = make_subplots(
-                rows=1, cols=len(available_metrics),
+                rows=1,
+                cols=len(available_metrics),
                 subplot_titles=available_metrics,
             )
 
@@ -786,7 +816,8 @@ class InteractiveReportGenerator:
                         box_visible=True,
                         meanline_visible=True,
                     ),
-                    row=1, col=i+1,
+                    row=1,
+                    col=i + 1,
                 )
 
             fig.update_layout(
@@ -795,14 +826,14 @@ class InteractiveReportGenerator:
                 height=400,
             )
 
-            plots['violin'] = fig
+            plots["violin"] = fig
 
         return plots
 
     def _generate_interactive_html(
         self,
         title: str,
-        plots: Dict[str, 'go.Figure'],
+        plots: Dict[str, "go.Figure"],
     ) -> str:
         """Generate HTML with embedded Plotly charts."""
         import plotly.io as pio

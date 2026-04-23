@@ -208,9 +208,7 @@ def _sample_for_plotting(
                 sampled_indices.extend(sample_indices)
             else:
                 np.random.seed(random_state)
-                selected = np.random.choice(
-                    sample_indices, size=cells_per_sample, replace=False
-                )
+                selected = np.random.choice(sample_indices, size=cells_per_sample, replace=False)
                 sampled_indices.extend(selected)
 
         # If we still have room, randomly sample more cells
@@ -264,17 +262,13 @@ def _plot_top_genes_distribution(
         Tuple of Figure objects for the three plots (histogram, boxplot, scatter) if show=True
     """
     if percent_top_col not in adata.obs.columns:
-        log.warning(
-            f"{percent_top_col} not found in adata.obs. Skipping its distribution plot."
-        )
+        log.warning(f"{percent_top_col} not found in adata.obs. Skipping its distribution plot.")
         return
 
     m = re.search(r"pct_counts_in_top_(\d+)_genes", percent_top_col)
     main_top_n = int(m.group(1)) if m else "N"
 
-    log.info(
-        f"Plotting detailed distribution for 'pct_counts_in_top_{main_top_n}_genes'..."
-    )
+    log.info(f"Plotting detailed distribution for 'pct_counts_in_top_{main_top_n}_genes'...")
 
     adata_plot = _sample_for_plotting(
         adata,
@@ -300,9 +294,7 @@ def _plot_top_genes_distribution(
                 lambda x: (x > threshold).sum()
             )
             percentages = counts / adata.obs.groupby(sample_key, observed=False).size() * 100
-            threshold_stats = pd.DataFrame(
-                {"counts": counts, "percentage": percentages}
-            )
+            threshold_stats = pd.DataFrame({"counts": counts, "percentage": percentages})
             log.info(f"Cells above {threshold}% threshold:\n{threshold_stats}")
     else:
         stats = adata.obs[percent_top_col].describe()
@@ -351,9 +343,7 @@ def _plot_top_genes_distribution(
             label=f"{p}th percentile: {val:.1f}%",
         )
 
-    ax1.set_title(
-        "Distribution of Percentage Counts in Top Genes by Sample", fontsize=14
-    )
+    ax1.set_title("Distribution of Percentage Counts in Top Genes by Sample", fontsize=14)
     ax1.set_xlabel(f"Percentage of counts in top {main_top_n} genes (%)", fontsize=12)
     ax1.set_ylabel("Density", fontsize=12)
     ax1.legend(title="Sample / Threshold", bbox_to_anchor=(1.05, 1), loc="upper left")
@@ -429,9 +419,7 @@ def _plot_top_genes_distribution(
             label=f"{threshold}% threshold",
         )
 
-    ax3.set_title(
-        "Relationship between Gene Counts and Top Genes Percentage", fontsize=14
-    )
+    ax3.set_title("Relationship between Gene Counts and Top Genes Percentage", fontsize=14)
     ax3.set_xlabel("Number of genes detected", fontsize=12)
     ax3.set_ylabel("Percentage of counts in top genes (%)", fontsize=12)
     ax3.legend(title="Threshold", bbox_to_anchor=(1.05, 1), loc="upper left")
@@ -474,12 +462,8 @@ def _plot_qc_violin(
     """
     # Sample data if too large
     if adata_view.n_obs > max_cells_for_plotting:
-        log.info(
-            f"Sampling {max_cells_for_plotting} cells from {adata_view.n_obs} for violin plot"
-        )
-        indices = np.random.choice(
-            adata_view.n_obs, max_cells_for_plotting, replace=False
-        )
+        log.info(f"Sampling {max_cells_for_plotting} cells from {adata_view.n_obs} for violin plot")
+        indices = np.random.choice(adata_view.n_obs, max_cells_for_plotting, replace=False)
         adata_plot = adata_view[indices]
     else:
         adata_plot = adata_view
@@ -533,9 +517,7 @@ def _plot_qc_scatter(
         log.info(
             f"Sampling {max_cells_for_plotting} cells from {adata_view.n_obs} for scatter plot"
         )
-        indices = np.random.choice(
-            adata_view.n_obs, max_cells_for_plotting, replace=False
-        )
+        indices = np.random.choice(adata_view.n_obs, max_cells_for_plotting, replace=False)
         adata_plot = adata_view[indices]
     else:
         adata_plot = adata_view
@@ -591,9 +573,7 @@ def _get_default_gene_patterns() -> Dict[str, str]:
     }
 
 
-def _validate_gene_patterns(
-    gene_patterns: Dict[str, str], var_names: pd.Index
-) -> Dict[str, str]:
+def _validate_gene_patterns(gene_patterns: Dict[str, str], var_names: pd.Index) -> Dict[str, str]:
     """
     Validate gene patterns and warn if no genes match.
 
@@ -622,9 +602,7 @@ def _validate_gene_patterns(
                 validated_patterns[gene_type] = pattern
 
         except Exception as e:
-            log.error(
-                f"Invalid regex pattern '{pattern}' for gene type '{gene_type}': {e}"
-            )
+            log.error(f"Invalid regex pattern '{pattern}' for gene type '{gene_type}': {e}")
 
     return validated_patterns
 
@@ -693,9 +671,7 @@ def calculate_qc_metric(
     if adata.X is None:
         raise ValueError("Input AnnData object has no expression matrix")
 
-    log.info(
-        f"Calculating QC metrics for {adata.n_obs} cells and {adata.n_vars} genes..."
-    )
+    log.info(f"Calculating QC metrics for {adata.n_obs} cells and {adata.n_vars} genes...")
 
     # --- Prepare gene sets for QC ---
     gene_patterns: Dict[str, str] = {}
@@ -703,9 +679,7 @@ def calculate_qc_metric(
     # Add standard gene patterns if requested
     if cfg.include_standard_qc:
         gene_patterns.update(_get_default_gene_patterns())
-        log.info(
-            "Including standard QC gene sets: mitochondrial, ribosomal, hemoglobin"
-        )
+        log.info("Including standard QC gene sets: mitochondrial, ribosomal, hemoglobin")
 
     # Add extra gene sets
     if extra_gene_sets:
@@ -718,9 +692,7 @@ def calculate_qc_metric(
                 gene_mask = adata.var_names.isin(gene_set_def)
                 n_found = gene_mask.sum()
                 if n_found == 0:
-                    log.warning(
-                        f"No genes found for gene set '{gene_set_name}' from provided list"
-                    )
+                    log.warning(f"No genes found for gene set '{gene_set_name}' from provided list")
                 else:
                     log.info(
                         f"Found {n_found}/{len(gene_set_def)} genes for gene set '{gene_set_name}'"
@@ -736,9 +708,7 @@ def calculate_qc_metric(
         validated_patterns = _validate_gene_patterns(gene_patterns, adata.var_names)
 
         for gene_type, pattern in validated_patterns.items():
-            adata.var[gene_type] = adata.var_names.str.contains(
-                pattern, regex=True, na=False
-            )
+            adata.var[gene_type] = adata.var_names.str.contains(pattern, regex=True, na=False)
 
     # --- Dynamically determine the primary top-gene column name ---
     if percent_top is None:
@@ -749,9 +719,7 @@ def calculate_qc_metric(
         percent_top_list = sorted(list(set(percent_top)))  # Ensure unique and sorted
 
     percent_top_cols = [f"pct_counts_in_top_{n}_genes" for n in percent_top_list]
-    log.info(
-        f"Will calculate and analyze top gene percentages for: Top {percent_top_list}"
-    )
+    log.info(f"Will calculate and analyze top gene percentages for: Top {percent_top_list}")
 
     # --- Calculate QC metrics with scanpy ---
     qc_vars = [
@@ -854,20 +822,14 @@ def calculate_qc_metric(
         # Determine which metrics to plot
         keys_to_plot = ["total_counts", "n_genes_by_counts"]
         # Gather all potential pct_counts_* columns that exist in adata.obs
-        potential_metrics = [
-            c for c in adata.obs.columns if c.startswith("pct_counts_")
-        ]
-        keys_to_plot.extend(
-            [metric for metric in potential_metrics if metric in adata.obs.columns]
-        )
+        potential_metrics = [c for c in adata.obs.columns if c.startswith("pct_counts_")]
+        keys_to_plot.extend([metric for metric in potential_metrics if metric in adata.obs.columns])
         # We don't want to plot all 50 top gene %s, so we exclude them here.
         keys_to_plot = [k for k in keys_to_plot if "in_top" not in k]
 
         # Limit to reasonable number for plotting
         if len(keys_to_plot) > 6:
-            log.info(
-                f"Too many metrics ({len(keys_to_plot)}), selecting first 6 for plotting"
-            )
+            log.info(f"Too many metrics ({len(keys_to_plot)}), selecting first 6 for plotting")
             keys_to_plot = keys_to_plot[:6]
 
         for sample in adata.obs[sample_key].unique():

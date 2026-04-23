@@ -6,12 +6,12 @@ malignant characteristics including proliferation and
 metastatic potential.
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict, Union
 from anndata import AnnData
-from scipy.stats import percentileofscore
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -40,13 +40,19 @@ class MalignancyScorer:
         tumor_suppressor_genes: Optional[List[str]] = None,
     ):
         self.proliferation_genes = proliferation_genes or [
-            "MKI67", "PCNA", "TOP2A", "AURKA", "CCNB1"
+            "MKI67",
+            "PCNA",
+            "TOP2A",
+            "AURKA",
+            "CCNB1",
         ]
-        self.oncogene_genes = oncogene_genes or [
-            "MYC", "KRAS", "EGFR", "BRAF", "PIK3CA"
-        ]
+        self.oncogene_genes = oncogene_genes or ["MYC", "KRAS", "EGFR", "BRAF", "PIK3CA"]
         self.tumor_suppressor_genes = tumor_suppressor_genes or [
-            "TP53", "PTEN", "RB1", "CDKN2A", "APC"
+            "TP53",
+            "PTEN",
+            "RB1",
+            "CDKN2A",
+            "APC",
         ]
         self.scores_: Optional[pd.Series] = None
 
@@ -59,7 +65,7 @@ class MalignancyScorer:
         adata : AnnData
             Single-cell expression data
 
-        Returns
+        Returns:
         -------
         MalignancyScorer
             Fitted scorer
@@ -67,21 +73,15 @@ class MalignancyScorer:
         scores = np.zeros(adata.n_obs)
 
         # Proliferation score
-        prolif_score = self._calculate_gene_set_score(
-            adata, self.proliferation_genes
-        )
+        prolif_score = self._calculate_gene_set_score(adata, self.proliferation_genes)
         scores += prolif_score * 0.4
 
         # Oncogene score
-        oncogene_score = self._calculate_gene_set_score(
-            adata, self.oncogene_genes
-        )
+        oncogene_score = self._calculate_gene_set_score(adata, self.oncogene_genes)
         scores += oncogene_score * 0.35
 
         # Tumor suppressor loss (inverted)
-        ts_score = self._calculate_gene_set_score(
-            adata, self.tumor_suppressor_genes
-        )
+        ts_score = self._calculate_gene_set_score(adata, self.tumor_suppressor_genes)
         scores += (1 - ts_score) * 0.25
 
         self.scores_ = pd.Series(scores, index=adata.obs_names)
@@ -100,7 +100,7 @@ class MalignancyScorer:
             return np.zeros(adata.n_obs)
 
         expr = adata[:, available_genes].X.mean(axis=1)
-        if hasattr(expr, 'toarray'):
+        if hasattr(expr, "toarray"):
             expr = expr.toarray().flatten()
 
         # Normalize to 0-1
@@ -132,7 +132,7 @@ def score_malignancy(
     copy : bool
         Return a copy of adata
 
-    Returns
+    Returns:
     -------
     AnnData
         Annotated data with malignancy scores
@@ -170,7 +170,7 @@ def calculate_proliferation_index(
     custom_genes : list, optional
         Custom gene list if gene_set="custom"
 
-    Returns
+    Returns:
     -------
     pd.Series
         Proliferation index per cell
@@ -192,7 +192,7 @@ def calculate_proliferation_index(
         raise ValueError("No proliferation genes found in data")
 
     expr = adata[:, available_genes].X.mean(axis=1)
-    if hasattr(expr, 'toarray'):
+    if hasattr(expr, "toarray"):
         expr = expr.toarray().flatten()
 
     return pd.Series(expr, index=adata.obs_names, name="proliferation_index")
@@ -215,28 +215,24 @@ def estimate_metastatic_potential(
     invasion_genes : list, optional
         Invasion-related genes
 
-    Returns
+    Returns:
     -------
     pd.Series
         Metastatic potential scores
     """
     # Default EMT signature
     if emt_genes is None:
-        emt_genes = [
-            "VIM", "CDH2", "FN1", "SNAI1", "SNAI2", "ZEB1", "TWIST1"
-        ]
+        emt_genes = ["VIM", "CDH2", "FN1", "SNAI1", "SNAI2", "ZEB1", "TWIST1"]
 
     # Default invasion signature
     if invasion_genes is None:
-        invasion_genes = [
-            "MMP2", "MMP9", "MMP14", "SERPINB5", "SPP1"
-        ]
+        invasion_genes = ["MMP2", "MMP9", "MMP14", "SERPINB5", "SPP1"]
 
     # Calculate EMT score
     emt_available = [g for g in emt_genes if g in adata.var_names]
     if emt_available:
         emt_score = adata[:, emt_available].X.mean(axis=1)
-        if hasattr(emt_score, 'toarray'):
+        if hasattr(emt_score, "toarray"):
             emt_score = emt_score.toarray().flatten()
     else:
         emt_score = np.zeros(adata.n_obs)
@@ -245,7 +241,7 @@ def estimate_metastatic_potential(
     invasion_available = [g for g in invasion_genes if g in adata.var_names]
     if invasion_available:
         invasion_score = adata[:, invasion_available].X.mean(axis=1)
-        if hasattr(invasion_score, 'toarray'):
+        if hasattr(invasion_score, "toarray"):
             invasion_score = invasion_score.toarray().flatten()
     else:
         invasion_score = np.zeros(adata.n_obs)
@@ -253,8 +249,4 @@ def estimate_metastatic_potential(
     # Combine scores
     metastatic_score = 0.6 * emt_score + 0.4 * invasion_score
 
-    return pd.Series(
-        metastatic_score,
-        index=adata.obs_names,
-        name="metastatic_potential"
-    )
+    return pd.Series(metastatic_score, index=adata.obs_names, name="metastatic_potential")

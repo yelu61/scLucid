@@ -1,22 +1,21 @@
 """Tests for differential expression core functions."""
 
-import numpy as np
 import pandas as pd
 import pytest
 import scanpy as sc
 from anndata import AnnData
 
-from scLucid.analysis.differential_expression.de_core import (
-    find_markers,
-    filter_markers,
-    compare_groups,
-    compare_conditions,
-)
 from scLucid.analysis.config import (
+    CompareConditionsConfig,
+    CompareGroupsConfig,
     DifferentialConfig,
     FilterMarkersConfig,
-    CompareGroupsConfig,
-    CompareConditionsConfig,
+)
+from scLucid.analysis.differential_expression.de_core import (
+    compare_conditions,
+    compare_groups,
+    filter_markers,
+    find_markers,
 )
 
 
@@ -50,7 +49,7 @@ class TestFindMarkers:
         assert "logfoldchanges" in df.columns
 
     def test_kwargs_override_config(self, de_adata):
-        """kwargs override config values."""
+        """Kwargs override config values."""
         config = DifferentialConfig(groupby="cell_type", method="wilcoxon")
         df = find_markers(de_adata, config, method="t-test")
         # Verify the override was applied by checking stored params
@@ -110,9 +109,7 @@ class TestFilterMarkers:
 
     def test_max_padj_filter(self, marked_adata):
         """max_padj removes high p-value genes."""
-        config = FilterMarkersConfig(
-            key="rank_genes_groups", max_padj=0.01, min_log2fc=0.0
-        )
+        config = FilterMarkersConfig(key="rank_genes_groups", max_padj=0.01, min_log2fc=0.0)
         df = filter_markers(marked_adata, config)
         assert (df["pvals_adj"] <= 0.01).all()
 

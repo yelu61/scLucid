@@ -1,12 +1,10 @@
 """Tests for unified QC trace contract under adata.uns['sclucid']['qc']."""
 
 import pytest
-import scanpy as sc
 
+from scLucid.qc.config import DoubletConfig, MarkingConfig, MetricsReportingConfig, QCWorkflowConfig
 from scLucid.qc.workflow import run_standard_qc
-from scLucid.qc.config import QCWorkflowConfig, MetricsReportingConfig, MarkingConfig, DoubletConfig
 from tests.fixtures.data_loader import load_test_data
-
 
 REQUIRED_QC_KEYS = {
     "context",
@@ -172,5 +170,6 @@ def test_qc_review_summary_exported_to_disk(adata_pbmc, tmp_path):
     assert json_path.exists(), "JSON sidecar should be written when save_dir is set"
     assert md_path.exists(), "Markdown sidecar should be written when save_dir is set"
     import json
+
     loaded = json.loads(json_path.read_text())
     assert "filtering_summary" in loaded

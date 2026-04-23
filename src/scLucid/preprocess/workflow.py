@@ -7,13 +7,20 @@ fine-grained step control, backend abstraction, progress tracking, and error rec
 
 import logging
 import traceback
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 import scanpy as sc
 from anndata import AnnData
 
-from ..utils import get_progress_bar, PartialResultManager, WorkflowCheckpoint, WorkflowError
+from ..utils import (
+    PartialResultManager,
+    WorkflowCheckpoint,
+    WorkflowError,
+    export_review_summary,
+    get_progress_bar,
+)
 from .config import WorkflowConfig
 from .hvg import find_hvgs, select_hvg_sets
 from .integrate import batch_correction
@@ -154,7 +161,9 @@ def run_preprocessing(
 
     # Validate error recovery settings
     if error_recovery and on_error == "save" and not recovery_save_dir:
-        raise ValueError("recovery_save_dir is required when error_recovery=True and on_error='save'")
+        raise ValueError(
+            "recovery_save_dir is required when error_recovery=True and on_error='save'"
+        )
 
     # Handle resume from partial results
     completed_steps: List[str] = []
@@ -169,8 +178,7 @@ def run_preprocessing(
     invalid_steps = set(steps_to_run) - set(WORKFLOW_STEPS)
     if invalid_steps:
         raise ValueError(
-            f"Invalid step names: {invalid_steps}. "
-            f"Valid steps are: {WORKFLOW_STEPS}"
+            f"Invalid step names: {invalid_steps}. " f"Valid steps are: {WORKFLOW_STEPS}"
         )
 
     # Skip already completed steps if resuming
@@ -210,7 +218,11 @@ def run_preprocessing(
 
     # Initialize progress bar
     step_iterator = get_progress_bar(
-        steps_to_run, desc=progress_desc, enabled=show_progress, total=len(steps_to_run), unit="step"
+        steps_to_run,
+        desc=progress_desc,
+        enabled=show_progress,
+        total=len(steps_to_run),
+        unit="step",
     )
 
     # Track execution
@@ -224,7 +236,10 @@ def run_preprocessing(
             # --- 1. Normalization ---
             if step_name == "normalization":
                 adata = _run_step(
-                    adata, "normalization", custom_pre_step, custom_post_step,
+                    adata,
+                    "normalization",
+                    custom_pre_step,
+                    custom_post_step,
                     lambda a: normalize_data(
                         a,
                         config=active_config.normalization,
@@ -237,7 +252,10 @@ def run_preprocessing(
             # --- 2. Set .raw with normalized data BEFORE regression ---
             elif step_name == "set_raw":
                 adata = _run_step(
-                    adata, "set_raw", custom_pre_step, custom_post_step,
+                    adata,
+                    "set_raw",
+                    custom_pre_step,
+                    custom_post_step,
                     lambda a: _set_raw_layer(a, active_config),
                 )
                 successful_steps.append(step_name)
@@ -246,7 +264,10 @@ def run_preprocessing(
             elif step_name == "regression":
                 if active_config.scaling.vars_to_regress:
                     adata = _run_step(
-                        adata, "regression", custom_pre_step, custom_post_step,
+                        adata,
+                        "regression",
+                        custom_pre_step,
+                        custom_post_step,
                         lambda a: regress_out(
                             a,
                             config=active_config.scaling,
@@ -257,7 +278,10 @@ def run_preprocessing(
                     successful_steps.append(step_name)
 
                     # Optionally clean up normalized layer to save memory
-                    if not keep_intermediate_layers and active_config.normalized_layer in adata.layers:
+                    if (
+                        not keep_intermediate_layers
+                        and active_config.normalized_layer in adata.layers
+                    ):
                         del adata.layers[active_config.normalized_layer]
                         log.info(f"Removed intermediate layer: {active_config.normalized_layer}")
                 else:
@@ -267,7 +291,10 @@ def run_preprocessing(
             # --- 4. HVG Selection ---
             elif step_name == "hvg_selection":
                 adata = _run_step(
-                    adata, "hvg_selection", custom_pre_step, custom_post_step,
+                    adata,
+                    "hvg_selection",
+                    custom_pre_step,
+                    custom_post_step,
                     lambda a: find_hvgs(
                         a,
                         config=active_config.hvg,
@@ -281,7 +308,10 @@ def run_preprocessing(
             # --- 5. Subset to HVGs ---
             elif step_name == "subset_hvg":
                 adata = _run_step(
-                    adata, "subset_hvg", custom_pre_step, custom_post_step,
+                    adata,
+                    "subset_hvg",
+                    custom_pre_step,
+                    custom_post_step,
                     lambda a: _subset_to_hvgs(a, active_config, keep_intermediate_layers),
                 )
                 successful_steps.append(step_name)
@@ -289,7 +319,10 @@ def run_preprocessing(
             # --- 6. Scaling ---
             elif step_name == "scaling":
                 adata = _run_step(
-                    adata, "scaling", custom_pre_step, custom_post_step,
+                    adata,
+                    "scaling",
+                    custom_pre_step,
+                    custom_post_step,
                     lambda a: _run_scaling_step(a, active_config),
                 )
                 successful_steps.append(step_name)
@@ -297,7 +330,10 @@ def run_preprocessing(
             # --- 7. PCA ---
             elif step_name == "pca":
                 adata = _run_step(
-                    adata, "pca", custom_pre_step, custom_post_step,
+                    adata,
+                    "pca",
+                    custom_pre_step,
+                    custom_post_step,
                     lambda a: _run_pca(a, active_config, results_path),
                 )
                 successful_steps.append(step_name)
@@ -306,7 +342,10 @@ def run_preprocessing(
             elif step_name == "batch_correction":
                 if active_config.integration.method and active_config.integration.batch_key:
                     adata = _run_step(
-                        adata, "batch_correction", custom_pre_step, custom_post_step,
+                        adata,
+                        "batch_correction",
+                        custom_pre_step,
+                        custom_post_step,
                         lambda a: batch_correction(
                             a,
                             config=active_config.integration,
@@ -321,7 +360,10 @@ def run_preprocessing(
             # --- 9. Neighbors & UMAP ---
             elif step_name == "neighbors_umap":
                 adata = _run_step(
-                    adata, "neighbors_umap", custom_pre_step, custom_post_step,
+                    adata,
+                    "neighbors_umap",
+                    custom_pre_step,
+                    custom_post_step,
                     lambda a: _run_neighbors_umap(a, active_config, results_path),
                 )
                 successful_steps.append(step_name)
@@ -333,7 +375,9 @@ def run_preprocessing(
 
         if error_recovery and on_error in ["raise", "save"]:
             # Save partial results
-            save_dir = recovery_save_dir or (str(results_path / "recovery") if results_path else "./recovery")
+            save_dir = recovery_save_dir or (
+                str(results_path / "recovery") if results_path else "./recovery"
+            )
             manager = PartialResultManager(save_dir)
             checkpoint = WorkflowCheckpoint(
                 completed_steps=successful_steps,
@@ -365,6 +409,21 @@ def run_preprocessing(
             )
         adata.uns["sclucid"]["preprocess"]["tumor_aware_notes"] = tumor_notes
         log.info(f"Tumor-aware preprocessing notes stored: {list(tumor_notes.keys())}")
+
+    # Build and store review summary
+    review_summary = _build_preprocessing_review_summary(
+        adata, active_config, successful_steps, tissue_type
+    )
+    adata.uns["sclucid"]["preprocess"]["review_summary"] = review_summary
+
+    # Export review summary to file if save_dir is configured
+    if results_path:
+        export_review_summary(
+            review_summary,
+            save_dir=results_path,
+            module="preprocess",
+            title="Preprocessing Review Summary",
+        )
 
     log.info("=" * 60)
     log.info("=== Preprocessing Workflow Complete! ===")
@@ -552,9 +611,7 @@ def _run_pca(
 
     if results_path:
         try:
-            sc.pl.pca_variance_ratio(
-                adata, log=True, save="_variance_ratio.png", show=False
-            )
+            sc.pl.pca_variance_ratio(adata, log=True, save="_variance_ratio.png", show=False)
             fig_path = Path("./figures/pca_variance_ratio.png")
             if fig_path.exists():
                 fig_path.rename(results_path / "pca_variance_ratio.png")
@@ -571,7 +628,9 @@ def _run_neighbors_umap(
 ) -> AnnData:
     """Run neighbors and UMAP."""
     if "X_pca" not in adata.obsm:
-        raise KeyError("X_pca not found in adata.obsm. Run PCA first or provide a precomputed PCA embedding.")
+        raise KeyError(
+            "X_pca not found in adata.obsm. Run PCA first or provide a precomputed PCA embedding."
+        )
 
     effective_n_pcs = min(config.graph.n_pcs, adata.obsm["X_pca"].shape[1])
     effective_n_neighbors = min(config.graph.n_neighbors, max(2, adata.n_obs - 1))
@@ -588,16 +647,98 @@ def _run_neighbors_umap(
     if results_path:
         try:
             color_vars = [
-                v
-                for v in [config.integration.batch_key, "phase"]
-                if v and v in adata.obs.columns
+                v for v in [config.integration.batch_key, "phase"] if v and v in adata.obs.columns
             ]
             if color_vars:
-                sc.pl.umap(
-                    adata, color=color_vars, save="_final.png", show=False, dpi=300
-                )
+                sc.pl.umap(adata, color=color_vars, save="_final.png", show=False, dpi=300)
                 Path("./figures/umap_final.png").rename(results_path / "final_umap.png")
         except Exception:
             log.warning("Could not save final UMAP plot.")
 
     return adata
+
+
+def _build_preprocessing_review_summary(
+    adata: AnnData,
+    config: WorkflowConfig,
+    successful_steps: List[str],
+    tissue_type: str,
+) -> Dict[str, Any]:
+    """Build a human-reviewable summary of the preprocessing run."""
+    summary: Dict[str, Any] = {
+        "steps_executed": successful_steps,
+        "data_shape": {
+            "n_obs": int(adata.n_obs),
+            "n_vars": int(adata.n_vars),
+        },
+    }
+
+    # Layers present
+    summary["layers_present"] = [
+        layer
+        for layer in [
+            config.counts_layer,
+            config.normalized_layer,
+            config.regressed_layer,
+            config.scaled_layer,
+        ]
+        if layer in adata.layers
+    ]
+
+    # Normalization
+    if "normalization" in successful_steps:
+        summary["normalization"] = {
+            "method": config.normalization.method,
+            "target_sum": config.normalization.target_sum,
+        }
+
+    # HVG
+    if "hvg_selection" in successful_steps:
+        hvg_config = config.hvg
+        n_hvgs = None
+        if "highly_variable" in adata.var.columns:
+            n_hvgs = int(adata.var["highly_variable"].sum())
+        summary["hvg"] = {
+            "n_top_genes": hvg_config.n_top_genes,
+            "n_hvgs_selected": n_hvgs,
+            "method": hvg_config.method,
+        }
+
+    # PCA
+    if "pca" in successful_steps:
+        pca_info: Dict[str, Any] = {}
+        if "X_pca" in adata.obsm:
+            pca_info["n_comps"] = int(adata.obsm["X_pca"].shape[1])
+        if "pca" in adata.uns and "variance_ratio" in adata.uns["pca"]:
+            vr = adata.uns["pca"]["variance_ratio"]
+            pca_info["variance_explained_top3"] = [round(float(v), 4) for v in vr[:3]]
+        summary["pca"] = pca_info
+
+    # Batch correction
+    if "batch_correction" in successful_steps:
+        if config.integration.method and config.integration.batch_key:
+            summary["batch_correction"] = {
+                "method": config.integration.method,
+                "batch_key": config.integration.batch_key,
+                "status": "applied",
+            }
+        else:
+            summary["batch_correction"] = {"status": "skipped (no method or batch_key)"}
+
+    # Neighbors & UMAP
+    if "neighbors_umap" in successful_steps:
+        summary["neighbors"] = {
+            "n_neighbors": config.graph.n_neighbors,
+            "n_pcs": config.graph.n_pcs,
+        }
+        if "X_umap" in adata.obsm:
+            summary["neighbors"]["umap_computed"] = True
+
+    # Tumor aware
+    if tissue_type and ("tumor" in tissue_type.lower() or "cancer" in tissue_type.lower()):
+        summary["tumor_aware"] = {
+            "tissue_type": tissue_type,
+            "enabled": True,
+        }
+
+    return summary

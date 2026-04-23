@@ -372,7 +372,9 @@ def test_run_intelligent_preprocessing_stores_review_summary(monkeypatch, minima
 
 
 @pytest.mark.unit
-def test_run_intelligent_preprocessing_exports_review_summary_to_disk(monkeypatch, minimal_adata, tmp_path):
+def test_run_intelligent_preprocessing_exports_review_summary_to_disk(
+    monkeypatch, minimal_adata, tmp_path
+):
     import scLucid.preprocess.intelligent.recommender as recommender_module
 
     strategy = PreprocessingStrategy(
@@ -420,6 +422,7 @@ def test_run_intelligent_preprocessing_exports_review_summary_to_disk(monkeypatc
     assert md_path.exists()
 
     import json
+
     loaded = json.loads(json_path.read_text())
     assert loaded["hvg"]["n_top_genes"] == 1000
 

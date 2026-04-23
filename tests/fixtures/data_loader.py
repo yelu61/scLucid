@@ -23,7 +23,7 @@ import gzip
 import logging
 import tarfile
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -70,15 +70,12 @@ def load_test_data(
     }
 
     if dataset not in data_paths:
-        raise ValueError(
-            f"Unknown dataset: {dataset}. "
-            f"Choose from {list(data_paths.keys())}"
-        )
+        raise ValueError(f"Unknown dataset: {dataset}. " f"Choose from {list(data_paths.keys())}")
 
     data_path = data_paths[dataset]
 
     if not data_path.exists():
-        available = [d for d in data_paths.keys() if data_paths[d].exists()]
+        available = [d for d in data_paths if data_paths[d].exists()]
         raise FileNotFoundError(
             f"Data path not found: {data_path}\n"
             f"Available datasets: {available}\n"
@@ -141,8 +138,10 @@ def _load_10x_format(data_path: Path, sample_key: str) -> sc.AnnData:
     # Check for multiplexing pattern (e.g., #1-AAACCTG...)
     if any("#" in barcode for barcode in barcodes[:10]):
         # Extract sample from barcode
-        samples = [barcode.split("#")[1].split("-")[0] if "#" in barcode else "sample1"
-                   for barcode in barcodes]
+        samples = [
+            barcode.split("#")[1].split("-")[0] if "#" in barcode else "sample1"
+            for barcode in barcodes
+        ]
         adata.obs[sample_key] = pd.Categorical(samples)
     else:
         adata.obs[sample_key] = "sample1"
@@ -160,8 +159,12 @@ def _load_geo_format(
 ) -> sc.AnnData:
     """Load GEO format data (CSV/TSV count matrix)."""
     # Look for count file
-    count_files = list(data_path.glob("*.csv")) + list(data_path.glob("*.csv.gz")) + \
-                  list(data_path.glob("*.txt")) + list(data_path.glob("*.txt.gz"))
+    count_files = (
+        list(data_path.glob("*.csv"))
+        + list(data_path.glob("*.csv.gz"))
+        + list(data_path.glob("*.txt"))
+        + list(data_path.glob("*.txt.gz"))
+    )
 
     if not count_files:
         raise FileNotFoundError(f"No count file found in {data_path}")
@@ -195,8 +198,9 @@ def _load_geo_format(
     adata.obs_names = count_df.columns.tolist()
 
     # Try to load metadata
-    metadata_files = [f for f in data_path.glob("*metadata*.csv") if f != count_file] + \
-                     [f for f in data_path.glob("*meta*.csv") if f != count_file]
+    metadata_files = [f for f in data_path.glob("*metadata*.csv") if f != count_file] + [
+        f for f in data_path.glob("*meta*.csv") if f != count_file
+    ]
 
     if metadata_files:
         meta_file = metadata_files[0]
@@ -383,31 +387,36 @@ def list_available_datasets() -> pd.DataFrame:
     }
 
     for name, (desc, species, tissue, samples, notes) in dataset_descriptions.items():
-        data_path = DATA_DIR / {
-            # New v2 datasets
-            "pbmc3k": "pbmc3k/pbmc3k_raw.h5ad",
-            "human_cancer": "human_breast_cancer_broad/simulated_breast_cancer.h5ad",
-            "mouse_cancer": "mouse_melanoma_model/simulated_mouse_melanoma.h5ad",
-            # Older datasets
-            "pbmc": "pbmc_4_donor/filtered_feature_bc_matrix",
-            "pbmc_small": "10x_pbmc_small/filtered_feature_bc_matrix",
-            "nsclc": "nsclc_gse119911",
-            "mouse_melanoma": "mouse_melanoma_gse279468",
-            "mouse_lung": "mouse_lung_gse222901",
-            "crc": "CRC",
-            "gc": "GC",
-        }[name]
+        data_path = (
+            DATA_DIR
+            / {
+                # New v2 datasets
+                "pbmc3k": "pbmc3k/pbmc3k_raw.h5ad",
+                "human_cancer": "human_breast_cancer_broad/simulated_breast_cancer.h5ad",
+                "mouse_cancer": "mouse_melanoma_model/simulated_mouse_melanoma.h5ad",
+                # Older datasets
+                "pbmc": "pbmc_4_donor/filtered_feature_bc_matrix",
+                "pbmc_small": "10x_pbmc_small/filtered_feature_bc_matrix",
+                "nsclc": "nsclc_gse119911",
+                "mouse_melanoma": "mouse_melanoma_gse279468",
+                "mouse_lung": "mouse_lung_gse222901",
+                "crc": "CRC",
+                "gc": "GC",
+            }[name]
+        )
 
         available = data_path.exists()
 
-        datasets_info.append({
-            "name": name,
-            "description": desc,
-            "species": species,
-            "tissue_type": tissue,
-            "n_samples": samples,
-            "notes": notes,
-            "available": "✓" if available else "✗",
-        })
+        datasets_info.append(
+            {
+                "name": name,
+                "description": desc,
+                "species": species,
+                "tissue_type": tissue,
+                "n_samples": samples,
+                "notes": notes,
+                "available": "✓" if available else "✗",
+            }
+        )
 
     return pd.DataFrame(datasets_info)

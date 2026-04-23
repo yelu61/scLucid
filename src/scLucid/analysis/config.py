@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator
 
 from ..base_config import SclucidBaseConfig, WorkflowConfigBase
 
@@ -40,8 +40,7 @@ class ResolutionSearchConfig(SclucidBaseConfig):
     method: Literal["leiden", "louvain"] = Field(default="leiden")
     use_rep: str = Field(default="X_pca")
     resolution_range: Tuple[float, float, int] = Field(
-        default=(0.2, 2.0, 10),
-        description="(min, max, n_points) for resolution search"
+        default=(0.2, 2.0, 10), description="(min, max, n_points) for resolution search"
     )
 
     # Metrics to compute
@@ -188,12 +187,8 @@ class EnrichmentConfig(SclucidBaseConfig):
 
     # Organism and gene sets
     organism: Literal["human", "mouse"] = Field(default="human")
-    gene_sets_online: List[str] = Field(
-        default_factory=lambda: ["GO_Biological_Process_2023"]
-    )
-    gene_sets_offline: List[str] = Field(
-        default_factory=lambda: ["hallmark", "go_bp", "reactome"]
-    )
+    gene_sets_online: List[str] = Field(default_factory=lambda: ["GO_Biological_Process_2023"])
+    gene_sets_offline: List[str] = Field(default_factory=lambda: ["hallmark", "go_bp", "reactome"])
     gmt_version: str = Field(default="v2025")
     custom_gene_sets: Optional[str] = Field(default=None)
 
@@ -232,7 +227,9 @@ class AnnotationConfig(SclucidBaseConfig):
     run_celltypist: bool = Field(default=False)
     celltypist_model: str = Field(default="Immune_All_Low.pkl")
     run_scoring: bool = Field(default=True)
-    final_method: Literal["max_score", "enrichment", "combined", "celltypist", "hybrid", "hierarchical"] = Field(default="combined")
+    final_method: Literal[
+        "max_score", "enrichment", "combined", "celltypist", "hybrid", "hierarchical"
+    ] = Field(default="combined")
     marker_method: Literal["max_score", "enrichment", "combined"] = Field(default="combined")
     key_added: str = Field(default="cell_type_auto")
     lineage_key: str = Field(default="celltype_lineage_auto")
@@ -251,9 +248,7 @@ class AnnotationConfig(SclucidBaseConfig):
     # DE and enrichment parameters
     min_log2fc: float = Field(default=0.5, ge=0)
     min_in_group_pct: float = Field(default=0.2, ge=0, le=1)
-    enrichment_gene_sets: List[str] = Field(
-        default_factory=lambda: ["GO_Biological_Process_2023"]
-    )
+    enrichment_gene_sets: List[str] = Field(default_factory=lambda: ["GO_Biological_Process_2023"])
 
     # Compartment mapping for tumor-aware annotation
     compartment_map: Optional[Dict[str, str]] = Field(default=None)
@@ -275,16 +270,22 @@ class ProportionConfig(SclucidBaseConfig):
     timepoint_col: Optional[str] = Field(default=None)
 
     auto_configure: bool = Field(default=True)
-    test_method: Literal["deseq2", "t-test", "wilcoxon", "anova", "chi-square", "fisher"] = Field(
-        default="deseq2"
-    )
+    test_method: Literal[
+        "deseq2",
+        "t-test",
+        "wilcoxon",
+        "anova",
+        "kruskal",
+        "chi-square",
+        "fisher",
+        "paired-t-test",
+        "paired-wilcoxon",
+    ] = Field(default="deseq2")
     correction_scope: str = Field(default="per_test")
 
     # Plotting
     plot_types: List[str] = Field(
-        default_factory=lambda: [
-            "counts", "bar", "bar_composition", "box", "alluvial", "diff"
-        ]
+        default_factory=lambda: ["counts", "bar", "bar_composition", "box", "alluvial", "diff"]
     )
     analysis_level: Literal["sample", "group"] = Field(default="group")
     sample_plot_style: Literal["stacked", "grouped"] = Field(default="grouped")
@@ -343,7 +344,7 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
     # Note: save_dir is inherited from SclucidBaseConfig
 
     @classmethod
-    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> "AnalysisWorkflowConfig":
+    def from_simple_dict(cls, simple_config: Dict[str, Any]) -> AnalysisWorkflowConfig:
         """
         Create AnalysisWorkflowConfig from a simplified flat dictionary.
 
@@ -401,7 +402,7 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
         resolution: float = 1.0,
         run_annotation: bool = True,
         **kwargs,
-    ) -> "AnalysisWorkflowConfig":
+    ) -> AnalysisWorkflowConfig:
         """
         Quick configuration factory for standard analyses.
 

@@ -8,12 +8,13 @@ Note: Gene signature data is now loaded from resources/ directory via GeneSetMan
 This module provides backward-compatible wrapper functions and scoring classes.
 """
 
+import logging
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Union
 from anndata import AnnData
 from scipy.stats import zscore
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class HallmarkCalculator:
     method : str
         Scoring method ("mean", "ssgsea", "zscore")
 
-    Attributes
+    Attributes:
     ----------
     scores_ : pd.DataFrame
         Hallmark scores per cell
@@ -43,6 +44,7 @@ class HallmarkCalculator:
         # Load from resources if not provided
         if signatures is None:
             from ...utils.manager import GeneSetManager
+
             gsm = GeneSetManager(species="human")
             try:
                 self.signatures = gsm.load_geneset("cancer_hallmarks")
@@ -63,7 +65,7 @@ class HallmarkCalculator:
         adata : AnnData
             Expression data
 
-        Returns
+        Returns:
         -------
         HallmarkCalculator
             Fitted calculator
@@ -82,12 +84,12 @@ class HallmarkCalculator:
             # Calculate score
             if self.method == "mean":
                 expr = adata[:, available].X.mean(axis=1)
-                if hasattr(expr, 'toarray'):
+                if hasattr(expr, "toarray"):
                     expr = expr.toarray().flatten()
 
             elif self.method == "zscore":
                 expr = adata[:, available].X.mean(axis=1)
-                if hasattr(expr, 'toarray'):
+                if hasattr(expr, "toarray"):
                     expr = expr.toarray().flatten()
                 expr = zscore(expr)
 
@@ -111,12 +113,12 @@ def load_hallmark_signatures(
     custom_signatures : dict, optional
         Custom signatures to add or override
 
-    Returns
+    Returns:
     -------
     dict
         Hallmark signature gene sets
 
-    Note
+    Note:
     ----
     This function now loads from resources/genesets_cancer_hallmarks.json
     via GeneSetManager.
@@ -157,7 +159,7 @@ def calculate_signature_scores(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Signature scores per cell
@@ -191,15 +193,12 @@ def get_signature_summary(
     groupby : str, optional
         Column to group by
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Summary statistics
     """
-    hallmark_cols = [
-        c for c in adata.obs.columns
-        if c.startswith(signature_prefix)
-    ]
+    hallmark_cols = [c for c in adata.obs.columns if c.startswith(signature_prefix)]
 
     if groupby is not None:
         return adata.obs.groupby(groupby)[hallmark_cols].mean()

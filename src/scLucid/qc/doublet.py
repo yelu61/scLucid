@@ -34,7 +34,7 @@ __all__ = [
     "generate_doublet_rates",
     "create_custom_marker_dict",
     "predict_doublets",
-    "predict_doublets_with_profiling"
+    "predict_doublets_with_profiling",
 ]
 
 
@@ -94,9 +94,7 @@ def _create_doublet_marker_config_from_manager(
                 min_genes_required=cfg.default_min_genes_required,
                 use_raw=cfg.default_use_raw,
             )
-    log.info(
-        f"Auto-generated {len(marker_configs)} marker configurations for doublet detection."
-    )
+    log.info(f"Auto-generated {len(marker_configs)} marker configurations for doublet detection.")
     return marker_configs
 
 
@@ -133,9 +131,7 @@ def _merge_doublet_predictions(
         final_score = (algo_weight * algo_scores) + ((1 - algo_weight) * heur_scores)
     elif strategy == "max_score":
         # Takes the highest score from either method, useful if either method is considered reliable on its own.
-        final_score = pd.DataFrame({"algo": algo_scores, "heur": heur_scores}).max(
-            axis=1
-        )
+        final_score = pd.DataFrame({"algo": algo_scores, "heur": heur_scores}).max(axis=1)
     elif strategy == "heuristic_boost":
         # Uses the algorithm score as a base and the heuristic score as a "booster".
         # This is useful for finding doublets missed by the algorithm but strongly suggested by heuristics.
@@ -157,9 +153,7 @@ def _merge_doublet_predictions(
         )
     else:
         if expected_rate is None:
-            log.warning(
-                "expected_doublet_rate is None, using a default of 0.1 for thresholding."
-            )
+            log.warning("expected_doublet_rate is None, using a default of 0.1 for thresholding.")
             expected_rate = 0.1
 
         if isinstance(expected_rate, dict):  # Handle per-sample rates by taking the mean
@@ -188,9 +182,7 @@ def _run_scrublet(
     rate = config.expected_doublet_rate
     current_rate = rate.get(sample_name, 0.1) if isinstance(rate, dict) else rate
     if current_rate is None:  # Handle case where rate is not provided for a sample
-        log.warning(
-            f"No doublet rate provided for sample '{sample_name}', using default of 0.1."
-        )
+        log.warning(f"No doublet rate provided for sample '{sample_name}', using default of 0.1.")
         current_rate = 0.1
 
     actual_n_pcs = min(config.scr_n_pcs, adata_view.n_obs - 1, adata_view.n_vars - 1)
@@ -204,26 +196,18 @@ def _run_scrublet(
 
         if predicted is None:
             log.error(f"Scrublet call_doublets returned None for sample {sample_name}")
-            return scores, np.zeros(
-                scores.shape, dtype=bool
-            ) if scores is not None else None
+            return scores, np.zeros(scores.shape, dtype=bool) if scores is not None else None
 
         doublet_count = sum(predicted)
         doublet_rate = doublet_count / len(predicted)
-        log.info(
-            f"  Found {doublet_count} potential doublets via Scrublet ({doublet_rate:.2%})"
-        )
+        log.info(f"  Found {doublet_count} potential doublets via Scrublet ({doublet_rate:.2%})")
 
         if config.scr_plot_umap:
             try:
-                scrub.set_embedding(
-                    "UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3)
-                )
+                scrub.set_embedding("UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3))
                 fig, ax = scrub.plot_embedding("UMAP", order_points=True)
                 if config.save_dir:
-                    save_path = (
-                        Path(config.save_dir) / f"{sample_name}_doublets_umap.png"
-                    )
+                    save_path = Path(config.save_dir) / f"{sample_name}_doublets_umap.png"
                     save_path.parent.mkdir(parents=True, exist_ok=True)
                     fig.savefig(save_path, dpi=300, bbox_inches="tight")
                 if config.show_plots:
@@ -320,9 +304,7 @@ def _run_solo(
 
     doublet_count = sum(predicted)
     doublet_rate = doublet_count / len(predicted) if len(predicted) > 0 else 0
-    log.info(
-        f"  Found {doublet_count} potential doublets via Solo ({doublet_rate:.2%})"
-    )
+    log.info(f"  Found {doublet_count} potential doublets via Solo ({doublet_rate:.2%})")
 
     if use_gpu_flag and config.solo_clear_cache:
         torch.cuda.empty_cache()
@@ -403,9 +385,7 @@ def _run_doubletdetection(
         gc.collect()
 
 
-def _run_heuristic(
-    adata: AnnData, cfg: DoubletConfig
-) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
+def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
     """
     Runs the full heuristic doublet detection workflow, calculating scores instead of binary predictions.
     This enhanced version uses Scanpy's module scoring to quantify lineage expression and computes
@@ -427,9 +407,7 @@ def _run_heuristic(
         marker_configs = _create_doublet_marker_config_from_manager(adata, cfg)
 
     if not marker_configs:
-        log.warning(
-            "Heuristics enabled, but no marker configurations were found. Skipping."
-        )
+        log.warning("Heuristics enabled, but no marker configurations were found. Skipping.")
         empty_series = pd.Series(0.0, index=adata.obs_names)
         empty_df = pd.DataFrame(index=adata.obs_names)
         return empty_series.astype(bool), empty_df, empty_series
@@ -439,9 +417,7 @@ def _run_heuristic(
     # normalized copy for the sole purpose of running sc.tl.score_genes.
     log.info("Creating temporary normalized data for accurate gene scoring...")
     # Use .raw if available and specified, otherwise use the main adata.X
-    source_adata = (
-        adata.raw.to_adata() if cfg.default_use_raw and adata.raw else adata.copy()
-    )
+    source_adata = adata.raw.to_adata() if cfg.default_use_raw and adata.raw else adata.copy()
 
     # Perform standard normalization and log-transformation on the temporary object.
     sc.pp.normalize_total(source_adata, target_sum=1e4)
@@ -503,9 +479,7 @@ def _run_heuristic(
 
     # A cell is a co-expression candidate if its top two scores are both significant.
     # The threshold 0.1 is an empirical value, meaning scores are clearly positive.
-    significant_coexpression = (top_two_scores["score1"] > 0.1) & (
-        top_two_scores["score2"] > 0.1
-    )
+    significant_coexpression = (top_two_scores["score1"] > 0.1) & (top_two_scores["score2"] > 0.1)
 
     # Use log-transformed gene counts as a weight for cell complexity.
     # Doublets are expected to have more detected genes.
@@ -528,9 +502,7 @@ def _run_heuristic(
     # This provides a simple True/False output for summary statistics.
     # A high quantile (e.g., 0.95) means only the top 5% of scored cells are flagged.
     # This is an ad-hoc threshold; the continuous score is more informative.
-    score_threshold = heuristic_confidence_score[
-        heuristic_confidence_score > 0
-    ].quantile(0.90)
+    score_threshold = heuristic_confidence_score[heuristic_confidence_score > 0].quantile(0.90)
     if pd.isna(score_threshold):
         score_threshold = 0
 
@@ -541,24 +513,26 @@ def _run_heuristic(
     if cfg.ignore_coexpression_pairs:
         # top_two_scores 包含了 lineage names，假设你修改了逻辑让它返回 Name 而不是 Score
         # 或者在这里遍历 whitelist
-        for (lin1, lin2) in cfg.ignore_coexpression_pairs:
+        for lin1, lin2 in cfg.ignore_coexpression_pairs:
             # 检查谱系是否存在于lineage_scores_df中
             if lin1 in lineage_scores_df.columns and lin2 in lineage_scores_df.columns:
                 # 找到同时高表达 lin1 和 lin2 的细胞，将其 heuristic_score 强制置 0
                 mask = (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
                 heuristic_confidence_score[mask] = 0.0
-                log.info(f"Ignoring co-expression of {lin1} + {lin2} in {mask.sum()} cells (Allowlist).")
+                log.info(
+                    f"Ignoring co-expression of {lin1} + {lin2} in {mask.sum()} cells (Allowlist)."
+                )
             else:
                 missing = []
                 if lin1 not in lineage_scores_df.columns:
                     missing.append(lin1)
                 if lin2 not in lineage_scores_df.columns:
                     missing.append(lin2)
-                log.debug(f"Skipping co-expression pair ({lin1}, {lin2}) - lineages not found: {missing}")
-            
-    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault(
-        "doublet_params", {}
-    )
+                log.debug(
+                    f"Skipping co-expression pair ({lin1}, {lin2}) - lineages not found: {missing}"
+                )
+
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
     adata.uns["sclucid"]["qc"]["doublet_params"]["heuristic_temp_norm"] = {
         "used": True,
         "use_raw": cfg.default_use_raw,
@@ -593,9 +567,7 @@ def _export_doublet_stats(
     doublet_cols = [
         col
         for col in adata.obs.columns
-        if any(
-            keyword in col.lower() for keyword in ["doublet", "scrublet", "heuristic"]
-        )
+        if any(keyword in col.lower() for keyword in ["doublet", "scrublet", "heuristic"])
     ]
 
     if not doublet_cols:
@@ -636,9 +608,7 @@ def _export_doublet_stats(
                     positive_count = col_data.astype(bool).sum()
                     stats[f"{col}_count"] = positive_count
                     stats[f"{col}_percentage"] = (
-                        (positive_count / len(sample_data) * 100)
-                        if len(sample_data) > 0
-                        else 0
+                        (positive_count / len(sample_data) * 100) if len(sample_data) > 0 else 0
                     )
 
         sample_stats.append(stats)
@@ -718,9 +688,7 @@ def _plot_doublet_summary(
 
     # --- 1. Data Validation and Preparation ---
     algo_pred_col_list = [
-        c
-        for c in adata.obs.columns
-        if c.endswith("_predicted") and "heuristic" not in c
+        c for c in adata.obs.columns if c.endswith("_predicted") and "heuristic" not in c
     ]
     if not algo_pred_col_list or FINAL_PRED_COL not in adata.obs:
         log.warning(
@@ -754,9 +722,7 @@ def _plot_doublet_summary(
             ~adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL],
         ]
         choices = ["Both Methods", "Algorithm Only", "Heuristic Only"]
-        adata.obs["doublet_source"] = np.select(
-            conditions, choices, default="Singleton"
-        )
+        adata.obs["doublet_source"] = np.select(conditions, choices, default="Singleton")
         adata.obs["doublet_source"] = pd.Categorical(
             adata.obs["doublet_source"], categories=source_categories, ordered=True
         )
@@ -808,10 +774,7 @@ def _plot_doublet_summary(
         )
         fig_scatter.suptitle("Diagnostic Scatter Plots", fontsize=16, fontweight="bold")
 
-        if (
-            algo_score_col in adata.obs.columns
-            and "n_genes_by_counts" in adata.obs.columns
-        ):
+        if algo_score_col in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
             sns.scatterplot(
                 data=adata.obs,
                 x="n_genes_by_counts",
@@ -832,10 +795,7 @@ def _plot_doublet_summary(
                 0.5, 0.5, "Algorithm score data unavailable.", ha="center", va="center"
             )
 
-        if (
-            HEURISTIC_SCORE_COL in adata.obs.columns
-            and "n_genes_by_counts" in adata.obs.columns
-        ):
+        if HEURISTIC_SCORE_COL in adata.obs.columns and "n_genes_by_counts" in adata.obs.columns:
             sns.scatterplot(
                 data=adata.obs,
                 x="n_genes_by_counts",
@@ -850,9 +810,7 @@ def _plot_doublet_summary(
             ax_scatter_heur.set_title("Heuristic Score vs. Gene Count", fontsize=12)
             ax_scatter_heur.set_xlabel("Number of Genes")
             ax_scatter_heur.set_ylabel("Heuristic Score")
-            ax_scatter_heur.legend(
-                title="Final Call", bbox_to_anchor=(1.05, 1), loc="upper left"
-            )
+            ax_scatter_heur.legend(title="Final Call", bbox_to_anchor=(1.05, 1), loc="upper left")
         else:
             ax_scatter_heur.text(
                 0.5, 0.5, "Heuristic score data unavailable.", ha="center", va="center"
@@ -871,10 +829,7 @@ def _plot_doublet_summary(
     # --- 4. Panel 3: UpSet Plot ---
     if plot_upset:
         log.info("Generating heuristic co-expression UpSet plot...")
-        if (
-            LINEAGE_SCORES_KEY in adata.obsm
-            and not adata.obsm[LINEAGE_SCORES_KEY].empty
-        ):
+        if LINEAGE_SCORES_KEY in adata.obsm and not adata.obsm[LINEAGE_SCORES_KEY].empty:
             lineage_scores_df = adata.obsm[LINEAGE_SCORES_KEY]
             lineage_bool_df = lineage_scores_df > upset_score_threshold
             coexpressing_cells = lineage_bool_df[lineage_bool_df.sum(axis=1) >= 2]
@@ -902,12 +857,8 @@ def _plot_doublet_summary(
                         )
 
                         if save_dir:
-                            upset_save_path = (
-                                save_path / "doublet_summary_upset_plot.png"
-                            )
-                            fig_upset.savefig(
-                                upset_save_path, dpi=300, bbox_inches="tight"
-                            )
+                            upset_save_path = save_path / "doublet_summary_upset_plot.png"
+                            fig_upset.savefig(upset_save_path, dpi=300, bbox_inches="tight")
                             log.info(f"Saved UpSet plot to {upset_save_path}")
                         if show:
                             plt.show()
@@ -964,9 +915,7 @@ def generate_doublet_rates(
     Returns:
         Dictionary mapping sample IDs to calculated doublet rates.
     """
-    log.info(
-        "Automatically generating doublet rates based on sample chemistry and cell counts..."
-    )
+    log.info("Automatically generating doublet rates based on sample chemistry and cell counts...")
 
     # Define platform-specific models: (model_type, rate_value)
     # 'scale' model_type uses the rate_value as a scaling factor per 1000 cells.
@@ -995,9 +944,7 @@ def generate_doublet_rates(
         rate_value = custom_rate
         log.info(f"Using 'custom' model: type='{model_type}', custom_rate={rate_value}")
     else:
-        log.warning(
-            f"Unknown chemistry '{chemistry}'. Falling back to default 'v3' model."
-        )
+        log.warning(f"Unknown chemistry '{chemistry}'. Falling back to default 'v3' model.")
         model_type, rate_value = chemistry_models["v3"]
         chemistry = "v3"  # Set chemistry for scaling logic
 
@@ -1008,14 +955,10 @@ def generate_doublet_rates(
         )
         for sample, n_cells in cell_counts.items():
             doublet_rates[sample] = rate_value
-            log.info(
-                f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate_value:.4f}"
-            )
+            log.info(f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate_value:.4f}")
 
     elif model_type == "scale":
-        log.info(
-            f"Applying scaling model with base rate of {rate_value:.4f} per 1000 cells."
-        )
+        log.info(f"Applying scaling model with base rate of {rate_value:.4f} per 1000 cells.")
         for sample, n_cells in cell_counts.items():
             # Use original logic for 10x non-linear scaling at high cell counts
             if n_cells > 10000 and chemistry in ["v2", "v3"]:
@@ -1029,9 +972,7 @@ def generate_doublet_rates(
             # Apply rate constraints
             rate = max(min_rate, min(rate, max_rate))
             doublet_rates[sample] = rate
-            log.info(
-                f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}"
-            )
+            log.info(f"  - Sample '{sample}': {n_cells} cells -> Doublet rate: {rate:.4f}")
 
     else:
         # This case should not be reachable if logic is sound
@@ -1147,12 +1088,8 @@ def predict_doublets(
     if len(samples) == 0:
         raise ValueError(f"No samples found for key '{sample_key}'")
 
-    log.info(
-        f"Starting doublet prediction for {adata.n_obs} cells across {len(samples)} samples"
-    )
-    log.info(
-        f"Configuration: method={cfg.method}, merge_strategy={cfg.merge_strategy}, "
-    )
+    log.info(f"Starting doublet prediction for {adata.n_obs} cells across {len(samples)} samples")
+    log.info(f"Configuration: method={cfg.method}, merge_strategy={cfg.merge_strategy}, ")
 
     # Initialize result columns
     algo_score_col = f"{cfg.method}_score"
@@ -1192,9 +1129,7 @@ def predict_doublets(
                 adata.obs.loc[sample_mask, algo_score_col] = scores
                 adata.obs.loc[sample_mask, algo_pred_col] = predicted
     else:
-        log.info(
-            "Skipping algorithmic detection as per configuration (run_algorithm=False)."
-        )
+        log.info("Skipping algorithmic detection as per configuration (run_algorithm=False).")
 
     # === 3. HEURISTIC DETECTION (Global) ===
     adata.obs[HEURISTIC_PRED_COL] = False
@@ -1205,15 +1140,9 @@ def predict_doublets(
         heuristic_pred, lineage_scores_df, heuristic_scores = _run_heuristic(adata, cfg)
 
         # Store all the new results in the AnnData object
-        adata.obsm["lineage_module_scores"] = (
-            lineage_scores_df  # Store detailed scores in .obsm
-        )
-        adata.obs[HEURISTIC_PRED_COL] = (
-            heuristic_pred  # Store the binary call for simple stats
-        )
-        adata.obs[HEURISTIC_SCORE_COL] = (
-            heuristic_scores  # Store the informative continuous score
-        )
+        adata.obsm["lineage_module_scores"] = lineage_scores_df  # Store detailed scores in .obsm
+        adata.obs[HEURISTIC_PRED_COL] = heuristic_pred  # Store the binary call for simple stats
+        adata.obs[HEURISTIC_SCORE_COL] = heuristic_scores  # Store the informative continuous score
         log.info(
             f"Heuristic analysis complete. Found {heuristic_pred.sum()} potential doublets based on score threshold."
         )
@@ -1231,9 +1160,7 @@ def predict_doublets(
     )
     adata.obs[FINAL_PRED_COL] = merged_pred
 
-    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault(
-        "doublet_params", {}
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
     adata.uns["sclucid"]["qc"]["doublet_params"].update(
         {
             "merge_strategy": cfg.merge_strategy,
@@ -1253,9 +1180,7 @@ def predict_doublets(
 
     # Algorithm results
     algo_count = adata.obs[algo_pred_col].sum()
-    log.info(
-        f"Algorithm ({cfg.method}): {algo_count} doublets ({algo_count / total_cells:.2%})"
-    )
+    log.info(f"Algorithm ({cfg.method}): {algo_count} doublets ({algo_count / total_cells:.2%})")
 
     # Heuristic results
     if cfg.use_heuristics:
@@ -1264,9 +1189,7 @@ def predict_doublets(
 
         # Overlap analysis
         overlap_count = (adata.obs[algo_pred_col] & adata.obs[HEURISTIC_PRED_COL]).sum()
-        log.info(
-            f"Overlap: {overlap_count} doublets ({overlap_count / total_cells:.2%})"
-        )
+        log.info(f"Overlap: {overlap_count} doublets ({overlap_count / total_cells:.2%})")
 
     # Final merged results
     final_count = adata.obs[FINAL_PRED_COL].sum()
@@ -1279,9 +1202,7 @@ def predict_doublets(
         sample_total = sample_mask.sum()
         sample_doublets = adata.obs[FINAL_PRED_COL][sample_mask].sum()
         sample_rate = sample_doublets / sample_total
-        log.info(
-            f"  {sample}: {sample_doublets}/{sample_total} doublets ({sample_rate:.2%})"
-        )
+        log.info(f"  {sample}: {sample_doublets}/{sample_total} doublets ({sample_rate:.2%})")
 
     log.info("=" * 50)
 
@@ -1309,135 +1230,132 @@ def predict_doublets(
 class DoubletEvidenceProfiler:
     """
     Generate interpretable evidence profiles for doublet predictions.
-    
+
     This class creates detailed reports explaining WHY each cell was
     flagged as a doublet, combining multiple lines of evidence.
     """
-    
+
     def __init__(self, adata: AnnData):
         self.adata = adata
         self.evidence_table = None
-        
+
     def generate_evidence_table(self) -> pd.DataFrame:
         """
         Create a comprehensive evidence table for each cell.
-        
+
         Returns:
             DataFrame with one row per cell, columns for different evidence types
         """
         evidence = pd.DataFrame(index=self.adata.obs_names)
-        
+
         # Evidence 1: Algorithmic score
-        if 'scrublet_score' in self.adata.obs:
-            evidence['scrublet_score'] = self.adata.obs['scrublet_score']
-            evidence['scrublet_evidence'] = pd.cut(
-                evidence['scrublet_score'],
+        if "scrublet_score" in self.adata.obs:
+            evidence["scrublet_score"] = self.adata.obs["scrublet_score"]
+            evidence["scrublet_evidence"] = pd.cut(
+                evidence["scrublet_score"],
                 bins=[-np.inf, 0.2, 0.4, 0.6, np.inf],
-                labels=['Weak', 'Moderate', 'Strong', 'Very Strong']
+                labels=["Weak", "Moderate", "Strong", "Very Strong"],
             )
-        
+
         # Evidence 2: Lineage co-expression
-        if 'lineage_module_scores' in self.adata.obsm:
-            lineage_scores = self.adata.obsm['lineage_module_scores']
-            
+        if "lineage_module_scores" in self.adata.obsm:
+            lineage_scores = self.adata.obsm["lineage_module_scores"]
+
             # Count how many lineages are significantly expressed
             threshold = 0.5
             n_lineages = (lineage_scores > threshold).sum(axis=1)
-            evidence['n_coexpressed_lineages'] = n_lineages
-            
+            evidence["n_coexpressed_lineages"] = n_lineages
+
             # Identify the top 2 co-expressed lineages
             top_lineages = lineage_scores.apply(
-                lambda row: lineage_scores.columns[
-                    np.argsort(row.values)[-2:]
-                ].tolist() if row.max() > threshold else [],
-                axis=1
+                lambda row: (
+                    lineage_scores.columns[np.argsort(row.values)[-2:]].tolist()
+                    if row.max() > threshold
+                    else []
+                ),
+                axis=1,
             )
-            evidence['top_coexpressed_lineages'] = top_lineages.apply(
-                lambda x: ' + '.join(x) if len(x) >= 2 else 'None'
+            evidence["top_coexpressed_lineages"] = top_lineages.apply(
+                lambda x: " + ".join(x) if len(x) >= 2 else "None"
             )
-            
+
             # Strength of co-expression (product of top 2 scores)
-            evidence['coexpression_strength'] = lineage_scores.apply(
-                lambda row: np.prod(sorted(row.values)[-2:]) if row.max() > threshold else 0,
-                axis=1
+            evidence["coexpression_strength"] = lineage_scores.apply(
+                lambda row: np.prod(sorted(row.values)[-2:]) if row.max() > threshold else 0, axis=1
             )
-        
+
         # Evidence 3: Gene count anomaly
-        if 'n_genes_by_counts' in self.adata.obs:
+        if "n_genes_by_counts" in self.adata.obs:
             # Z-score of gene counts
-            gene_counts = self.adata.obs['n_genes_by_counts']
+            gene_counts = self.adata.obs["n_genes_by_counts"]
             z_scores = (gene_counts - gene_counts.mean()) / gene_counts.std()
-            evidence['gene_count_zscore'] = z_scores
-            evidence['gene_count_anomaly'] = z_scores > 2  # High gene count
-        
+            evidence["gene_count_zscore"] = z_scores
+            evidence["gene_count_anomaly"] = z_scores > 2  # High gene count
+
         # Evidence 4: Total UMI anomaly
-        if 'total_counts' in self.adata.obs:
-            umi_counts = self.adata.obs['total_counts']
+        if "total_counts" in self.adata.obs:
+            umi_counts = self.adata.obs["total_counts"]
             z_scores = (umi_counts - umi_counts.mean()) / umi_counts.std()
-            evidence['umi_count_zscore'] = z_scores
-            evidence['umi_count_anomaly'] = z_scores > 2
-        
+            evidence["umi_count_zscore"] = z_scores
+            evidence["umi_count_anomaly"] = z_scores > 2
+
         # Evidence 5: Mitochondrial percentage (doublets often have lower MT%)
-        if 'pct_counts_mt' in self.adata.obs:
-            mt_pct = self.adata.obs['pct_counts_mt']
+        if "pct_counts_mt" in self.adata.obs:
+            mt_pct = self.adata.obs["pct_counts_mt"]
             # Doublets typically have LOWER MT% than singlets
             z_scores = (mt_pct - mt_pct.mean()) / mt_pct.std()
-            evidence['mt_pct_zscore'] = z_scores
-            evidence['low_mt_evidence'] = z_scores < -1  # Unusually low MT%
-        
+            evidence["mt_pct_zscore"] = z_scores
+            evidence["low_mt_evidence"] = z_scores < -1  # Unusually low MT%
+
         # Combined evidence score (weighted combination)
         weights = {
-            'scrublet_score': 0.3,
-            'coexpression_strength': 0.3,
-            'gene_count_zscore': 0.2,
-            'umi_count_zscore': 0.1,
-            'mt_pct_zscore': 0.1  # Negative weight (lower is more suspicious)
+            "scrublet_score": 0.3,
+            "coexpression_strength": 0.3,
+            "gene_count_zscore": 0.2,
+            "umi_count_zscore": 0.1,
+            "mt_pct_zscore": 0.1,  # Negative weight (lower is more suspicious)
         }
-        
-        evidence['combined_evidence_score'] = 0
+
+        evidence["combined_evidence_score"] = 0
         for feature, weight in weights.items():
             if feature in evidence.columns:
                 # Normalize to [0, 1]
                 normalized = (evidence[feature] - evidence[feature].min()) / (
                     evidence[feature].max() - evidence[feature].min() + 1e-10
                 )
-                if feature == 'mt_pct_zscore':
+                if feature == "mt_pct_zscore":
                     normalized = 1 - normalized  # Invert for MT%
-                evidence['combined_evidence_score'] += weight * normalized
-        
+                evidence["combined_evidence_score"] += weight * normalized
+
         # Final classification with confidence
-        evidence['doublet_confidence'] = pd.cut(
-            evidence['combined_evidence_score'],
+        evidence["doublet_confidence"] = pd.cut(
+            evidence["combined_evidence_score"],
             bins=[0, 0.3, 0.5, 0.7, 1.0],
-            labels=['Low', 'Moderate', 'High', 'Very High']
+            labels=["Low", "Moderate", "High", "Very High"],
         )
-        
+
         self.evidence_table = evidence
         return evidence
-    
-    def generate_doublet_report(
-        self,
-        cell_id: str,
-        save_path: Optional[str] = None
-    ) -> str:
+
+    def generate_doublet_report(self, cell_id: str, save_path: Optional[str] = None) -> str:
         """
         Generate a detailed textual report for a specific cell.
-        
+
         Args:
             cell_id: Cell barcode
             save_path: Optional path to save the report
-            
+
         Returns:
             Formatted report string
         """
         if self.evidence_table is None:
             self.generate_evidence_table()
-        
+
         if cell_id not in self.evidence_table.index:
             raise ValueError(f"Cell {cell_id} not found")
-        
+
         row = self.evidence_table.loc[cell_id]
-        
+
         report = f"""
 ╔══════════════════════════════════════════════════════════════╗
 ║              DOUBLET EVIDENCE REPORT                         ║
@@ -1477,25 +1395,27 @@ class DoubletEvidenceProfiler:
 │ INTERPRETATION                                               │
 └──────────────────────────────────────────────────────────────┘
 """
-        
+
         # Add interpretation based on evidence
-        if row.get('doublet_confidence') in ['High', 'Very High']:
+        if row.get("doublet_confidence") in ["High", "Very High"]:
             report += """
 ⚠️  This cell shows STRONG evidence of being a doublet:
 """
-            if row.get('n_coexpressed_lineages', 0) >= 2:
-                report += f"   • Co-expresses {row.get('n_coexpressed_lineages')} distinct lineages\n"
+            if row.get("n_coexpressed_lineages", 0) >= 2:
+                report += (
+                    f"   • Co-expresses {row.get('n_coexpressed_lineages')} distinct lineages\n"
+                )
                 report += f"     ({row.get('top_coexpressed_lineages')})\n"
-            
-            if row.get('gene_count_anomaly', False):
+
+            if row.get("gene_count_anomaly", False):
                 report += "   • Unusually high gene count (possible merged cells)\n"
-            
-            if row.get('scrublet_score', 0) > 0.5:
+
+            if row.get("scrublet_score", 0) > 0.5:
                 report += "   • High algorithmic doublet score\n"
-            
+
             report += "\n➤ RECOMMENDATION: Remove this cell from downstream analysis\n"
-        
-        elif row.get('doublet_confidence') == 'Moderate':
+
+        elif row.get("doublet_confidence") == "Moderate":
             report += """
 ⚡ This cell shows MODERATE evidence of being a doublet:
    • Consider context-specific filtering
@@ -1510,112 +1430,105 @@ class DoubletEvidenceProfiler:
    
 ➤ RECOMMENDATION: Keep for downstream analysis
 """
-        
+
         report += "\n" + "═" * 64 + "\n"
-        
+
         if save_path:
-            with open(save_path, 'w') as f:
+            with open(save_path, "w") as f:
                 f.write(report)
             log.info(f"Saved doublet report to {save_path}")
-        
+
         return report
-    
-    def plot_evidence_heatmap(
-        self,
-        top_n: int = 100,
-        save_path: Optional[str] = None
-    ):
+
+    def plot_evidence_heatmap(self, top_n: int = 100, save_path: Optional[str] = None):
         """
         Create a heatmap of evidence features for top doublets.
         """
         if self.evidence_table is None:
             self.generate_evidence_table()
-        
+
         # Select top doublets by combined score
-        top_doublets = self.evidence_table.nlargest(top_n, 'combined_evidence_score')
-        
+        top_doublets = self.evidence_table.nlargest(top_n, "combined_evidence_score")
+
         # Select numeric evidence columns
         evidence_cols = [
-            'scrublet_score',
-            'coexpression_strength',
-            'gene_count_zscore',
-            'umi_count_zscore',
-            'mt_pct_zscore'
+            "scrublet_score",
+            "coexpression_strength",
+            "gene_count_zscore",
+            "umi_count_zscore",
+            "mt_pct_zscore",
         ]
         evidence_cols = [col for col in evidence_cols if col in top_doublets.columns]
-        
+
         # Create heatmap
         fig, ax = plt.subplots(figsize=(10, max(6, top_n * 0.15)))
-        
+
         # Normalize data for better visualization
         from sklearn.preprocessing import StandardScaler
+
         scaler = StandardScaler()
         normalized_data = scaler.fit_transform(top_doublets[evidence_cols])
-        
+
         sns.heatmap(
             normalized_data,
-            xticklabels=[col.replace('_', ' ').title() for col in evidence_cols],
+            xticklabels=[col.replace("_", " ").title() for col in evidence_cols],
             yticklabels=False,  # Too many cells to label
-            cmap='RdYlBu_r',
+            cmap="RdYlBu_r",
             center=0,
-            cbar_kws={'label': 'Standardized Score'},
-            ax=ax
+            cbar_kws={"label": "Standardized Score"},
+            ax=ax,
         )
-        
-        ax.set_title(f'Evidence Heatmap for Top {top_n} Doublets')
-        ax.set_xlabel('Evidence Type')
-        ax.set_ylabel(f'Cells (n={top_n})')
-        
+
+        ax.set_title(f"Evidence Heatmap for Top {top_n} Doublets")
+        ax.set_xlabel("Evidence Type")
+        ax.set_ylabel(f"Cells (n={top_n})")
+
         plt.tight_layout()
-        
+
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
             log.info(f"Saved evidence heatmap to {save_path}")
-        
+
         return fig
-    
-    def export_evidence_summary(
-        self,
-        output_dir: str,
-        top_n_reports: int = 50
-    ):
+
+    def export_evidence_summary(self, output_dir: str, top_n_reports: int = 50):
         """
         Export comprehensive evidence summaries.
-        
+
         Creates:
         - evidence_table.csv: Full evidence table
         - top_doublets_reports/: Individual reports for top doublets
         - evidence_heatmap.png: Heatmap visualization
         """
         from pathlib import Path
+
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Export full table
         if self.evidence_table is None:
             self.generate_evidence_table()
-        
-        self.evidence_table.to_csv(output_path / 'evidence_table.csv')
+
+        self.evidence_table.to_csv(output_path / "evidence_table.csv")
         log.info(f"Exported evidence table to {output_path / 'evidence_table.csv'}")
-        
+
         # Generate individual reports for top doublets
-        reports_dir = output_path / 'top_doublets_reports'
+        reports_dir = output_path / "top_doublets_reports"
         reports_dir.mkdir(exist_ok=True)
-        
-        top_doublets = self.evidence_table.nlargest(top_n_reports, 'combined_evidence_score')
-        
+
+        top_doublets = self.evidence_table.nlargest(top_n_reports, "combined_evidence_score")
+
         for i, (cell_id, row) in enumerate(top_doublets.iterrows(), 1):
             report = self.generate_doublet_report(cell_id)
-            report_path = reports_dir / f'rank_{i:03d}_{cell_id}.txt'
-            with open(report_path, 'w') as f:
+            report_path = reports_dir / f"rank_{i:03d}_{cell_id}.txt"
+            with open(report_path, "w") as f:
                 f.write(report)
-        
+
         log.info(f"Generated {top_n_reports} individual reports in {reports_dir}")
-        
+
         # Generate heatmap
         self.plot_evidence_heatmap(
-            top_n=min(100, top_n_reports),
-            save_path=output_path / 'evidence_heatmap.png'
+            top_n=min(100, top_n_reports), save_path=output_path / "evidence_heatmap.png"
         )
 
 
@@ -1625,32 +1538,31 @@ def predict_doublets_with_profiling(
     sample_key: str = "sampleID",
     generate_reports: bool = True,
     top_n_reports: int = 50,
-    **kwargs
+    **kwargs,
 ) -> AnnData:
     """
     Enhanced doublet prediction with evidence profiling.
-    
+
     This wrapper adds biological interpretability to doublet predictions.
     """
     # Run standard doublet detection
     adata = predict_doublets(adata, config, sample_key, **kwargs)
-    
+
     if generate_reports:
         log.info("Generating doublet evidence profiles...")
-        
+
         profiler = DoubletEvidenceProfiler(adata)
         profiler.generate_evidence_table()
-        
+
         # Export comprehensive reports
         if config.save_dir:
             profiler.export_evidence_summary(
-                output_dir=Path(config.save_dir) / 'evidence_profiles',
-                top_n_reports=top_n_reports
+                output_dir=Path(config.save_dir) / "evidence_profiles", top_n_reports=top_n_reports
             )
-        
+
         # Add evidence table to AnnData
         adata.obs = adata.obs.join(
-            profiler.evidence_table[['combined_evidence_score', 'doublet_confidence']]
+            profiler.evidence_table[["combined_evidence_score", "doublet_confidence"]]
         )
-    
+
     return adata

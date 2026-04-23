@@ -8,22 +8,20 @@ Provides tools for:
 - Patient stratification
 """
 
-from .resistance import (
-    identify_resistance_mechanisms,
-    score_drug_resistance,
-    ResistanceAnalyzer,
-)
-
 from .prediction import (
+    ResponsePredictor,
     predict_therapy_response,
     stratify_patients,
-    ResponsePredictor,
 )
-
+from .resistance import (
+    ResistanceAnalyzer,
+    identify_resistance_mechanisms,
+    score_drug_resistance,
+)
 from .target import (
+    TargetDiscovery,
     discover_therapeutic_targets,
     prioritize_druggable_genes,
-    TargetDiscovery,
 )
 
 __all__ = [

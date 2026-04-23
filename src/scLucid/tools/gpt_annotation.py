@@ -6,18 +6,19 @@ RNA velocity methods, including PAGA, scVelo, and Monocle3 (via rtools).
 """
 
 import logging
+import os
 from typing import Literal, Optional, Union
 
 import anndata
-import matplotlib.pyplot as plt 
-import scanpy as sc
+import matplotlib.pyplot as plt
 import numpy as np
+import scanpy as sc
 import scvelo as scv
-import os
 
 from .rtools import RTools
 
 log = logging.getLogger(__name__)
+
 
 def run_trajectory_analysis(
     adata: anndata.AnnData,
@@ -79,7 +80,9 @@ def run_trajectory_analysis(
 
     elif method == "velocity":
         if "spliced" not in adata.layers or "unspliced" not in adata.layers:
-            raise ValueError("For 'velocity' method, 'spliced' and 'unspliced' layers are required.")
+            raise ValueError(
+                "For 'velocity' method, 'spliced' and 'unspliced' layers are required."
+            )
 
         log.info(f"Running RNA velocity analysis using '{velocity_mode}' model")
         scv.pp.filter_and_normalize(adata)
@@ -95,16 +98,22 @@ def run_trajectory_analysis(
 
     elif method == "monocle3":
         if r_tools_instance is None:
-            raise ValueError("For 'monocle3' method, an initialized 'r_tools_instance' must be provided.")
+            raise ValueError(
+                "For 'monocle3' method, an initialized 'r_tools_instance' must be provided."
+            )
         if monocle3_root_group_key is None or monocle3_root_group_name is None:
-            raise ValueError("For 'monocle3' method, 'monocle3_root_group_key' and 'monocle3_root_group_name' must be provided to define the trajectory start.")
-        
-        log.info(f"Running Monocle3 workflow via rtools, with root defined by '{monocle3_root_group_name}' in '{monocle3_root_group_key}'")
+            raise ValueError(
+                "For 'monocle3' method, 'monocle3_root_group_key' and 'monocle3_root_group_name' must be provided to define the trajectory start."
+            )
+
+        log.info(
+            f"Running Monocle3 workflow via rtools, with root defined by '{monocle3_root_group_name}' in '{monocle3_root_group_key}'"
+        )
         adata = r_tools_instance.run_monocle3(
             adata,
             root_group_key=monocle3_root_group_key,
             root_group_name=monocle3_root_group_name,
-            key_added="trajectory_pseudotime"
+            key_added="trajectory_pseudotime",
         )
 
     else:
@@ -139,31 +148,47 @@ def plot_trajectory(
         log.info("Plotting PAGA graph and pseudotime")
         plt.figure()
         sc.pl.paga_compare(adata, basis=basis, show=False)
-        if save_dir: plt.savefig(os.path.join(save_dir, "paga_compare.png"))
-        if not save_dir: plt.show()
+        if save_dir:
+            plt.savefig(os.path.join(save_dir, "paga_compare.png"))
+        if not save_dir:
+            plt.show()
         plt.close()
 
         if "trajectory_pseudotime" in adata.obs:
             plt.figure()
-            sc.pl.embedding(adata, basis=basis, color="trajectory_pseudotime", cmap="viridis", show=False)
-            if save_dir: plt.savefig(os.path.join(save_dir, "pseudotime_umap.png"))
-            if not save_dir: plt.show()
+            sc.pl.embedding(
+                adata, basis=basis, color="trajectory_pseudotime", cmap="viridis", show=False
+            )
+            if save_dir:
+                plt.savefig(os.path.join(save_dir, "pseudotime_umap.png"))
+            if not save_dir:
+                plt.show()
             plt.close()
 
     elif method == "velocity":
         log.info("Plotting RNA velocity stream")
         plt.figure()
         scv.pl.velocity_embedding_stream(adata, basis=basis, color=color, show=False)
-        if save_dir: plt.savefig(os.path.join(save_dir, "velocity_stream.png"))
-        if not save_dir: plt.show()
+        if save_dir:
+            plt.savefig(os.path.join(save_dir, "velocity_stream.png"))
+        if not save_dir:
+            plt.show()
         plt.close()
 
     elif method == "monocle3":
         log.info("Plotting Monocle3 pseudotime")
         if "trajectory_pseudotime" in adata.obs:
             plt.figure()
-            sc.pl.embedding(adata, basis=basis, color="trajectory_pseudotime", cmap="viridis", show=False,
-                            title="Monocle3 Pseudotime")
-            if save_dir: plt.savefig(os.path.join(save_dir, "monocle3_pseudotime.png"))
-            if not save_dir: plt.show()
+            sc.pl.embedding(
+                adata,
+                basis=basis,
+                color="trajectory_pseudotime",
+                cmap="viridis",
+                show=False,
+                title="Monocle3 Pseudotime",
+            )
+            if save_dir:
+                plt.savefig(os.path.join(save_dir, "monocle3_pseudotime.png"))
+            if not save_dir:
+                plt.show()
             plt.close()

@@ -4,23 +4,23 @@ Tests for unified storage utilities.
 Tests the standardized storage API for adata.uns['sclucid'].
 """
 
-import pytest
 import numpy as np
+import pytest
 from anndata import AnnData
 
 from scLucid.utils.storage import (
-    get_storage,
-    save_result,
-    load_result,
-    load_config,
-    has_result,
-    list_results,
-    clear_storage,
-    migrate_legacy_storage,
-    save_workflow_result,
-    load_workflow_result,
     STORAGE_ROOT,
     VALID_MODULES,
+    clear_storage,
+    get_storage,
+    has_result,
+    list_results,
+    load_config,
+    load_result,
+    load_workflow_result,
+    migrate_legacy_storage,
+    save_result,
+    save_workflow_result,
 )
 
 
@@ -249,7 +249,7 @@ class TestWorkflowResultHelpers:
             module="qc",
             workflow_name="standard",
             steps=["step1", "step2"],
-            config={"param": "value"}
+            config={"param": "value"},
         )
 
         result = load_workflow_result(empty_adata, "qc", "standard")
@@ -272,23 +272,20 @@ class TestStorageIntegration:
         """Test simulating a full workflow with storage."""
         # QC step
         save_workflow_result(
-            empty_adata, "qc", "standard",
-            steps=["metrics", "filtering"],
-            config={"min_genes": 200}
+            empty_adata, "qc", "standard", steps=["metrics", "filtering"], config={"min_genes": 200}
         )
 
         # Preprocess step
         save_workflow_result(
-            empty_adata, "preprocess", "workflow",
+            empty_adata,
+            "preprocess",
+            "workflow",
             steps=["normalize", "hvg", "pca"],
-            config={"n_top_genes": 2000}
+            config={"n_top_genes": 2000},
         )
 
         # Analysis step
-        save_result(
-            empty_adata, "analysis", "clustering",
-            {"n_clusters": 10, "method": "leiden"}
-        )
+        save_result(empty_adata, "analysis", "clustering", {"n_clusters": 10, "method": "leiden"})
 
         # Verify all stored
         results = list_results(empty_adata)

@@ -11,18 +11,20 @@ import logging
 import pickle
 from importlib import resources
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import gseapy as gp
 import pandas as pd
 from anndata import AnnData
 
-from ...base_config import SclucidBaseConfig
 from ...utils.helpers import sanitize_for_hdf5
 from ..config import EnrichmentConfig
-from .de_utils import _safe_filename, _standardize_enrichment_cols
+from .de_utils import _safe_filename
+from .scanpy_compat import standardize_enrichment_cols
 
 log = logging.getLogger(__name__)
+
+
 def run_enrichment(
     adata: AnnData,
     groupby: Optional[str] = None,
@@ -128,9 +130,7 @@ def run_enrichment(
             for gs_category in gene_sets_list:
                 try:
                     filename = f"{config.organism.lower()}_{gs_category}_{config.gmt_version}.gmt"
-                    file_path = resources.files("scLucid").joinpath(
-                        "resources", filename
-                    )
+                    file_path = resources.files("scLucid").joinpath("resources", filename)
 
                     if file_path.is_file():
                         gmt_files_to_run[gs_category] = str(file_path)
@@ -143,8 +143,7 @@ def run_enrichment(
 
             if not gmt_files_to_run:
                 raise FileNotFoundError(
-                    f"No valid GMT files found for offline mode. "
-                    f"Searched for: {gene_sets_list}"
+                    f"No valid GMT files found for offline mode. " f"Searched for: {gene_sets_list}"
                 )
     else:
         # Online mode: gene set names are used directly
@@ -157,15 +156,11 @@ def run_enrichment(
         log.debug("Using 'scores' for GSEA ranking (prefer_score_for_enrichment=True)")
     elif rank_col not in marker_df.columns:
         fallback = "scores" if "scores" in marker_df.columns else "logfoldchanges"
-        log.warning(
-            f"GSEA rank column '{rank_col}' not found. Falling back to '{fallback}'"
-        )
+        log.warning(f"GSEA rank column '{rank_col}' not found. Falling back to '{fallback}'")
         rank_col = fallback
 
     if rank_col not in marker_df.columns:
-        raise KeyError(
-            f"GSEA requires a ranking column ('{rank_col}') in the marker DataFrame"
-        )
+        raise KeyError(f"GSEA requires a ranking column ('{rank_col}') in the marker DataFrame")
 
     # Run enrichment for each group
     enrichment_results: Dict[str, Dict[str, pd.DataFrame]] = {}
@@ -175,9 +170,7 @@ def run_enrichment(
         sub = marker_df[marker_df["group"] == cluster]
 
         if sub.empty:
-            log.warning(
-                f"Skipping '{cluster}': no marker genes found in '{config.de_key}'"
-            )
+            log.warning(f"Skipping '{cluster}': no marker genes found in '{config.de_key}'")
             continue
 
         # === ORA (Over-Representation Analysis) ===
@@ -223,13 +216,12 @@ def run_enrichment(
 
                     except Exception as e:
                         log.error(
-                            f"ORA failed for cluster '{cluster}', "
-                            f"category '{category}': {e}"
+                            f"ORA failed for cluster '{cluster}', " f"category '{category}': {e}"
                         )
 
                 if all_ora_results:
                     ora_df = pd.concat(all_ora_results, ignore_index=True)
-                    ora_df = _standardize_enrichment_cols(ora_df)
+                    ora_df = standardize_enrichment_cols(ora_df)
 
                     if "pval_adj" in ora_df.columns:
                         ora_df = ora_df[ora_df["pval_adj"] < config.cutoff_pval]
@@ -271,8 +263,7 @@ def run_enrichment(
 
                     except Exception as e:
                         log.error(
-                            f"GSEA failed for cluster '{cluster}', "
-                            f"category '{category}': {e}"
+                            f"GSEA failed for cluster '{cluster}', " f"category '{category}': {e}"
                         )
 
                 if all_gsea_results:
@@ -300,11 +291,7 @@ def run_enrichment(
                     res_df.to_csv(output_path, index=False)
 
     # Store results
-    store_root = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("de", {})
-    )
+    store_root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     store_root[config.key_added] = {
         "results": enrichment_results,
         "params": sanitize_for_hdf5(config.to_dict()),
@@ -340,8 +327,7 @@ def export_enrichment_results(
 
     if enrichment_key not in root:
         raise KeyError(
-            f"Enrichment results '{enrichment_key}' not found. "
-            "Run run_enrichment() first."
+            f"Enrichment results '{enrichment_key}' not found. " "Run run_enrichment() first."
         )
 
     enr_store = root[enrichment_key]
@@ -354,9 +340,7 @@ def export_enrichment_results(
         for cluster, methods_dict in enrichment_results.items():
             for method, df in methods_dict.items():
                 if not df.empty:
-                    sheet_name = f"{_safe_filename(cluster)}_{method}"[
-                        :31
-                    ]  # Excel limit
+                    sheet_name = f"{_safe_filename(cluster)}_{method}"[:31]  # Excel limit
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
 
     log.info(f"Enrichment results exported to {output_path}")
@@ -461,8 +445,7 @@ def batch_celltype_deg_enrichment(
 
     if verbose:
         log.info(
-            f"Batch DEG analysis: {len(celltypes)} cell types, "
-            f"{condition1} vs {condition2}"
+            f"Batch DEG analysis: {len(celltypes)} cell types, " f"{condition1} vs {condition2}"
         )
 
     # Default gene sets
@@ -481,9 +464,7 @@ def batch_celltype_deg_enrichment(
 
         # Subset data
         adata_sub = adata[adata.obs[celltype_col] == celltype].copy()
-        adata_sub = adata_sub[
-            adata_sub.obs[condition_col].isin([condition1, condition2])
-        ]
+        adata_sub = adata_sub[adata_sub.obs[condition_col].isin([condition1, condition2])]
 
         n_cells = adata_sub.n_obs
 
@@ -514,16 +495,13 @@ def batch_celltype_deg_enrichment(
             continue
 
         # Save DEG table
-        deg_table_path = (
-            Path(outdir) / f"{safe_celltype}_DEG_{condition1}_vs_{condition2}.csv"
-        )
+        deg_table_path = Path(outdir) / f"{safe_celltype}_DEG_{condition1}_vs_{condition2}.csv"
         degs.to_csv(deg_table_path, index=False)
 
         # Volcano plot
         if plot_volcano_charts and len(degs) > 0:
             volcano_path = (
-                Path(outdir)
-                / f"{safe_celltype}_volcano_{condition1}_vs_{condition2}.pdf"
+                Path(outdir) / f"{safe_celltype}_volcano_{condition1}_vs_{condition2}.pdf"
             )
 
             try:
@@ -544,17 +522,12 @@ def batch_celltype_deg_enrichment(
 
         if run_enrichment_analysis and len(degs) > 0:
             sig_degs = degs[
-                (degs["pvals_adj"] < max_padj)
-                & (degs["logfoldchanges"].abs() > min_log2fc)
+                (degs["pvals_adj"] < max_padj) & (degs["logfoldchanges"].abs() > min_log2fc)
             ]
 
-            up_genes = sig_degs[sig_degs["logfoldchanges"] > min_log2fc][
-                "names"
-            ].tolist()
+            up_genes = sig_degs[sig_degs["logfoldchanges"] > min_log2fc]["names"].tolist()
 
-            down_genes = sig_degs[sig_degs["logfoldchanges"] < -min_log2fc][
-                "names"
-            ].tolist()
+            down_genes = sig_degs[sig_degs["logfoldchanges"] < -min_log2fc]["names"].tolist()
 
             # Up-regulated enrichment
             if len(up_genes) > 5:
@@ -641,9 +614,7 @@ def batch_celltype_deg_enrichment(
 
     # Save summary
     if save_pickle:
-        pickle_path = (
-            Path(outdir) / f"all_DEG_enrichment_{condition1}_vs_{condition2}.pkl"
-        )
+        pickle_path = Path(outdir) / f"all_DEG_enrichment_{condition1}_vs_{condition2}.pkl"
         with open(pickle_path, "wb") as f:
             pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
         log.info(f"Complete results saved: {pickle_path}")
@@ -661,4 +632,3 @@ def batch_celltype_deg_enrichment(
 
 
 # ==================== Advanced Analysis Functions ====================
-

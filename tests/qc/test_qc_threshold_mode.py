@@ -2,8 +2,8 @@
 
 import pytest
 
+from scLucid.qc.config import DoubletConfig, MarkingConfig, MetricsReportingConfig, QCWorkflowConfig
 from scLucid.qc.workflow import run_standard_qc
-from scLucid.qc.config import QCWorkflowConfig, MetricsReportingConfig, MarkingConfig, DoubletConfig
 from tests.fixtures.data_loader import load_test_data
 
 
@@ -54,12 +54,12 @@ def test_hierarchical_and_pooled_are_stable_on_homogeneous_data(adata_pbmc):
     # For a near-homogeneous baseline dataset, both modes should retain a reasonable
     # fraction of cells. The exact count may differ because hierarchical thresholds
     # are sample-specific, but neither mode should produce pathological removal.
-    assert hier_cells > adata_pbmc.n_obs * 0.5, (
-        f"Hierarchical mode removed too many cells: {hier_cells}/{adata_pbmc.n_obs}"
-    )
-    assert pooled_cells > adata_pbmc.n_obs * 0.5, (
-        f"Pooled mode removed too many cells: {pooled_cells}/{adata_pbmc.n_obs}"
-    )
+    assert (
+        hier_cells > adata_pbmc.n_obs * 0.5
+    ), f"Hierarchical mode removed too many cells: {hier_cells}/{adata_pbmc.n_obs}"
+    assert (
+        pooled_cells > adata_pbmc.n_obs * 0.5
+    ), f"Pooled mode removed too many cells: {pooled_cells}/{adata_pbmc.n_obs}"
 
 
 def test_hierarchical_thresholds_are_clipped_to_valid_ranges(adata_pbmc):

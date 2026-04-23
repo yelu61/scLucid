@@ -7,6 +7,7 @@ robust logging, and complete traceability for reproducible single-cell workflows
 """
 
 import logging
+
 logging.getLogger("harmonypy").setLevel(logging.ERROR)
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -27,6 +28,7 @@ __all__ = [
     "batch_correction",
     "evaluate_integration",
 ]
+
 
 # ==============================================================================
 # Low-Level Integration Wrappers (private, not in __all__)
@@ -91,7 +93,7 @@ def _integrate_harmony(
 
     # === Validation ===
     Z_corr = harmony_out.Z_corr.T
-    
+
     # 1. Check for NaN/Inf
     if np.any(~np.isfinite(Z_corr)):
         n_invalid = np.sum(~np.isfinite(Z_corr))
@@ -99,15 +101,15 @@ def _integrate_harmony(
             f"[preprocess] Harmony integration failed: output contains {n_invalid} NaN/Inf values. "
             "This may indicate convergence failure. Try adjusting theta or lambda."
         )
-    
+
     # 2. Check convergence
-    if check_convergence and hasattr(harmony_out, 'objective_history'):
+    if check_convergence and hasattr(harmony_out, "objective_history"):
         obj_history = harmony_out.objective_history
-        
+
         if len(obj_history) >= 2:
             final_change = abs(obj_history[-1] - obj_history[-2])
-            converged = final_change <= convergence_threshold 
-            
+            converged = final_change <= convergence_threshold
+
             if not converged:
                 log.warning(
                     f"⚠️  Harmony may not have fully converged. "
@@ -118,29 +120,28 @@ def _integrate_harmony(
                 log.info(f"✓ Harmony converged. Final change: {final_change:.2e}")
         elif len(obj_history) < 2:
             log.info("Harmony converged in < 2 iterations. Setting convergence as True.")
-            converged = True # if less than 2 iterations, consider converged
-            
-    
+            converged = True  # if less than 2 iterations, consider converged
+
     # 3. Check variance preservation
     input_var = np.var(adata.obsm[basis], axis=0).sum()
     output_var = np.var(Z_corr, axis=0).sum()
     var_ratio = output_var / input_var
-    
+
     if var_ratio < 0.5:
         log.warning(
             f"⚠️  Harmony reduced total variance by {(1-var_ratio)*100:.1f}%. "
             "This may indicate over-correction. Consider reducing theta."
         )
-    
+
     log.info(f"Variance retention: {var_ratio:.1%}")
-    
+
     # Store result
     adata.obsm[embedding_key] = Z_corr
 
     # Store metadata for reproducibility
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
-        "integration", {}
-    )["harmony"] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        "harmony"
+    ] = {
         "covariate_keys": covariate_keys,
         "params": {
             "theta": theta,
@@ -155,11 +156,11 @@ def _integrate_harmony(
         "converged": converged,
         "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    
+
     log.info(
         f"Harmony integration finished: result stored in .obsm['{embedding_key}'] with shape {adata.obsm[embedding_key].shape}"
     )
-    
+
     return adata
 
 
@@ -211,15 +212,11 @@ def _integrate_scanorama(
 
     # Subset to HVGs if provided
     if hvg is not None:
-        genes_to_use = list(
-            set(hvg).intersection(*[set(ad.var_names) for ad in adatas_list])
-        )
+        genes_to_use = list(set(hvg).intersection(*[set(ad.var_names) for ad in adatas_list]))
         if len(genes_to_use) == 0:
             raise ValueError("No HVGs found in all batches.")
     else:
-        genes_to_use = list(
-            set.intersection(*[set(ad.var_names) for ad in adatas_list])
-        )
+        genes_to_use = list(set.intersection(*[set(ad.var_names) for ad in adatas_list]))
     for i, ad in enumerate(adatas_list):
         adatas_list[i] = ad[:, genes_to_use].copy()
     log.info(f"Scanorama: {n_batches} batches, {len(genes_to_use)} genes.")
@@ -245,9 +242,9 @@ def _integrate_scanorama(
         idx += n
     adata.obsm[embedding_key] = integrated
 
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
-        "integration", {}
-    )["scanorama"] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        "scanorama"
+    ] = {
         "batch_key": batch_key,
         "params": {
             "knn": knn,
@@ -325,9 +322,9 @@ def _integrate_scvi(
         # Save the model
         model.save(str(save_path), overwrite=True)
         log.info(f"scVI model saved to: {save_path}")
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
-        "integration", {}
-    )["scvi"] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        "scvi"
+    ] = {
         "batch_key": batch_key,
         "params": {
             "n_layers": n_layers,
@@ -342,9 +339,7 @@ def _integrate_scvi(
         "model_path": model_path if save_model else None,
         "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    log.info(
-        f"scVI integration finished: {embedding_key} shape {adata.obsm[embedding_key].shape}"
-    )
+    log.info(f"scVI integration finished: {embedding_key} shape {adata.obsm[embedding_key].shape}")
     return adata
 
 
@@ -386,9 +381,9 @@ def _integrate_bbknn(
         trim=trim,
         **kwargs,
     )
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
-        "integration", {}
-    )["bbknn"] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        "bbknn"
+    ] = {
         "batch_key": batch_key,
         "params": {
             "neighbors_within_batch": neighbors_within_batch,
@@ -440,17 +435,15 @@ def _integrate_combat(
     import anndata
 
     temp_adata = anndata.AnnData(X=X_combat, obs=adata.obs.copy())
-    sc.pp.combat(
-        temp_adata, key=batch_key, covariates=covariates, inplace=True, **kwargs
-    )
+    sc.pp.combat(temp_adata, key=batch_key, covariates=covariates, inplace=True, **kwargs)
     X_corrected = temp_adata.X
     if inplace:
         adata.X = X_corrected
     if output_layer:
         adata.layers[output_layer] = X_corrected
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
-        "integration", {}
-    )["combat"] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        "combat"
+    ] = {
         "batch_key": batch_key,
         "params": {
             "covariates": covariates,
@@ -468,21 +461,21 @@ def _compute_kbet_score(
     batch_labels: pd.Series,
     n_neighbors: int = 25,
     alpha: float = 0.05,
-    n_sample_cells: int = 1000
+    n_sample_cells: int = 1000,
 ) -> Dict[str, float]:
     """
     Compute proper k-BET (k-nearest neighbor Batch Effect Test) score.
-    
+
     Based on: Büttner et al., Nature Methods 2019
-    
+
     Returns:
         Dict with 'rejection_rate', 'acceptance_rate', and 'kbet_score'
     """
-    from sklearn.neighbors import NearestNeighbors
     from scipy.stats import chi2
-    
+    from sklearn.neighbors import NearestNeighbors
+
     n_cells = X.shape[0]
-    
+
     # Sample cells if dataset is large
     if n_cells > n_sample_cells:
         np.random.seed(42)
@@ -492,74 +485,68 @@ def _compute_kbet_score(
     else:
         X_sample = X
         batch_sample = batch_labels
-    
+
     # Build k-NN graph
     nn = NearestNeighbors(n_neighbors=n_neighbors + 1)  # +1 to exclude self
     nn.fit(X)
     distances, indices = nn.kneighbors(X_sample)
     indices = indices[:, 1:]  # Remove self
-    
+
     # Get global batch distribution
     batch_categories = sorted(batch_labels.unique())
     global_freq = batch_labels.value_counts(normalize=True).reindex(batch_categories).values
-    
+
     # Test each neighborhood
     rejections = 0
     valid_tests = 0
-    
+
     for i in range(len(X_sample)):
         # Get batch composition of neighborhood
         neighbor_batches = batch_labels.iloc[indices[i]].values
-        
+
         # Count batches in neighborhood
-        observed = np.array([
-            (neighbor_batches == batch).sum() for batch in batch_categories
-        ])
-        
+        observed = np.array([(neighbor_batches == batch).sum() for batch in batch_categories])
+
         # Expected counts under null hypothesis
         expected = global_freq * n_neighbors
-        
+
         # Skip if expected counts are too small
         if (expected < 5).any():
             continue
-        
+
         # Chi-square test
         chi2_stat = np.sum((observed - expected) ** 2 / expected)
-        
+
         # Degrees of freedom
         df = len(batch_categories) - 1
-        
+
         # p-value
         p_value = 1 - chi2.cdf(chi2_stat, df)
-        
+
         valid_tests += 1
-        
+
         if p_value < alpha:
             rejections += 1
-    
+
     if valid_tests == 0:
         log.warning("k-BET: No valid tests could be performed")
-        return {
-            'rejection_rate': np.nan,
-            'acceptance_rate': np.nan,
-            'kbet_score': np.nan
-        }
-    
+        return {"rejection_rate": np.nan, "acceptance_rate": np.nan, "kbet_score": np.nan}
+
     rejection_rate = rejections / valid_tests
     acceptance_rate = 1 - rejection_rate
-    
+
     # k-BET score: lower rejection rate = better integration
     # Scale to [0, 1] where 1 is perfect
     kbet_score = acceptance_rate
-    
+
     return {
-        'rejection_rate': rejection_rate,
-        'acceptance_rate': acceptance_rate,
-        'kbet_score': kbet_score,
-        'n_tests': valid_tests
+        "rejection_rate": rejection_rate,
+        "acceptance_rate": acceptance_rate,
+        "kbet_score": kbet_score,
+        "n_tests": valid_tests,
     }
-    
-    
+
+
 # ==============================================================================
 # High-level entry: batch_correction
 # ==============================================================================
@@ -599,9 +586,7 @@ def batch_correction(
 
     # --- 3. ❗ ENHANCED Input validation ❗ ---
     if not method or not batch_key:
-        log.info(
-            "`method` or `batch_key` not specified in config. Skipping batch correction."
-        )
+        log.info("`method` or `batch_key` not specified in config. Skipping batch correction.")
         return adata
 
     # Handle both string and list for batch_key
@@ -618,9 +603,7 @@ def batch_correction(
     # --- END OF ENHANCEMENT ---
 
     if output_key in adata.obsm and not force:
-        log.info(
-            f"Integration result '{output_key}' already exists. Use force=True to rerun."
-        )
+        log.info(f"Integration result '{output_key}' already exists. Use force=True to rerun.")
         return adata
 
     # --- 4. Plot before state (if requested) ---
@@ -631,44 +614,45 @@ def batch_correction(
         if "X_umap" not in adata_before.obsm:
             sc.tl.umap(adata_before)
 
-    # --- 5. Main integration logic (no changes here) ---
+    # --- 5. Main integration logic ---
     method_kwargs = {}
     if method == "harmony":
-        method_kwargs = active_config.harmony_params
+        method_kwargs = dict(active_config.harmony_params)
     elif method == "scvi":
-        method_kwargs = active_config.scvi_params
+        method_kwargs = dict(active_config.scvi_params)
     elif method == "scanorama" and active_config.hvg_key:
         if active_config.hvg_key in adata.var:
-            method_kwargs["hvg"] = adata.var_names[
-                adata.var[active_config.hvg_key]
-            ].tolist()
+            method_kwargs["hvg"] = adata.var_names[adata.var[active_config.hvg_key]].tolist()
         else:
             log.warning(
                 f"hvg_key '{active_config.hvg_key}' not found in .var. Running on all genes."
             )
 
+    # Merge user-supplied method_kwargs (takes precedence over method-specific defaults)
+    if active_config.method_kwargs:
+        overlap = set(method_kwargs.keys()) & set(active_config.method_kwargs.keys())
+        if overlap:
+            log.info(f"method_kwargs override default params: {overlap}")
+        method_kwargs.update(active_config.method_kwargs)
+
     log.info(f"Running batch correction with method: '{method}'")
 
     if method == "harmony":
         adata = _integrate_harmony(
-            adata, covariate_keys=batch_key, basis=use_rep, embedding_key=output_key, **method_kwargs
+            adata,
+            covariate_keys=batch_key,
+            basis=use_rep,
+            embedding_key=output_key,
+            **method_kwargs,
         )
     elif method == "scanorama":
-        adata = _integrate_scanorama(
-            adata, batch_key, embedding_key=output_key, **method_kwargs
-        )
+        adata = _integrate_scanorama(adata, batch_key, embedding_key=output_key, **method_kwargs)
     elif method == "scvi":
-        adata = _integrate_scvi(
-            adata, batch_key, embedding_key=output_key, **method_kwargs
-        )
+        adata = _integrate_scvi(adata, batch_key, embedding_key=output_key, **method_kwargs)
     elif method == "bbknn":
-        adata = _integrate_bbknn(
-            adata, batch_key, use_rep=use_rep, **method_kwargs
-        )
+        adata = _integrate_bbknn(adata, batch_key, use_rep=use_rep, **method_kwargs)
     elif method == "combat":
-        adata = _integrate_combat(
-            adata, batch_key, **method_kwargs
-        )
+        adata = _integrate_combat(adata, batch_key, **method_kwargs)
     else:
         raise ValueError(
             f"Unknown integration method '{method}'. "
@@ -676,8 +660,10 @@ def batch_correction(
         )
 
     # --- 6. Store metadata and plot after state ---
-    integration_meta = adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
-        "integration", {}
+    integration_meta = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("preprocess", {})
+        .setdefault("integration", {})
     )
     integration_meta["workflow"] = {
         "params": active_config.to_dict(),
@@ -697,7 +683,7 @@ def batch_correction(
         # If batch_key is a list, use the first element for coloring the UMAP
         color_key = batch_key[0] if isinstance(batch_key, list) else batch_key
         log.info(f"Using '{color_key}' for UMAP color annotation.")
-        
+
         fig, axes = plt.subplots(1, 2, figsize=(16, 7))
         fig.suptitle("Batch Correction Comparison", fontsize=16)
         sc.pl.umap(
@@ -802,9 +788,7 @@ def evaluate_integration(
                     sample_size=min(5000, adata.n_obs),
                 )
                 results["label_silhouette"] = label_sil
-                results["overall_silhouette"] = (
-                    results["batch_silhouette"] + label_sil
-                ) / 2
+                results["overall_silhouette"] = (results["batch_silhouette"] + label_sil) / 2
             log.info(f"Batch silhouette: {results['batch_silhouette']:.4f}")
         except Exception as e:
             log.warning(f"Silhouette failed: {e}")
@@ -817,15 +801,15 @@ def evaluate_integration(
                 X,
                 adata.obs[batch_key],
                 n_neighbors=n_neighbors,
-                n_sample_cells=min(2000, adata.n_obs)
+                n_sample_cells=min(2000, adata.n_obs),
             )
-            
-            results['kbet_acceptance'] = kbet_result['acceptance_rate']
-            results['kbet_rejection_rate'] = kbet_result['rejection_rate']
-            
+
+            results["kbet_acceptance"] = kbet_result["acceptance_rate"]
+            results["kbet_rejection_rate"] = kbet_result["rejection_rate"]
+
             log.info(f"k-BET acceptance rate: {kbet_result['acceptance_rate']:.4f}")
             log.info(f"k-BET tests performed: {kbet_result['n_tests']}")
-            
+
         except Exception as e:
             log.warning(f"Failed to compute k-BET: {str(e)}")
 
@@ -866,9 +850,7 @@ def evaluate_integration(
                 subgraph = adjacency[label_indices][:, label_indices]
 
                 # Find connected components
-                n_components, component_labels = connected_components(
-                    subgraph, directed=False
-                )
+                n_components, component_labels = connected_components(subgraph, directed=False)
 
                 # Compute largest component size
                 component_sizes = np.bincount(component_labels)
@@ -953,14 +935,10 @@ def evaluate_integration(
         import matplotlib.pyplot as plt
 
         plot_metrics = [
-            k
-            for k in results
-            if k not in ["method", "n_batches", "n_cells", "n_labels"]
+            k for k in results if k not in ["method", "n_batches", "n_cells", "n_labels"]
         ]
         if plot_metrics:
-            fig, axes = plt.subplots(
-                1, len(plot_metrics), figsize=(4 * len(plot_metrics), 5)
-            )
+            fig, axes = plt.subplots(1, len(plot_metrics), figsize=(4 * len(plot_metrics), 5))
             if len(plot_metrics) == 1:
                 axes = [axes]
             for i, m in enumerate(plot_metrics):

@@ -6,8 +6,9 @@ manual/AI mapping import, and annotation evaluation.
 
 import logging
 from collections import Counter
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +16,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from ..utils import sanitize_for_hdf5, use_layer_as_X, Manager, get_marker_manager
+from ..utils import Manager, get_marker_manager, sanitize_for_hdf5, use_layer_as_X
 from .config import AnnotationConfig
 from .scoring import FunctionalSignatureManager, score_by_gene_sets
 
@@ -68,6 +69,7 @@ _ANNOTATION_NOISE_PREFIXES = {
 
 
 # --------------------- Helper Functions -----------------------
+
 
 def _get_default_compartment_map() -> Dict[str, str]:
     """Return a default compartment mapper for common cell type labels."""
@@ -127,6 +129,8 @@ def _map_compartments(
 
     mapped = labels.apply(_map_label)
     return mapped
+
+
 def _read_table_file(path: str) -> pd.DataFrame:
     """
     Read a tabular mapping file with robust handling:
@@ -181,7 +185,7 @@ def _read_json_file(path: str) -> dict:
     last_err = None
     for enc in ["utf-8", "utf-8-sig", "gbk", "cp1252", "latin1"]:
         try:
-            with open(path, "r", encoding=enc) as f:
+            with open(path, encoding=enc) as f:
                 return json.load(f)
         except Exception as e:
             last_err = e
@@ -191,15 +195,11 @@ def _read_json_file(path: str) -> dict:
         with open(path, "rb") as fb:
             raw = fb.read(200000)
         guess = chardet.detect(raw).get("encoding") or "utf-8"
-        with open(path, "r", encoding=guess, errors="replace") as f:
+        with open(path, encoding=guess, errors="replace") as f:
             return json.load(f)
     except Exception:
         pass
-    raise (
-        last_err
-        if last_err
-        else RuntimeError("Failed to read JSON with multiple encodings.")
-    )
+    raise (last_err if last_err else RuntimeError("Failed to read JSON with multiple encodings."))
 
 
 def _classify_annotation_marker(gene: Any) -> Optional[str]:
@@ -225,7 +225,8 @@ def _resolve_score_columns(
     if score_cols is not None:
         return [col for col in score_cols if col in adata.obs.columns]
     return [
-        col for col in adata.obs.columns
+        col
+        for col in adata.obs.columns
         if col.endswith("_score") and pd.api.types.is_numeric_dtype(adata.obs[col])
     ]
 
@@ -405,9 +406,7 @@ def score_cell_types(
                 else:
                     n_skipped += 1
     log.info(f"Scored {n_scored} cell types ({n_skipped} skipped).")
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "annotation", {}
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     scoring_params = sanitize_for_hdf5(
         {
             "use_raw": use_raw,
@@ -430,8 +429,8 @@ def annotate_clusters(
     method: Literal["max_score", "enrichment", "combined"] = "max_score",
     use_raw: bool = False,
     key_added: Optional[str] = None,
-    min_confidence: float = 0.3, 
-    confidence_key: Optional[str] = None, 
+    min_confidence: float = 0.3,
+    confidence_key: Optional[str] = None,
     min_score: float = 0.1,
     n_genes: int = 100,
     score_weight: float = 0.6,
@@ -470,9 +469,7 @@ def annotate_clusters(
     def annotate_by_max_score():
         score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
         if not score_cols:
-            raise RuntimeError(
-                "No *_score columns found. Please run score_cell_types first."
-            )
+            raise RuntimeError("No *_score columns found. Please run score_cell_types first.")
         means = adata.obs.groupby(cluster_key)[score_cols].mean()
         result = {}
         for cluster in means.index:
@@ -516,9 +513,7 @@ def annotate_clusters(
     def annotate_by_combined():
         score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
         if not score_cols:
-            raise RuntimeError(
-                "No *_score columns found. Please run score_cell_types first."
-            )
+            raise RuntimeError("No *_score columns found. Please run score_cell_types first.")
         means = adata.obs.groupby(cluster_key)[score_cols].mean()
         sc.tl.rank_genes_groups(
             adata,
@@ -541,16 +536,10 @@ def annotate_clusters(
             for cell_type, cell in mgr.CELLS.items():
                 score_col = f"{cell_type}_score"
                 score_val = (
-                    float(means.loc[cluster, score_col])
-                    if score_col in means.columns
-                    else 0.0
+                    float(means.loc[cluster, score_col]) if score_col in means.columns else 0.0
                 )
                 denom = max(1, len(cell.markers))
-                overlap_val = (
-                    (len(set(genes) & set(cell.markers)) / denom)
-                    if cell.markers
-                    else 0.0
-                )
+                overlap_val = (len(set(genes) & set(cell.markers)) / denom) if cell.markers else 0.0
                 combined_scores[cell_type] = (
                     score_weight * score_val + enrichment_weight * overlap_val
                 )
@@ -576,9 +565,7 @@ def annotate_clusters(
     adata.obs[key_added] = pd.Categorical(assigned)
 
     # Save and optional plot
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "annotation", {}
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     params_dict = sanitize_for_hdf5(
         {
             "method": method,
@@ -587,9 +574,7 @@ def annotate_clusters(
             "enrichment_weight": enrichment_weight,
             "mapping": mapping,
             "scanpy_version": getattr(sc, "__version__", "unknown"),
-            "n_markers": {
-                k: len(v.markers) for k, v in getattr(mgr, "CELLS", {}).items()
-            },
+            "n_markers": {k: len(v.markers) for k, v in getattr(mgr, "CELLS", {}).items()},
         }
     )
     adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = params_dict
@@ -636,9 +621,7 @@ def _build_celltypist_cluster_mapping(
     min_confidence: float = 0.5,
 ) -> tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
     """Aggregate CellTypist predictions to cluster-level labels."""
-    labels, confidences, label_key = _get_celltypist_label_series(
-        adata, key_prefix=key_prefix
-    )
+    labels, confidences, label_key = _get_celltypist_label_series(adata, key_prefix=key_prefix)
     mapping: Dict[str, str] = {}
     stats: Dict[str, Dict[str, float]] = {}
 
@@ -663,9 +646,7 @@ def _build_celltypist_cluster_mapping(
         majority_fraction = best_count / max(1, len(cluster_pred))
         mean_conf = float(cluster_conf.mean()) if len(cluster_conf) else majority_fraction
 
-        mapping[str(cluster)] = (
-            best_label if mean_conf >= min_confidence else "Unknown"
-        )
+        mapping[str(cluster)] = best_label if mean_conf >= min_confidence else "Unknown"
         stats[str(cluster)] = {
             "mean_conf_score": mean_conf,
             "majority_fraction": float(majority_fraction),
@@ -740,7 +721,11 @@ def _collect_marker_score_evidence(
 ) -> Dict[str, Dict[str, Any]]:
     """Summarize marker-score evidence per cluster when score columns exist."""
     score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
-    if not score_cols or cluster_key not in adata.obs.columns or annotation_key not in adata.obs.columns:
+    if (
+        not score_cols
+        or cluster_key not in adata.obs.columns
+        or annotation_key not in adata.obs.columns
+    ):
         return {}
 
     means = adata.obs.groupby(cluster_key)[score_cols].mean()
@@ -759,7 +744,9 @@ def _collect_marker_score_evidence(
         top_score_col = row.idxmax()
         top_label = top_score_col[:-6] if top_score_col.endswith("_score") else top_score_col
         top_score = float(row[top_score_col])
-        assigned_score = float(row[assigned_score_col]) if assigned_score_col in row.index else np.nan
+        assigned_score = (
+            float(row[assigned_score_col]) if assigned_score_col in row.index else np.nan
+        )
 
         if assigned_score_col in row.index:
             best_other = row.drop(labels=[assigned_score_col], errors="ignore").max()
@@ -815,9 +802,7 @@ def _build_annotation_evidence_summary(
 
     hybrid_audit = {}
     if params is not None:
-        hybrid_audit = {
-            str(k): v for k, v in params.get("hybrid_audit", {}).items()
-        }
+        hybrid_audit = {str(k): v for k, v in params.get("hybrid_audit", {}).items()}
 
     rows = []
     for cluster in sorted(cluster_series.unique(), key=str):
@@ -825,7 +810,11 @@ def _build_annotation_evidence_summary(
         cluster_labels = annotation_series.loc[mask]
         label_counts = cluster_labels.value_counts()
         assigned_label = str(label_counts.index[0]) if not label_counts.empty else "Unknown"
-        label_purity = float(label_counts.iloc[0] / max(1, label_counts.sum())) if not label_counts.empty else 0.0
+        label_purity = (
+            float(label_counts.iloc[0] / max(1, label_counts.sum()))
+            if not label_counts.empty
+            else 0.0
+        )
 
         cluster_marker = marker_evidence.get(str(cluster), {})
         celltypist_label = celltypist_mapping.get(str(cluster), "Unknown")
@@ -833,9 +822,7 @@ def _build_annotation_evidence_summary(
         ct_mean_conf = float(ct_stats.get("mean_conf_score", np.nan))
         ct_majority_fraction = float(ct_stats.get("majority_fraction", np.nan))
         ct_agreement = (
-            float(celltypist_label == assigned_label)
-            if celltypist_label != "Unknown"
-            else np.nan
+            float(celltypist_label == assigned_label) if celltypist_label != "Unknown" else np.nan
         )
 
         confidence_parts = [label_purity]
@@ -845,9 +832,7 @@ def _build_annotation_evidence_summary(
 
         if pd.notna(ct_mean_conf) or pd.notna(ct_majority_fraction):
             ct_component_parts = [
-                value
-                for value in [ct_mean_conf, ct_majority_fraction]
-                if pd.notna(value)
+                value for value in [ct_mean_conf, ct_majority_fraction] if pd.notna(value)
             ]
             ct_component = float(np.mean(ct_component_parts)) if ct_component_parts else np.nan
             if pd.notna(ct_component):
@@ -901,9 +886,7 @@ def _store_annotation_evidence_summary(
         params=params,
     )
     annotation_ns = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("annotation", {})
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )
     annotation_ns[f"{annotation_key}_evidence"] = summary_df
     annotation_ns[f"{annotation_key}_evidence_params"] = sanitize_for_hdf5(
@@ -942,12 +925,10 @@ def run_celltypist(
     import celltypist
 
     input_adata = adata.raw.to_adata() if use_raw and adata.raw is not None else adata
-    pred = celltypist.annotate(
-        input_adata, model=model, majority_voting=majority_voting
+    pred = celltypist.annotate(input_adata, model=model, majority_voting=majority_voting)
+    adata.obs[f"{key_added}_predicted_labels"] = pred.predicted_labels["predicted_labels"].reindex(
+        adata.obs.index
     )
-    adata.obs[f"{key_added}_predicted_labels"] = pred.predicted_labels[
-        "predicted_labels"
-    ].reindex(adata.obs.index)
     adata.obs[f"{key_added}_conf_score"] = pred.predicted_labels["conf_score"].reindex(
         adata.obs.index
     )
@@ -955,16 +936,14 @@ def run_celltypist(
         adata.obs[f"{key_added}_majority_voting"] = pred.predicted_labels[
             "majority_voting"
         ].reindex(adata.obs.index)
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "annotation", {}
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     celltypist_info = {
         "model": model,
         "majority_voting": majority_voting,
         "timestamp": str(pd.Timestamp.now()),
     }
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_results"] = (
-        sanitize_for_hdf5(celltypist_info)
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_results"] = sanitize_for_hdf5(
+        celltypist_info
     )
     return adata
 
@@ -1012,9 +991,7 @@ def transfer_labels(
         confidences.append(confidence)
     adata.obs[key_added] = pd.Categorical(result)
     adata.obs[f"{key_added}_confidence"] = confidences
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "annotation", {}
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     transfer_params = sanitize_for_hdf5(
         {
             "method": "knn_transfer",
@@ -1025,9 +1002,7 @@ def transfer_labels(
             "reference_label_key": ref_label_key,
         }
     )
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = (
-        transfer_params
-    )
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = transfer_params
     return adata
 
 
@@ -1204,7 +1179,8 @@ def flag_suspect_clusters(
             row["mean_n_genes_by_counts"] = np.nan
 
         present_doublet_cols = [
-            col for col in doublet_flag_cols
+            col
+            for col in doublet_flag_cols
             if col in cluster_obs.columns and pd.api.types.is_bool_dtype(cluster_obs[col])
         ]
         if present_doublet_cols:
@@ -1259,7 +1235,10 @@ def flag_suspect_clusters(
             row["housekeeping_marker_fraction"] = np.nan
             row["top_marker_preview"] = ""
 
-        if pd.notna(row["doublet_fraction"]) and row["doublet_fraction"] >= doublet_fraction_threshold:
+        if (
+            pd.notna(row["doublet_fraction"])
+            and row["doublet_fraction"] >= doublet_fraction_threshold
+        ):
             suspect_reasons.append("doublet_suspect")
         if pd.notna(row["mean_pct_counts_mt"]) and row["mean_pct_counts_mt"] >= mt_mean_threshold:
             suspect_reasons.append("mt_high")
@@ -1282,9 +1261,7 @@ def flag_suspect_clusters(
     summary_df = pd.DataFrame(rows)
     target_key = key_added or f"{cluster_key}_suspect_flags"
     annotation_ns = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("annotation", {})
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )
     annotation_ns[target_key] = summary_df
     annotation_ns[f"{target_key}_params"] = sanitize_for_hdf5(
@@ -1360,9 +1337,14 @@ def build_annotation_review_table(
             row["annotation"] = None
 
         if filtered_markers is not None and not filtered_markers.empty:
-            top_markers = filtered_markers[
-                filtered_markers[marker_group_col].astype(str) == str(cluster)
-            ][marker_gene_col].astype(str).head(top_n_markers).tolist()
+            top_markers = (
+                filtered_markers[filtered_markers[marker_group_col].astype(str) == str(cluster)][
+                    marker_gene_col
+                ]
+                .astype(str)
+                .head(top_n_markers)
+                .tolist()
+            )
             row["top_markers"] = ", ".join(top_markers)
         else:
             row["top_markers"] = ""
@@ -1372,10 +1354,21 @@ def build_annotation_review_table(
             if cluster_terms is None:
                 cluster_terms = enrichment_dict.get(str(cluster))
             if isinstance(cluster_terms, pd.DataFrame) and not cluster_terms.empty:
-                sort_col = "Adjusted P-value" if "Adjusted P-value" in cluster_terms.columns else cluster_terms.columns[0]
-                row["top_terms"] = ", ".join(
-                    cluster_terms.sort_values(sort_col).head(top_n_terms)["Term"].astype(str).tolist()
-                ) if "Term" in cluster_terms.columns else ""
+                sort_col = (
+                    "Adjusted P-value"
+                    if "Adjusted P-value" in cluster_terms.columns
+                    else cluster_terms.columns[0]
+                )
+                row["top_terms"] = (
+                    ", ".join(
+                        cluster_terms.sort_values(sort_col)
+                        .head(top_n_terms)["Term"]
+                        .astype(str)
+                        .tolist()
+                    )
+                    if "Term" in cluster_terms.columns
+                    else ""
+                )
             else:
                 row["top_terms"] = ""
         else:
@@ -1405,17 +1398,13 @@ def build_annotation_review_table(
         else:
             row["time_distribution"] = ""
 
-        row["mean_scores"] = ", ".join(
-            f"{col}:{cluster_obs[col].mean():.3f}" for col in score_cols
-        )
+        row["mean_scores"] = ", ".join(f"{col}:{cluster_obs[col].mean():.3f}" for col in score_cols)
         rows.append(row)
 
     review_df = pd.DataFrame(rows)
     target_key = key_added or f"{cluster_key}_review_table"
     annotation_ns = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("annotation", {})
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )
     annotation_ns[target_key] = review_df
     annotation_ns[f"{target_key}_params"] = sanitize_for_hdf5(
@@ -1446,9 +1435,7 @@ def run_lineage_state_annotation(
     """
     use_raw = adata.raw is not None
     annotation_ns = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("annotation", {})
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )
 
     lineage_mgr = _resolve_annotation_manager(
@@ -1481,7 +1468,9 @@ def run_lineage_state_annotation(
     _rename_score_columns_for_manager(adata, lineage_mgr, "_lineage_module")
 
     subtype_values = pd.Series("Not_applicable", index=adata.obs_names, dtype="object")
-    target_mask = _label_matches_target_lineage(adata.obs[config.lineage_key], config.target_lineage)
+    target_mask = _label_matches_target_lineage(
+        adata.obs[config.lineage_key], config.target_lineage
+    )
 
     if config.subtype_marker_config:
         subtype_mgr = _resolve_annotation_manager(
@@ -1552,20 +1541,26 @@ def run_lineage_state_annotation(
                     )
                     for lin, sub in zip(lineage_labels, subtype_labels)
                 ]
-                scoped_score_df.loc[~pd.Series(allowed_mask, index=scoped_score_df.index), score_col] = -np.inf
+                scoped_score_df.loc[
+                    ~pd.Series(allowed_mask, index=scoped_score_df.index), score_col
+                ] = -np.inf
 
             winner_cols = scoped_score_df.idxmax(axis=1)
             state_values = winner_cols.str.replace(config.state_score_suffix, "", regex=False)
 
             top1 = scoped_score_df.max(axis=1)
             top2 = scoped_score_df.apply(
-                lambda row: row.replace(-np.inf, np.nan).nlargest(2).iloc[-1]
-                if row.replace(-np.inf, np.nan).dropna().shape[0] > 1
-                else row.replace(-np.inf, np.nan).fillna(0).iloc[0],
+                lambda row: (
+                    row.replace(-np.inf, np.nan).nlargest(2).iloc[-1]
+                    if row.replace(-np.inf, np.nan).dropna().shape[0] > 1
+                    else row.replace(-np.inf, np.nan).fillna(0).iloc[0]
+                ),
                 axis=1,
             )
             state_confidence = (top1 - top2).astype(float)
-            state_values = state_values.where(top1.replace(-np.inf, np.nan).notna(), "Not_applicable")
+            state_values = state_values.where(
+                top1.replace(-np.inf, np.nan).notna(), "Not_applicable"
+            )
             state_confidence = state_confidence.where(top1.replace(-np.inf, np.nan).notna(), np.nan)
             state_values = state_values.where(target_mask, "Not_applicable")
             state_confidence = state_confidence.where(target_mask, np.nan)
@@ -1646,13 +1641,9 @@ def apply_annotation_mapping(
         if ext in [".xlsx", ".xls", ".csv"]:
             df = _read_table_file(mapping)
             if {"cluster", "cell_type"}.issubset(df.columns):
-                mapping_dict = pd.Series(
-                    df["cell_type"].values, index=df["cluster"]
-                ).to_dict()
+                mapping_dict = pd.Series(df["cell_type"].values, index=df["cluster"]).to_dict()
             elif len(df.columns) >= 2:
-                mapping_dict = pd.Series(
-                    df.iloc[:, 1].values, index=df.iloc[:, 0]
-                ).to_dict()
+                mapping_dict = pd.Series(df.iloc[:, 1].values, index=df.iloc[:, 0]).to_dict()
                 log.info(
                     "Mapping file has no standard headers; used first two columns as [cluster, cell_type]."
                 )
@@ -1665,9 +1656,7 @@ def apply_annotation_mapping(
             mapping_dict = _read_json_file(mapping)
             mapping_source = {"type": "file", "path": mapping}
         else:
-            raise ValueError(
-                "Unsupported mapping file format. Use .xlsx, .xls, .csv or .json."
-            )
+            raise ValueError("Unsupported mapping file format. Use .xlsx, .xls, .csv or .json.")
     elif isinstance(mapping, dict):
         mapping_dict = mapping
         mapping_source = {"type": "dict"}
@@ -1696,9 +1685,7 @@ def apply_annotation_mapping(
 
     # 5) Store metadata snapshot
     annot_ns = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("annotation", {})
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )
     annot_ns[f"{key_added}_mapping"] = sanitize_for_hdf5(mapping_dict)
     annot_ns[f"{key_added}_mapping_meta"] = sanitize_for_hdf5(
@@ -1746,9 +1733,7 @@ def remap_labels(
     if column not in adata.obs.columns:
         raise KeyError(f"Column '{column}' not found in adata.obs.")
     if not in_place and not key_added:
-        raise ValueError(
-            "When in_place=False, you must provide key_added for the new column name."
-        )
+        raise ValueError("When in_place=False, you must provide key_added for the new column name.")
 
     src = adata.obs[column].astype(str)
     s = src.copy()
@@ -1763,13 +1748,9 @@ def remap_labels(
 
     if where is not None:
         if to is None:
-            raise ValueError(
-                "When providing 'where', you must also provide 'to' label."
-            )
+            raise ValueError("When providing 'where', you must also provide 'to' label.")
         if not isinstance(where, pd.Series) or not where.index.equals(adata.obs.index):
-            raise ValueError(
-                "'where' must be a boolean Series aligned to adata.obs index."
-            )
+            raise ValueError("'where' must be a boolean Series aligned to adata.obs index.")
         before = s.copy()
         s.loc[where] = to
         changed_by_where = int((s != before).sum())
@@ -1785,18 +1766,18 @@ def remap_labels(
 
     # Audit
     annot_ns = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("analysis", {})
-        .setdefault("annotation", {})
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )
     audit = annot_ns.setdefault("remap_audit", [])
     audit_entry = sanitize_for_hdf5(
         {
             "source_column": column,
             "target_column": target_col,
-            "mode": "mapping+where"
-            if (mapping is not None and where is not None)
-            else ("mapping" if mapping is not None else "where"),
+            "mode": (
+                "mapping+where"
+                if (mapping is not None and where is not None)
+                else ("mapping" if mapping is not None else "where")
+            ),
             "mapping": mapping if mapping is not None else None,
             "to": to if where is not None else None,
             "changed_by_mapping": changed_by_mapping,
@@ -1837,9 +1818,7 @@ def evaluate_annotation(
     else:
         raise TypeError("marker_config must be a file path or Manager instance.")
     if not mgr.CELLS:
-        log.warning(
-            "Marker manager has no cell types. Evaluation may be uninformative."
-        )
+        log.warning("Marker manager has no cell types. Evaluation may be uninformative.")
 
     # Ensure cluster_key exists/categorical
     if cluster_key not in adata.obs.columns:
@@ -1861,14 +1840,8 @@ def evaluate_annotation(
         de_genes = sc.get.rank_genes_groups_df(
             adata, key=f"rank_genes_{cluster_key}", group=cluster
         )
-        if (
-            de_genes.empty
-            or "pvals_adj" not in de_genes.columns
-            or "names" not in de_genes.columns
-        ):
-            log.warning(
-                f"No DE genes or required columns missing for cluster '{cluster}'."
-            )
+        if de_genes.empty or "pvals_adj" not in de_genes.columns or "names" not in de_genes.columns:
+            log.warning(f"No DE genes or required columns missing for cluster '{cluster}'.")
             continue
         sig_genes = set(de_genes.loc[de_genes["pvals_adj"] < 0.05, "names"].astype(str))
 
@@ -1885,9 +1858,7 @@ def evaluate_annotation(
 
         expected_markers = set(mgr[assigned_type].markers)
         found_markers = sig_genes & expected_markers
-        marker_coverage = (
-            len(found_markers) / len(expected_markers) if expected_markers else 0.0
-        )
+        marker_coverage = len(found_markers) / len(expected_markers) if expected_markers else 0.0
 
         all_other_markers = set(
             m for t, c in mgr.CELLS.items() if t != assigned_type for m in c.markers
@@ -1906,9 +1877,7 @@ def evaluate_annotation(
                 "marker_coverage": marker_coverage,
                 "marker_specificity": specificity,
                 "annotation_confidence": confidence,
-                "found_markers": ", ".join(sorted(found_markers))
-                if found_markers
-                else "",
+                "found_markers": ", ".join(sorted(found_markers)) if found_markers else "",
                 "expected_markers": len(expected_markers),
                 "detected_markers": len(found_markers),
             }
@@ -1920,10 +1889,7 @@ def evaluate_annotation(
             results_df = results_df.sort_values("annotation_confidence")
             plt.figure(figsize=(12, 8))
             plt.barh(
-                results_df["cluster"].astype(str)
-                + " ("
-                + results_df["cell_type"]
-                + ")",
+                results_df["cluster"].astype(str) + " (" + results_df["cell_type"] + ")",
                 results_df["annotation_confidence"],
                 color="skyblue",
             )
@@ -1938,12 +1904,8 @@ def evaluate_annotation(
         else:
             log.info("No evaluation results to plot (empty results).")
 
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "annotation", {}
-    )
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{annotation_key}_evaluation"] = (
-        results_df
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
+    adata.uns["sclucid"]["analysis"]["annotation"][f"{annotation_key}_evaluation"] = results_df
     # Save params
     eval_params = sanitize_for_hdf5(
         {
@@ -1983,11 +1945,9 @@ def run_annotation(
             adata.obs[config.key_added],
             compartment_map=config.compartment_map,
         )
-        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-            "annotation", {}
-        )
-        adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = (
-            sanitize_for_hdf5(config.to_dict())
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
+        adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = sanitize_for_hdf5(
+            config.to_dict()
         )
         return adata
 
@@ -2004,7 +1964,9 @@ def run_annotation(
 
     if config.run_scoring and config.final_method != "celltypist":
         # Use raw for scoring by default
-        adata = score_cell_types(adata, marker_config=mgr, use_raw=use_raw, layer=None if use_raw else None)
+        adata = score_cell_types(
+            adata, marker_config=mgr, use_raw=use_raw, layer=None if use_raw else None
+        )
 
     params_for_summary: Dict[str, Any] = {}
     if config.final_method in {"max_score", "enrichment", "combined"}:
@@ -2026,12 +1988,12 @@ def run_annotation(
         )
     elif config.final_method == "celltypist":
         labels, confidences, label_key = _get_celltypist_label_series(adata)
-        final_labels = labels.where(confidences >= config.celltypist_confidence_threshold, "Unknown")
+        final_labels = labels.where(
+            confidences >= config.celltypist_confidence_threshold, "Unknown"
+        )
         adata.obs[config.key_added] = pd.Categorical(final_labels)
         adata.obs[f"{config.key_added}_confidence"] = confidences.astype(float)
-        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-            "annotation", {}
-        )
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
         adata.uns["sclucid"]["analysis"]["annotation"][f"{config.key_added}_params"] = (
             sanitize_for_hdf5(
                 {
@@ -2065,10 +2027,7 @@ def run_annotation(
             .get("annotation", {})
             .get(f"{marker_key}_params", {})
         )
-        marker_mapping = {
-            str(k): str(v)
-            for k, v in marker_params.get("mapping", {}).items()
-        }
+        marker_mapping = {str(k): str(v) for k, v in marker_params.get("mapping", {}).items()}
         celltypist_mapping, celltypist_stats = _build_celltypist_cluster_mapping(
             adata,
             config.cluster_key,
@@ -2084,9 +2043,7 @@ def run_annotation(
         adata.obs[config.key_added] = pd.Categorical(
             cluster_codes.map(final_mapping).fillna("Unknown")
         )
-        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-            "annotation", {}
-        )
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
         adata.uns["sclucid"]["analysis"]["annotation"][f"{config.key_added}_params"] = (
             sanitize_for_hdf5(
                 {
@@ -2141,10 +2098,8 @@ def run_annotation(
         except Exception as exc:
             log.warning(f"Failed to export annotation report: {exc}")
 
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "annotation", {}
-    )
-    adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = (
-        sanitize_for_hdf5(config.to_dict())
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
+    adata.uns["sclucid"]["analysis"]["annotation"]["workflow_config"] = sanitize_for_hdf5(
+        config.to_dict()
     )
     return adata

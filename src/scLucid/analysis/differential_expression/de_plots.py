@@ -20,8 +20,6 @@ from anndata import AnnData
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
-from ...base_config import SclucidBaseConfig
-
 log = logging.getLogger(__name__)
 
 
@@ -30,9 +28,7 @@ def visualize_markers(
     markers: Union[pd.DataFrame, Dict[str, List[str]], List[str]],
     groupby: Optional[str] = None,
     n_genes_per_group: int = 5,
-    plot_type: Literal[
-        "dotplot", "heatmap", "stacked_violin", "violin", "matrixplot"
-    ] = "dotplot",
+    plot_type: Literal["dotplot", "heatmap", "stacked_violin", "violin", "matrixplot"] = "dotplot",
     dendrogram: bool = False,
     standard_scale: Optional[Literal["var", "group"]] = "var",
     swap_axes: bool = False,
@@ -95,8 +91,7 @@ def visualize_markers(
 
         if "group" not in markers.columns:
             raise ValueError(
-                "DataFrame must contain 'group' and 'names' columns "
-                "for grouped visualization"
+                "DataFrame must contain 'group' and 'names' columns " "for grouped visualization"
             )
 
         # Extract top genes per group
@@ -105,9 +100,7 @@ def visualize_markers(
 
             # Sort by logfoldchanges or scores
             if "logfoldchanges" in group_markers.columns:
-                group_markers = group_markers.sort_values(
-                    "logfoldchanges", ascending=False
-                )
+                group_markers = group_markers.sort_values("logfoldchanges", ascending=False)
             elif "scores" in group_markers.columns:
                 group_markers = group_markers.sort_values("scores", ascending=False)
 
@@ -179,21 +172,15 @@ def visualize_markers(
 
     try:
         if plot_type == "dotplot":
-            sc.pl.dotplot(
-                adata, var_names=gene_dict, swap_axes=swap_axes, **plot_kwargs
-            )
+            sc.pl.dotplot(adata, var_names=gene_dict, swap_axes=swap_axes, **plot_kwargs)
         elif plot_type == "heatmap":
-            sc.pl.heatmap(
-                adata, var_names=gene_dict, swap_axes=swap_axes, **plot_kwargs
-            )
+            sc.pl.heatmap(adata, var_names=gene_dict, swap_axes=swap_axes, **plot_kwargs)
         elif plot_type == "stacked_violin":
             sc.pl.stacked_violin(
                 adata, var_names=gene_list_unique, swap_axes=swap_axes, **plot_kwargs
             )
         elif plot_type == "matrixplot":
-            sc.pl.matrixplot(
-                adata, var_names=gene_dict, swap_axes=swap_axes, **plot_kwargs
-            )
+            sc.pl.matrixplot(adata, var_names=gene_dict, swap_axes=swap_axes, **plot_kwargs)
         elif plot_type == "violin":
             sc.pl.violin(adata, keys=gene_list_unique, **plot_kwargs)
         else:
@@ -308,18 +295,16 @@ def plot_volcano(
     df["ranking_score"] = np.abs(df["logfoldchanges"]) * df["-log10_pvals_adj"]
 
     up_genes = df[df["status"] == "Up-regulated"].nlargest(top_n_up, "ranking_score")
-    down_genes = df[df["status"] == "Down-regulated"].nlargest(
-        top_n_down, "ranking_score"
-    )
+    down_genes = df[df["status"] == "Down-regulated"].nlargest(top_n_down, "ranking_score")
 
     genes_to_label_df = pd.concat([up_genes, down_genes])
 
     # Add custom highlights
     if genes_to_highlight:
         highlight_df = df[df["names"].isin(genes_to_highlight)]
-        genes_to_label_df = pd.concat(
-            [genes_to_label_df, highlight_df]
-        ).drop_duplicates(subset=["names"])
+        genes_to_label_df = pd.concat([genes_to_label_df, highlight_df]).drop_duplicates(
+            subset=["names"]
+        )
 
     # Add labels
     texts = []
@@ -506,19 +491,13 @@ def plot_multi_cluster_deg(
         # Plot points
         ax.scatter(x_jitter[ns], y[ns], c="#cccccc", s=sizes_ns, alpha=0.4, zorder=1)
         ax.scatter(x_jitter[up], y[up], c="#d62728", s=sizes_up, alpha=0.8, zorder=2)
-        ax.scatter(
-            x_jitter[down], y[down], c="#1f77b4", s=sizes_down, alpha=0.8, zorder=2
-        )
+        ax.scatter(x_jitter[down], y[down], c="#1f77b4", s=sizes_down, alpha=0.8, zorder=2)
 
         # Smart labeling
         sub["ranking_score"] = np.abs(sub["avg_logFC"]) * sub["neg_log_p"]
 
         # Top up
-        top_up = (
-            sub[up]
-            .nlargest(top_n, "ranking_score")
-            .sort_values("avg_logFC", ascending=False)
-        )
+        top_up = sub[up].nlargest(top_n, "ranking_score").sort_values("avg_logFC", ascending=False)
 
         for j, (_, row) in enumerate(top_up.iterrows()):
             x_offset = [-0.25, 0, 0.25][j % 3]
@@ -544,9 +523,7 @@ def plot_multi_cluster_deg(
 
         # Top down
         top_down = (
-            sub[down]
-            .nlargest(top_n, "ranking_score")
-            .sort_values("avg_logFC", ascending=True)
+            sub[down].nlargest(top_n, "ranking_score").sort_values("avg_logFC", ascending=True)
         )
 
         for j, (_, row) in enumerate(top_down.iterrows()):
@@ -676,9 +653,7 @@ def plot_multi_cluster_deg(
 
     # Labels and title
     ax.set_ylabel("Average Log2 Fold Change", fontsize=12, weight="bold")
-    ax.set_title(
-        "Differential Expression per Cluster", fontsize=14, weight="bold", pad=20
-    )
+    ax.set_title("Differential Expression per Cluster", fontsize=14, weight="bold", pad=20)
 
     # Grid
     ax.grid(True, ls="--", alpha=0.2, linewidth=0.5)
@@ -739,5 +714,3 @@ def plot_multi_cluster_deg(
 
 
 # ==================== Result Management ====================
-
-

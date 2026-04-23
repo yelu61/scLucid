@@ -5,13 +5,13 @@ This module implements CNV inference methods based on gene expression patterns.
 It identifies tumor cells by detecting chromosomal amplifications and deletions.
 """
 
+import logging
+from typing import List, Optional, Union
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, List, Dict, Tuple
 from anndata import AnnData
 from scipy.ndimage import gaussian_filter1d
-from scipy.stats import zscore, mannwhitneyu
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class CNVAnalyzer:
     window_size : int
         Size of smoothing window for CNV inference
 
-    Attributes
+    Attributes:
     ----------
     cnv_matrix_ : np.ndarray
         Inferred CNV matrix (cells x genomic_windows)
@@ -66,13 +66,13 @@ class CNVAnalyzer:
         reference_key : str
             Column in adata.obs containing cell type labels
 
-        Returns
+        Returns:
         -------
         CNVAnalyzer
             Fitted analyzer
         """
         # Get expression matrix
-        X = adata.X if not hasattr(adata.X, 'toarray') else adata.X.toarray()
+        X = adata.X if not hasattr(adata.X, "toarray") else adata.X.toarray()
 
         # Get reference cells
         if reference_cells is not None:
@@ -107,19 +107,15 @@ class CNVAnalyzer:
         """Smooth CNV signals along chromosomes."""
         smoothed = np.zeros_like(cnv_ratio)
 
-        for chrom in self.gene_order['chromosome'].unique():
-            chrom_genes = self.gene_order[
-                self.gene_order['chromosome'] == chrom
-            ].index
+        for chrom in self.gene_order["chromosome"].unique():
+            chrom_genes = self.gene_order[self.gene_order["chromosome"] == chrom].index
 
             # Find indices of chromosomal genes
             mask = gene_names.isin(chrom_genes)
             if mask.sum() > 0:
                 chrom_data = cnv_ratio[:, mask]
                 # Apply Gaussian smoothing
-                smoothed[:, mask] = gaussian_filter1d(
-                    chrom_data, sigma=self.window_size, axis=1
-                )
+                smoothed[:, mask] = gaussian_filter1d(chrom_data, sigma=self.window_size, axis=1)
 
         return smoothed
 
@@ -141,7 +137,7 @@ class CNVAnalyzer:
         threshold : float
             Threshold for tumor classification
 
-        Returns
+        Returns:
         -------
         pd.Series
             Boolean series indicating tumor cells
@@ -178,7 +174,7 @@ def infer_cnv(
     copy : bool
         Return a copy of adata
 
-    Returns
+    Returns:
     -------
     AnnData
         Annotated data with CNV information
@@ -218,7 +214,7 @@ def find_tumor_cells(
     key : str
         Key for CNV data in adata
 
-    Returns
+    Returns:
     -------
     pd.Series
         Boolean series indicating tumor cells
@@ -234,16 +230,10 @@ def find_tumor_cells(
         kmeans = KMeans(n_clusters=2, random_state=42).fit(cnv_data)
 
         # Assign tumor label to cluster with higher CNV burden
-        cluster_means = [
-            np.abs(cnv_data[kmeans.labels_ == i]).mean()
-            for i in range(2)
-        ]
+        cluster_means = [np.abs(cnv_data[kmeans.labels_ == i]).mean() for i in range(2)]
         tumor_cluster = np.argmax(cluster_means)
 
-        return pd.Series(
-            kmeans.labels_ == tumor_cluster,
-            index=adata.obs_names
-        )
+        return pd.Series(kmeans.labels_ == tumor_cluster, index=adata.obs_names)
 
     else:
         raise ValueError(f"Unknown method: {method}")
@@ -269,7 +259,7 @@ def identify_clones(
     method : str
         Clustering method ("hierarchical", "kmeans", "leiden")
 
-    Returns
+    Returns:
     -------
     pd.Series
         Clone assignments for each cell
@@ -278,13 +268,16 @@ def identify_clones(
 
     if method == "hierarchical":
         from sklearn.cluster import AgglomerativeClustering
+
         clusterer = AgglomerativeClustering(n_clusters=n_clusters)
     elif method == "kmeans":
         from sklearn.cluster import KMeans
+
         clusterer = KMeans(n_clusters=n_clusters, random_state=42)
     elif method == "leiden":
         # Use scanpy's leiden implementation
         import scanpy as sc
+
         adata_cnv = AnnData(X=cnv_data)
         sc.pp.neighbors(adata_cnv, n_neighbors=15)
         sc.tl.leiden(adata_cnv, resolution=1.0)
@@ -313,7 +306,7 @@ def calculate_cnv_score(
     method : str
         Scoring method ("mean_absolute", "variance", "gini")
 
-    Returns
+    Returns:
     -------
     pd.Series
         CNV scores per cell

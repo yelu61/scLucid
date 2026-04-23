@@ -2,19 +2,20 @@
 Tests for pyCellChat (R-free CellChat implementation)
 """
 
-import pytest
+import sys
+
 import numpy as np
 import pandas as pd
+import pytest
 from anndata import AnnData
 
-import sys
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.tools.pyCellChat import (
     CellChat,
     CellChatDB,
-    get_default_database,
     create_cellchat_from_scanpy,
+    get_default_database,
     plot_heatmap,
 )
 
@@ -39,8 +40,8 @@ def sample_data():
     expr_df = pd.DataFrame(expr, index=gene_names, columns=cell_names)
 
     # Create metadata
-    cell_types = np.random.choice(['T_cell', 'B_cell', 'Monocyte'], n_cells)
-    meta = pd.DataFrame({'cell_type': cell_types}, index=cell_names)
+    cell_types = np.random.choice(["T_cell", "B_cell", "Monocyte"], n_cells)
+    meta = pd.DataFrame({"cell_type": cell_types}, index=cell_names)
 
     return expr_df, meta
 
@@ -59,9 +60,7 @@ def sample_anndata():
     else:
         extra = [f"Gene_{i}" for i in range(n_genes - len(db_genes))]
         var_names = db_genes + extra
-    obs = pd.DataFrame({
-        'cell_type': np.random.choice(['T_cell', 'B_cell', 'Monocyte'], n_cells)
-    })
+    obs = pd.DataFrame({"cell_type": np.random.choice(["T_cell", "B_cell", "Monocyte"], n_cells)})
     var = pd.DataFrame(index=var_names)
 
     adata = AnnData(X=X, obs=obs, var=var)
@@ -97,7 +96,7 @@ class TestCellChatDB:
         db = CellChatDB(species="human")
         subset = db.subset_db(pathways=["TGFB", "TNF"])
         assert len(subset.interaction) > 0
-        assert all(p in ["TGFB", "TNF"] for p in subset.interaction['pathway_name'])
+        assert all(p in ["TGFB", "TNF"] for p in subset.interaction["pathway_name"])
 
     def test_db_mouse(self):
         """Test mouse database"""
@@ -113,11 +112,7 @@ class TestCellChatCore:
     def test_cellchat_initialization(self, sample_data):
         """Test CellChat initialization"""
         expr_df, meta = sample_data
-        cellchat = CellChat(
-            data=expr_df,
-            meta=meta,
-            group_by='cell_type'
-        )
+        cellchat = CellChat(data=expr_df, meta=meta, group_by="cell_type")
 
         assert cellchat.n_cells == 100
         assert cellchat.n_genes == 200
@@ -126,7 +121,7 @@ class TestCellChatCore:
     def test_set_database(self, sample_data):
         """Test setting database"""
         expr_df, meta = sample_data
-        cellchat = CellChat(data=expr_df, meta=meta, group_by='cell_type')
+        cellchat = CellChat(data=expr_df, meta=meta, group_by="cell_type")
 
         db = CellChatDB(species="human")
         cellchat.set_database(db)
@@ -137,7 +132,7 @@ class TestCellChatCore:
     def test_preprocess(self, sample_data):
         """Test data preprocessing"""
         expr_df, meta = sample_data
-        cellchat = CellChat(data=expr_df, meta=meta, group_by='cell_type')
+        cellchat = CellChat(data=expr_df, meta=meta, group_by="cell_type")
 
         db = CellChatDB(species="human")
         cellchat.set_database(db)
@@ -148,7 +143,7 @@ class TestCellChatCore:
     def test_identify_overexpressed_genes(self, sample_data):
         """Test identifying overexpressed genes"""
         expr_df, meta = sample_data
-        cellchat = CellChat(data=expr_df, meta=meta, group_by='cell_type')
+        cellchat = CellChat(data=expr_df, meta=meta, group_by="cell_type")
 
         db = CellChatDB(species="human")
         cellchat.set_database(db)
@@ -160,7 +155,7 @@ class TestCellChatCore:
     def test_compute_communication_prob(self, sample_data):
         """Test computing communication probability"""
         expr_df, meta = sample_data
-        cellchat = CellChat(data=expr_df, meta=meta, group_by='cell_type')
+        cellchat = CellChat(data=expr_df, meta=meta, group_by="cell_type")
 
         db = CellChatDB(species="human")
         cellchat.set_database(db)
@@ -174,7 +169,7 @@ class TestCellChatCore:
     def test_save_load(self, sample_data, tmp_path):
         """Test saving and loading"""
         expr_df, meta = sample_data
-        cellchat = CellChat(data=expr_df, meta=meta, group_by='cell_type')
+        cellchat = CellChat(data=expr_df, meta=meta, group_by="cell_type")
 
         # Save
         filepath = tmp_path / "test_cellchat.pkl"
@@ -193,10 +188,7 @@ class TestCellChatUtils:
 
     def test_create_from_scanpy(self, sample_anndata):
         """Test creating CellChat from AnnData"""
-        cellchat = create_cellchat_from_scanpy(
-            sample_anndata,
-            group_by='cell_type'
-        )
+        cellchat = create_cellchat_from_scanpy(sample_anndata, group_by="cell_type")
 
         assert cellchat.n_cells == sample_anndata.n_obs
         assert cellchat.n_genes == sample_anndata.n_vars
@@ -215,7 +207,7 @@ class TestCellChatVisualization:
     def test_plot_heatmap(self, sample_data):
         """Test heatmap plotting"""
         expr_df, meta = sample_data
-        cellchat = CellChat(data=expr_df, meta=meta, group_by='cell_type')
+        cellchat = CellChat(data=expr_df, meta=meta, group_by="cell_type")
 
         db = CellChatDB(species="human")
         cellchat.set_database(db)

@@ -1,6 +1,6 @@
 """Configuration for proportion analysis submodule."""
 
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional
 
 from pydantic import Field, field_validator
 
@@ -21,9 +21,17 @@ class ProportionConfig(SclucidBaseConfig):
     timepoint_col: Optional[str] = Field(default=None)
 
     auto_configure: bool = Field(default=True)
-    test_method: Literal["deseq2", "t-test", "wilcoxon", "anova", "chi-square", "fisher"] = Field(
-        default="wilcoxon"
-    )
+    test_method: Literal[
+        "deseq2",
+        "t-test",
+        "wilcoxon",
+        "anova",
+        "kruskal",
+        "chi-square",
+        "fisher",
+        "paired-t-test",
+        "paired-wilcoxon",
+    ] = Field(default="wilcoxon")
 
     # Plotting
     plot_types: List[str] = Field(
@@ -43,7 +51,7 @@ class MethodSelectionConfig(SclucidBaseConfig):
     """
     Configuration for automatic method selection.
 
-    Attributes
+    Attributes:
     ----------
     n_samples_per_group : int
         Number of samples per group
@@ -63,9 +71,7 @@ class MethodSelectionConfig(SclucidBaseConfig):
         default=5, ge=1, le=100, description="Number of samples per group"
     )
     n_celltypes: int = Field(default=10, ge=2, description="Number of cell types")
-    has_batch_effect: bool = Field(
-        default=False, description="Whether batch effect exists"
-    )
+    has_batch_effect: bool = Field(default=False, description="Whether batch effect exists")
     spatial_resolution: bool = Field(
         default=False, description="Whether spatial resolution is needed"
     )

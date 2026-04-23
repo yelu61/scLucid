@@ -43,12 +43,16 @@ def _compute_silhouette_for_params(
             n_pcs=n_pcs,
         )
         if config.clustering_method == "leiden":
-            sc.tl.leiden(adata_local, resolution=config.resolution, key_added="cluster",
-                         flavor="igraph", n_iterations=2, directed=False)
-        else:  # louvain
-            sc.tl.louvain(
-                adata_local, resolution=config.resolution, key_added="cluster"
+            sc.tl.leiden(
+                adata_local,
+                resolution=config.resolution,
+                key_added="cluster",
+                flavor="igraph",
+                n_iterations=2,
+                directed=False,
             )
+        else:  # louvain
+            sc.tl.louvain(adata_local, resolution=config.resolution, key_added="cluster")
 
         n_clusters = adata_local.obs["cluster"].nunique()
         if n_clusters <= 1:
@@ -73,9 +77,7 @@ def _compute_silhouette_for_params(
         }
 
     except Exception as e:
-        log.error(
-            f"Grid search error for n_neighbors={n_neighbors}, n_pcs={n_pcs}: {str(e)}"
-        )
+        log.error(f"Grid search error for n_neighbors={n_neighbors}, n_pcs={n_pcs}: {str(e)}")
         return {
             "n_neighbors": n_neighbors,
             "n_pcs": n_pcs,
@@ -91,12 +93,8 @@ def _plot_neighbors_grid_search(
     """
     Visualize parameter grid search results as a heatmap.
     """
-    pivot = param_df.pivot(
-        index="n_neighbors", columns="n_pcs", values="silhouette_score"
-    )
-    fig, ax = plt.subplots(
-        figsize=(max(8, 1.2 * len(pivot.columns)), max(6, 0.8 * len(pivot)))
-    )
+    pivot = param_df.pivot(index="n_neighbors", columns="n_pcs", values="silhouette_score")
+    fig, ax = plt.subplots(figsize=(max(8, 1.2 * len(pivot.columns)), max(6, 0.8 * len(pivot))))
     sns.heatmap(pivot, annot=True, fmt=".3f", cmap="viridis", ax=ax)
     ax.set_title("Silhouette Score for Neighbor and PC Optimization")
     ax.set_xlabel("Number of Principal Components (n_pcs)")
@@ -142,9 +140,7 @@ def optimize_neighbors_pcs(
     save_dir = Path(active_config.save_dir) if active_config.save_dir else None
 
     if active_config.use_rep not in adata.obsm:
-        raise ValueError(
-            f"Representation '{active_config.use_rep}' not found in adata.obsm."
-        )
+        raise ValueError(f"Representation '{active_config.use_rep}' not found in adata.obsm.")
     if not active_config.n_neighbors_list or not active_config.n_pcs_list:
         raise ValueError("n_neighbors_list and n_pcs_list cannot be empty.")
 
@@ -166,15 +162,11 @@ def optimize_neighbors_pcs(
         )
 
     log.info("Starting grid search for n_neighbors and n_pcs...")
-    log.info(
-        f"Testing {len(valid_n_neighbors)} neighbor values and {len(valid_n_pcs)} PC values."
-    )
+    log.info(f"Testing {len(valid_n_neighbors)} neighbor values and {len(valid_n_pcs)} PC values.")
 
     # --- 3. Prepare data (subsampling) ---
     if active_config.subsample and active_config.subsample < adata.n_obs:
-        log.info(
-            f"Subsampling to {active_config.subsample} cells for optimization speed."
-        )
+        log.info(f"Subsampling to {active_config.subsample} cells for optimization speed.")
         np.random.seed(42)
         indices = np.random.choice(adata.n_obs, active_config.subsample, replace=False)
         adata_opt = adata[indices].copy()
@@ -182,9 +174,7 @@ def optimize_neighbors_pcs(
         adata_opt = adata.copy()
 
     # --- 4. Run grid search in parallel ---
-    param_combinations = [
-        (n, p) for n in valid_n_neighbors for p in valid_n_pcs
-    ]
+    param_combinations = [(n, p) for n in valid_n_neighbors for p in valid_n_pcs]
 
     try:
         from tqdm import tqdm
@@ -194,8 +184,7 @@ def optimize_neighbors_pcs(
         iterator = param_combinations
 
     results = Parallel(n_jobs=active_config.n_jobs)(
-        delayed(_compute_silhouette_for_params)(adata_opt, active_config, n, p)
-        for n, p in iterator
+        delayed(_compute_silhouette_for_params)(adata_opt, active_config, n, p) for n, p in iterator
     )
 
     # --- 5. Process and display results ---
@@ -213,9 +202,7 @@ def optimize_neighbors_pcs(
     else:
         log.warning("Grid search yielded no valid results.")
 
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
-        "neighbors_optimization"
-    ] = {
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["neighbors_optimization"] = {
         "use_rep": active_config.use_rep,
         "subsample": active_config.subsample,
         "n_jobs": active_config.n_jobs,
@@ -242,9 +229,7 @@ def optimize_neighbors_pcs(
     if active_config.plot:
         fig = _plot_neighbors_grid_search(
             df_results,
-            save_path=save_dir / "neighbors_optimization_heatmap.png"
-            if save_dir
-            else None,
+            save_path=save_dir / "neighbors_optimization_heatmap.png" if save_dir else None,
         )
         plt.show()
 

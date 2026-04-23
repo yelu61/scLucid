@@ -8,24 +8,22 @@ Provides tools for:
 - Metastatic potential estimation
 """
 
-from .scoring import (
-    score_malignancy,
-    calculate_proliferation_index,
-    estimate_metastatic_potential,
-    MalignancyScorer,
-)
-
 from .classification import (
+    MalignancyClassifier,
     classify_malignant_cells,
     score_malignancy_potential,
-    MalignancyClassifier,
 )
-
+from .scoring import (
+    MalignancyScorer,
+    calculate_proliferation_index,
+    estimate_metastatic_potential,
+    score_malignancy,
+)
 from .stemness import (
-    calculate_stemness_score,
-    identify_cancer_stem_cells,
-    compare_stemness_between_groups,
     StemnessAnalyzer,
+    calculate_stemness_score,
+    compare_stemness_between_groups,
+    identify_cancer_stem_cells,
 )
 
 __all__ = [

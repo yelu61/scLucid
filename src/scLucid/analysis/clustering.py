@@ -10,7 +10,7 @@ This module provides:
 
 import logging
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -33,6 +33,7 @@ __all__ = [
     "merge_clusters",
 ]
 
+
 # ====================== Clustering Evaluation Helpers ======================
 def _auto_select_resolution(
     eval_df: pd.DataFrame,
@@ -40,7 +41,7 @@ def _auto_select_resolution(
 ) -> float:
     """
     Automatically select the best resolution based on computed metrics.
-    
+
     Strategies:
     1. 'elbow': Find elbow point in n_clusters vs resolution curve
     2. 'peak': Maximum marker abundance
@@ -49,55 +50,54 @@ def _auto_select_resolution(
     if strategy == "elbow":
         # Detect elbow using kneedle algorithm
         from kneed import KneeLocator
-        
+
         kn = KneeLocator(
-            eval_df['resolution'],
-            eval_df['n_clusters'],
-            curve='convex',
-            direction='increasing'
+            eval_df["resolution"], eval_df["n_clusters"], curve="convex", direction="increasing"
         )
-        return kn.elbow if kn.elbow is not None else eval_df['resolution'].median()
-    
+        return kn.elbow if kn.elbow is not None else eval_df["resolution"].median()
+
     elif strategy == "peak":
         # Simply pick max marker abundance
-        if 'marker_abundance' in eval_df.columns:
-            idx = eval_df['marker_abundance'].idxmax()
-            return eval_df.loc[idx, 'resolution']
+        if "marker_abundance" in eval_df.columns:
+            idx = eval_df["marker_abundance"].idxmax()
+            return eval_df.loc[idx, "resolution"]
         else:
-            return eval_df['resolution'].median()
-    
+            return eval_df["resolution"].median()
+
     elif strategy == "balanced":
         # Composite score: normalize each metric and compute weighted sum
         score = pd.Series(0.0, index=eval_df.index)
-        
+
         # Normalize each metric to [0, 1]
-        if 'silhouette' in eval_df.columns:
-            sil_norm = (eval_df['silhouette'] - eval_df['silhouette'].min()) / \
-                       (eval_df['silhouette'].max() - eval_df['silhouette'].min() + 1e-8)
+        if "silhouette" in eval_df.columns:
+            sil_norm = (eval_df["silhouette"] - eval_df["silhouette"].min()) / (
+                eval_df["silhouette"].max() - eval_df["silhouette"].min() + 1e-8
+            )
             score += 0.3 * sil_norm
-        
-        if 'marker_abundance' in eval_df.columns:
-            ma_norm = (eval_df['marker_abundance'] - eval_df['marker_abundance'].min()) / \
-                      (eval_df['marker_abundance'].max() - eval_df['marker_abundance'].min() + 1e-8)
+
+        if "marker_abundance" in eval_df.columns:
+            ma_norm = (eval_df["marker_abundance"] - eval_df["marker_abundance"].min()) / (
+                eval_df["marker_abundance"].max() - eval_df["marker_abundance"].min() + 1e-8
+            )
             score += 0.5 * ma_norm  # Higher weight for biological signal
-        
-        if 'stability' in eval_df.columns:
+
+        if "stability" in eval_df.columns:
             # Penalize low stability
-            stab_norm = (eval_df['stability'] - eval_df['stability'].min()) / \
-                        (eval_df['stability'].max() - eval_df['stability'].min() + 1e-8)
+            stab_norm = (eval_df["stability"] - eval_df["stability"].min()) / (
+                eval_df["stability"].max() - eval_df["stability"].min() + 1e-8
+            )
             score += 0.2 * stab_norm
-        
+
         # Pick resolution with max composite score
         idx = score.idxmax()
-        return eval_df.loc[idx, 'resolution']
-    
+        return eval_df.loc[idx, "resolution"]
+
     else:
         raise ValueError(
             f"[analysis] Unknown selection strategy '{strategy}'. "
             "Expected one of: elbow, peak, balanced."
         )
-    
-    
+
 
 def _get_marker_abundance(
     adata: AnnData, cluster_key: str, de_method: str, min_log2fc: float, min_pct: float
@@ -134,22 +134,17 @@ def _get_marker_abundance(
         ]
 
         # Average marker count per cluster (fill missing with 0)
-        if (
-            cluster_key not in adata.obs.columns
-            or not pd.api.types.is_categorical_dtype(adata.obs[cluster_key])
+        if cluster_key not in adata.obs.columns or not pd.api.types.is_categorical_dtype(
+            adata.obs[cluster_key]
         ):
             # ensure categorical for stable category order
             adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
 
         marker_counts = (
-            sig_markers.groupby("group").size()
-            if not sig_markers.empty
-            else pd.Series(dtype=int)
+            sig_markers.groupby("group").size() if not sig_markers.empty else pd.Series(dtype=int)
         )
         avg_markers = (
-            marker_counts.reindex(
-                adata.obs[cluster_key].cat.categories, fill_value=0
-            ).mean()
+            marker_counts.reindex(adata.obs[cluster_key].cat.categories, fill_value=0).mean()
             if len(adata.obs[cluster_key].cat.categories) > 0
             else 0.0
         )
@@ -180,9 +175,7 @@ def _get_clustering_stability(adata: AnnData, key1: str, key2: str) -> float:
     labels1 = adata.obs[key1]
     labels2 = adata.obs[key2]
     try:
-        return metrics.normalized_mutual_info_score(
-            labels1, labels2, average_method="arithmetic"
-        )
+        return metrics.normalized_mutual_info_score(labels1, labels2, average_method="arithmetic")
     except Exception:
         return np.nan
 
@@ -201,10 +194,7 @@ def _print_resolution_guidance(eval_df: pd.DataFrame) -> None:
             f"Peak silhouette at resolution {best_silhouette['resolution']:.2f} "
             f"({int(best_silhouette['n_clusters'])} clusters): better separation."
         )
-    if (
-        "marker_abundance" in eval_df.columns
-        and not eval_df["marker_abundance"].isna().all()
-    ):
+    if "marker_abundance" in eval_df.columns and not eval_df["marker_abundance"].isna().all():
         best_markers = eval_df.loc[eval_df["marker_abundance"].idxmax()]
         log.info(
             f"Peak marker abundance at resolution {best_markers['resolution']:.2f} "
@@ -242,7 +232,7 @@ def find_resolution(
             - 'elbow': Elbow point in n_clusters curve
             - 'peak': Maximum marker abundance
             - 'balanced': Balance between silhouette, markers, and stability
-    
+
     Returns:
         Tuple of (evaluation DataFrame, recommended resolution or None)
     """
@@ -271,9 +261,7 @@ def find_resolution(
     eval_results = []
     previous_key = None
 
-    log.info(
-        f"Searching clustering resolution in [{start:.2f}, {end:.2f}] with {steps} steps..."
-    )
+    log.info(f"Searching clustering resolution in [{start:.2f}, {end:.2f}] with {steps} steps...")
     for res in resolutions:
         current_key = f"{method}_res_{res:.3f}"
         log.info(f"Testing resolution: {res:.3f}")
@@ -358,17 +346,17 @@ def find_resolution(
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
         "clustering", {}
     ).setdefault("resolution_search", {})
-    adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"].update({
-        "recommended_resolution": recommended_res,
-        "selection_strategy": selection_strategy,
-    })
+    adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"].update(
+        {
+            "recommended_resolution": recommended_res,
+            "selection_strategy": selection_strategy,
+        }
+    )
 
     # Plotting
     if getattr(active_config, "plot", False) and not eval_df.empty:
         metrics_to_plot = [
-            m
-            for m in ["silhouette", "marker_abundance", "stability"]
-            if m in eval_df.columns
+            m for m in ["silhouette", "marker_abundance", "stability"] if m in eval_df.columns
         ]
         n_plots = 1 + len(metrics_to_plot)
 
@@ -380,9 +368,7 @@ def find_resolution(
         # n_clusters
         ax = axes[0]
         try:
-            sns.lineplot(
-                data=eval_df, x="resolution", y="n_clusters", marker="o", ax=ax
-            )
+            sns.lineplot(data=eval_df, x="resolution", y="n_clusters", marker="o", ax=ax)
         except Exception as e:
             ax.text(0.5, 0.5, f"Plot failed: {e}", ha="center", va="center")
         ax.set_title("Number of Clusters vs. Resolution")
@@ -459,12 +445,8 @@ def cluster_cells(
     # Ensure neighbors for graph-based methods
     if method in ["leiden", "louvain"]:
         if "neighbors" not in adata.uns:
-            log.info(
-                f"Neighbors graph not found for {method}. Computing on '{use_rep}'."
-            )
-            sc.pp.neighbors(
-                adata, use_rep=use_rep, random_state=active_config.random_state
-            )
+            log.info(f"Neighbors graph not found for {method}. Computing on '{use_rep}'.")
+            sc.pp.neighbors(adata, use_rep=use_rep, random_state=active_config.random_state)
 
     key_added = active_config.key_added or f"{method}_clusters"
     log.info(f"Running {method} clustering...")
@@ -510,9 +492,7 @@ def cluster_cells(
             X = adata.obsm[use_rep]
             clusterer = hdbscan.HDBSCAN(**active_config.extra_params)
             labels = clusterer.fit_predict(X)
-            adata.obs[key_added] = pd.Categorical(
-                [str(l) if l != -1 else "Noise" for l in labels]
-            )
+            adata.obs[key_added] = pd.Categorical([str(l) if l != -1 else "Noise" for l in labels])
         else:
             raise ValueError(
                 f"[analysis] Unknown clustering method '{method}'. "
@@ -528,14 +508,10 @@ def cluster_cells(
         adata.obs[key_added] = adata.obs[key_added].astype("category")
 
     n_clusters = int(adata.obs[key_added].nunique())
-    log.info(
-        f"Clustering ({method}) finished: {n_clusters} clusters in obs['{key_added}']"
-    )
+    log.info(f"Clustering ({method}) finished: {n_clusters} clusters in obs['{key_added}']")
 
     # Trace
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "clustering", {}
-    )
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("clustering", {})
     trace = {
         "config": active_config.to_dict(),
         "n_clusters": n_clusters,
@@ -632,11 +608,7 @@ def merge_clusters(
                 key_added=rank_key,
             )
             markers = sc.get.rank_genes_groups_df(adata, key=rank_key, group=None)
-            if (
-                markers.empty
-                or "names" not in markers.columns
-                or "group" not in markers.columns
-            ):
+            if markers.empty or "names" not in markers.columns or "group" not in markers.columns:
                 log.warning(
                     "Rank genes results appear empty or malformed; cannot compute marker overlap."
                 )
@@ -646,9 +618,7 @@ def merge_clusters(
                     df2 = df.copy()
                     if "pvals_adj" in df2.columns and "logfoldchanges" in df2.columns:
                         df2 = df2.query("pvals_adj < 0.05 & logfoldchanges > 0.5")
-                    top_markers[str(g)] = set(
-                        df2["names"].head(50).astype(str).tolist()
-                    )
+                    top_markers[str(g)] = set(df2["names"].head(50).astype(str).tolist())
                 for i, c1 in enumerate(original_clusters):
                     s1 = top_markers.get(str(c1), set())
                     for j, c2 in enumerate(original_clusters[i + 1 :], i + 1):
@@ -673,18 +643,14 @@ def merge_clusters(
                 Xc = Xc.toarray()
             vec = np.asarray(Xc.mean(axis=0)).ravel()
             means.append(vec)
-        mean_profiles = (
-            np.vstack(means) if len(means) > 0 else np.zeros((0, adata.n_vars))
-        )
+        mean_profiles = np.vstack(means) if len(means) > 0 else np.zeros((0, adata.n_vars))
         if mean_profiles.shape[0] >= 2:
             corr_matrix = np.corrcoef(mean_profiles)
             sim_matrix = pd.DataFrame(
                 corr_matrix, index=original_clusters, columns=original_clusters
             )
         else:
-            log.warning(
-                "Not enough clusters to compute correlation; fallback to identity."
-            )
+            log.warning("Not enough clusters to compute correlation; fallback to identity.")
     else:
         raise ValueError(
             f"[analysis] Unknown merge method '{method}'. "
@@ -710,21 +676,17 @@ def merge_clusters(
         f"Clusters merged: {n_original} -> {n_merged} (method={method}, threshold={threshold})"
     )
 
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "clustering", {}
-    )
-    adata.uns["sclucid"]["analysis"]["clustering"][f"{key_added}_params"] = (
-        sanitize_for_hdf5(
-            {
-                "source_clusters": cluster_key,
-                "method": method,
-                "similarity_threshold": threshold,
-                "original_clusters": n_original,
-                "merged_clusters": n_merged,
-                "mapping": mapping,
-                "config": active_config.to_dict(),
-                "scanpy_version": getattr(sc, "__version__", "unknown"),
-            }
-        )
+    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("clustering", {})
+    adata.uns["sclucid"]["analysis"]["clustering"][f"{key_added}_params"] = sanitize_for_hdf5(
+        {
+            "source_clusters": cluster_key,
+            "method": method,
+            "similarity_threshold": threshold,
+            "original_clusters": n_original,
+            "merged_clusters": n_merged,
+            "mapping": mapping,
+            "config": active_config.to_dict(),
+            "scanpy_version": getattr(sc, "__version__", "unknown"),
+        }
     )
     return adata

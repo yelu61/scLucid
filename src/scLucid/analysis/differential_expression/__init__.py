@@ -29,18 +29,25 @@ Usage:
 
 # Core DE functions
 from .de_core import (
-    find_markers,
-    filter_markers,
-    compare_groups,
     compare_conditions,
+    compare_groups,
+    filter_markers,
+    find_markers,
     get_conserved_markers,
 )
 
-# Enrichment functions
-from .enrichment import (
-    run_enrichment,
-    export_enrichment_results,
-    batch_celltype_deg_enrichment,
+# Visualization
+from .de_plots import (
+    plot_multi_cluster_deg,
+    plot_volcano,
+    visualize_markers,
+)
+
+# Result management
+from .de_utils import (
+    ResultManager,
+    load_results,
+    save_results,
 )
 
 # High-level workflows
@@ -49,18 +56,11 @@ from .de_workflows import (
     summarize_markers_and_enrichment,
 )
 
-# Visualization
-from .de_plots import (
-    visualize_markers,
-    plot_volcano,
-    plot_multi_cluster_deg,
-)
-
-# Result management
-from .de_utils import (
-    ResultManager,
-    save_results,
-    load_results,
+# Enrichment functions
+from .enrichment import (
+    batch_celltype_deg_enrichment,
+    export_enrichment_results,
+    run_enrichment,
 )
 
 __all__ = [

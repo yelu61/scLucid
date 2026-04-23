@@ -9,24 +9,22 @@ Provides tools for:
 """
 
 from .deconvolution import (
+    TMEProfiler,
+    analyze_immune_infiltration,
     deconvolve_tme,
     estimate_stromal_content,
-    analyze_immune_infiltration,
-    TMEProfiler,
 )
-
-from .interaction import (
-    InteractionAnalyzer,
-    analyze_cell_interactions,
-    find_dominant_interactions,
-    score_immune_interactions,
-)
-
 from .ecosystem import (
     EcosystemAnalyzer,
     analyze_ecosystem_composition,
     calculate_tumor_microenvironment_score,
     compare_ecosystems,
+)
+from .interaction import (
+    InteractionAnalyzer,
+    analyze_cell_interactions,
+    find_dominant_interactions,
+    score_immune_interactions,
 )
 
 __all__ = [

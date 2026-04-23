@@ -2,10 +2,11 @@
 Dimensionality reduction for pyMonocle3 (R-free)
 """
 
+import logging
+from typing import List, Optional
+
 import numpy as np
 import scipy.sparse as sp
-from typing import Optional, Union, List
-import logging
 
 from .core import CellDataSet
 
@@ -47,7 +48,7 @@ def reduce_dimension(
     verbose : bool
         Verbose output
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with reduced dimensions added
@@ -55,8 +56,7 @@ def reduce_dimension(
     # Check if preprocessing reduction exists
     if preprocess_method not in cds.reducedDims:
         raise ValueError(
-            f"{preprocess_method} not found in reducedDims. "
-            f"Run preprocess_cds first."
+            f"{preprocess_method} not found in reducedDims. " f"Run preprocess_cds first."
         )
 
     reduced_data = cds.reducedDims[preprocess_method]
@@ -79,7 +79,7 @@ def reduce_dimension(
         )
 
         embedding = reducer.fit_transform(reduced_data)
-        cds.reducedDims['UMAP'] = embedding
+        cds.reducedDims["UMAP"] = embedding
 
         log.info(f"UMAP completed: {embedding.shape}")
 
@@ -89,23 +89,25 @@ def reduce_dimension(
         tsne = TSNE(
             n_components=2,
             perplexity=30,
-            learning_rate='auto',
-            init='pca',
+            learning_rate="auto",
+            init="pca",
             random_state=42,
             n_jobs=cores,
             verbose=verbose,
         )
 
         embedding = tsne.fit_transform(reduced_data)
-        cds.reducedDims['tSNE'] = embedding
+        cds.reducedDims["tSNE"] = embedding
 
         log.info(f"tSNE completed: {embedding.shape}")
 
     elif reduction_method == "PCA":
         # Already done in preprocessing, just pass through
-        cds.reducedDims['PCA_viz'] = reduced_data[:, :2] if reduced_data.shape[1] > 2 else reduced_data
+        cds.reducedDims["PCA_viz"] = (
+            reduced_data[:, :2] if reduced_data.shape[1] > 2 else reduced_data
+        )
 
-        log.info(f"PCA visualization dimensions ready")
+        log.info("PCA visualization dimensions ready")
 
     else:
         raise ValueError(f"Unknown reduction_method: {reduction_method}")
@@ -133,7 +135,7 @@ def run_pca(
     layer : str, optional
         Expression layer to use
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with PCA results
@@ -159,11 +161,13 @@ def run_pca(
 
     reduced = pca.fit_transform(expr_t)
 
-    cds.reducedDims['PCA'] = reduced
-    cds.preprocessing_params['pca_variance_explained'] = pca.explained_variance_ratio_
+    cds.reducedDims["PCA"] = reduced
+    cds.preprocessing_params["pca_variance_explained"] = pca.explained_variance_ratio_
 
-    log.info(f"PCA: {reduced.shape[1]} components, "
-             f"explained variance: {np.sum(pca.explained_variance_ratio_):.2%}")
+    log.info(
+        f"PCA: {reduced.shape[1]} components, "
+        f"explained variance: {np.sum(pca.explained_variance_ratio_):.2%}"
+    )
 
     return cds
 
@@ -197,7 +201,7 @@ def run_umap(
     random_state : int
         Random seed
 
-    Returns
+    Returns:
     -------
     CellDataSet
         CellDataSet with UMAP results
@@ -205,13 +209,12 @@ def run_umap(
     try:
         import umap
     except ImportError:
-        raise ImportError(
-            "UMAP is required. Install with: pip install umap-learn"
-        )
+        raise ImportError("UMAP is required. Install with: pip install umap-learn")
 
     if reduction_key not in cds.reducedDims:
-        raise ValueError(f"Reduction '{reduction_key}' not found. "
-                        f"Available: {list(cds.reducedDims.keys())}")
+        raise ValueError(
+            f"Reduction '{reduction_key}' not found. " f"Available: {list(cds.reducedDims.keys())}"
+        )
 
     reducer = umap.UMAP(
         n_neighbors=n_neighbors,
@@ -223,7 +226,7 @@ def run_umap(
 
     embedding = reducer.fit_transform(cds.reducedDims[reduction_key])
 
-    cds.reducedDims[f'UMAP_{n_components}D'] = embedding
+    cds.reducedDims[f"UMAP_{n_components}D"] = embedding
 
     log.info(f"UMAP {n_components}D completed: {embedding.shape}")
 

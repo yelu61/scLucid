@@ -2,6 +2,6 @@
 API route modules.
 """
 
-from scLucid.web.api.routes import qc, preprocess, analysis, data
+from scLucid.web.api.routes import analysis, data, preprocess, qc
 
 __all__ = ["qc", "preprocess", "analysis", "data"]

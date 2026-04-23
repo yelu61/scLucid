@@ -7,7 +7,6 @@ Handles project data storage and retrieval.
 import logging
 from pathlib import Path
 from typing import Optional
-import pickle
 
 import anndata as ad
 

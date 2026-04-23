@@ -4,20 +4,20 @@ Tests for validation utilities.
 Tests AnnData validation and analysis readiness checks.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 from anndata import AnnData
 
 from scLucid.utils.validation import (
     ValidationError,
-    validate_adata,
-    validate_config,
-    validate_analysis_results,
-    check_layer_consistency,
-    assert_qc_ready,
-    assert_preprocessing_ready,
     assert_analysis_ready,
+    assert_preprocessing_ready,
+    assert_qc_ready,
+    check_layer_consistency,
+    validate_adata,
+    validate_analysis_results,
+    validate_config,
 )
 
 
@@ -95,62 +95,35 @@ class TestValidateAdata:
     def test_validate_required_layers(self, valid_adata):
         """Test validation with required layers."""
         # Should pass with existing layer
-        result = validate_adata(
-            valid_adata,
-            required_layers=["counts"],
-            raise_on_error=False
-        )
+        result = validate_adata(valid_adata, required_layers=["counts"], raise_on_error=False)
         assert result["valid"] is True
 
         # Should fail with missing layer
-        result = validate_adata(
-            valid_adata,
-            required_layers=["nonexistent"],
-            raise_on_error=False
-        )
+        result = validate_adata(valid_adata, required_layers=["nonexistent"], raise_on_error=False)
         assert result["valid"] is False
         assert any("nonexistent" in e for e in result["errors"])
 
     def test_validate_required_obs(self, valid_adata):
         """Test validation with required obs columns."""
-        result = validate_adata(
-            valid_adata,
-            required_obs=["leiden"],
-            raise_on_error=False
-        )
+        result = validate_adata(valid_adata, required_obs=["leiden"], raise_on_error=False)
         assert result["valid"] is True
 
-        result = validate_adata(
-            valid_adata,
-            required_obs=["nonexistent"],
-            raise_on_error=False
-        )
+        result = validate_adata(valid_adata, required_obs=["nonexistent"], raise_on_error=False)
         assert result["valid"] is False
 
     def test_validate_required_obsm(self, valid_adata):
         """Test validation with required obsm keys."""
-        result = validate_adata(
-            valid_adata,
-            required_obsm=["X_pca"],
-            raise_on_error=False
-        )
+        result = validate_adata(valid_adata, required_obsm=["X_pca"], raise_on_error=False)
         assert result["valid"] is True
 
-        result = validate_adata(
-            valid_adata,
-            required_obsm=["X_umap"],
-            raise_on_error=False
-        )
+        result = validate_adata(valid_adata, required_obsm=["X_umap"], raise_on_error=False)
         assert result["valid"] is False
 
     def test_validate_check_counts(self, valid_adata):
         """Test validation with check_counts."""
         # Should pass with integer counts layer
         result = validate_adata(
-            valid_adata,
-            required_layers=["counts"],
-            check_counts=True,
-            raise_on_error=False
+            valid_adata, required_layers=["counts"], check_counts=True, raise_on_error=False
         )
         assert result["valid"] is True
 
@@ -190,16 +163,12 @@ class TestValidateConfig:
         config = self.DummyConfig(method="wilcoxon", n_top_genes=100)
 
         result = validate_config(
-            config,
-            required_fields=["method", "n_top_genes"],
-            raise_on_error=False
+            config, required_fields=["method", "n_top_genes"], raise_on_error=False
         )
         assert result["valid"] is True
 
         result = validate_config(
-            config,
-            required_fields=["method", "nonexistent"],
-            raise_on_error=False
+            config, required_fields=["method", "nonexistent"], raise_on_error=False
         )
         assert result["valid"] is False
 
@@ -208,16 +177,12 @@ class TestValidateConfig:
         config = self.DummyConfig(n_top_genes=100, threshold=0.05)
 
         result = validate_config(
-            config,
-            field_types={"n_top_genes": int, "threshold": float},
-            raise_on_error=False
+            config, field_types={"n_top_genes": int, "threshold": float}, raise_on_error=False
         )
         assert result["valid"] is True
 
         result = validate_config(
-            config,
-            field_types={"n_top_genes": str},  # Wrong type
-            raise_on_error=False
+            config, field_types={"n_top_genes": str}, raise_on_error=False  # Wrong type
         )
         assert result["valid"] is False
 
@@ -227,58 +192,34 @@ class TestValidateAnalysisResults:
 
     def test_validate_qc_results(self, valid_adata):
         """Test QC results validation."""
-        result = validate_analysis_results(
-            valid_adata,
-            "qc",
-            raise_on_error=False
-        )
+        result = validate_analysis_results(valid_adata, "qc", raise_on_error=False)
         assert result["valid"] is True
 
     def test_validate_preprocess_results(self, valid_adata):
         """Test preprocess results validation."""
-        result = validate_analysis_results(
-            valid_adata,
-            "preprocess",
-            raise_on_error=False
-        )
+        result = validate_analysis_results(valid_adata, "preprocess", raise_on_error=False)
         assert result["valid"] is True
 
     def test_validate_clustering_results(self, valid_adata):
         """Test clustering results validation."""
-        result = validate_analysis_results(
-            valid_adata,
-            "clustering",
-            raise_on_error=False
-        )
+        result = validate_analysis_results(valid_adata, "clustering", raise_on_error=False)
         assert result["valid"] is True
 
     def test_validate_annotation_results(self, valid_adata):
         """Test annotation results validation."""
-        result = validate_analysis_results(
-            valid_adata,
-            "annotation",
-            raise_on_error=False
-        )
+        result = validate_analysis_results(valid_adata, "annotation", raise_on_error=False)
         assert result["valid"] is True
 
     def test_validate_no_sclucid(self, valid_adata):
         """Test validation with no sclucid key."""
         del valid_adata.uns["sclucid"]
 
-        result = validate_analysis_results(
-            valid_adata,
-            "qc",
-            raise_on_error=False
-        )
+        result = validate_analysis_results(valid_adata, "qc", raise_on_error=False)
         assert result["valid"] is False
 
     def test_validate_unknown_analysis_type(self, valid_adata):
         """Test validation with unknown analysis type."""
-        result = validate_analysis_results(
-            valid_adata,
-            "unknown_type",
-            raise_on_error=False
-        )
+        result = validate_analysis_results(valid_adata, "unknown_type", raise_on_error=False)
         assert result["valid"] is True  # Warns but doesn't fail
         assert any("unknown" in w.lower() for w in result["warnings"])
 
@@ -332,6 +273,7 @@ class TestAssertionHelpers:
         """Test assert_qc_ready with invalid data."""
         # Create adata without counts (no layers)
         import numpy as np
+
         empty_adata = AnnData(np.random.randn(10, 5))  # n_obs=10, n_vars=5
         # No layers at all - should fail validation
 

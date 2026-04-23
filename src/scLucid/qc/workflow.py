@@ -7,12 +7,21 @@ quality control analysis using all components of the package.
 
 import json
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List, Any, Iterable, TypeVar, Literal
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
-from anndata import AnnData
 import numpy as np
+from anndata import AnnData
 
+from ..utils import (
+    PartialResultManager,
+    WorkflowCheckpoint,
+    WorkflowError,
+    get_progress_bar,
+    save_result,
+    save_workflow_result,
+)
 from .config import QCWorkflowConfig
 from .doublet import predict_doublets
 from .filtering import (
@@ -22,18 +31,17 @@ from .filtering import (
     mark_low_quality_cell,
 )
 from .metrics import calculate_qc_metric
-from ..utils import (
-    get_progress_bar,
-    save_result,
-    save_workflow_result,
-    WorkflowError,
-    PartialResultManager,
-    WorkflowCheckpoint,
-)
 
 log = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
+
+# Define workflow steps for flexible execution
+QC_WORKFLOW_STEPS = [
+    "qc_metrics",
+    "filtering",
+    "reporting",
+]
 
 # Keep for backward compatibility
 QCWorkflowError = WorkflowError
@@ -60,9 +68,7 @@ def _progress_bar(
     Returns:
         The original iterable or a tqdm-wrapped iterable.
     """
-    return get_progress_bar(
-        iterable, desc=desc, enabled=enabled, total=total, unit="sample"
-    )
+    return get_progress_bar(iterable, desc=desc, enabled=enabled, total=total, unit="sample")
 
 
 def _setup_workflow(
@@ -174,7 +180,11 @@ def _add_tumor_aware_flags(
     Tumor tissues often have elevated mitochondrial content and other
     characteristics that should be flagged rather than aggressively filtered.
     """
-    if not tissue_type or "tumor" not in tissue_type.lower() and "cancer" not in tissue_type.lower():
+    if (
+        not tissue_type
+        or "tumor" not in tissue_type.lower()
+        and "cancer" not in tissue_type.lower()
+    ):
         return
 
     flags: Dict[str, Any] = {"tissue_type": tissue_type, "tumor_aware_enabled": True}
@@ -328,8 +338,6 @@ def _safe_parallel_process(
     Returns:
         List of (sample_name, result) tuples. Failed samples have result=None.
     """
-    from joblib import Parallel, delayed
-
     results = []
     failed_samples = []
 
@@ -567,7 +575,11 @@ def _build_qc_review_summary(
             ("min_counts", ("marking_config", "thresholds", "min_counts")),
             ("doublet_threshold", ("doublet_config", "score_threshold")),
         ]:
-            rec_val = rec_dict.get(param, {}).get("threshold") if isinstance(rec_dict.get(param), dict) else None
+            rec_val = (
+                rec_dict.get(param, {}).get("threshold")
+                if isinstance(rec_dict.get(param), dict)
+                else None
+            )
             cfg_val = original_config.to_dict()
             for key in path:
                 cfg_val = cfg_val.get(key) if isinstance(cfg_val, dict) else None
@@ -606,16 +618,28 @@ def _build_qc_review_summary(
     summary["sample_threshold_summary"] = {
         "mode": config.threshold_mode,
         "n_samples_with_thresholds": n_samples,
-        "per_sample": {
-            sample: {
-                metric: {
-                    "lower": round(vals["lower"], 2) if isinstance(vals.get("lower"), (int, float)) else vals.get("lower"),
-                    "upper": round(vals["upper"], 2) if isinstance(vals.get("upper"), (int, float)) else vals.get("upper"),
+        "per_sample": (
+            {
+                sample: {
+                    metric: {
+                        "lower": (
+                            round(vals["lower"], 2)
+                            if isinstance(vals.get("lower"), (int, float))
+                            else vals.get("lower")
+                        ),
+                        "upper": (
+                            round(vals["upper"], 2)
+                            if isinstance(vals.get("upper"), (int, float))
+                            else vals.get("upper")
+                        ),
+                    }
+                    for metric, vals in thresholds.items()
                 }
-                for metric, vals in thresholds.items()
+                for sample, thresholds in sample_thresholds.items()
             }
-            for sample, thresholds in sample_thresholds.items()
-        } if sample_thresholds else {},
+            if sample_thresholds
+            else {}
+        ),
         "note": (
             "Per-sample thresholds are only computed in hierarchical/independent mode with >1 sample. "
             "Pooled mode uses a single global threshold."
@@ -626,9 +650,13 @@ def _build_qc_review_summary(
     is_tumor = _is_tumor_aware(config.tissue_type)
     tumor_notes: List[str] = []
     if is_tumor:
-        tumor_notes.append("Tumor-aware QC is active: elevated mitochondrial content is flagged rather than hard-filtered.")
+        tumor_notes.append(
+            "Tumor-aware QC is active: elevated mitochondrial content is flagged rather than hard-filtered."
+        )
         if "outlier_mt" not in config.filter_config.criteria_to_filter:
-            tumor_notes.append("Mitochondrial outlier filtering was disabled for this tumor dataset.")
+            tumor_notes.append(
+                "Mitochondrial outlier filtering was disabled for this tumor dataset."
+            )
     summary["tumor_aware_summary"] = {
         "enabled": is_tumor,
         "tissue_type": config.tissue_type,
@@ -662,18 +690,25 @@ def _store_qc_trace(
 ) -> None:
     """Store unified QC trace under adata.uns['sclucid']['qc']."""
     n_samples = int(adata.obs[config.sample_key].nunique()) if config.sample_key in adata.obs else 1
-    save_result(adata, "qc", "context", {
-        "sample_key": config.sample_key,
-        "threshold_mode": config.threshold_mode,
-        "n_samples": n_samples,
-        "tissue_type": config.tissue_type,
-        "use_recommendations": config.use_recommendations,
-    })
+    save_result(
+        adata,
+        "qc",
+        "context",
+        {
+            "sample_key": config.sample_key,
+            "threshold_mode": config.threshold_mode,
+            "n_samples": n_samples,
+            "tissue_type": config.tissue_type,
+            "use_recommendations": config.use_recommendations,
+        },
+    )
     if recommendation is not None:
         save_result(adata, "qc", "recommendation", recommendation.to_dict())
     save_result(adata, "qc", "original_config", original_config.to_dict())
     save_result(adata, "qc", "applied_config", config.to_dict())
-    save_result(adata, "qc", "user_overrides", _diff_qc_recommendations(recommendation, original_config))
+    save_result(
+        adata, "qc", "user_overrides", _diff_qc_recommendations(recommendation, original_config)
+    )
     save_result(adata, "qc", "sample_thresholds", sample_thresholds)
     save_result(adata, "qc", "filtering_summary", filtering_summary)
     save_result(adata, "qc", "warnings", warnings)
@@ -717,41 +752,53 @@ def _export_qc_review_summary(
         md_lines.append("| Parameter | Recommended | User Provided |")
         md_lines.append("|-----------|-------------|---------------|")
         for param, vals in rec.get("key_thresholds", {}).items():
-            md_lines.append(f"| {param} | {vals.get('recommended')} | {vals.get('user_provided')} |")
+            md_lines.append(
+                f"| {param} | {vals.get('recommended')} | {vals.get('user_provided')} |"
+            )
     else:
-        md_lines.append("- No recommendation was generated (recommendations disabled or engine failed).")
+        md_lines.append(
+            "- No recommendation was generated (recommendations disabled or engine failed)."
+        )
     md_lines.append("")
 
-    md_lines.extend([
-        "## Applied Thresholds",
-        "",
-        "| Parameter | Value |",
-        "|-----------|-------|",
-    ])
+    md_lines.extend(
+        [
+            "## Applied Thresholds",
+            "",
+            "| Parameter | Value |",
+            "|-----------|-------|",
+        ]
+    )
     for param, val in review_summary.get("applied_threshold_summary", {}).items():
         md_lines.append(f"| {param} | {val} |")
     md_lines.append("")
 
     ov = review_summary.get("user_override_summary", {})
-    md_lines.extend([
-        "## User Overrides",
-        "",
-        f"- **Overrides detected**: {ov.get('overrides_detected', False)}",
-    ])
+    md_lines.extend(
+        [
+            "## User Overrides",
+            "",
+            f"- **Overrides detected**: {ov.get('overrides_detected', False)}",
+        ]
+    )
     if ov.get("details"):
         md_lines.append("- **Details**:")
         for param, vals in ov["details"].items():
-            md_lines.append(f"  - {param}: recommended={vals.get('recommended')}, user={vals.get('actual')}")
+            md_lines.append(
+                f"  - {param}: recommended={vals.get('recommended')}, user={vals.get('actual')}"
+            )
     md_lines.append("")
 
     st = review_summary.get("sample_threshold_summary", {})
-    md_lines.extend([
-        "## Sample-Level Thresholds",
-        "",
-        f"- **Mode**: {st.get('mode')}",
-        f"- **Samples with thresholds**: {st.get('n_samples_with_thresholds', 0)}",
-        "",
-    ])
+    md_lines.extend(
+        [
+            "## Sample-Level Thresholds",
+            "",
+            f"- **Mode**: {st.get('mode')}",
+            f"- **Samples with thresholds**: {st.get('n_samples_with_thresholds', 0)}",
+            "",
+        ]
+    )
     if st.get("per_sample"):
         md_lines.append("```json")
         md_lines.append(json.dumps(st["per_sample"], indent=2, default=str))
@@ -759,34 +806,40 @@ def _export_qc_review_summary(
     md_lines.append("")
 
     ta = review_summary.get("tumor_aware_summary", {})
-    md_lines.extend([
-        "## Tumor-Aware QC",
-        "",
-        f"- **Enabled**: {ta.get('enabled', False)}",
-    ])
+    md_lines.extend(
+        [
+            "## Tumor-Aware QC",
+            "",
+            f"- **Enabled**: {ta.get('enabled', False)}",
+        ]
+    )
     if ta.get("notes"):
         for note in ta["notes"]:
             md_lines.append(f"- {note}")
     md_lines.append("")
 
     fs = review_summary.get("filtering_summary", {})
-    _removed_frac = fs.get('removed_fraction')
+    _removed_frac = fs.get("removed_fraction")
     _removed_frac_str = f"{_removed_frac:.1%}" if isinstance(_removed_frac, (int, float)) else "N/A"
-    md_lines.extend([
-        "## Filtering Results",
-        "",
-        f"- **Initial cells**: {fs.get('initial_cells')}",
-        f"- **Final cells**: {fs.get('final_cells')}",
-        f"- **Removed**: {fs.get('removed_cells')} ({_removed_frac_str})",
-        f"- **Criteria used**: {fs.get('criteria_used', [])}",
-        "",
-    ])
+    md_lines.extend(
+        [
+            "## Filtering Results",
+            "",
+            f"- **Initial cells**: {fs.get('initial_cells')}",
+            f"- **Final cells**: {fs.get('final_cells')}",
+            f"- **Removed**: {fs.get('removed_cells')} ({_removed_frac_str})",
+            f"- **Criteria used**: {fs.get('criteria_used', [])}",
+            "",
+        ]
+    )
 
     if review_summary.get("warnings"):
-        md_lines.extend([
-            "## Warnings",
-            "",
-        ])
+        md_lines.extend(
+            [
+                "## Warnings",
+                "",
+            ]
+        )
         for w in review_summary["warnings"]:
             md_lines.append(f"- {w}")
         md_lines.append("")
@@ -829,6 +882,7 @@ def _run_qc_workflow(
     if config.use_recommendations:
         try:
             from .intelligent_qc import recommend_intelligent_qc
+
             recommendation = recommend_intelligent_qc(adata, tissue_type=active_tissue_type)
             config, original_config = _apply_qc_recommendations(config, recommendation)
             log.info("Intelligent QC recommendations applied to config.")
@@ -842,7 +896,9 @@ def _run_qc_workflow(
         sample_thresholds, policy_warnings = _compute_sample_thresholds(adata, config)
         warnings_list.extend(policy_warnings)
         if sample_thresholds:
-            log.info(f"Computed {config.threshold_mode} per-sample thresholds for {len(sample_thresholds)} samples.")
+            log.info(
+                f"Computed {config.threshold_mode} per-sample thresholds for {len(sample_thresholds)} samples."
+            )
 
     # Tumor-aware filtering adjustment
     if _is_tumor_aware(active_tissue_type):
@@ -876,7 +932,9 @@ def _run_qc_workflow(
             raise RuntimeError("All samples failed QC metric calculation")
 
         if len(successful_results) < len(results):
-            log.warning(f"Proceeding with {len(successful_results)}/{len(results)} successful samples")
+            log.warning(
+                f"Proceeding with {len(successful_results)}/{len(results)} successful samples"
+            )
 
         # Merge results
         adata = _merge_sample_results(
@@ -921,7 +979,9 @@ def _run_qc_workflow(
                 raise RuntimeError("All samples failed doublet detection")
 
             if len(successful_results) < len(results):
-                log.warning(f"Proceeding with {len(successful_results)}/{len(results)} successful samples for doublet detection")
+                log.warning(
+                    f"Proceeding with {len(successful_results)}/{len(results)} successful samples for doublet detection"
+                )
 
             # Merge doublet predictions
             adata = _merge_sample_results(
@@ -949,6 +1009,32 @@ def _run_qc_workflow(
     return adata, config, recommendation, sample_thresholds, warnings_list, original_config
 
 
+def _resolve_qc_steps(
+    steps: Optional[List[str]],
+    skip_steps: Optional[List[str]],
+    completed_steps: Optional[List[str]] = None,
+) -> List[str]:
+    """Resolve which QC steps to run."""
+    if steps is not None and skip_steps is not None:
+        raise ValueError("Cannot specify both 'steps' and 'skip_steps'. Choose one.")
+
+    if steps is not None:
+        resolved = list(steps)
+    elif skip_steps is not None:
+        resolved = [s for s in QC_WORKFLOW_STEPS if s not in skip_steps]
+    else:
+        resolved = QC_WORKFLOW_STEPS.copy()
+
+    invalid = set(resolved) - set(QC_WORKFLOW_STEPS)
+    if invalid:
+        raise ValueError(f"Invalid step names: {invalid}. Valid steps are: {QC_WORKFLOW_STEPS}")
+
+    if completed_steps:
+        resolved = [s for s in resolved if s not in completed_steps]
+
+    return resolved
+
+
 def run_standard_qc(
     adata_in: AnnData,
     config: Optional[QCWorkflowConfig] = None,
@@ -956,6 +1042,9 @@ def run_standard_qc(
     *,
     tissue_type: str = "unknown",
     show_progress: bool = True,
+    # Step control
+    steps: Optional[List[str]] = None,
+    skip_steps: Optional[List[str]] = None,
     # Error recovery
     error_recovery: bool = False,
     recovery_save_dir: Optional[str] = None,
@@ -984,16 +1073,18 @@ def run_standard_qc(
           ``adata.uns['sclucid']['qc']['review_summary']`` and written to disk as
           ``qc_review_summary.json`` / ``qc_review_summary.md`` when ``save_dir`` is set.
 
-    New features in v0.3:
+    New features in v0.4:
+    - Step control via ``steps`` or ``skip_steps`` (consistent with preprocess/analysis)
     - Error recovery with partial result saving
     - Resume from checkpoint
-    - Consistent with preprocess/analysis workflows
 
     Args:
         adata_in: Input AnnData object (raw or pre-normalized).
         config: A QCWorkflowConfig object. If None, a default config is created.
         overwrite: If True, overwrite existing results directory.
         show_progress: If True, show progress bars for multi-sample processing.
+        steps: Specific steps to run. See ``QC_WORKFLOW_STEPS`` for valid names.
+        skip_steps: Steps to skip (alternative to specifying ``steps``).
         error_recovery: If True, enable error recovery mode.
         recovery_save_dir: Directory to save partial results on error.
         on_error: How to handle errors: "raise", "skip", or "save".
@@ -1005,6 +1096,12 @@ def run_standard_qc(
     Examples:
         >>> # Basic usage with progress bar
         >>> adata_filtered = run_standard_qc(adata, show_progress=True)
+        >>>
+        >>> # Skip reporting step
+        >>> adata_filtered = run_standard_qc(adata, skip_steps=["reporting"])
+        >>>
+        >>> # Run only metrics and filtering
+        >>> adata_filtered = run_standard_qc(adata, steps=["qc_metrics", "filtering"])
         >>>
         >>> # With error recovery
         >>> adata_filtered = run_standard_qc(
@@ -1027,7 +1124,9 @@ def run_standard_qc(
 
     # Validate error recovery settings
     if error_recovery and on_error == "save" and not recovery_save_dir:
-        raise ValueError("recovery_save_dir is required when error_recovery=True and on_error='save'")
+        raise ValueError(
+            "recovery_save_dir is required when error_recovery=True and on_error='save'"
+        )
 
     # Handle resume from checkpoint
     completed_steps: List[str] = []
@@ -1047,22 +1146,31 @@ def run_standard_qc(
     log.info(f"Error recovery: {error_recovery}")
     log.info(f"Show progress: {show_progress}")
 
+    # Resolve steps
+    steps_to_run = _resolve_qc_steps(steps, skip_steps, completed_steps)
+    log.info(f"Steps to run: {steps_to_run}")
+
     # Track execution
     successful_steps: List[str] = []
     current_step = None
 
     try:
         # --- Step 1: QC Metrics ---
-        if "qc_metrics" not in completed_steps:
+        if "qc_metrics" in steps_to_run:
             current_step = "qc_metrics"
             log.info("Step: QC Metrics Calculation")
-            adata, applied_config, recommendation, sample_thresholds, qc_warnings, original_config = _run_qc_workflow(
-                adata, runtime_config, results_path, show_progress=show_progress
-            )
+            (
+                adata,
+                applied_config,
+                recommendation,
+                sample_thresholds,
+                qc_warnings,
+                original_config,
+            ) = _run_qc_workflow(adata, runtime_config, results_path, show_progress=show_progress)
             _add_tumor_aware_flags(adata, applied_config.tissue_type or tissue_type)
             successful_steps.append("qc_metrics")
         else:
-            log.info("Step: QC Metrics (already completed, skipping)")
+            log.info("Step: QC Metrics (skipped)")
             applied_config = runtime_config
             recommendation = None
             sample_thresholds = {}
@@ -1070,16 +1178,18 @@ def run_standard_qc(
             original_config = runtime_config.model_copy(deep=True)
 
         # --- Step 2: Filtering ---
-        if "filtering" not in completed_steps:
+        if "filtering" in steps_to_run:
             current_step = "filtering"
             log.info("Step: Cell Filtering")
             adata_filtered = filter_cells(adata, config=applied_config.filter_config, copy=True)
             successful_steps.append("filtering")
         else:
-            log.info("Step: Filtering (already completed, using cached)")
+            log.info("Step: Filtering (skipped)")
             adata_filtered = adata
 
-        filtering_summary = adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
+        filtering_summary = (
+            adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
+        )
         review_summary = _store_qc_trace(
             adata_filtered,
             applied_config,
@@ -1093,7 +1203,7 @@ def run_standard_qc(
             _export_qc_review_summary(review_summary, results_path)
 
         # --- Step 3: Reporting ---
-        if results_path is not None and "reporting" not in completed_steps:
+        if results_path is not None and "reporting" in steps_to_run:
             current_step = "reporting"
             log.info("Step: Report Generation")
             generate_qc_report(
@@ -1108,18 +1218,25 @@ def run_standard_qc(
         error_msg = f"QC workflow failed at step '{current_step}': {str(e)}"
         log.error(error_msg)
         import traceback
+
         log.error(traceback.format_exc())
 
         if error_recovery and on_error in ["raise", "save"]:
             # Save partial results
-            save_dir = recovery_save_dir or (str(results_path / "recovery") if results_path else "./recovery")
+            save_dir = recovery_save_dir or (
+                str(results_path / "recovery") if results_path else "./recovery"
+            )
             manager = PartialResultManager(save_dir)
             checkpoint = WorkflowCheckpoint(
                 completed_steps=successful_steps,
                 failed_step=current_step,
                 error_message=str(e),
             )
-            manager.save(adata, checkpoint, applied_config if 'applied_config' in locals() else runtime_config)
+            manager.save(
+                adata,
+                checkpoint,
+                applied_config if "applied_config" in locals() else runtime_config,
+            )
 
             if on_error == "save":
                 log.warning(f"QC failed but partial results saved to: {save_dir}")
@@ -1134,7 +1251,7 @@ def run_standard_qc(
         module="qc",
         workflow_name="standard",
         steps=successful_steps,
-        config=applied_config.to_dict()
+        config=applied_config.to_dict(),
     )
 
     log.info("=" * 60)
@@ -1152,6 +1269,9 @@ def run_advanced_qc(
     *,
     tissue_type: str = "unknown",
     show_progress: bool = True,
+    # Step control
+    steps: Optional[List[str]] = None,
+    skip_steps: Optional[List[str]] = None,
     # Error recovery
     error_recovery: bool = False,
     recovery_save_dir: Optional[str] = None,
@@ -1172,16 +1292,18 @@ def run_advanced_qc(
         - When ``save_dir`` is set, ``qc_review_summary.json`` and
           ``qc_review_summary.md`` sidecars are written alongside the report.
 
-    New features in v0.3:
+    New features in v0.4:
+    - Step control via ``steps`` or ``skip_steps`` (consistent with preprocess/analysis)
     - Error recovery with partial result saving
     - Resume from checkpoint
-    - Consistent with preprocess/analysis workflows
 
     Args:
         adata_in: Input AnnData object.
         config: A fully populated QCWorkflowConfig object.
         overwrite: If True, overwrite existing results directory.
         show_progress: If True, show progress bars for multi-sample processing.
+        steps: Specific steps to run. See ``QC_WORKFLOW_STEPS`` for valid names.
+        skip_steps: Steps to skip (alternative to specifying ``steps``).
         error_recovery: If True, enable error recovery mode.
         recovery_save_dir: Directory to save partial results on error.
         on_error: How to handle errors: "raise", "skip", or "save".
@@ -1194,7 +1316,9 @@ def run_advanced_qc(
 
     # Validate error recovery settings
     if error_recovery and on_error == "save" and not recovery_save_dir:
-        raise ValueError("recovery_save_dir is required when error_recovery=True and on_error='save'")
+        raise ValueError(
+            "recovery_save_dir is required when error_recovery=True and on_error='save'"
+        )
 
     # Handle resume from checkpoint
     completed_steps: List[str] = []
@@ -1217,22 +1341,31 @@ def run_advanced_qc(
         log.info("Running without file output")
     log.info(f"Error recovery: {error_recovery}")
 
+    # Resolve steps
+    steps_to_run = _resolve_qc_steps(steps, skip_steps, completed_steps)
+    log.info(f"Steps to run: {steps_to_run}")
+
     # Track execution
     successful_steps: List[str] = []
     current_step = None
 
     try:
         # --- Step 1: QC Metrics ---
-        if "qc_metrics" not in completed_steps:
+        if "qc_metrics" in steps_to_run:
             current_step = "qc_metrics"
             log.info("Step: QC Metrics Calculation")
-            adata, applied_config, recommendation, sample_thresholds, qc_warnings, original_config = _run_qc_workflow(
-                adata, runtime_config, results_path, show_progress=show_progress
-            )
+            (
+                adata,
+                applied_config,
+                recommendation,
+                sample_thresholds,
+                qc_warnings,
+                original_config,
+            ) = _run_qc_workflow(adata, runtime_config, results_path, show_progress=show_progress)
             _add_tumor_aware_flags(adata, applied_config.tissue_type or tissue_type)
             successful_steps.append("qc_metrics")
         else:
-            log.info("Step: QC Metrics (already completed, skipping)")
+            log.info("Step: QC Metrics (skipped)")
             applied_config = runtime_config
             recommendation = None
             sample_thresholds = {}
@@ -1240,16 +1373,18 @@ def run_advanced_qc(
             original_config = runtime_config.model_copy(deep=True)
 
         # --- Step 2: Filtering ---
-        if "filtering" not in completed_steps:
+        if "filtering" in steps_to_run:
             current_step = "filtering"
             log.info("Step: Cell Filtering")
             adata_filtered = filter_cells(adata, config=applied_config.filter_config, copy=True)
             successful_steps.append("filtering")
         else:
-            log.info("Step: Filtering (already completed, using cached)")
+            log.info("Step: Filtering (skipped)")
             adata_filtered = adata
 
-        filtering_summary = adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
+        filtering_summary = (
+            adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
+        )
         review_summary = _store_qc_trace(
             adata_filtered,
             applied_config,
@@ -1263,7 +1398,7 @@ def run_advanced_qc(
             _export_qc_review_summary(review_summary, results_path)
 
         # --- Step 3: Reporting ---
-        if results_path is not None and "reporting" not in completed_steps:
+        if results_path is not None and "reporting" in steps_to_run:
             current_step = "reporting"
             log.info("Step: Report Generation")
             generate_qc_report(
@@ -1278,22 +1413,31 @@ def run_advanced_qc(
         error_msg = f"Advanced QC workflow failed at step '{current_step}': {str(e)}"
         log.error(error_msg)
         import traceback
+
         log.error(traceback.format_exc())
 
         if error_recovery and on_error in ["raise", "save"]:
             # Save partial results
-            save_dir = recovery_save_dir or (str(results_path / "recovery") if results_path else "./recovery")
+            save_dir = recovery_save_dir or (
+                str(results_path / "recovery") if results_path else "./recovery"
+            )
             manager = PartialResultManager(save_dir)
             checkpoint = WorkflowCheckpoint(
                 completed_steps=successful_steps,
                 failed_step=current_step,
                 error_message=str(e),
             )
-            manager.save(adata, checkpoint, applied_config if 'applied_config' in locals() else runtime_config)
+            manager.save(
+                adata,
+                checkpoint,
+                applied_config if "applied_config" in locals() else runtime_config,
+            )
 
             if on_error == "save":
                 log.warning(f"QC failed but partial results saved to: {save_dir}")
-                log.warning(f"To resume, use: run_advanced_qc(adata, config, resume_from='{save_dir}')")
+                log.warning(
+                    f"To resume, use: run_advanced_qc(adata, config, resume_from='{save_dir}')"
+                )
                 return adata
 
         raise WorkflowError(error_msg, step_name=current_step or "unknown", original_error=e)
@@ -1304,7 +1448,7 @@ def run_advanced_qc(
         module="qc",
         workflow_name="advanced",
         steps=successful_steps,
-        config=applied_config.to_dict()
+        config=applied_config.to_dict(),
     )
 
     log.info("=" * 60)
@@ -1320,4 +1464,5 @@ __all__ = [
     "run_advanced_qc",
     "QCWorkflowError",
     "PartialQCResult",
+    "QC_WORKFLOW_STEPS",
 ]

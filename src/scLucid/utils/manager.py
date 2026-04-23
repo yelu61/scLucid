@@ -25,7 +25,7 @@ from rich.style import Style
 from rich.text import Text
 from rich.tree import Tree
 
-#from ..utils.resource_loader import load_toml, get_resource_path
+# from ..utils.resource_loader import load_toml, get_resource_path
 
 # Configure logging
 log = logging.getLogger(__name__)
@@ -61,9 +61,7 @@ def _get_marker_path(name_or_path: str) -> Path:
     log.debug(f"Looking for built-in resource: {full_resource_name}")
 
     try:
-        resource_path = resources.files("scLucid").joinpath(
-            f"resources/{full_resource_name}"
-        )
+        resource_path = resources.files("scLucid").joinpath(f"resources/{full_resource_name}")
         if resource_path.is_file():
             log.debug(f"Found built-in resource: {resource_path}")
             return resource_path
@@ -75,9 +73,7 @@ def _get_marker_path(name_or_path: str) -> Path:
     log.debug(f"Looking for built-in resource: {full_resource_name}")
 
     try:
-        resource_path = resources.files("scLucid").joinpath(
-            f"resources/{full_resource_name}"
-        )
+        resource_path = resources.files("scLucid").joinpath(f"resources/{full_resource_name}")
         if resource_path.is_file():
             log.debug(f"Found built-in resource: {resource_path}")
             return resource_path
@@ -129,7 +125,7 @@ def _load_marker_file(file_path: Path) -> dict:
             return tomllib.load(f)
     elif suffix == ".json":
         log.debug(f"Loading JSON file: {file_path}")
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             return json.load(f)
     else:
         error_msg = f"Unsupported marker file format: {suffix}. Supported formats: {MARKER_FORMATS}"
@@ -182,7 +178,7 @@ class CellType:
             "name": self.name,
             "color": self.color,
             "markers": self.markers,
-            "negative_markers": self.negative_markers
+            "negative_markers": self.negative_markers,
         }
 
         # Add metadata if present
@@ -209,7 +205,7 @@ class CellType:
         existing = set(self.markers)
         self.markers.extend([m for m in new_markers if m not in existing])
 
-    def copy_shallow(self) -> "CellType":
+    def copy_shallow(self) -> CellType:
         """Return a shallow copy of the cell type without parent/children links."""
         return CellType(
             name=self.name,
@@ -313,9 +309,7 @@ class Manager:
             log.error(f"Error initializing marker manager: {str(e)}")
             raise
 
-    def _parse_level(
-        self, level_data: dict, parent_obj: Optional[CellType] = None
-    ) -> None:
+    def _parse_level(self, level_data: dict, parent_obj: Optional[CellType] = None) -> None:
         """
         Recursively parses a level of the marker hierarchy.
 
@@ -377,9 +371,7 @@ class Manager:
                         metadata=cell_def.get("metadata", {}),
                     )
                     self.CELLS[cell_name] = cell_obj
-                    log.debug(
-                        f"Created new cell type: {cell_name} with {len(markers)} markers"
-                    )
+                    log.debug(f"Created new cell type: {cell_name} with {len(markers)} markers")
 
                 # Establish parent-child relationship
                 if parent_obj:
@@ -393,9 +385,7 @@ class Manager:
 
                 # Recurse if there are further subtypes
                 if "minor" in cell_def:
-                    self._parse_level(
-                        {cell_name: cell_def["minor"]}, parent_obj=cell_obj
-                    )
+                    self._parse_level({cell_name: cell_def["minor"]}, parent_obj=cell_obj)
 
     def __getitem__(self, key: str) -> CellType:
         """
@@ -445,9 +435,7 @@ class Manager:
         Returns:
             Tuple of (total markers before filtering, total markers after filtering)
         """
-        log.info(
-            f"Intersecting markers with AnnData object containing {adata.n_vars} genes"
-        )
+        log.info(f"Intersecting markers with AnnData object containing {adata.n_vars} genes")
 
         genes_in_data = {g.upper() for g in adata.var_names}
 
@@ -459,14 +447,12 @@ class Manager:
             total_before += n_before
 
             cell.markers = [m for m in cell.markers if m.upper() in genes_in_data]
-            
+
             n_after = len(cell.markers)
             total_after += n_after
 
             if n_before > 0 and n_after == 0:
-                log.warning(
-                    f"Cell type '{cell_type}' has no markers left after intersection"
-                )
+                log.warning(f"Cell type '{cell_type}' has no markers left after intersection")
             elif n_before > n_after:
                 log.debug(
                     f"Cell type '{cell_type}': {n_after}/{n_before} markers remain after intersection"
@@ -568,23 +554,19 @@ class Manager:
             f"across {len(self.CLUSTERS)} major categories."
         )
 
-    def merge_from(self, other_manager: "Manager") -> None:
+    def merge_from(self, other_manager: Manager) -> None:
         """
         Merges all definitions from another Manager instance into this one.
 
         Args:
             other_manager: Another Manager instance to merge from
         """
-        log.info(
-            f"Merging markers from another manager with {len(other_manager.CELLS)} cell types"
-        )
+        log.info(f"Merging markers from another manager with {len(other_manager.CELLS)} cell types")
 
         for major_name, cell_list in other_manager.CLUSTERS.items():
             self._parse_level({major_name: [cell.to_dict() for cell in cell_list]})
 
-        log.info(
-            f"After merging: {len(self.CELLS)} cell types in {len(self.CLUSTERS)} categories"
-        )
+        log.info(f"After merging: {len(self.CELLS)} cell types in {len(self.CLUSTERS)} categories")
 
     def save(self, output_path: str, format: Literal["toml", "json"] = "toml") -> None:
         """
@@ -598,9 +580,7 @@ class Manager:
             ValueError: If the format is not supported
         """
         if format not in MARKER_FORMATS:
-            raise ValueError(
-                f"Unsupported format: {format}. Supported formats: {MARKER_FORMATS}"
-            )
+            raise ValueError(f"Unsupported format: {format}. Supported formats: {MARKER_FORMATS}")
 
         # Convert to dictionary format
         output_data = {}
@@ -673,9 +653,7 @@ class Manager:
 
         for name, cell in list(self.CELLS.items()):
             if len(cell.markers) < min_genes_per_type:
-                log.warning(
-                    f"Removing cell type '{name}' with only {len(cell.markers)} markers"
-                )
+                log.warning(f"Removing cell type '{name}' with only {len(cell.markers)} markers")
 
                 # Remove from parent's minor list if applicable
                 if cell.parent:
@@ -722,9 +700,7 @@ class Manager:
         """
         # Check if cell type already exists
         if name in self.CELLS:
-            log.warning(
-                f"Cell type '{name}' already exists, updating instead of creating new"
-            )
+            log.warning(f"Cell type '{name}' already exists, updating instead of creating new")
             cell_obj = self.CELLS[name]
             cell_obj.add_markers(markers)
             if color:
@@ -790,14 +766,14 @@ class Manager:
                     lineage_markers[name] = cell.markers
 
         # Fix for mouse genes: convert uppercase genes to title case if species is mouse
-        if hasattr(self, '_source_file') and 'mouse' in self._source_file.lower():
+        if hasattr(self, "_source_file") and "mouse" in self._source_file.lower():
             for lineage, genes in lineage_markers.items():
                 lineage_markers[lineage] = [g.title() if g.isupper() else g for g in genes]
 
         log.info(f"Extracted {len(lineage_markers)} dedicated lineages for doublet detection.")
         return lineage_markers
 
-    def select_cells(self, names: Sequence[str], include_children: bool = True) -> "Manager":
+    def select_cells(self, names: Sequence[str], include_children: bool = True) -> Manager:
         """
         Build a new manager containing only selected cell types.
 
@@ -894,7 +870,7 @@ class GeneSetManager:
             try:
                 resource_path = resources.files("scLucid").joinpath(f"resources/{pattern}")
                 if resource_path.is_file():
-                    with open(resource_path, "r", encoding="utf-8") as f:
+                    with open(resource_path, encoding="utf-8") as f:
                         data = json.load(f)
 
                     # Extract genesets for the species
@@ -1057,9 +1033,7 @@ def get_marker_manager(
     if species not in KNOWN_SPECIES:
         log.warning(f"Species '{species}' not in known list: {KNOWN_SPECIES}")
 
-    log.info(
-        f"Building marker manager for species: {species}, tissue: {tissue}, states: {states}"
-    )
+    log.info(f"Building marker manager for species: {species}, tissue: {tissue}, states: {states}")
 
     try:
         # Load base markers for the species
@@ -1077,18 +1051,18 @@ def get_marker_manager(
                 mgr.merge_from(mgr_tissue)
                 log.info(f"Merged tissue-specific markers for '{tissue}'")
             except (FileNotFoundError, KeyError) as e:
-                log.warning(
-                    f"Could not load tissue-specific markers for '{tissue}': {str(e)}"
-                )
+                log.warning(f"Could not load tissue-specific markers for '{tissue}': {str(e)}")
 
         # Add cell state markers if specified
         if states:
             try:
-                mgr_states_all = Manager(
-                    f"cell_state_{species}", case_sensitive=case_sensitive
-                )
-                found_states = [state_name for state_name in states if state_name in mgr_states_all.CELLS]
-                missing_states = [state_name for state_name in states if state_name not in mgr_states_all.CELLS]
+                mgr_states_all = Manager(f"cell_state_{species}", case_sensitive=case_sensitive)
+                found_states = [
+                    state_name for state_name in states if state_name in mgr_states_all.CELLS
+                ]
+                missing_states = [
+                    state_name for state_name in states if state_name not in mgr_states_all.CELLS
+                ]
 
                 for state_name in missing_states:
                     log.warning(f"State '{state_name}' not found in cell state file")
@@ -1116,9 +1090,7 @@ def get_marker_manager(
                 mgr.merge_from(mgr_cancer)
                 log.info(f"Merged cancer markers for '{cancer_type}'")
             except (FileNotFoundError, KeyError) as e:
-                log.warning(
-                    f"Could not load cancer markers for '{cancer_type}': {str(e)}"
-                )
+                log.warning(f"Could not load cancer markers for '{cancer_type}': {str(e)}")
 
         log.info(f"Manager built successfully with {len(mgr.CELLS)} cell types")
         return mgr

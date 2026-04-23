@@ -1,8 +1,8 @@
 """Specialized tools public API for scLucid."""
 
-from importlib import import_module
-from typing import Iterable
 import warnings
+from collections.abc import Iterable
+from importlib import import_module
 
 __all__ = []
 

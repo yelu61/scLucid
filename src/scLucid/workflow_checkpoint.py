@@ -30,7 +30,7 @@ import logging
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 from anndata import AnnData
 
@@ -39,6 +39,7 @@ log = logging.getLogger(__name__)
 
 class WorkflowStep(str, Enum):
     """Standard workflow steps."""
+
     QC = "qc"
     PREPROCESS = "preprocess"
     CLUSTER = "cluster"
@@ -49,6 +50,7 @@ class WorkflowStep(str, Enum):
 
 class StepStatus(str, Enum):
     """Status of a workflow step."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -84,7 +86,7 @@ class CheckpointInfo:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CheckpointInfo":
+    def from_dict(cls, data: Dict[str, Any]) -> CheckpointInfo:
         """Deserialize from dictionary."""
         return cls(
             step=data["step"],
@@ -126,26 +128,24 @@ class WorkflowState:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowState":
+    def from_dict(cls, data: Dict[str, Any]) -> WorkflowState:
         """Deserialize from dictionary."""
         return cls(
             workflow_id=data["workflow_id"],
             steps={k: StepStatus(v) for k, v in data.get("steps", {}).items()},
             checkpoints={
-                k: CheckpointInfo.from_dict(v)
-                for k, v in data.get("checkpoints", {}).items()
+                k: CheckpointInfo.from_dict(v) for k, v in data.get("checkpoints", {}).items()
             },
             current_step=data.get("current_step"),
-            start_time=datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None,
+            start_time=(
+                datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None
+            ),
             end_time=datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None,
         )
 
     def get_last_completed_step(self) -> Optional[str]:
         """Get the last successfully completed step."""
-        completed = [
-            step for step, status in self.steps.items()
-            if status == StepStatus.COMPLETED
-        ]
+        completed = [step for step, status in self.steps.items() if status == StepStatus.COMPLETED]
         return completed[-1] if completed else None
 
     def is_step_completed(self, step: str) -> bool:
@@ -297,10 +297,7 @@ class WorkflowCheckpoint:
         if check_hash:
             current_hash = self._compute_config_hash(config)
             if current_hash != checkpoint_info.config_hash:
-                log.warning(
-                    f"Config changed since checkpoint '{step}'. "
-                    "Recomputing..."
-                )
+                log.warning(f"Config changed since checkpoint '{step}'. " "Recomputing...")
                 return None
 
         # Load AnnData
@@ -493,7 +490,7 @@ def run_workflow_with_checkpoints(
 
         checkpoint_mgr.finalize(success=True)
 
-    except Exception as e:
+    except Exception:
         checkpoint_mgr.finalize(success=False)
         raise
 

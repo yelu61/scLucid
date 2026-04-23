@@ -2,25 +2,24 @@
 Tests for pyBayesPrism (R-free BayesPrism implementation)
 """
 
-import pytest
+import sys
+
 import numpy as np
 import pandas as pd
+import pytest
 from scipy import sparse
-import sys
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.tools.pyBayesPrism import (
-    PrismConfig,
-    ReferenceConfig,
-    BayesPrismReference,
     BayesPrism,
     BayesPrismEmbedding,
+    BayesPrismReference,
     GibbsSampler,
+    PrismConfig,
     cleanup_genes,
     compute_correlation,
     compute_rmse,
-    validate_inputs,
 )
 
 
@@ -32,15 +31,15 @@ def sample_reference():
     n_cells = 200
 
     # Generate sparse reference data
-    reference = sparse.random(n_genes, n_cells, density=0.1, format='csr')
+    reference = sparse.random(n_genes, n_cells, density=0.1, format="csr")
     reference.data = np.random.poisson(5, size=reference.data.shape)
 
     # Cell type labels
     cell_types = pd.Series(
-        np.random.choice(['T_cell', 'B_cell', 'Macrophage', 'Tumor'], size=n_cells)
+        np.random.choice(["T_cell", "B_cell", "Macrophage", "Tumor"], size=n_cells)
     )
 
-    gene_names = [f'Gene_{i}' for i in range(n_genes)]
+    gene_names = [f"Gene_{i}" for i in range(n_genes)]
 
     return reference, cell_types, gene_names
 
@@ -54,8 +53,8 @@ def sample_mixture():
 
     mixture = pd.DataFrame(
         np.random.poisson(1000, (n_genes, n_samples)),
-        index=[f'Gene_{i}' for i in range(n_genes)],
-        columns=[f'Sample_{i}' for i in range(n_samples)],
+        index=[f"Gene_{i}" for i in range(n_genes)],
+        columns=[f"Sample_{i}" for i in range(n_samples)],
     )
 
     return mixture
@@ -107,8 +106,8 @@ class TestPrismConfig:
         config = PrismConfig(n_iter=200)
         config_dict = config.to_dict()
 
-        assert config_dict['n_iter'] == 200
-        assert 'gibbs_control' in config_dict
+        assert config_dict["n_iter"] == 200
+        assert "gibbs_control" in config_dict
 
 
 @pytest.mark.unit
@@ -235,7 +234,7 @@ class TestBayesPrism:
         bp = bayes_prism_obj
 
         # Add some ribosomal genes
-        bp.mixture.index = [f'RPS{i}' if i < 10 else f'Gene_{i}' for i in range(100)]
+        bp.mixture.index = [f"RPS{i}" if i < 10 else f"Gene_{i}" for i in range(100)]
         bp.aligned_genes_ = bp.mixture.index.tolist()
 
         initial_genes = len(bp.aligned_genes_)
@@ -289,12 +288,12 @@ class TestBayesPrismEmbedding:
 
         embedding = BayesPrismEmbedding(
             prism=bp,
-            tumor_key='Tumor',
+            tumor_key="Tumor",
             n_programs=3,
         )
 
         assert embedding.n_programs == 3
-        assert embedding.tumor_key == 'Tumor'
+        assert embedding.tumor_key == "Tumor"
 
     def test_run_nmf(self, bayes_prism_obj):
         """Test NMF gene program learning"""
@@ -306,7 +305,7 @@ class TestBayesPrismEmbedding:
 
         embedding = BayesPrismEmbedding(
             prism=bp,
-            tumor_key='Tumor',
+            tumor_key="Tumor",
             n_programs=2,
         )
 
@@ -327,12 +326,12 @@ class TestBayesPrismEmbedding:
 
         embedding = BayesPrismEmbedding(
             prism=bp,
-            tumor_key='Tumor',
+            tumor_key="Tumor",
             n_programs=2,
         )
 
         embedding.run_nmf(max_iter=50, verbose=False)
-        top_genes = embedding.get_top_genes('Program_1', n=10)
+        top_genes = embedding.get_top_genes("Program_1", n=10)
 
         assert len(top_genes) == 10
 
@@ -343,7 +342,7 @@ class TestUtils:
 
     def test_cleanup_genes(self):
         """Test gene cleanup"""
-        genes = ['RPS14', 'MT-CO1', 'TP53', 'XIST', 'BRCA1', 'RPL5']
+        genes = ["RPS14", "MT-CO1", "TP53", "XIST", "BRCA1", "RPL5"]
 
         cleaned = cleanup_genes(
             genes,
@@ -352,45 +351,53 @@ class TestUtils:
             remove_sex=True,
         )
 
-        assert 'TP53' in cleaned
-        assert 'BRCA1' in cleaned
-        assert 'RPS14' not in cleaned
-        assert 'MT-CO1' not in cleaned
-        assert 'XIST' not in cleaned
+        assert "TP53" in cleaned
+        assert "BRCA1" in cleaned
+        assert "RPS14" not in cleaned
+        assert "MT-CO1" not in cleaned
+        assert "XIST" not in cleaned
 
     def test_compute_correlation(self):
         """Test correlation computation"""
-        predicted = pd.DataFrame({
-            'Type_A': [0.2, 0.3, 0.4],
-            'Type_B': [0.8, 0.7, 0.6],
-        })
+        predicted = pd.DataFrame(
+            {
+                "Type_A": [0.2, 0.3, 0.4],
+                "Type_B": [0.8, 0.7, 0.6],
+            }
+        )
 
-        actual = pd.DataFrame({
-            'Type_A': [0.25, 0.35, 0.45],
-            'Type_B': [0.75, 0.65, 0.55],
-        })
+        actual = pd.DataFrame(
+            {
+                "Type_A": [0.25, 0.35, 0.45],
+                "Type_B": [0.75, 0.65, 0.55],
+            }
+        )
 
-        corr = compute_correlation(predicted, actual, method='pearson')
+        corr = compute_correlation(predicted, actual, method="pearson")
 
         assert len(corr) == 2
-        assert 'pearson_r' in corr.columns
+        assert "pearson_r" in corr.columns
 
     def test_compute_rmse(self):
         """Test RMSE computation"""
-        predicted = pd.DataFrame({
-            'Type_A': [0.2, 0.3, 0.4],
-            'Type_B': [0.8, 0.7, 0.6],
-        })
+        predicted = pd.DataFrame(
+            {
+                "Type_A": [0.2, 0.3, 0.4],
+                "Type_B": [0.8, 0.7, 0.6],
+            }
+        )
 
-        actual = pd.DataFrame({
-            'Type_A': [0.3, 0.3, 0.3],
-            'Type_B': [0.7, 0.7, 0.7],
-        })
+        actual = pd.DataFrame(
+            {
+                "Type_A": [0.3, 0.3, 0.3],
+                "Type_B": [0.7, 0.7, 0.7],
+            }
+        )
 
         rmse = compute_rmse(predicted, actual)
 
         assert len(rmse) == 2
-        assert 'rmse' in rmse.columns
+        assert "rmse" in rmse.columns
 
 
 @pytest.mark.integration
@@ -406,17 +413,15 @@ class TestFullWorkflow:
         n_cells = 100
         n_samples = 10
 
-        reference = sparse.random(n_genes, n_cells, density=0.1, format='csr')
+        reference = sparse.random(n_genes, n_cells, density=0.1, format="csr")
         reference.data = np.random.poisson(5, size=reference.data.shape)
 
-        cell_types = pd.Series(
-            np.random.choice(['T_cell', 'B_cell', 'Tumor'], size=n_cells)
-        )
+        cell_types = pd.Series(np.random.choice(["T_cell", "B_cell", "Tumor"], size=n_cells))
 
         mixture = pd.DataFrame(
             np.random.poisson(500, (n_genes, n_samples)),
-            index=[f'Gene_{i}' for i in range(n_genes)],
-            columns=[f'Sample_{i}' for i in range(n_samples)],
+            index=[f"Gene_{i}" for i in range(n_genes)],
+            columns=[f"Sample_{i}" for i in range(n_samples)],
         )
 
         # Create reference

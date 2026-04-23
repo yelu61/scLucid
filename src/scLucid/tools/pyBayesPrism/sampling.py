@@ -4,10 +4,11 @@ Gibbs sampling for BayesPrism (R-free)
 Optimized Gibbs sampler for Bayesian deconvolution.
 """
 
-import numpy as np
-from typing import Tuple, Optional, Callable
-from numba import njit, prange
 import logging
+from typing import Optional, Tuple
+
+import numpy as np
+from numba import njit, prange
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def _sample_Z_numba(
     Z : np.ndarray
         Output array (n_genes, n_cell_types)
 
-    Returns
+    Returns:
     -------
     np.ndarray
         Updated Z matrix
@@ -70,7 +71,7 @@ def _sample_Z_numba(
         cumsum = np.empty(n_cell_types)
         cumsum[0] = probs[0]
         for k in range(1, n_cell_types):
-            cumsum[k] = cumsum[k-1] + probs[k]
+            cumsum[k] = cumsum[k - 1] + probs[k]
 
         # Draw samples
         n_reads = int(mixture[g])
@@ -101,7 +102,7 @@ def _sample_theta_numba(
     alpha_prior : np.ndarray
         Dirichlet prior parameters (n_cell_types,)
 
-    Returns
+    Returns:
     -------
     np.ndarray
         Sampled theta proportions
@@ -161,14 +162,14 @@ class GibbsSampler:
     use_numba : bool
         Whether to use Numba JIT compilation
 
-    Attributes
+    Attributes:
     ----------
     theta_samples_ : np.ndarray
         Posterior samples of theta (n_iter - burnin, n_cell_types)
     Z_samples_ : np.ndarray
         Posterior samples of Z
 
-    Examples
+    Examples:
     --------
     >>> sampler = GibbsSampler(n_iter=100, burnin=50)
     >>> theta_samples, Z_samples = sampler.sample(
@@ -218,7 +219,7 @@ class GibbsSampler:
         verbose : bool
             Whether to print progress
 
-        Returns
+        Returns:
         -------
         theta_samples : np.ndarray
             Posterior samples of theta
@@ -309,7 +310,7 @@ class GibbsSampler:
         """
         Get posterior mean estimates
 
-        Returns
+        Returns:
         -------
         theta_mean : np.ndarray
             Mean cell type proportions
@@ -336,7 +337,7 @@ class GibbsSampler:
         level : float
             Confidence level
 
-        Returns
+        Returns:
         -------
         lower : np.ndarray
             Lower bounds

@@ -8,13 +8,13 @@ before downstream analysis.
 
 import logging
 import tempfile
+import time
+from functools import wraps
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-import time
-from functools import wraps
 from anndata import AnnData
 
 from ..utils.resource_loader import get_resource_path, resource_exists
@@ -106,7 +106,6 @@ BIOTYPE_CATEGORIES = {
 }
 
 
-
 # --- Helper Functions ---
 def retry(retries=3, delay=5):
     def decorator(func):
@@ -120,7 +119,9 @@ def retry(retries=3, delay=5):
                         raise e
                     log.warning(f"Attempt {i+1} failed: {e}. Retrying in {delay}s...")
                     time.sleep(delay)
+
         return wrapper
+
     return decorator
 
 
@@ -230,12 +231,10 @@ def list_gene_biotype_resources(
     resources_by_species: Dict[str, Dict[str, List[str]]] = {}
 
     for sp in requested_species:
-        bundled = [
-            name for name in _candidate_biotype_resource_names(sp)
-            if resource_exists(name)
-        ]
+        bundled = [name for name in _candidate_biotype_resource_names(sp) if resource_exists(name)]
         cached = [
-            str(path) for path in _candidate_biotype_cache_paths(sp, cache_dir=cache_root)
+            str(path)
+            for path in _candidate_biotype_cache_paths(sp, cache_dir=cache_root)
             if path.exists()
         ]
         resources_by_species[sp] = {"bundled": bundled, "cached": cached}
@@ -440,9 +439,7 @@ def _match_genes_to_biotypes(
     if fuzzy_match and "gene_id" in biotype_df.columns:
         unmatched = biotypes.isna()
         if unmatched.sum() > 0:
-            log.info(
-                f"Trying Ensembl ID matching for {unmatched.sum()} unmatched genes..."
-            )
+            log.info(f"Trying Ensembl ID matching for {unmatched.sum()} unmatched genes...")
 
             gene_id_to_biotype = biotype_df.set_index("gene_id")["biotype"].to_dict()
             biotypes.loc[unmatched] = gene_names[unmatched].map(gene_id_to_biotype)
@@ -548,9 +545,7 @@ def annotate_gene_biotypes(
         >>> adata = annotate_gene_biotypes(adata, biotype_df=custom_df, method='custom')
     """
     if "biotype" in adata.var.columns and not overwrite:
-        log.info(
-            "Gene biotypes already annotated. Use overwrite=True to re-annotate."
-        )
+        log.info("Gene biotypes already annotated. Use overwrite=True to re-annotate.")
         return adata
 
     log.info(f"Annotating gene biotypes for {adata.n_vars} genes...")
@@ -580,9 +575,7 @@ def annotate_gene_biotypes(
         required_cols = ["gene_name", "biotype"]
         missing_cols = [col for col in required_cols if col not in biotype_df.columns]
         if missing_cols:
-            raise ValueError(
-                f"Custom biotype_df missing required columns: {missing_cols}"
-            )
+            raise ValueError(f"Custom biotype_df missing required columns: {missing_cols}")
     else:
         raise ValueError(f"Unknown method: {method}")
 
@@ -595,8 +588,7 @@ def annotate_gene_biotypes(
 
     # Add recommendation flag
     category_recommendations = {
-        cat: info["recommended_for_analysis"]
-        for cat, info in BIOTYPE_CATEGORIES.items()
+        cat: info["recommended_for_analysis"] for cat, info in BIOTYPE_CATEGORIES.items()
     }
     adata.var["recommended_for_analysis"] = adata.var["biotype_category"].map(
         category_recommendations
@@ -744,9 +736,7 @@ def filter_genes_by_biotype(
         ... )
     """
     if "biotype_category" not in adata.var.columns:
-        raise ValueError(
-            "Gene biotypes not found. Run annotate_gene_biotypes() first."
-        )
+        raise ValueError("Gene biotypes not found. Run annotate_gene_biotypes() first.")
 
     if copy:
         adata = adata.copy()
@@ -785,9 +775,7 @@ def filter_genes_by_biotype(
         return adata
 
 
-def get_biotype_statistics(
-    adata: AnnData, sample_key: Optional[str] = None
-) -> pd.DataFrame:
+def get_biotype_statistics(adata: AnnData, sample_key: Optional[str] = None) -> pd.DataFrame:
     """
     Generate comprehensive biotype statistics.
 
@@ -799,9 +787,7 @@ def get_biotype_statistics(
         DataFrame with biotype statistics
     """
     if "biotype_category" not in adata.var.columns:
-        raise ValueError(
-            "Gene biotypes not found. Run annotate_gene_biotypes() first."
-        )
+        raise ValueError("Gene biotypes not found. Run annotate_gene_biotypes() first.")
 
     stats = []
 
@@ -878,9 +864,7 @@ def recommend_biotype_strategy(
         Dictionary with recommendations
     """
     if "biotype_category" not in adata.var.columns:
-        raise ValueError(
-            "Gene biotypes not found. Run annotate_gene_biotypes() first."
-        )
+        raise ValueError("Gene biotypes not found. Run annotate_gene_biotypes() first.")
 
     recommendations = {
         "cell_typing": {
@@ -932,12 +916,8 @@ def recommend_biotype_strategy(
     log.info(f"{'='*60}")
     log.info(f"\nRationale: {rec['rationale']}")
     log.info(f"\nRecommended biotypes to keep: {', '.join(rec['keep_biotypes'])}")
-    log.info(
-        f"Genes retained: {rec['n_genes_kept']}/{adata.n_vars} ({actual_retention:.1%})"
-    )
-    log.info(
-        f"Genes removed: {rec['n_genes_removed']} ({1-actual_retention:.1%})\n"
-    )
+    log.info(f"Genes retained: {rec['n_genes_kept']}/{adata.n_vars} ({actual_retention:.1%})")
+    log.info(f"Genes removed: {rec['n_genes_removed']} ({1-actual_retention:.1%})\n")
 
     # Show what will be removed
     removed_biotypes = adata.var.loc[~keep_mask, "biotype_category"].value_counts()

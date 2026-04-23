@@ -4,11 +4,12 @@ Reference data handling for BayesPrism (R-free)
 Handles scRNA-seq reference data processing and cell type profile generation.
 """
 
+import logging
+from typing import Dict, List, Optional, Union
+
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from typing import Optional, Union, List, Dict, Set
-import logging
 
 from .config import ReferenceConfig
 
@@ -35,7 +36,7 @@ class BayesPrismReference:
     pseudo_min : float
         Minimum pseudo-count to avoid zeros
 
-    Attributes
+    Attributes:
     ----------
     phi : np.ndarray
         Cell type-specific expression profiles (genes x cell_types)
@@ -44,7 +45,7 @@ class BayesPrismReference:
     cell_states : List[str]
         Unique cell state names
 
-    Examples
+    Examples:
     --------
     >>> ref = BayesPrismReference(
     ...     reference=ref_counts,
@@ -62,10 +63,7 @@ class BayesPrismReference:
         input_type: str = "count.matrix",
         pseudo_min: float = 1e-8,
     ):
-        self.config = ReferenceConfig(
-            input_type=input_type,
-            pseudo_min=pseudo_min
-        )
+        self.config = ReferenceConfig(input_type=input_type, pseudo_min=pseudo_min)
 
         # Store labels
         self.cell_type_labels = pd.Series(cell_type_labels)
@@ -84,8 +82,8 @@ class BayesPrismReference:
             )
 
         # Convert to sparse matrix
-        self.reference_matrix, self.gene_names, self.cell_names = (
-            self._convert_to_sparse(reference, n_cells)
+        self.reference_matrix, self.gene_names, self.cell_names = self._convert_to_sparse(
+            reference, n_cells
         )
 
         # Get unique types
@@ -117,9 +115,7 @@ class BayesPrismReference:
             cell_names = reference.columns.tolist()
         elif isinstance(reference, np.ndarray):
             if reference.shape[1] != n_cells:
-                raise ValueError(
-                    f"Reference shape {reference.shape} doesn't match {n_cells} cells"
-                )
+                raise ValueError(f"Reference shape {reference.shape} doesn't match {n_cells} cells")
             ref_matrix = sparse.csr_matrix(reference)
             gene_names = [f"gene_{i}" for i in range(reference.shape[0])]
             cell_names = [f"cell_{i}" for i in range(n_cells)]
@@ -179,7 +175,7 @@ class BayesPrismReference:
         """
         Get cell state-specific expression profiles
 
-        Returns
+        Returns:
         -------
         Dict[str, np.ndarray]
             Dictionary mapping state names to expression profiles
@@ -224,7 +220,7 @@ class BayesPrismReference:
         min_fold_change : float
             Minimum fold change for markers
 
-        Returns
+        Returns:
         -------
         Dict[str, List[str]]
             Dictionary mapping cell types to marker gene lists
@@ -236,9 +232,7 @@ class BayesPrismReference:
             other_expr = np.delete(self.phi, i, axis=1).mean(axis=1)
 
             if method == "fold_change":
-                fold_change = np.log2(
-                    (type_expr + 1e-10) / (other_expr + 1e-10)
-                )
+                fold_change = np.log2((type_expr + 1e-10) / (other_expr + 1e-10))
 
                 # Filter by minimum fold change
                 valid_idx = np.where(fold_change >= np.log2(min_fold_change))[0]

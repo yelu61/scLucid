@@ -4,30 +4,26 @@ Integration tests for the preprocessing workflow.
 Tests the complete preprocessing pipeline from counts to UMAP.
 """
 
-import pytest
+import sys
+
 import numpy as np
 import pandas as pd
+import pytest
 from anndata import AnnData
 
-import sys
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.preprocess import run_preprocessing
-from scLucid.preprocess.config import WorkflowConfig, NormalizationConfig
+from scLucid.preprocess.config import NormalizationConfig, WorkflowConfig
 from scLucid.preprocess.gene_biotype import (
-    apply_gene_biotype_strategy,
     annotate_gene_biotypes,
+    apply_gene_biotype_strategy,
     filter_genes_by_biotype,
     list_gene_biotype_resources,
     load_gene_biotypes,
 )
 
 # Import synthetic data fixtures
-from tests.fixtures.synthetic_data import (
-    synthetic_generator,
-    minimal_adata,
-    integration_test_adata,
-)
 
 
 def _workflow_config_for_tests() -> WorkflowConfig:
@@ -107,8 +103,9 @@ class TestPreprocessingWorkflow:
 
     def test_normalization_step(self, minimal_adata):
         """Test that normalization produces correct results."""
-        from scLucid.preprocess.normalize import normalize_data
         from scipy import sparse
+
+        from scLucid.preprocess.normalize import normalize_data
 
         config = NormalizationConfig(target_sum=1e4, plot=False, report=False, verbose=False)
         result = normalize_data(minimal_adata.copy(), config=config)
@@ -128,11 +125,12 @@ class TestPreprocessingWorkflow:
 
     def test_hvg_selection(self, minimal_adata):
         """Test that HVG selection reduces gene count."""
-        from scLucid.preprocess.hvg import find_hvgs
         from scLucid.preprocess.config import HVGConfig
+        from scLucid.preprocess.hvg import find_hvgs
 
         # First normalize
         from scLucid.preprocess.normalize import normalize_data
+
         adata = normalize_data(
             minimal_adata.copy(),
             config=NormalizationConfig(plot=False, report=False, verbose=False),
@@ -152,8 +150,8 @@ class TestPreprocessingWorkflow:
 
     def test_scaling_step(self, minimal_adata):
         """Test that scaling produces zero-mean, unit-variance data."""
-        from scLucid.preprocess.scale import scale_data
         from scLucid.preprocess.config import ScalingConfig
+        from scLucid.preprocess.scale import scale_data
 
         config = ScalingConfig(regress_in_scale=False, plot=False, report=False, verbose=False)
         result = scale_data(minimal_adata.copy(), config=config)
@@ -176,6 +174,7 @@ class TestPreprocessingWorkflow:
 
         # Need scaled data first
         from scLucid.preprocess.scale import scale_data
+
         scaling_cfg = _workflow_config_for_tests().scaling
         scaling_cfg.regress_in_scale = False
         adata = scale_data(minimal_adata.copy(), config=scaling_cfg)
@@ -189,8 +188,6 @@ class TestPreprocessingWorkflow:
 
     def test_neighbors_and_umap(self, minimal_adata):
         """Test that neighbors and UMAP work correctly."""
-        import scanpy as sc
-
         # Prepare data
         config = _workflow_config_for_tests()
         result = run_preprocessing(minimal_adata, config=config)
@@ -208,7 +205,8 @@ class TestPreprocessingWorkflow:
         """Gene biotype utilities should store metadata under preprocess, not QC."""
         adata = minimal_adata.copy()
         adata.var_names = np.array(
-            ["GAPDH", "MALAT1", "RPLP0", "MT-CO1", "IGHG1", "TRAC"] + [f"GENE{i}" for i in range(adata.n_vars - 6)]
+            ["GAPDH", "MALAT1", "RPLP0", "MT-CO1", "IGHG1", "TRAC"]
+            + [f"GENE{i}" for i in range(adata.n_vars - 6)]
         )
         custom_df = pd.DataFrame(
             {
@@ -227,7 +225,9 @@ class TestPreprocessingWorkflow:
         adata = annotate_gene_biotypes(adata, biotype_df=custom_df, method="custom")
         assert "preprocess" in adata.uns["sclucid"]
         assert "gene_biotypes" in adata.uns["sclucid"]["preprocess"]
-        assert "qc" not in adata.uns["sclucid"] or "gene_biotypes" not in adata.uns["sclucid"].get("qc", {})
+        assert "qc" not in adata.uns["sclucid"] or "gene_biotypes" not in adata.uns["sclucid"].get(
+            "qc", {}
+        )
 
         filtered = filter_genes_by_biotype(adata, keep_biotypes=["protein_coding"], copy=True)
         assert filtered is not None
@@ -292,7 +292,9 @@ class TestPreprocessingWorkflow:
     def test_list_gene_biotype_resources_reports_cache(self, tmp_path):
         cache_dir = tmp_path / "gene_annotations"
         cache_dir.mkdir()
-        (cache_dir / "mouse_reference_latest.csv").write_text("gene_name,biotype\nGapdh,protein_coding\n")
+        (cache_dir / "mouse_reference_latest.csv").write_text(
+            "gene_name,biotype\nGapdh,protein_coding\n"
+        )
 
         resources = list_gene_biotype_resources(species="mouse", cache_dir=cache_dir)
 

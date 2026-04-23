@@ -5,11 +5,11 @@ This module provides tools for identifying and quantifying
 drug resistance mechanisms in tumor cells.
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
-from anndata import AnnData
 import logging
+from typing import Dict, List, Optional
+
+import pandas as pd
+from anndata import AnnData
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ class ResistanceAnalyzer:
     method : str
         Scoring method ("mean", "sum", "weighted")
 
-    Attributes
+    Attributes:
     ----------
     resistance_scores_ : pd.DataFrame
         Resistance scores per cell and mechanism
@@ -137,7 +137,7 @@ class ResistanceAnalyzer:
         groupby : str, optional
             Column to group cells by (e.g., cell type, clone)
 
-        Returns
+        Returns:
         -------
         ResistanceAnalyzer
             Fitted analyzer
@@ -158,7 +158,7 @@ class ResistanceAnalyzer:
 
                 # Calculate score
                 expr = adata[:, available].X.mean(axis=1)
-                if hasattr(expr, 'toarray'):
+                if hasattr(expr, "toarray"):
                     expr = expr.toarray().flatten()
 
                 scores[score_name] = expr
@@ -189,7 +189,7 @@ class ResistanceAnalyzer:
         custom_genes : list, optional
             Custom resistance genes to use instead
 
-        Returns
+        Returns:
         -------
         pd.Series
             Resistance scores per cell
@@ -212,7 +212,7 @@ class ResistanceAnalyzer:
 
         # Calculate score
         expr = adata[:, available].X.mean(axis=1)
-        if hasattr(expr, 'toarray'):
+        if hasattr(expr, "toarray"):
             expr = expr.toarray().flatten()
 
         return pd.Series(expr, index=adata.obs_names, name=f"{drug}_resistance")
@@ -238,7 +238,7 @@ class ResistanceAnalyzer:
         top_n : int
             Number of top resistant clones to return
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Top resistant clones with scores
@@ -246,11 +246,11 @@ class ResistanceAnalyzer:
         scores = self.score_drug_resistance(adata, drug)
 
         # Calculate mean score per clone
-        clone_scores = scores.groupby(adata.obs[clone_key]).agg(['mean', 'std', 'count'])
-        clone_scores.columns = ['mean_score', 'std_score', 'n_cells']
+        clone_scores = scores.groupby(adata.obs[clone_key]).agg(["mean", "std", "count"])
+        clone_scores.columns = ["mean_score", "std_score", "n_cells"]
 
         # Sort by mean score
-        clone_scores = clone_scores.sort_values('mean_score', ascending=False)
+        clone_scores = clone_scores.sort_values("mean_score", ascending=False)
 
         return clone_scores.head(top_n)
 
@@ -263,7 +263,7 @@ class ResistanceAnalyzer:
         drug : str
             Drug name
 
-        Returns
+        Returns:
         -------
         dict
             Resistance mechanism information
@@ -294,7 +294,7 @@ def identify_resistance_mechanisms(
     key_added : str
         Key prefix for storing results
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Resistance mechanism scores
@@ -337,7 +337,7 @@ def score_drug_resistance(
     key_added : str
         Key for storing results
 
-    Returns
+    Returns:
     -------
     pd.Series
         Resistance scores
@@ -370,7 +370,7 @@ def compare_resistance_between_groups(
     method : str
         Statistical test method
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Comparison results
@@ -388,7 +388,7 @@ def compare_resistance_between_groups(
 
     # Pairwise comparison
     for i, g1 in enumerate(groups):
-        for g2 in groups[i+1:]:
+        for g2 in groups[i + 1 :]:
             mask1 = adata.obs[groupby] == g1
             mask2 = adata.obs[groupby] == g2
 
@@ -402,14 +402,16 @@ def compare_resistance_between_groups(
             else:
                 raise ValueError(f"Unknown method: {method}")
 
-            results.append({
-                "group1": g1,
-                "group2": g2,
-                "mean1": scores1.mean(),
-                "mean2": scores2.mean(),
-                "diff": scores1.mean() - scores2.mean(),
-                "statistic": stat,
-                "pvalue": pval,
-            })
+            results.append(
+                {
+                    "group1": g1,
+                    "group2": g2,
+                    "mean1": scores1.mean(),
+                    "mean2": scores2.mean(),
+                    "diff": scores1.mean() - scores2.mean(),
+                    "statistic": stat,
+                    "pvalue": pval,
+                }
+            )
 
     return pd.DataFrame(results)

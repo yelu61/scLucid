@@ -3,19 +3,14 @@ Plotting functions for single-cell RNA-seq data.
 """
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
-import matplotlib.gridspec as gridspec
-import matplotlib.patches as mpatches
 import matplotlib.patheffects as PathEffects
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import scipy.sparse
 import seaborn as sns
-from scipy.cluster import hierarchy
-from scipy.spatial import distance
 
 # Try importing adjustText softly
 try:
@@ -102,7 +97,7 @@ def plot_embedding(
     **kwargs
         Additional keyword arguments passed to `sc.pl.embedding`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object.
@@ -222,9 +217,7 @@ def plot_embedding(
             texts.append(txt)
         if adjust_text and texts:
             try:
-                adjust_text(
-                    texts, ax=ax, arrowprops=dict(arrowstyle="-", color="gray", lw=0.5)
-                )
+                adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle="-", color="gray", lw=0.5))
             except Exception as e:
                 log.debug(f"adjust_text failed: {e}")
 
@@ -321,7 +314,7 @@ def plot_faceted_embedding(
     **kwargs
         Additional keyword arguments passed to `seaborn.scatterplot`.
 
-    Returns
+    Returns:
     -------
     plt.Figure
         The matplotlib Figure object containing the plot.
@@ -334,14 +327,11 @@ def plot_faceted_embedding(
         raise ValueError(f"Embedding '{embed_key}' not found in adata.obsm.")
     if split_by not in adata_to_plot.obs:
         raise ValueError(f"'{split_by}' not found in adata.obs.")
-    is_categorical = (
-        color_by in adata_to_plot.obs
-        and pd.api.types.is_categorical_dtype(adata_to_plot.obs[color_by])
+    is_categorical = color_by in adata_to_plot.obs and pd.api.types.is_categorical_dtype(
+        adata_to_plot.obs[color_by]
     )
     if not is_categorical:
-        raise ValueError(
-            f"'{color_by}' not found as a categorical column in adata.obs."
-        )
+        raise ValueError(f"'{color_by}' not found as a categorical column in adata.obs.")
 
     # --- 2. Data Preparation ---
     coords = adata_to_plot.obsm[embed_key][:, :2]
@@ -357,15 +347,11 @@ def plot_faceted_embedding(
 
     # --- 3. Palette Handling ---
     final_palette = (
-        palette
-        if palette is not None
-        else _get_palette_map(adata_to_plot, color_by, None)
+        palette if palette is not None else _get_palette_map(adata_to_plot, color_by, None)
     )
 
     # --- 4. Plotting with FacetGrid ---
-    g = sns.FacetGrid(
-        plot_df, col=split_by, col_wrap=col_wrap, sharex=True, sharey=True
-    )
+    g = sns.FacetGrid(plot_df, col=split_by, col_wrap=col_wrap, sharex=True, sharey=True)
     g.map_dataframe(
         sns.scatterplot,
         x="Dim1",
@@ -385,9 +371,7 @@ def plot_faceted_embedding(
     if legend_loc == "right margin":
         g.add_legend(title=color_by, bbox_to_anchor=(1.01, 0.5), loc="center left")
     elif legend_loc == "top margin":
-        g.add_legend(
-            title=color_by, bbox_to_anchor=(0.5, 1.02), loc="lower center", ncol=3
-        )
+        g.add_legend(title=color_by, bbox_to_anchor=(0.5, 1.02), loc="lower center", ncol=3)
 
     # Main title
     if main_title:
@@ -437,5 +421,3 @@ def plot_faceted_embedding(
 # =============================================================================
 # Marker Visualization
 # =============================================================================
-
-
