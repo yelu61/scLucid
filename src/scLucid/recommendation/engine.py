@@ -124,7 +124,7 @@ class RecommendationEngine:
         qc_overrides = {
             key: value
             for key, value in qc_config.model_dump().items()
-            if key not in {"plot", "save_dir", "tissue_type", "sample_metadata"}
+            if key not in {"plot", "save_dir", "tissue_type", "sample_metadata", "verbose", "report"}
         }
         return recommend_intelligent_qc(
             adata,

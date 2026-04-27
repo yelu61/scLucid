@@ -488,7 +488,7 @@ def annotate_clusters(
             use_raw=use_raw,
             key_added=f"rank_genes_{cluster_key}",
         )
-        markers_df = sc.get.rank_genes_groups_df(adata, key=f"rank_genes_{cluster_key}")
+        markers_df = sc.get.rank_genes_groups_df(adata, group=None, key=f"rank_genes_{cluster_key}")
         result = {}
         categories = list(adata.obs[cluster_key].cat.categories)
         for cluster in categories:
@@ -522,7 +522,7 @@ def annotate_clusters(
             use_raw=use_raw,
             key_added=f"rank_genes_{cluster_key}",
         )
-        markers_df = sc.get.rank_genes_groups_df(adata, key=f"rank_genes_{cluster_key}")
+        markers_df = sc.get.rank_genes_groups_df(adata, group=None, key=f"rank_genes_{cluster_key}")
         categories = list(adata.obs[cluster_key].cat.categories)
         result = {}
         for cluster in categories:

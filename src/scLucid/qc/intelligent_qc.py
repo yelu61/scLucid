@@ -1036,6 +1036,7 @@ def recommend_intelligent_qc(
     strategy: str = "auto",
     plot: bool = True,
     save_dir: Optional[Path] = None,
+    **kwargs,
 ) -> QCRecommendation:
     """
     Convenience function for intelligent QC threshold recommendations.

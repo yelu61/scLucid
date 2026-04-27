@@ -228,7 +228,12 @@ class SyntheticDataGenerator:
 
         cell_types = adata.obs["cell_type"].unique()
 
-        for _ in range(n_doublets):
+        # Collect doublet data outside AnnData to avoid shape mismatches
+        doublet_X_list = []
+        doublet_counts_list = []
+        doublet_obs_list = []
+
+        for i in range(n_doublets):
             # Pick two cells from different cell types
             ct1, ct2 = self.rng.choice(cell_types, size=2, replace=False)
             cells1 = adata.obs_names[adata.obs["cell_type"] == ct1].tolist()
@@ -241,15 +246,35 @@ class SyntheticDataGenerator:
             doublet_expr = (adata[idx1].X + adata[idx2].X) / 2
             doublet_counts = (adata[idx1].layers["counts"] + adata[idx2].layers["counts"]) / 2
 
-            # Add to adata
-            new_name = f"doublet_{idx1}_{idx2}"
+            new_name = f"doublet_{i}_{idx1}_{idx2}"
             doublet_indices.append(new_name)
 
-            # Extend matrices
-            adata.obs.loc[new_name] = adata.obs.loc[idx1].copy()
-            adata.obs.loc[new_name, "cell_type"] = f"Doublet_{ct1}_{ct2}"
-            adata.X = np.vstack([adata.X, doublet_expr])
-            adata.layers["counts"] = np.vstack([adata.layers["counts"], doublet_counts])
+            doublet_X_list.append(doublet_expr)
+            doublet_counts_list.append(doublet_counts)
+
+            # Build obs row
+            obs_row = adata.obs.loc[idx1].copy()
+            obs_row["cell_type"] = f"Doublet_{ct1}_{ct2}"
+            obs_row.name = new_name
+            doublet_obs_list.append(obs_row)
+
+        if doublet_X_list:
+            # Concatenate all doublets
+            doublet_X = np.vstack(doublet_X_list)
+            doublet_counts = np.vstack(doublet_counts_list)
+            doublet_obs = pd.DataFrame(doublet_obs_list)
+
+            # Build new AnnData from combined data
+            new_X = np.vstack([adata.X, doublet_X])
+            new_counts = np.vstack([adata.layers["counts"], doublet_counts])
+            new_obs = pd.concat([adata.obs, doublet_obs], ignore_index=False)
+
+            adata = AnnData(
+                X=new_X,
+                obs=new_obs,
+                var=adata.var.copy(),
+                layers={"counts": new_counts},
+            )
 
         # Mark doublets
         adata.obs["is_doublet"] = False

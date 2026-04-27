@@ -4,6 +4,7 @@ Handles logging and plotting defaults.
 """
 
 import logging
+import warnings
 from copy import deepcopy
 from typing import Any, Dict, Optional, Tuple
 
@@ -144,7 +145,60 @@ _DEFAULT_STYLES = {
     "lines.markersize": 6,
 }
 
-__all__ = ["setup_logging", "set_figure_params", "reset_figure_params"]
+__all__ = [
+    "setup_logging",
+    "set_figure_params",
+    "reset_figure_params",
+    "set_interactive_mode",
+    "is_interactive_mode",
+]
+
+
+# --- Interactive plotting control ---
+
+_interactive_mode: bool = False
+
+
+def set_interactive_mode(interactive: bool = True) -> None:
+    """Enable or disable interactive matplotlib plotting.
+
+    When disabled (default in scLucid), matplotlib uses the non-interactive
+    'Agg' backend, preventing figure windows from popping up during scripts.
+    This is the recommended setting for batch processing and CI environments.
+
+    When enabled, matplotlib restores the default backend, allowing interactive
+    figure display in Jupyter notebooks or Python shells.
+
+    Args:
+        interactive: True to enable interactive plots, False to disable.
+
+    Examples:
+        >>> import scLucid as scl
+        >>> scl.set_interactive_mode(True)   # Enable interactive plots
+        >>> scl.set_interactive_mode(False)  # Disable (default)
+    """
+    global _interactive_mode
+    _interactive_mode = interactive
+    if interactive:
+        mpl.rcParams["backend"] = _original_rc_params.get("backend", "auto")
+        _scanpy.settings.autoshow = True
+        warnings.filterwarnings("default", message="FigureCanvasAgg is non-interactive")
+        log.info("Interactive plotting enabled.")
+    else:
+        # Use non-interactive Agg backend to prevent pop-up windows
+        try:
+            mpl.use("Agg", force=False)
+        except Exception:
+            pass
+        _scanpy.settings.autoshow = False
+        # Silence the harmless warning about non-interactive backend
+        warnings.filterwarnings("ignore", message="FigureCanvasAgg is non-interactive")
+        log.debug("Interactive plotting disabled (non-interactive Agg backend).")
+
+
+def is_interactive_mode() -> bool:
+    """Return whether interactive plotting is currently enabled."""
+    return _interactive_mode
 
 
 def setup_logging(

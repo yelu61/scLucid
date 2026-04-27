@@ -95,7 +95,7 @@ class CNVAnalyzer:
         self.cnv_matrix_ = cnv_ratio
 
         # Calculate tumor scores
-        self.tumor_scores_ = self._calculate_tumor_scores(cnv_ratio)
+        self.tumor_scores_ = self._calculate_tumor_scores(cnv_ratio, index=adata.obs_names)
 
         return self
 
@@ -119,11 +119,11 @@ class CNVAnalyzer:
 
         return smoothed
 
-    def _calculate_tumor_scores(self, cnv_ratio: np.ndarray) -> pd.Series:
+    def _calculate_tumor_scores(self, cnv_ratio: np.ndarray, index=None) -> pd.Series:
         """Calculate tumor malignancy scores from CNV patterns."""
         # Score based on deviation from normal
         score = np.abs(cnv_ratio).mean(axis=1)
-        return pd.Series(score)
+        return pd.Series(score, index=index)
 
     def predict_tumor_cells(
         self,
@@ -182,14 +182,27 @@ def infer_cnv(
     if copy:
         adata = adata.copy()
 
+    # Use normalized layer if available (non-negative), otherwise fall back to X
+    if "normalized" in adata.layers:
+        log.info("Using 'normalized' layer for CNV inference")
+        X = adata.layers["normalized"]
+    else:
+        X = adata.X
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+
+    # Build a temporary AnnData with the chosen expression matrix
+    temp_adata = adata.copy()
+    temp_adata.X = X
+
     analyzer = CNVAnalyzer(gene_order=gene_order)
-    analyzer.fit(adata, reference_cells, reference_key)
+    analyzer.fit(temp_adata, reference_cells, reference_key)
 
     # Store results
     adata.obsm[f"X_{key_added}"] = analyzer.cnv_matrix_
     adata.obs[f"{key_added}_score"] = analyzer.tumor_scores_
 
-    log.info(f"CNV inference complete. Results stored in obsm['X_{key_added}']")
+    log.info(f"CNV inference complete. Results stored in obsm['X_{key_added}'] and obs['{key_added}_score']")
 
     return adata
 
