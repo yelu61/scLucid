@@ -1,5 +1,0 @@
-sample,n_cells,outlier_min_genes_count,outlier_min_genes_percentage,outlier_max_genes_count,outlier_max_genes_percentage,outlier_min_counts_count,outlier_min_counts_percentage,outlier_max_counts_count,outlier_max_counts_percentage,outlier_mt_count,outlier_mt_percentage,outlier_hb_count,outlier_hb_percentage,outlier_qc_metrics_count,outlier_qc_metrics_percentage,outlier_count_count,outlier_count_percentage
-sample3,622,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,1,0.1607717041800643,1,0.1607717041800643
-sample4,623,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,1,0.16051364365971107,1,0.16051364365971107
-sample1,649,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,1,0.15408320493066258,1,0.15408320493066258
-sample2,629,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,3,0.47694753577106513,3,0.47694753577106513

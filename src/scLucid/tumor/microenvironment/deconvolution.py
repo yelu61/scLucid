@@ -126,7 +126,18 @@ def deconvolve_tme(
     adata.uns[f"{key_added}_immune_score"] = profiler.immune_score_
     adata.uns[f"{key_added}_stromal_score"] = profiler.stromal_score_
 
-    log.info(f"TME profiling complete. Results stored in uns['{key_added}_*']")
+    # Per-cell TME scores (useful for downstream analysis and visualization)
+    cell_types = adata.obs[cell_type_key]
+    immune_types = profiler._get_immune_types()
+    stromal_types = profiler._get_stromal_types()
+    adata.obs[f"{key_added}_is_immune"] = cell_types.isin(immune_types).astype(int)
+    adata.obs[f"{key_added}_is_stromal"] = cell_types.isin(stromal_types).astype(int)
+    adata.obs[f"{key_added}_is_malignant"] = (~cell_types.isin(immune_types + stromal_types)).astype(int)
+
+    log.info(
+        f"TME profiling complete. Results in uns['{key_added}_*'] and "
+        f"obs['{key_added}_is_immune'/'_is_stromal'/'_is_malignant']"
+    )
 
     return adata
 

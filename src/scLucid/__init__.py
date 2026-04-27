@@ -6,10 +6,21 @@ scLucid is a powerful and flexible Python toolkit for the analysis of
 single-cell RNA-sequencing data.
 """
 
+import os
 import warnings
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Dict, Optional
+
+# Default to non-interactive plotting to prevent pop-up windows in scripts/CI.
+# Users can enable interactivity via scl.set_interactive_mode(True).
+import warnings
+
+if not os.environ.get("MPLBACKEND"):
+    import matplotlib
+
+    matplotlib.use("Agg", force=False)
+    warnings.filterwarnings("ignore", message="FigureCanvasAgg is non-interactive")
 
 try:
     __version__ = version("sclucid")
@@ -58,7 +69,13 @@ rc = recommendation
 
 # --- Configuration and Settings ---
 try:
-    from .settings import reset_figure_params, set_figure_params, setup_logging
+    from .settings import (
+    is_interactive_mode,
+    reset_figure_params,
+    set_figure_params,
+    set_interactive_mode,
+    setup_logging,
+)
 except Exception as exc:
     warnings.warn(f"Could not import settings module: {exc}", ImportWarning)
 
@@ -316,6 +333,8 @@ __all__ = [
     "setup_logging",
     "set_figure_params",
     "reset_figure_params",
+    "set_interactive_mode",
+    "is_interactive_mode",
     "FONT_NATURE",
     "FONT_CELL",
     "FONT_TRADITIONAL",

@@ -38,8 +38,8 @@ class TumorAnalysisConfig(SclucidBaseConfig):
 
     # CNV analysis
     run_cnv: bool = Field(
-        default=False,
-        description="Run CNV inference. Default False because infercnvpy is optional.",
+        default=True,
+        description="Run CNV inference based on expression patterns.",
     )
     cnv_reference_key: Optional[str] = Field(
         default=None,
@@ -142,6 +142,7 @@ class TumorWorkflowConfig(WorkflowConfigBase):
         save_dir: Optional[str] = None,
         tissue_type: str = "tumor",
         batch_key: Optional[str] = None,
+        cancer_type: Optional[str] = None,
     ) -> TumorWorkflowConfig:
         """Factory for a runnable default tumor workflow config."""
         from ..analysis.config import AnalysisWorkflowConfig
@@ -174,6 +175,7 @@ class TumorWorkflowConfig(WorkflowConfigBase):
             save_dir=save_dir,
             tissue_type=tissue_type,
             batch_key=batch_key,
+            cancer_type=cancer_type,
             use_recommendations=True,
             qc_config=qc_config,
             preprocess_config=PreprocessWorkflowConfig(integration=IntegrationConfig(method=None)),

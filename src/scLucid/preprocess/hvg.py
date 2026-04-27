@@ -1040,10 +1040,13 @@ def find_hvgs(
     }
 
     if plot:
+        plot_save_path = Path(save_dir) / "hvg_metrics.png" if save_dir else None
+        if plot_save_path is not None:
+            plot_save_path.parent.mkdir(parents=True, exist_ok=True)
         plot_hvg_metrics(
             adata,
             output_key,
-            save_path=Path(save_dir) / "hvg_metrics.png" if save_dir else None,
+            save_path=plot_save_path,
         )
         plt.show()
 

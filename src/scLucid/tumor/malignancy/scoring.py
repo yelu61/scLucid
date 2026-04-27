@@ -146,9 +146,9 @@ def score_malignancy(
     )
     scorer.fit(adata)
 
-    adata.obs[f"{key_added}_score"] = scorer.scores_
+    adata.obs[key_added] = scorer.scores_
 
-    log.info(f"Malignancy scoring complete. Scores in obs['{key_added}_score']")
+    log.info(f"Malignancy scoring complete. Scores in obs['{key_added}']")
 
     return adata
 

@@ -249,8 +249,9 @@ def run_tumor_analysis_expert(
     log.info("=== Starting Tumor Workflow: Tumor Stage ===")
     log.info("=" * 60)
     try:
-        adata = _run_tumor_stage(adata, tumor_config)
-        steps_executed.append("tumor")
+        adata, tumor_steps, tumor_warnings = _run_tumor_stage(adata, tumor_config)
+        steps_executed.extend(tumor_steps)
+        warnings_list.extend(tumor_warnings)
     except Exception as exc:
         log.error(f"Tumor stage failed: {exc}")
         warnings_list.append(f"tumor_stage_failed: {exc}")
@@ -310,12 +311,19 @@ def run_tumor_analysis_expert(
 def _run_tumor_stage(
     adata: AnnData,
     config: TumorAnalysisConfig,
-) -> AnnData:
+) -> tuple[AnnData, list[str], list[str]]:
     """
     Run tumor-specific analysis steps.
 
     Each step is wrapped in try/except so failures degrade gracefully.
+
+    Returns:
+    -------
+    tuple of (AnnData, executed_steps, warnings)
     """
+    executed_steps: list[str] = []
+    stage_warnings: list[str] = []
+
     # Malignancy
     if config.run_malignancy:
         try:
@@ -324,6 +332,7 @@ def _run_tumor_stage(
 
             log.info("Tumor stage: scoring malignancy")
             adata = score_malignancy(adata, key_added="malignancy")
+            executed_steps.append("malignancy_scoring")
 
             log.info("Tumor stage: classifying malignant cells")
             if config.malignancy_method == "cnv":
@@ -355,8 +364,11 @@ def _run_tumor_stage(
                     reference_adata=ref_adata,
                     key_added="is_malignant",
                 )
+            executed_steps.append("malignancy_classification")
         except Exception as exc:
-            log.warning(f"Malignancy analysis failed: {exc}. Skipping.")
+            msg = f"Malignancy analysis failed: {exc}"
+            log.warning(f"{msg}. Skipping.")
+            stage_warnings.append(msg)
 
     # TME
     if config.run_tme:
@@ -369,8 +381,11 @@ def _run_tumor_stage(
                 log.warning(f"TME cell type key '{cell_type_key}' not found. Trying 'cell_type'.")
                 cell_type_key = "cell_type"
             adata = deconvolve_tme(adata, cell_type_key=cell_type_key, key_added="tme")
+            executed_steps.append("tme_deconvolution")
         except Exception as exc:
-            log.warning(f"TME deconvolution failed: {exc}. Skipping.")
+            msg = f"TME deconvolution failed: {exc}"
+            log.warning(f"{msg}. Skipping.")
+            stage_warnings.append(msg)
 
     # CNV
     if config.run_cnv:
@@ -398,8 +413,11 @@ def _run_tumor_stage(
                 infer_cnv(adata, reference_cells=ref_values, reference_key=ref_key, key_added="cnv")
             else:
                 infer_cnv(adata, key_added="cnv")
+            executed_steps.append("cnv_inference")
         except Exception as exc:
-            log.warning(f"CNV inference failed: {exc}. Skipping.")
+            msg = f"CNV inference failed: {exc}"
+            log.warning(f"{msg}. Skipping.")
+            stage_warnings.append(msg)
 
     # Therapy
     if config.run_therapy:
@@ -416,12 +434,17 @@ def _run_tumor_stage(
                         method="signature",
                         key_added=f"therapy_response_{drug}",
                     )
+                    executed_steps.append(f"therapy_prediction_{drug}")
                 except Exception as drug_exc:
-                    log.warning(f"Therapy prediction failed for {drug}: {drug_exc}. Skipping drug.")
+                    msg = f"Therapy prediction failed for {drug}: {drug_exc}"
+                    log.warning(f"{msg}. Skipping drug.")
+                    stage_warnings.append(msg)
         except Exception as exc:
-            log.warning(f"Therapy response prediction failed: {exc}. Skipping.")
+            msg = f"Therapy response prediction failed: {exc}"
+            log.warning(f"{msg}. Skipping.")
+            stage_warnings.append(msg)
 
-    return adata
+    return adata, executed_steps, stage_warnings
 
 
 def _diff_recommendations(
