@@ -12,6 +12,7 @@ CORE_MODULES = [
     "scLucid.analysis",
     "scLucid.tools",
     "scLucid.config",
+    "scLucid.runtime",
 ]
 
 

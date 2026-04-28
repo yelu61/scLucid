@@ -21,10 +21,13 @@ from anndata import AnnData
 from ..base_config import apply_config_overrides
 from ..utils import (
     PartialResultManager,
+    UnsKeys,
     WorkflowCheckpoint,
     WorkflowError,
     export_review_summary,
     get_progress_bar,
+    normalize_review_summary,
+    validate_review_summary_schema,
 )
 from .annotation import run_annotation
 from .clustering import cluster_cells, find_resolution
@@ -363,13 +366,21 @@ def run_standard_analysis(
 
     # Store final config
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {})[
-        "workflow_config"
+        UnsKeys.WORKFLOW_CONFIG
     ] = config.to_dict()
-    adata.uns["sclucid"]["analysis"]["steps_executed"] = successful_steps
+    adata.uns["sclucid"]["analysis"][UnsKeys.STEPS_EXECUTED] = successful_steps
 
     # Build and store review summary
-    review_summary = _build_analysis_review_summary(adata, config, successful_steps, cluster_key)
-    adata.uns["sclucid"]["analysis"]["review_summary"] = review_summary
+    review_summary = normalize_review_summary(
+        _build_analysis_review_summary(adata, config, successful_steps, cluster_key),
+        module="analysis",
+        workflow_name="standard",
+        adata=adata,
+        steps_executed=successful_steps,
+        config=config.to_dict(),
+    )
+    validate_review_summary_schema(review_summary, module="analysis", raise_on_error=True)
+    adata.uns["sclucid"]["analysis"][UnsKeys.REVIEW_SUMMARY] = review_summary
 
     # Export review summary to file if save_dir is configured
     if config.save_dir:

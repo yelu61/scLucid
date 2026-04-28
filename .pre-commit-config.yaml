@@ -25,3 +25,15 @@ repos:
       - id: ruff
         args: ["--fix", "--exit-non-zero-on-fix"]
         files: ^(src/scLucid|tests)/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.0
+    hooks:
+      - id: mypy
+        args: ["--config-file=pyproject.toml"]
+        files: ^src/scLucid/
+        pass_filenames: false
+        additional_dependencies:
+          - pydantic>=2.0
+          - numpy
+          - pandas-stubs

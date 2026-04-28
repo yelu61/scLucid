@@ -14,14 +14,19 @@ from typing import Any, Dict, List, Optional, Tuple, TypeVar
 import numpy as np
 from anndata import AnnData
 
+from ..runtime import effective_n_jobs
 from ..utils import (
     PartialResultManager,
+    UnsKeys,
     WorkflowCheckpoint,
     WorkflowError,
     get_progress_bar,
+    normalize_review_summary,
     save_result,
     save_workflow_result,
+    validate_review_summary_schema,
 )
+from .benchmark import evaluate_qc_benchmark, export_qc_benchmark_report
 from .config import QCWorkflowConfig
 from .doublet import predict_doublets
 from .filtering import (
@@ -31,6 +36,7 @@ from .filtering import (
     mark_low_quality_cell,
 )
 from .metrics import calculate_qc_metric
+from .trace import enrich_qc_review_summary, validate_qc_review_summary
 
 log = logging.getLogger(__name__)
 
@@ -569,15 +575,15 @@ def _build_qc_review_summary(
         rec_summary["data_quality_score"] = rec_dict.get("data_quality_score")
         rec_summary["concerns"] = rec_dict.get("concerns", [])
         key_thresholds: Dict[str, Any] = {}
-        for param, path in [
-            ("min_genes", ("marking_config", "thresholds", "min_genes")),
-            ("pc_mt", ("marking_config", "thresholds", "pc_mt")),
-            ("min_counts", ("marking_config", "thresholds", "min_counts")),
-            ("doublet_threshold", ("doublet_config", "score_threshold")),
+        for param, rec_key, path in [
+            ("min_genes", "min_genes", ("marking_config", "thresholds", "min_genes")),
+            ("max_mt_percent", "max_mt_percent", ("marking_config", "thresholds", "pc_mt")),
+            ("n_counts", "n_counts", ("marking_config", "thresholds", "min_counts")),
+            ("doublet_threshold", "doublet_threshold", ("doublet_config", "score_threshold")),
         ]:
             rec_val = (
-                rec_dict.get(param, {}).get("threshold")
-                if isinstance(rec_dict.get(param), dict)
+                rec_dict.get(rec_key, {}).get("threshold")
+                if isinstance(rec_dict.get(rec_key), dict)
                 else None
             )
             cfg_val = original_config.to_dict()
@@ -657,10 +663,18 @@ def _build_qc_review_summary(
             tumor_notes.append(
                 "Mitochondrial outlier filtering was disabled for this tumor dataset."
             )
+        if config.marking_config.thresholds.pc_mt is not None:
+            tumor_notes.append(
+                "The mitochondrial threshold is retained as a warning signal for review and reporting."
+            )
+    tumor_warnings = [note for note in tumor_notes if "disabled" in note or "warning" in note]
     summary["tumor_aware_summary"] = {
         "enabled": is_tumor,
         "tissue_type": config.tissue_type,
         "notes": tumor_notes,
+        "warnings": tumor_warnings,
+        "filtering_criteria": list(config.filter_config.criteria_to_filter),
+        "mitochondrial_filtering_enabled": "outlier_mt" in config.filter_config.criteria_to_filter,
     }
 
     # --- Filtering summary ---
@@ -687,20 +701,23 @@ def _store_qc_trace(
     sample_thresholds: Dict[str, Any],
     filtering_summary: Dict[str, Any],
     warnings: List[str],
+    steps_executed: Optional[List[str]] = None,
+    adata_before_filtering: Optional[AnnData] = None,
 ) -> None:
     """Store unified QC trace under adata.uns['sclucid']['qc']."""
     n_samples = int(adata.obs[config.sample_key].nunique()) if config.sample_key in adata.obs else 1
+    context = {
+        "sample_key": config.sample_key,
+        "threshold_mode": config.threshold_mode,
+        "n_samples": n_samples,
+        "tissue_type": config.tissue_type,
+        "use_recommendations": config.use_recommendations,
+    }
     save_result(
         adata,
         "qc",
         "context",
-        {
-            "sample_key": config.sample_key,
-            "threshold_mode": config.threshold_mode,
-            "n_samples": n_samples,
-            "tissue_type": config.tissue_type,
-            "use_recommendations": config.use_recommendations,
-        },
+        context,
     )
     if recommendation is not None:
         save_result(adata, "qc", "recommendation", recommendation.to_dict())
@@ -712,13 +729,62 @@ def _store_qc_trace(
     save_result(adata, "qc", "sample_thresholds", sample_thresholds)
     save_result(adata, "qc", "filtering_summary", filtering_summary)
     save_result(adata, "qc", "warnings", warnings)
+    benchmark_summary = None
+    if adata_before_filtering is not None:
+        benchmark_summary = evaluate_qc_benchmark(
+            adata_before_filtering,
+            adata,
+            tissue_type=config.tissue_type,
+            tissue=config.tissue,
+            sample_key=config.sample_key,
+            cell_type_key=_detect_cell_type_key(adata_before_filtering),
+        )
+        save_result(adata, "qc", "benchmark_summary", benchmark_summary)
 
     # Build and store the review-facing summary
-    review_summary = _build_qc_review_summary(
-        config, original_config, recommendation, sample_thresholds, filtering_summary, warnings
+    base_review_summary = _build_qc_review_summary(
+        config,
+        original_config,
+        recommendation,
+        sample_thresholds,
+        filtering_summary,
+        warnings,
     )
-    save_result(adata, "qc", "review_summary", review_summary)
+    if benchmark_summary is not None:
+        base_review_summary["benchmark_summary"] = benchmark_summary
+
+    review_summary = normalize_review_summary(
+        enrich_qc_review_summary(
+            base_review_summary,
+            adata=adata,
+            config=config,
+            original_config=original_config,
+            recommendation=recommendation,
+            sample_thresholds=sample_thresholds,
+            filtering_summary=filtering_summary,
+            warnings=warnings,
+            context=context,
+            steps_executed=steps_executed,
+        ),
+        module="qc",
+        workflow_name="standard",
+        adata=adata,
+        steps_executed=steps_executed or [],
+        config=config.to_dict(),
+        warnings=warnings,
+    )
+    validate_review_summary_schema(review_summary, module="qc", raise_on_error=True)
+    validate_qc_review_summary(review_summary, raise_on_error=True)
+    save_result(adata, "qc", UnsKeys.REVIEW_SUMMARY, review_summary)
     return review_summary
+
+
+def _detect_cell_type_key(adata: AnnData) -> Optional[str]:
+    """Detect a likely cell type annotation column for benchmark stratification."""
+    for key in ["cell_type", "celltype", "cell_type_major", "annotation", "cell_annotation"]:
+        if key in adata.obs:
+            return key
+    return None
 
 
 def _export_qc_review_summary(
@@ -760,6 +826,100 @@ def _export_qc_review_summary(
             "- No recommendation was generated (recommendations disabled or engine failed)."
         )
     md_lines.append("")
+
+    readiness = review_summary.get("qc_readiness", {})
+    md_lines.extend(
+        [
+            "## QC Readiness",
+            "",
+            f"- **Status**: {readiness.get('status')}",
+            f"- **Score**: {readiness.get('score')}",
+            f"- **Verdict**: {readiness.get('verdict')}",
+            "",
+        ]
+    )
+    if readiness.get("blockers"):
+        md_lines.append("- **Blockers**:")
+        for blocker in readiness.get("blockers", []):
+            md_lines.append(f"  - {blocker}")
+    if readiness.get("review_reasons"):
+        md_lines.append("- **Review reasons**:")
+        for reason in readiness.get("review_reasons", []):
+            md_lines.append(f"  - {reason}")
+    md_lines.append("")
+
+    action_items = review_summary.get("review_action_items", [])
+    if action_items:
+        md_lines.extend(
+            [
+                "## Review Action Items",
+                "",
+                "| Priority | Action | Rationale |",
+                "|----------|--------|-----------|",
+            ]
+        )
+        for item in action_items:
+            md_lines.append(
+                "| {priority} | {action} | {rationale} |".format(
+                    priority=item.get("priority"),
+                    action=item.get("action"),
+                    rationale=item.get("rationale"),
+                )
+            )
+        md_lines.append("")
+
+    md_lines.extend(
+        [
+            "## Decision Table",
+            "",
+            "| Parameter | Applied | Source | Filter Enabled | Method | Confidence |",
+            "|-----------|---------|--------|----------------|--------|------------|",
+        ]
+    )
+    for row in review_summary.get("decision_table", []):
+        md_lines.append(
+            "| {parameter} | {applied} | {source} | {enabled} | {method} | {confidence} |".format(
+                parameter=row.get("parameter"),
+                applied=row.get("applied"),
+                source=row.get("source"),
+                enabled=row.get("is_filtering_enabled"),
+                method=row.get("recommendation_method"),
+                confidence=row.get("confidence"),
+            )
+        )
+    md_lines.append("")
+
+    health = review_summary.get("output_health", {})
+    md_lines.extend(
+        [
+            "## Output Health",
+            "",
+            f"- **Status**: {health.get('status')}",
+            f"- **Cells**: {health.get('n_cells')}",
+            f"- **Genes**: {health.get('n_genes')}",
+        ]
+    )
+    if health.get("issues"):
+        md_lines.append("- **Issues**:")
+        for issue in health.get("issues", []):
+            md_lines.append(f"  - {issue}")
+    md_lines.append("")
+
+    benchmark = review_summary.get("benchmark_summary", {})
+    if benchmark:
+        retention = benchmark.get("retention", {})
+        marker = benchmark.get("marker_fidelity", {})
+        md_lines.extend(
+            [
+                "## Benchmark Summary",
+                "",
+                f"- **Profile**: {benchmark.get('profile_label')} ({benchmark.get('profile')})",
+                f"- **Status**: {benchmark.get('status')}",
+                f"- **Retention rate**: {retention.get('retention_rate')}",
+                f"- **Marker fidelity**: {marker.get('overall_marker_fidelity')}",
+                "",
+            ]
+        )
 
     md_lines.extend(
         [
@@ -816,6 +976,26 @@ def _export_qc_review_summary(
     if ta.get("notes"):
         for note in ta["notes"]:
             md_lines.append(f"- {note}")
+    md_lines.append("")
+
+    downstream = review_summary.get("downstream_preprocess_recommendations", {})
+    md_lines.extend(
+        [
+            "## Downstream Preprocess Recommendations",
+            "",
+            f"- **Status**: {downstream.get('status')}",
+            f"- **Ready for preprocess**: {downstream.get('ready_for_preprocess')}",
+            "",
+        ]
+    )
+    for item in downstream.get("recommendations", []):
+        md_lines.append(
+            "- **{target}** ({priority}): {recommendation}".format(
+                target=item.get("target"),
+                priority=item.get("priority"),
+                recommendation=item.get("recommendation"),
+            )
+        )
     md_lines.append("")
 
     fs = review_summary.get("filtering_summary", {})
@@ -913,15 +1093,16 @@ def _run_qc_workflow(
     # --- 1. QC metric calculation ---
     samples = adata.obs[config.sample_key].unique()
 
-    if config.use_parallel and config.n_jobs != 1 and len(samples) > 1:
-        log.info(f"Processing {len(samples)} samples in parallel with {config.n_jobs} jobs")
+    active_n_jobs = effective_n_jobs(config.n_jobs, max_jobs=len(samples))
+    if config.use_parallel and active_n_jobs != 1 and len(samples) > 1:
+        log.info(f"Processing {len(samples)} samples in parallel with {active_n_jobs} jobs")
 
         results = _safe_parallel_process(
             process_func=_process_sample_qc,
             samples=list(samples),
             sample_data_func=lambda s: adata[adata.obs[config.sample_key] == s].copy(),
             config=config,
-            n_jobs=config.n_jobs,
+            n_jobs=active_n_jobs,
             step_name="QC metric calculation",
             show_progress=show_progress,
         )
@@ -946,20 +1127,32 @@ def _run_qc_workflow(
         if len(samples) == 1:
             adata = _process_sample_qc(adata, config, samples[0])
         else:
-            adata = calculate_qc_metric(
-                adata,
-                sample_key=config.sample_key,
-                reporting_config=config.metrics_reporting_config,
-                calculate_cell_cycle=True,
-                cell_cycle_species=config.species,
-            )
+            try:
+                adata = calculate_qc_metric(
+                    adata,
+                    sample_key=config.sample_key,
+                    reporting_config=config.metrics_reporting_config,
+                    calculate_cell_cycle=True,
+                    cell_cycle_species=config.species,
+                )
+            except Exception as e:
+                log.warning(
+                    f"Cell cycle scoring failed for multi-sample QC metrics ({e}). "
+                    "Retrying without cell cycle scoring."
+                )
+                adata = calculate_qc_metric(
+                    adata,
+                    sample_key=config.sample_key,
+                    reporting_config=config.metrics_reporting_config,
+                    calculate_cell_cycle=False,
+                )
 
     # --- 2. Doublet detection ---
     if config.doublet_config.run_algorithm or config.doublet_config.use_heuristics:
         if results_path is not None:
             config.doublet_config.save_dir = str(results_path / "doublet")
 
-        if config.use_parallel and config.n_jobs != 1 and len(samples) > 1:
+        if config.use_parallel and active_n_jobs != 1 and len(samples) > 1:
             # Parallel doublet detection with error handling
             results = _safe_parallel_process(
                 process_func=lambda data, cfg, name: _process_sample_doublet(
@@ -968,7 +1161,7 @@ def _run_qc_workflow(
                 samples=list(samples),
                 sample_data_func=lambda s: adata[adata.obs[config.sample_key] == s].copy(),
                 config=config,
-                n_jobs=config.n_jobs,
+                n_jobs=active_n_jobs,
                 step_name="doublet detection",
                 show_progress=show_progress,
             )
@@ -1198,9 +1391,14 @@ def run_standard_qc(
             sample_thresholds,
             filtering_summary,
             qc_warnings,
+            steps_executed=successful_steps,
+            adata_before_filtering=adata,
         )
         if results_path is not None:
             _export_qc_review_summary(review_summary, results_path)
+            benchmark_summary = review_summary.get("benchmark_summary")
+            if isinstance(benchmark_summary, dict):
+                export_qc_benchmark_report(benchmark_summary, results_path)
 
         # --- Step 3: Reporting ---
         if results_path is not None and "reporting" in steps_to_run:
@@ -1393,9 +1591,14 @@ def run_advanced_qc(
             sample_thresholds,
             filtering_summary,
             qc_warnings,
+            steps_executed=successful_steps,
+            adata_before_filtering=adata,
         )
         if results_path is not None:
             _export_qc_review_summary(review_summary, results_path)
+            benchmark_summary = review_summary.get("benchmark_summary")
+            if isinstance(benchmark_summary, dict):
+                export_qc_benchmark_report(benchmark_summary, results_path)
 
         # --- Step 3: Reporting ---
         if results_path is not None and "reporting" in steps_to_run:

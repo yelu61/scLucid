@@ -1,0 +1,638 @@
+{
+  "recommendation_summary": {
+    "available": true,
+    "overall_strategy": "aggressive",
+    "overall_confidence": 0.5,
+    "data_quality_score": 100.0,
+    "concerns": [
+      "Missing metrics detected (pct_counts_mt); attempting automatic QC metric calculation"
+    ],
+    "key_thresholds": {
+      "min_genes": {
+        "recommended": 643,
+        "user_provided": 200
+      },
+      "pc_mt": {
+        "recommended": null,
+        "user_provided": 20.0
+      },
+      "min_counts": {
+        "recommended": null,
+        "user_provided": null
+      },
+      "doublet_threshold": {
+        "recommended": 0.5,
+        "user_provided": null
+      }
+    }
+  },
+  "applied_threshold_summary": {
+    "min_genes": 643,
+    "max_genes": null,
+    "min_counts": 1503,
+    "max_counts": null,
+    "pc_mt": 3.1,
+    "pc_hb": 20.0,
+    "nmads": 5.0
+  },
+  "user_override_summary": {
+    "overrides_detected": false,
+    "details": {},
+    "note": "User-specified thresholds take precedence over recommendations. Empty details means the user accepted all recommendations or no recommendation was generated."
+  },
+  "sample_threshold_summary": {
+    "mode": "hierarchical",
+    "n_samples_with_thresholds": 4,
+    "per_sample": {
+      "sample3": {
+        "n_genes_by_counts": {
+          "lower": 414.8,
+          "upper": 1299.49
+        },
+        "total_counts": {
+          "lower": 735.76,
+          "upper": 4067.66
+        },
+        "pct_counts_mt": {
+          "lower": 0.11,
+          "upper": 4.3
+        }
+      },
+      "sample4": {
+        "n_genes_by_counts": {
+          "lower": 365.74,
+          "upper": 1336.52
+        },
+        "total_counts": {
+          "lower": 430.9,
+          "upper": 4335.37
+        },
+        "pct_counts_mt": {
+          "lower": 0.46,
+          "upper": 3.96
+        }
+      },
+      "sample1": {
+        "n_genes_by_counts": {
+          "lower": 392.29,
+          "upper": 1288.72
+        },
+        "total_counts": {
+          "lower": 644.72,
+          "upper": 4018.76
+        },
+        "pct_counts_mt": {
+          "lower": 0.26,
+          "upper": 4.15
+        }
+      },
+      "sample2": {
+        "n_genes_by_counts": {
+          "lower": 360.39,
+          "upper": 1318.73
+        },
+        "total_counts": {
+          "lower": 472.28,
+          "upper": 4233.33
+        },
+        "pct_counts_mt": {
+          "lower": 0.38,
+          "upper": 4.1
+        }
+      }
+    },
+    "note": "Per-sample thresholds are only computed in hierarchical/independent mode with >1 sample. Pooled mode uses a single global threshold."
+  },
+  "tumor_aware_summary": {
+    "enabled": false,
+    "tissue_type": "pbmc",
+    "notes": []
+  },
+  "filtering_summary": {
+    "initial_cells": 2700,
+    "final_cells": 2523,
+    "removed_cells": 177,
+    "removed_fraction": 0.06555555555555556,
+    "criteria_used": [
+      "outlier_min_genes",
+      "outlier_mt"
+    ]
+  },
+  "warnings": [],
+  "benchmark_summary": {
+    "schema_version": "1.0",
+    "profile": "pbmc",
+    "profile_label": "PBMC / immune suspension",
+    "criteria": {
+      "min_retention": 0.55,
+      "max_retention": 0.98,
+      "min_marker_fidelity": 0.6
+    },
+    "retention": {
+      "initial_cells": 2700,
+      "final_cells": 2523,
+      "removed_cells": 177,
+      "retention_rate": 0.9344444444444444,
+      "per_sample": {
+        "sample1": {
+          "initial_cells": 701,
+          "final_cells": 649,
+          "retention_rate": 0.9258202567760342
+        },
+        "sample2": {
+          "initial_cells": 670,
+          "final_cells": 629,
+          "retention_rate": 0.9388059701492537
+        },
+        "sample3": {
+          "initial_cells": 664,
+          "final_cells": 622,
+          "retention_rate": 0.9367469879518072
+        },
+        "sample4": {
+          "initial_cells": 665,
+          "final_cells": 623,
+          "retention_rate": 0.9368421052631579
+        }
+      },
+      "per_cell_type": {}
+    },
+    "marker_fidelity": {
+      "available": true,
+      "overall_marker_fidelity": 0.9786796153336377,
+      "n_marker_sets_available": 5,
+      "per_marker_set": {
+        "T_cells": {
+          "available_markers": [
+            "CD3D",
+            "CD3E",
+            "IL7R"
+          ],
+          "n_markers": 3,
+          "mean_expression_before": 1.1493827104568481,
+          "mean_expression_after": 1.1865503787994385,
+          "mean_expression_ratio": 1.0323370692846225,
+          "detection_fraction_before": 0.6711111111111111,
+          "detection_fraction_after": 0.6829171621086009,
+          "detection_fraction_delta": 0.01180605099748977,
+          "fidelity_score": 0.9756940925087576,
+          "status": "ok"
+        },
+        "B_cells": {
+          "available_markers": [
+            "CD74",
+            "CD79A",
+            "MS4A1"
+          ],
+          "n_markers": 3,
+          "mean_expression_before": 3.157160520553589,
+          "mean_expression_after": 3.272294521331787,
+          "mean_expression_ratio": 1.036467579025095,
+          "detection_fraction_before": 0.8533333333333334,
+          "detection_fraction_after": 0.8620689655172413,
+          "detection_fraction_delta": 0.008735632183907938,
+          "fidelity_score": 0.9773410903326423,
+          "status": "ok"
+        },
+        "NK_cells": {
+          "available_markers": [
+            "GNLY",
+            "KLRD1",
+            "NKG7"
+          ],
+          "n_markers": 3,
+          "mean_expression_before": 1.4371604919433594,
+          "mean_expression_after": 1.484476089477539,
+          "mean_expression_ratio": 1.03292297401677,
+          "detection_fraction_before": 0.3788888888888889,
+          "detection_fraction_after": 0.38287752675386444,
+          "detection_fraction_delta": 0.003988637864975553,
+          "fidelity_score": 0.9788544351836137,
+          "status": "ok"
+        },
+        "Monocytes": {
+          "available_markers": [
+            "FCGR3A",
+            "LYZ",
+            "S100A8",
+            "S100A9"
+          ],
+          "n_markers": 4,
+          "mean_expression_before": 5.049351692199707,
+          "mean_expression_after": 5.176575660705566,
+          "mean_expression_ratio": 1.025196099670062,
+          "detection_fraction_before": 0.73,
+          "detection_fraction_after": 0.7380103051922314,
+          "detection_fraction_delta": 0.008010305192231448,
+          "fidelity_score": 0.9822846103977336,
+          "status": "ok"
+        },
+        "Dendritic": {
+          "available_markers": [
+            "CST3",
+            "FCER1A"
+          ],
+          "n_markers": 2,
+          "mean_expression_before": 2.2507407665252686,
+          "mean_expression_after": 2.344827651977539,
+          "mean_expression_ratio": 1.0418026308722899,
+          "detection_fraction_before": 0.40370370370370373,
+          "detection_fraction_after": 0.4042806183115339,
+          "detection_fraction_delta": 0.000576914607830159,
+          "fidelity_score": 0.9792238482454414,
+          "status": "ok"
+        }
+      }
+    },
+    "checks": [
+      {
+        "name": "minimum_retention",
+        "passed": true,
+        "value": 0.9344444444444444,
+        "threshold": 0.55
+      },
+      {
+        "name": "maximum_retention",
+        "passed": true,
+        "value": 0.9344444444444444,
+        "threshold": 0.98
+      },
+      {
+        "name": "marker_fidelity",
+        "passed": true,
+        "value": 0.9786796153336377,
+        "threshold": 0.6
+      }
+    ],
+    "status": "pass"
+  },
+  "qc_schema_version": "1.0",
+  "decision_table": [
+    {
+      "parameter": "min_genes",
+      "obs_metric": "n_genes_by_counts",
+      "filtering_flag": "outlier_min_genes",
+      "direction": "lower_bound",
+      "recommended": 643,
+      "applied": 643,
+      "user_provided": 200,
+      "source": "recommendation",
+      "recommendation_method": "GMM + Bootstrap",
+      "confidence": 0.5,
+      "ci_lower": 643,
+      "ci_upper": 661,
+      "evidence": {
+        "gmm_bic": 34445.36767657689,
+        "n_components": 2,
+        "strategy": "aggressive",
+        "method": "GMM + Bootstrap"
+      },
+      "is_filtering_enabled": true
+    },
+    {
+      "parameter": "max_genes",
+      "obs_metric": "n_genes_by_counts",
+      "filtering_flag": "outlier_max_genes",
+      "direction": "upper_bound",
+      "recommended": null,
+      "applied": null,
+      "user_provided": null,
+      "source": "disabled_or_not_available",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "n_counts",
+      "obs_metric": "total_counts",
+      "filtering_flag": "outlier_min_counts",
+      "direction": "lower_bound",
+      "recommended": 1503,
+      "applied": 1503,
+      "user_provided": null,
+      "source": "recommendation",
+      "recommendation_method": "log-normal distribution + bootstrap",
+      "confidence": 1.0,
+      "ci_lower": 1477,
+      "ci_upper": 1531,
+      "evidence": {
+        "n_cells": 2700
+      },
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "max_counts",
+      "obs_metric": "total_counts",
+      "filtering_flag": "outlier_max_counts",
+      "direction": "upper_bound",
+      "recommended": null,
+      "applied": null,
+      "user_provided": null,
+      "source": "disabled_or_not_available",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "max_mt_percent",
+      "obs_metric": "pct_counts_mt",
+      "filtering_flag": "outlier_mt",
+      "direction": "upper_bound",
+      "recommended": 3.1,
+      "applied": 3.1,
+      "user_provided": 20.0,
+      "source": "recommendation",
+      "recommendation_method": "distribution fitting (beta)",
+      "confidence": 0.5,
+      "ci_lower": 3.0,
+      "ci_upper": 3.2,
+      "evidence": {
+        "best_distribution": "beta",
+        "params": [
+          4.965247868272593,
+          12068856471813.39,
+          0,
+          5389711373076.936
+        ],
+        "tissue_type": "pbmc",
+        "median_mt": 2.030456781387329,
+        "method": "distribution fitting (beta)"
+      },
+      "is_filtering_enabled": true
+    },
+    {
+      "parameter": "max_hb_percent",
+      "obs_metric": "pct_counts_hb",
+      "filtering_flag": "outlier_hb",
+      "direction": "upper_bound",
+      "recommended": null,
+      "applied": 20.0,
+      "user_provided": 20.0,
+      "source": "default_or_config",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "doublet_threshold",
+      "obs_metric": "doublet_score",
+      "filtering_flag": "predicted_doublet",
+      "direction": "upper_bound",
+      "recommended": 0.5,
+      "applied": null,
+      "user_provided": null,
+      "source": "disabled_or_not_available",
+      "recommendation_method": "no_doublet_scores",
+      "confidence": 0.0,
+      "ci_lower": 0.5,
+      "ci_upper": 0.5,
+      "evidence": {
+        "reason": "Doublet scores not calculated"
+      },
+      "is_filtering_enabled": true
+    },
+    {
+      "parameter": "nmads",
+      "obs_metric": "qc_metric_distribution",
+      "filtering_flag": "outlier_qc_metrics",
+      "direction": "mad_outlier",
+      "recommended": null,
+      "applied": 5.0,
+      "user_provided": 5.0,
+      "source": "default_or_config",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    }
+  ],
+  "execution_trace": {
+    "qc_schema_version": "1.0",
+    "steps_executed": [
+      "qc_metrics",
+      "filtering"
+    ],
+    "sample_key": "sampleID",
+    "threshold_mode": "hierarchical",
+    "n_samples": 4,
+    "tissue_type": "pbmc",
+    "use_recommendations": true,
+    "recommendation_available": true,
+    "tumor_aware_enabled": false,
+    "sample_thresholds_computed": true,
+    "warnings_count": 0
+  },
+  "output_health": {
+    "status": "ok",
+    "n_cells": 2523,
+    "n_genes": 32738,
+    "initial_cells": 2700,
+    "final_cells": 2523,
+    "retention_fraction": 0.9344444444444444,
+    "missing_required_obs_metrics": [],
+    "issues": []
+  },
+  "evidence_chain": [
+    {
+      "stage": "recommendation",
+      "available": true,
+      "strategy": "aggressive",
+      "confidence": 0.5,
+      "data_quality_score": 100.0,
+      "concerns": [
+        "Missing metrics detected (pct_counts_mt); attempting automatic QC metric calculation"
+      ]
+    },
+    {
+      "stage": "threshold_application",
+      "n_decisions": 8,
+      "user_overrides": [],
+      "recommendation_driven": [
+        "min_genes",
+        "n_counts",
+        "max_mt_percent"
+      ]
+    },
+    {
+      "stage": "sample_thresholds",
+      "computed": true,
+      "n_samples_with_thresholds": 4
+    },
+    {
+      "stage": "filtering",
+      "initial_cells": 2700,
+      "final_cells": 2523,
+      "removed_cells": 177,
+      "removed_fraction": 0.06555555555555556,
+      "criteria_used": [
+        "outlier_min_genes",
+        "outlier_mt"
+      ]
+    },
+    {
+      "stage": "output_health",
+      "status": "ok",
+      "issues": []
+    }
+  ],
+  "required_obs_metrics": [
+    "n_genes_by_counts",
+    "total_counts",
+    "pct_counts_mt"
+  ],
+  "schema_version": "1.0",
+  "module": "qc",
+  "workflow_name": "standard",
+  "generated_at": "2026-04-27T16:31:29.666500",
+  "steps_executed": [
+    "qc_metrics",
+    "filtering"
+  ],
+  "data_shape": {
+    "n_cells": 2523,
+    "n_genes": 32738
+  },
+  "config": {
+    "save_dir": "/Users/luye/Scripts/scLucid/notebooks/outputs/01_quality_control/pbmc3k_standard",
+    "verbose": true,
+    "plot": true,
+    "report": true,
+    "n_jobs": -1,
+    "random_state": 42,
+    "metrics_reporting_config": {
+      "save_dir": null,
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "include_standard_qc": true,
+      "plot_violin": false,
+      "plot_scatter": false,
+      "plot_top_genes": false,
+      "show_plots": false,
+      "export_stats": true,
+      "export_xlsx": false,
+      "print_stats": true
+    },
+    "marking_config": {
+      "save_dir": "/Users/luye/Scripts/scLucid/notebooks/outputs/01_quality_control/pbmc3k_standard/low_quality",
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "thresholds": {
+        "save_dir": null,
+        "verbose": true,
+        "plot": true,
+        "report": true,
+        "min_genes": 643,
+        "max_genes": null,
+        "min_counts": 1503,
+        "max_counts": null,
+        "nmads": 5.0,
+        "pc_mt": 3.1,
+        "pc_hb": 20.0,
+        "pc_top_genes": {},
+        "use_fixed_top_gene_threshold": false
+      },
+      "qc_metrics_mad": [
+        [
+          "log1p_total_counts",
+          "both"
+        ],
+        [
+          "log1p_n_genes_by_counts",
+          "both"
+        ],
+        [
+          "pct_counts_in_top_20_genes",
+          "upper"
+        ]
+      ],
+      "custom_outlier_functions": null,
+      "plot_outliers": false,
+      "cols_to_plot": null,
+      "show_plots": false
+    },
+    "doublet_config": {
+      "save_dir": null,
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "run_algorithm": false,
+      "method": "scrublet",
+      "scr_n_pcs": 30,
+      "scr_plot_umap": false,
+      "solo_n_epochs": 400,
+      "solo_learning_rate": 0.001,
+      "solo_use_gpu": true,
+      "solo_use_raw": true,
+      "solo_clear_cache": true,
+      "dd_n_components": 30,
+      "dd_n_top_var_genes": 10000,
+      "dd_p_thresh": 1e-16,
+      "dd_voter_thresh": 0.8,
+      "dd_use_raw": true,
+      "use_heuristics": false,
+      "marker_species": "human",
+      "marker_tissue": null,
+      "marker_configs": null,
+      "default_expression_threshold": 2.0,
+      "default_min_genes_required": 2,
+      "default_use_raw": true,
+      "min_lineage_prevalence": 0.005,
+      "min_lineages_for_doublet": 2,
+      "ignore_coexpression_pairs": [
+        [
+          "Epithelial",
+          "Mesenchymal"
+        ]
+      ],
+      "merge_strategy": "weighted_average",
+      "algorithm_weight": 0.7,
+      "expected_doublet_rate": null,
+      "score_threshold": null,
+      "random_state": 61,
+      "plot_summary": false,
+      "plot_bar": false,
+      "plot_scatter": false,
+      "plot_upset": false,
+      "export_stats": false,
+      "show_plots": false
+    },
+    "filter_config": {
+      "save_dir": null,
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "criteria_to_filter": [
+        "outlier_min_genes",
+        "outlier_mt",
+        "predicted_doublet"
+      ],
+      "combination_logic": "any",
+      "custom_logic_expr": null,
+      "min_criteria_for_removal": 2,
+      "metadata_filters": null
+    },
+    "sample_key": "sampleID",
+    "species": "human",
+    "tissue": "blood",
+    "tissue_type": "pbmc",
+    "threshold_mode": "hierarchical",
+    "use_recommendations": true,
+    "use_parallel": false
+  },
+  "contract": {
+    "schema_version": "1.0"
+  }
+}

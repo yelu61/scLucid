@@ -8,9 +8,9 @@ see :doc:`notebooks`.
 Recommended Learning Order
 --------------------------
 
-1. Run QC with `run_standard_qc()`
-2. Run preprocessing with `PreprocessingWorkflowConfig.default()` or intelligent preprocessing
-3. Run clustering and annotation
+1. Start with ``scLucid.run_pipeline()`` for the supported QC -> preprocessing -> analysis path
+2. Inspect the review summaries stored under ``adata.uns["sclucid"]``
+3. Drop down to stage-specific functions when you need explicit control
 4. Export reviewer-facing summaries before making biological claims
 
 Minimal End-To-End Example
@@ -20,35 +20,18 @@ Minimal End-To-End Example
 
     import scanpy as sc
     import scLucid as scl
-    from scLucid.qc import run_standard_qc, QCWorkflowConfig
-    from scLucid.preprocess import run_preprocessing, PreprocessingWorkflowConfig
-    from scLucid.analysis import cluster_cells, run_annotation, ClusteringConfig, AnnotationConfig
 
     adata = sc.read_h5ad("data/pbmc3k.h5ad")
     adata.layers["counts"] = adata.X.copy()
 
-    qc_config = QCWorkflowConfig(
-        save_dir="results/qc",
-        use_recommendations=True,
-        threshold_mode="hierarchical",
-    )
-    adata = run_standard_qc(adata, config=qc_config)
-
-    preprocess_config = PreprocessingWorkflowConfig.default(save_dir="results/preprocess")
-    adata = run_preprocessing(adata, config=preprocess_config)
-
-    adata = cluster_cells(
+    adata = scl.run_pipeline(
         adata,
-        ClusteringConfig(method="leiden", resolution=1.0),
-    )
-
-    adata = run_annotation(
-        adata,
-        config=AnnotationConfig(
-            cluster_key="leiden_clusters",
-            marker_species="human",
-            final_method="combined",
-        ),
+        stages=["qc", "preprocess", "analysis"],
+        dataset_type="pbmc_or_blood",
+        species="human",
+        qc_save_dir="results/qc",
+        preprocess_save_dir="results/preprocess",
+        show_progress=True,
     )
 
     adata.write("results/final_annotated.h5ad")
@@ -84,3 +67,12 @@ Related Repository Entry Points
 - ``examples/preprocessing.py``: standard path + intelligent path + manual path
 - ``examples/annotation_report.py``: reviewer-facing annotation export
 - ``notebooks/``: full notebook analyses with richer outputs
+
+When To Use Stage-Specific Functions
+------------------------------------
+
+Use ``run_standard_qc()``, ``run_preprocessing()``, ``cluster_cells()``, and
+``run_annotation()`` directly when you are building a manuscript workflow,
+testing a single module, or overriding a specific parameter family. The unified
+pipeline is the recommended first screen; stage-specific functions are the
+expert path.

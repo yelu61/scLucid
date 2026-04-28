@@ -77,3 +77,19 @@ Reproducibility
 - prefer config objects over scattered keyword arguments
 - keep workflow outputs under stable ``save_dir`` locations
 - review sidecar outputs before treating automated decisions as final
+
+Workflow Hardening
+------------------
+
+When improving scLucid, prefer vertical workflow slices over broad module-by-module
+expansion. Start with a small reproducible dataset, run the full supported path,
+inspect the review summaries, and polish the module boundary that fails first.
+
+Recommended validation tiers:
+
+- ``data/pbmc3k.h5ad`` for the fast normal-tissue baseline
+- ``data/lin2020.pdac.h5ad`` for the first tumor golden path
+- ``data/schlesinger2020.pdac.h5ad`` for tumor generalization
+- active project data for final product acceptance and biological plausibility
+
+See :doc:`workflow_hardening` for the detailed execution plan.

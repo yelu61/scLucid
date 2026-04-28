@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import scipy
+import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
 
@@ -25,17 +26,15 @@ try:
 except ImportError:
     HAS_VENN = False
 
-from ..utils import use_layer_as_X
-from .config import HVGConfig
+from ...runtime import run_joblib_or_sequential
+from ...utils import use_layer_as_X
+from ..config import HVGConfig
+from .plotting import plot_hvg_metrics
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     "find_hvgs",
-    "suggest_hvg_choice",
-    "select_hvg_sets",
-    "evaluate_hvg_stability",
-    "plot_hvg_metrics",
 ]
 
 
@@ -258,9 +257,6 @@ def _compute_hvg_per_sample_parallel(
         DataFrame with genes as rows and samples as columns.
         Values are boolean (True = gene is HVG in that sample).
     """
-    import scipy.sparse
-    from joblib import Parallel, delayed
-
     if sample_key not in adata.obs.columns:
         raise KeyError(f"Sample key '{sample_key}' not found in adata.obs")
 
@@ -324,9 +320,12 @@ def _compute_hvg_per_sample_parallel(
         # Use loky backend for CPU-bound tasks
         backend = "loky" if scipy.sparse.issparse(adata.X) else "threading"
 
-        results = Parallel(n_jobs=n_jobs, backend=backend, verbose=0)(
-            delayed(_process_sample)(sample_dict)
-            for sample_dict in tqdm(sample_data, desc="Computing HVGs per sample", unit="sample")
+        results = run_joblib_or_sequential(
+            _process_sample,
+            tqdm(sample_data, desc="Computing HVGs per sample", unit="sample"),
+            n_jobs=n_jobs,
+            backend=backend,
+            description="per-sample HVG selection",
         )
 
     except ImportError:
@@ -334,8 +333,12 @@ def _compute_hvg_per_sample_parallel(
         log.info("tqdm not available. Running without progress bar...")
         backend = "loky" if scipy.sparse.issparse(adata.X) else "threading"
 
-        results = Parallel(n_jobs=n_jobs, backend=backend, verbose=10)(
-            delayed(_process_sample)(sample_dict) for sample_dict in sample_data
+        results = run_joblib_or_sequential(
+            _process_sample,
+            sample_data,
+            n_jobs=n_jobs,
+            backend=backend,
+            description="per-sample HVG selection",
         )
 
     # Combine results into DataFrame
@@ -1060,428 +1063,3 @@ def find_hvgs(
     return adata
 
 
-def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str) -> None:
-    """
-    Provides data-driven guidance for HVG set selection by analyzing overlap.
-    """
-    if len(hvg_keys) < 2:
-        log.info("Guidance is most useful when comparing 2 or more HVG sets.")
-        return
-
-    sets = [set(adata.var_names[adata.var[key]]) for key in hvg_keys]
-
-    # --- Quantitative Analysis ---
-    intersection_set = set.intersection(*sets)
-    union_set = set.union(*sets)
-    jaccard_index = len(intersection_set) / len(union_set) if len(union_set) > 0 else 0
-
-    # --- Build Report ---
-    msg = ["=" * 50, "==== HVG Selection Guidance ====", "=" * 50]
-    msg.append(f"Comparing {len(hvg_keys)} HVG sets: {', '.join(hvg_keys)}")
-    for i, key in enumerate(hvg_keys):
-        msg.append(f"- Set '{key}': {len(sets[i])} genes")
-
-    msg.append("\n--- Overlap Analysis ---")
-    msg.append(f"- Intersection (genes in all sets): {len(intersection_set)} genes")
-    msg.append(f"- Union (genes in any set): {len(union_set)} genes")
-    msg.append(f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)")
-
-    msg.append(f"\n--- Recommendation for your chosen mode ('{mode}') ---")
-
-    # --- Generate Tailored Advice ---
-    if jaccard_index > 0.7:
-        msg.append("Data-driven verdict: **High Overlap**.")
-        msg.append("Both methods identify a very similar core set of variable genes.")
-        if mode == "intersection":
-            msg.append(
-                "Your choice of 'intersection' is a safe and robust strategy. You will get a high-confidence set of HVGs."
-            )
-        elif mode == "union":
-            msg.append(
-                "Your choice of 'union' is also reasonable. It will add a few extra genes without a high risk of introducing noise."
-            )
-
-    elif 0.4 <= jaccard_index <= 0.7:
-        msg.append("Data-driven verdict: **Moderate Overlap**.")
-        msg.append("The methods agree on a core set of genes but also identify unique ones.")
-        if mode == "intersection":
-            msg.append(
-                "Your choice of 'intersection' is the most conservative and reproducible option. You will get a high-confidence set but may miss some subtle biological signals."
-            )
-        elif mode == "union":
-            msg.append(
-                "Your choice of 'union' is more inclusive and better for discovery, but may introduce noise. Be sure to check for over-clustering in downstream analysis."
-            )
-
-    else:  # Low overlap
-        msg.append("Data-driven verdict: **Low Overlap**.")
-        msg.append(
-            "⚠️ **Warning:** The selected methods are identifying very different sets of genes. This could be due to strong batch effects or fundamental differences in the algorithms."
-        )
-        if mode == "intersection":
-            msg.append(
-                f"Your choice of 'intersection' will result in a very small set of {len(intersection_set)} genes. This may not be enough for stable downstream analysis. Please verify."
-            )
-        elif mode == "union":
-            msg.append(
-                "Your choice of 'union' will combine two very different gene lists, which could be risky. It is highly recommended to first visualize the UMAPs from each HVG set individually to understand why they differ so much."
-            )
-        msg.append(
-            "\n**Suggestion:** The 'custom' method is often more robust for multi-sample datasets than the standard 'scanpy' method. Consider trusting the 'custom' set or investigating potential batch effects further."
-        )
-
-    print("\n".join(msg))
-
-
-def select_hvg_sets(
-    adata: AnnData,
-    hvg_keys: Union[str, List[str]],
-    mode: Literal["direct", "intersection", "union", "difference"] = "direct",
-    subset: bool = True,
-    keep_raw: bool = True,
-    copy: bool = False,
-    output_key: str = "highly_variable_selected",
-    plot_venn: bool = True,
-    show_stats: bool = True,
-    show_suggestion: bool = True,
-    save_dir: Optional[str] = None,
-    **kwargs,
-) -> AnnData:
-    """
-    Select HVG genes using one or more masks, with set operations, summary and visualization.
-    """
-    if isinstance(hvg_keys, str):
-        hvg_keys = [hvg_keys]
-    for k in hvg_keys:
-        if k not in adata.var:
-            raise KeyError(f"HVG key '{k}' not found in adata.var.")
-
-    # --- Suggestion for HVG set choice ---
-    if show_suggestion:
-        # Call the new, data-driven guidance function
-        suggest_hvg_choice(adata, hvg_keys, mode)
-
-    hvg_sets = [set(adata.var_names[adata.var[k]]) for k in hvg_keys]
-    set_names = hvg_keys
-
-    # --- Combine sets ---
-    if mode == "direct":
-        combined_set = hvg_sets[0]
-    elif mode == "intersection":
-        combined_set = set.intersection(*hvg_sets)
-    elif mode == "union":
-        combined_set = set.union(*hvg_sets)
-    elif mode == "difference":
-        if len(hvg_sets) < 2:
-            log.warning("Difference mode needs at least 2 masks. Falling back to direct.")
-            combined_set = hvg_sets[0]
-        else:
-            combined_set = hvg_sets[0].copy()
-            for s in hvg_sets[1:]:
-                combined_set -= s
-    else:
-        raise ValueError(f"Unsupported mode: {mode}")
-
-    # --- Output stats ---
-    stats_msg = []
-    if show_stats:
-        stats_msg.append("==== HVG Set Statistics ====")
-        for i, (name, s) in enumerate(zip(set_names, hvg_sets)):
-            stats_msg.append(f"Set {i + 1} [{name}]: {len(s)} genes")
-        if len(hvg_sets) == 2:
-            intersect = hvg_sets[0] & hvg_sets[1]
-            only0 = hvg_sets[0] - hvg_sets[1]
-            only1 = hvg_sets[1] - hvg_sets[0]
-            union = hvg_sets[0] | hvg_sets[1]
-            stats_msg.append(f"Intersection: {len(intersect)}")
-            stats_msg.append(f"Only {set_names[0]}: {len(only0)}")
-            stats_msg.append(f"Only {set_names[1]}: {len(only1)}")
-            stats_msg.append(f"Union: {len(union)}")
-        elif len(hvg_sets) == 3:
-            intersect = set.intersection(*hvg_sets)
-            union = set.union(*hvg_sets)
-            stats_msg.append(f"Intersection (all): {len(intersect)}")
-            stats_msg.append(f"Union: {len(union)}")
-        stats_msg.append(f"Selected set [{mode}]: {len(combined_set)} genes")
-        stats_msg = "\n".join(stats_msg)
-        print(stats_msg)
-        if save_dir:
-            save_path = Path(save_dir)
-            save_path.mkdir(parents=True, exist_ok=True)
-            with open(f"{save_dir}/hvg_set_stats.txt", "w") as f:
-                f.write(stats_msg)
-
-    # --- Plot Venn diagram if needed ---
-    if plot_venn and HAS_VENN and (2 <= len(hvg_sets) <= 3):
-        plt.figure(figsize=(6, 5))
-        if len(hvg_sets) == 2:
-            venn2(subsets=hvg_sets, set_labels=set_names)
-        elif len(hvg_sets) == 3:
-            venn3(subsets=hvg_sets, set_labels=set_names)
-        plt.title(f"HVG Sets Venn Diagram ({mode})")
-        if save_dir:
-            save_path = Path(save_dir)
-            # save_path.mkdir(parents=True, exist_ok=True)
-            plt.savefig(f"{save_dir}/hvg_venn_{mode}.png", dpi=150, bbox_inches="tight")
-        plt.show()
-    elif plot_venn and not HAS_VENN and (2 <= len(hvg_sets) <= 3):
-        log.warning("matplotlib_venn is not installed. Skipping Venn plot.")
-
-    mask_combined = adata.var_names.isin(list(combined_set))
-    adata.var[output_key] = mask_combined
-
-    log.info(f"Created final HVG mask in '.var['{output_key}']' with {mask_combined.sum()} genes.")
-
-    if subset:
-        if keep_raw and adata.raw is None:
-            adata.raw = adata.copy()
-
-        if copy:
-            adata_subset = adata[:, mask_combined].copy()
-            log.info(
-                f"Created a new subsetted AnnData object with {mask_combined.sum()} final HVGs."
-            )
-            return adata_subset
-        else:
-            adata._inplace_subset_var(mask_combined)
-            log.info(f"Subsetted AnnData object in-place to {mask_combined.sum()} final HVGs.")
-            return adata
-
-    return adata
-
-
-def evaluate_hvg_stability(
-    adata: AnnData,
-    hvg_key: str = "highly_variable",
-    n_bootstrap: int = 20,
-    sample_fraction: float = 0.8,
-    method: str = "scanpy",
-    flavor: str = "seurat",
-    n_top_genes: Optional[int] = 2000,
-    layer: Optional[str] = None,
-    random_state: Optional[int] = 42,
-    plot: bool = True,
-    save_path: Optional[str] = None,
-) -> AnnData:
-    """
-    Evaluates the stability of HVG selection through bootstrap resampling.
-    Adds stability info to .uns['sclucid']['preprocess']['hvg_stability'].
-    """
-    import random
-
-    if hvg_key not in adata.var:
-        raise KeyError(f"HVG key '{hvg_key}' not found in adata.var")
-    if n_bootstrap <= 0:
-        raise ValueError("n_bootstrap must be a positive integer")
-    if not 0 < sample_fraction < 1:
-        raise ValueError("sample_fraction must be between 0 and 1")
-    current_hvgs = set(adata.var_names[adata.var[hvg_key]])
-    log.info(f"[HVG stability] Evaluating stability of {len(current_hvgs)} HVGs")
-    if random_state is not None:
-        random.seed(random_state)
-        np.random.seed(random_state)
-    gene_selection_count = dict.fromkeys(adata.var_names, 0)
-    n_cells_per_bootstrap = int(adata.n_obs * sample_fraction)
-    report_interval = max(1, n_bootstrap // 10)
-    for i in range(n_bootstrap):
-        if i % report_interval == 0:
-            log.info(f"[HVG stability] Bootstrap iteration {i + 1}/{n_bootstrap}")
-        cell_indices = np.random.choice(adata.n_obs, size=n_cells_per_bootstrap, replace=False)
-        bootstrap_adata_view = adata[cell_indices, :]
-        bootstrap_adata = sc.AnnData(X=bootstrap_adata_view.X, var=bootstrap_adata_view.var)
-        find_hvgs(
-            bootstrap_adata,
-            HVGConfig(method=method, n_top_genes=n_top_genes, flavor=flavor),
-            force=True,
-            plot=False,
-        )
-        bootstrap_hvgs = set(
-            bootstrap_adata.var_names[bootstrap_adata.var[f"highly_variable_{method}_{flavor}"]]
-            if method == "scanpy"
-            else bootstrap_adata.var_names[bootstrap_adata.var[f"highly_variable_{method}"]]
-        )
-        for gene in bootstrap_hvgs:
-            if gene in gene_selection_count:
-                gene_selection_count[gene] += 1
-    selection_frequency = {
-        gene: count / n_bootstrap for gene, count in gene_selection_count.items()
-    }
-    adata.var["hvg_selection_frequency"] = pd.Series(
-        [selection_frequency.get(gene, 0) for gene in adata.var_names],
-        index=adata.var_names,
-    )
-    stability_score = np.mean([selection_frequency.get(gene, 0) for gene in current_hvgs])
-    top_quartile = np.quantile([selection_frequency.get(gene, 0) for gene in current_hvgs], 0.75)
-    bottom_quartile = np.quantile([selection_frequency.get(gene, 0) for gene in current_hvgs], 0.25)
-    log.info("[HVG stability] Stability metrics:")
-    log.info(f"  - Overall stability score: {stability_score:.3f}")
-    log.info(f"  - Top 25% of HVGs selected with frequency >= {top_quartile:.3f}")
-    log.info(f"  - Bottom 25% of HVGs selected with frequency <= {bottom_quartile:.3f}")
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg_stability"] = {
-        "overall_score": stability_score,
-        "top_quartile": top_quartile,
-        "bottom_quartile": bottom_quartile,
-        "n_bootstrap": n_bootstrap,
-        "sample_fraction": sample_fraction,
-        "method": method,
-    }
-    if plot:
-        try:
-            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-            sns.histplot(adata.var["hvg_selection_frequency"], bins=30, kde=True, ax=axes[0])
-            axes[0].set_title("HVG Selection Frequency Distribution")
-            axes[0].set_xlabel("Selection Frequency")
-            axes[0].set_ylabel("Number of Genes")
-            axes[0].axvline(
-                stability_score,
-                color="red",
-                linestyle="--",
-                label=f"Avg HVG Stability: {stability_score:.3f}",
-            )
-            axes[0].legend()
-            if "means" in adata.var:
-                x = "means"
-            elif f"{hvg_key}_means" in adata.var:
-                x = f"{hvg_key}_means"
-            else:
-                if layer is None:
-                    adata.var["temp_means"] = np.array(adata.X.mean(axis=0)).flatten()
-                else:
-                    adata.var["temp_means"] = np.array(adata.layers[layer].mean(axis=0)).flatten()
-                x = "temp_means"
-            scatter = axes[1].scatter(
-                adata.var[x],
-                adata.var["hvg_selection_frequency"],
-                c=adata.var[hvg_key].astype(int),
-                alpha=0.6,
-                cmap="coolwarm",
-                s=10,
-            )
-            axes[1].set_title("HVG Stability vs. Mean Expression")
-            axes[1].set_xlabel("Mean Expression")
-            axes[1].set_ylabel("Selection Frequency")
-            cbar = plt.colorbar(scatter, ax=axes[1])
-            cbar.set_ticks([0, 1])
-            cbar.set_ticklabels(["Not HVG", "HVG"])
-            plt.tight_layout()
-            if save_path:
-                plt.savefig(save_path, dpi=300, bbox_inches="tight")
-                log.info(f"Saved stability plot to {save_path}")
-            if "temp_means" in adata.var:
-                del adata.var["temp_means"]
-        except Exception as e:
-            log.warning(f"[HVG stability] Failed to create stability plot: {str(e)}")
-    return adata
-
-
-def plot_hvg_metrics(
-    adata: AnnData,
-    hvg_key: str = "highly_variable",
-    n_top_genes: int = 20,
-    metrics: Optional[List[str]] = None,
-    show_gene_labels: bool = True,
-    size_by_expr: bool = True,
-    save_path: Optional[str] = None,
-) -> plt.Figure:
-    """
-    Creates visualizations of HVG metrics to evaluate selection quality.
-    """
-    if hvg_key not in adata.var:
-        raise KeyError(f"HVG key '{hvg_key}' not found in adata.var")
-    available_metrics = {}
-    for column in adata.var.columns:
-        if any(x in column for x in ["mean", "disp", "var", "score"]):
-            if "mean" in column:
-                available_metrics["mean"] = column
-            elif any(x in column for x in ["disp", "var"]):
-                available_metrics["dispersion"] = column
-            elif "norm" in column:
-                available_metrics["norm_dispersion"] = column
-            elif "score" in column:
-                available_metrics["score"] = column
-    if metrics is not None:
-        for metric in metrics:
-            if metric not in adata.var.columns:
-                log.warning(f"Metric '{metric}' not found in adata.var columns")
-    if "norm_dispersion" in available_metrics and "mean" in available_metrics:
-        x = available_metrics["mean"]
-        y = available_metrics["norm_dispersion"]
-        plot_type = "dispersion_vs_mean"
-    elif "dispersion" in available_metrics and "mean" in available_metrics:
-        x = available_metrics["mean"]
-        y = available_metrics["dispersion"]
-        plot_type = "dispersion_vs_mean"
-    elif "score" in available_metrics:
-        x = available_metrics["mean"] if "mean" in available_metrics else None
-        y = available_metrics["score"]
-        plot_type = "score"
-    else:
-        method_specific_x = f"{hvg_key}_means"
-        method_specific_y = f"{hvg_key}_dispersions_norm"
-        if method_specific_x in adata.var and method_specific_y in adata.var:
-            x = method_specific_x
-            y = method_specific_y
-            plot_type = "dispersion_vs_mean"
-        else:
-            log.warning("[HVG plot] Could not find appropriate metrics for plotting")
-            adata.var["_temp_mean"] = np.array(adata.X.mean(axis=0)).flatten()
-            x = "_temp_mean"
-            if "hvg_selection_frequency" in adata.var:
-                y = "hvg_selection_frequency"
-                plot_type = "stability"
-            else:
-                raise ValueError("[HVG plot] Cannot create HVG plot: no appropriate metrics found")
-    fig, ax = plt.subplots(figsize=(10, 8))
-    if size_by_expr and "mean" in available_metrics:
-        sizes = np.clip(adata.var[available_metrics["mean"]] * 20, 5, 200)
-    else:
-        sizes = 30
-    scatter = ax.scatter(
-        adata.var[x],
-        adata.var[y],
-        s=sizes,
-        c=adata.var[hvg_key].astype(int),
-        cmap="coolwarm",
-        alpha=0.7,
-    )
-    cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_ticks([0, 1])
-    cbar.set_ticklabels(["Not HVG", "HVG"])
-    if plot_type == "dispersion_vs_mean":
-        ax.set_xlabel("Mean Expression")
-        ax.set_ylabel("Dispersion (normalized)")
-        ax.set_title("Highly Variable Genes: Dispersion vs. Mean")
-        ax.set_xscale("log")
-    elif plot_type == "score":
-        ax.set_xlabel("Mean Expression" if x else "Gene Index")
-        ax.set_ylabel("HVG Score")
-        ax.set_title("Highly Variable Genes: Score Distribution")
-    elif plot_type == "stability":
-        ax.set_xlabel("Mean Expression")
-        ax.set_ylabel("Selection Frequency")
-        ax.set_title("HVG Selection Stability")
-    if show_gene_labels and n_top_genes > 0:
-        hvg_mask = adata.var[hvg_key]
-        if hvg_mask.sum() > 0:
-            top_indices = adata.var.loc[hvg_mask, y].nlargest(n_top_genes).index
-            for idx in top_indices:
-                gene_name = idx
-                ax.annotate(
-                    gene_name,
-                    (adata.var.loc[idx, x], adata.var.loc[idx, y]),
-                    xytext=(5, 5),
-                    textcoords="offset points",
-                    fontsize=8,
-                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
-                )
-    n_hvgs = adata.var[hvg_key].sum()
-    total_genes = len(adata.var)
-    ax.set_title(
-        f"{ax.get_title()}\n{n_hvgs} HVGs selected ({n_hvgs / total_genes:.1%} of {total_genes} genes)"
-    )
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        log.info(f"[HVG plot] Saved metrics plot to {save_path}")
-    if "_temp_mean" in adata.var:
-        del adata.var["_temp_mean"]
-    return fig

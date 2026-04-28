@@ -24,25 +24,27 @@ from typing import Any, Dict, Optional, Union
 
 from anndata import AnnData
 
+from .contracts import SCLUCID_ROOT, Modules, module_namespace
+
 log = logging.getLogger(__name__)
 
 # Storage hierarchy: adata.uns['sclucid'][module][key]
-STORAGE_ROOT = "sclucid"
+STORAGE_ROOT = SCLUCID_ROOT
 
 # Valid modules for storage organization
 VALID_MODULES = {
-    "qc",
-    "preprocess",
-    "analysis",
+    Modules.QC,
+    Modules.PREPROCESS,
+    Modules.ANALYSIS,
     "clustering",
     "annotation",
     "de",
     "enrichment",
     "proportion",
     "scenic",
-    "tools",
+    Modules.TOOLS,
     "checkpoint",
-    "tumor",
+    Modules.TUMOR,
 }
 
 
@@ -65,19 +67,7 @@ def get_storage(adata: AnnData, module: str, create: bool = True) -> Dict[str, A
     if module not in VALID_MODULES:
         log.warning(f"Unknown module '{module}'. Valid modules: {VALID_MODULES}")
 
-    if STORAGE_ROOT not in adata.uns:
-        if not create:
-            return {}
-        adata.uns[STORAGE_ROOT] = {}
-
-    root = adata.uns[STORAGE_ROOT]
-
-    if module not in root:
-        if not create:
-            return {}
-        root[module] = {}
-
-    return root[module]
+    return module_namespace(adata, module, create=create)
 
 
 def save_result(

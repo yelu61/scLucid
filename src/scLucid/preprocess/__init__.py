@@ -71,6 +71,12 @@ from .neighbors import optimize_neighbors_pcs
 # --- Plotting & Evaluation Functions ---
 from .normalize import normalize_data, plot_normalization_effect
 from .scale import plot_scaling_effect, regress_out, scale_data
+from .trace import (
+    PREPROCESS_REQUIRED_REVIEW_SECTIONS,
+    PREPROCESS_TRACE_SCHEMA_VERSION,
+    enrich_preprocessing_review_summary,
+    validate_preprocessing_review_summary,
+)
 
 # --- High-Level Workflow ---
 from .workflow import (
@@ -96,6 +102,10 @@ __all__ = [
     "WORKFLOW_STEPS",
     "WorkflowError",
     "PartialWorkflowResult",
+    "PREPROCESS_REQUIRED_REVIEW_SECTIONS",
+    "PREPROCESS_TRACE_SCHEMA_VERSION",
+    "enrich_preprocessing_review_summary",
+    "validate_preprocessing_review_summary",
     # Core Functions
     "apply_gene_biotype_strategy",
     "normalize_data",

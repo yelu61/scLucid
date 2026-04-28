@@ -16,16 +16,20 @@ from anndata import AnnData
 
 from ..utils import (
     PartialResultManager,
+    UnsKeys,
     WorkflowCheckpoint,
     WorkflowError,
     export_review_summary,
     get_progress_bar,
+    normalize_review_summary,
+    validate_review_summary_schema,
 )
 from .config import WorkflowConfig
 from .hvg import find_hvgs, select_hvg_sets
 from .integrate import batch_correction
 from .normalize import normalize_data
 from .scale import regress_out, scale_data
+from .trace import enrich_preprocessing_review_summary, validate_preprocessing_review_summary
 
 log = logging.getLogger(__name__)
 
@@ -395,9 +399,9 @@ def run_preprocessing(
 
     # Store final config
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
-        "workflow_config"
+        UnsKeys.WORKFLOW_CONFIG
     ] = active_config.to_dict()
-    adata.uns["sclucid"]["preprocess"]["steps_executed"] = successful_steps
+    adata.uns["sclucid"]["preprocess"][UnsKeys.STEPS_EXECUTED] = successful_steps
 
     # Tumor-aware preprocessing notes
     if tissue_type and ("tumor" in tissue_type.lower() or "cancer" in tissue_type.lower()):
@@ -411,10 +415,30 @@ def run_preprocessing(
         log.info(f"Tumor-aware preprocessing notes stored: {list(tumor_notes.keys())}")
 
     # Build and store review summary
-    review_summary = _build_preprocessing_review_summary(
-        adata, active_config, successful_steps, tissue_type
+    enriched_summary = enrich_preprocessing_review_summary(
+        _build_preprocessing_review_summary(adata, active_config, successful_steps, tissue_type),
+        adata=adata,
+        config=active_config,
+        successful_steps=successful_steps,
+        tissue_type=tissue_type,
+        keep_intermediate_layers=keep_intermediate_layers,
     )
-    adata.uns["sclucid"]["preprocess"]["review_summary"] = review_summary
+    review_summary = normalize_review_summary(
+        enriched_summary,
+        module="preprocess",
+        workflow_name="standard",
+        adata=adata,
+        steps_executed=successful_steps,
+        config=active_config.to_dict(),
+        warnings=(
+            enriched_summary.get("preprocess_readiness", {}).get("review_reasons", [])
+            if isinstance(enriched_summary.get("preprocess_readiness"), dict)
+            else []
+        ),
+    )
+    validate_review_summary_schema(review_summary, module="preprocess", raise_on_error=True)
+    validate_preprocessing_review_summary(review_summary, raise_on_error=True)
+    adata.uns["sclucid"]["preprocess"][UnsKeys.REVIEW_SUMMARY] = review_summary
 
     # Export review summary to file if save_dir is configured
     if results_path:

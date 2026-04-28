@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from anndata import AnnData
 
+from .contracts import ContractError, StageName, validate_stage_contract
+
 log = logging.getLogger(__name__)
 
 
@@ -421,18 +423,45 @@ def _make_result(
 def assert_qc_ready(adata: AnnData) -> None:
     """Assert that adata is ready for QC (has raw counts)."""
     validate_adata(adata, check_counts=True, raise_on_error=True)
+    try:
+        validate_stage_contract(adata, "qc", when="input", raise_on_error=True)
+    except ContractError as exc:
+        raise ValidationError(str(exc)) from exc
 
 
 def assert_preprocessing_ready(adata: AnnData) -> None:
     """Assert that adata has completed QC and is ready for preprocessing."""
-    validate_adata(adata, required_layers=["counts"], check_counts=True, raise_on_error=True)
-    validate_analysis_results(adata, "qc", raise_on_error=True)
+    try:
+        validate_stage_contract(adata, "preprocess", when="input", raise_on_error=True)
+    except ContractError as exc:
+        raise ValidationError(str(exc)) from exc
 
 
 def assert_analysis_ready(adata: AnnData) -> None:
     """Assert that adata is ready for analysis (clustering, annotation)."""
-    validate_adata(adata, required_obsm=["X_pca"], raise_on_error=True)
-    validate_analysis_results(adata, "preprocess", raise_on_error=True)
+    try:
+        validate_stage_contract(adata, "analysis", when="input", raise_on_error=True)
+    except ContractError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
+def validate_workflow_contract(
+    adata: AnnData,
+    stage: StageName,
+    *,
+    when: str,
+    raise_on_error: bool = True,
+) -> Dict[str, Any]:
+    """Validate one workflow stage against the canonical scLucid contract."""
+    result = validate_stage_contract(
+        adata,
+        stage,
+        when=when,  # type: ignore[arg-type]
+        raise_on_error=False,
+    )
+    if raise_on_error and not result.valid:
+        raise ValidationError(str(ContractError(result)))
+    return result.to_dict()
 
 
 __all__ = [
@@ -444,4 +473,5 @@ __all__ = [
     "assert_qc_ready",
     "assert_preprocessing_ready",
     "assert_analysis_ready",
+    "validate_workflow_contract",
 ]

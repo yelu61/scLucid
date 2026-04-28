@@ -25,7 +25,61 @@ Key exposed components:
 - Profiling utilities: PerformanceProfiler, profile_performance, memory_tracker
 """
 
+# Import runtime safeguards
+from ..runtime import (
+    effective_n_jobs,
+    is_ci_environment,
+    run_joblib_or_sequential,
+    setup_runtime_environment,
+)
+
 # Import and expose key functions from submodules
+from .context import (
+    AnalysisContext,
+    DatasetProfile,
+    DatasetType,
+    infer_analysis_context,
+    infer_dataset_profile,
+    is_multi_sample_hint,
+    normalize_dataset_type,
+)
+from .contracts import (
+    SCHEMA_VERSION,
+    SCLUCID_ROOT,
+    STAGE_CONTRACTS,
+    STAGE_ORDER,
+    ContractError,
+    ContractValidationResult,
+    LayerKeys,
+    Modules,
+    ObsKeys,
+    ObsmKeys,
+    REVIEW_SUMMARY_RECOMMENDED_KEYS,
+    REVIEW_SUMMARY_REQUIRED_KEYS,
+    StageContract,
+    UnsKeys,
+    VarKeys,
+    build_config_lineage,
+    ensure_sclucid_namespace,
+    format_contract_error,
+    get_contract_spec,
+    get_stage_contract,
+    module_namespace,
+    normalize_review_summary,
+    record_contract_result,
+    stage_contract_to_dict,
+    validate_all_stage_contracts,
+    validate_review_summary_schema,
+    validate_stage_contract,
+)
+from .evidence import (
+    EVIDENCE_SCHEMA_VERSION,
+    DecisionRecord,
+    EvidenceBundle,
+    EvidenceItem,
+    ReviewAction,
+    model_to_dict,
+)
 from .helpers import (
     load_10x_data,
     merge_obs_metadata,
@@ -113,14 +167,14 @@ from .workflow_utils import (
 # Import data loading utilities
 try:
     from .data_loader import (
-        filter_by_species,
-        filter_by_tissue_type,
-        get_dataset_info,
-        load_all_datasets,
-        load_luad,
-        load_melanoma,
-        load_pbmc3k,
-        print_dataset_summary,
+        filter_by_species,  # noqa: F401
+        filter_by_tissue_type,  # noqa: F401
+        get_dataset_info,  # noqa: F401
+        load_all_datasets,  # noqa: F401
+        load_luad,  # noqa: F401
+        load_melanoma,  # noqa: F401
+        load_pbmc3k,  # noqa: F401
+        print_dataset_summary,  # noqa: F401
     )
 
     _data_loader_available = True
@@ -136,8 +190,52 @@ __all__ = [
     "subset_adata",
     "subset_from_annotations",
     "merge_obs_metadata",
+    "AnalysisContext",
+    "DatasetProfile",
+    "DatasetType",
+    "infer_analysis_context",
+    "infer_dataset_profile",
+    "is_multi_sample_hint",
+    "normalize_dataset_type",
+    "ContractError",
+    "ContractValidationResult",
+    "LayerKeys",
+    "Modules",
+    "ObsmKeys",
+    "ObsKeys",
+    "SCHEMA_VERSION",
+    "SCLUCID_ROOT",
+    "STAGE_CONTRACTS",
+    "STAGE_ORDER",
+    "StageContract",
+    "REVIEW_SUMMARY_RECOMMENDED_KEYS",
+    "REVIEW_SUMMARY_REQUIRED_KEYS",
+    "UnsKeys",
+    "VarKeys",
+    "build_config_lineage",
+    "ensure_sclucid_namespace",
+    "format_contract_error",
+    "get_contract_spec",
+    "get_stage_contract",
+    "module_namespace",
+    "normalize_review_summary",
+    "record_contract_result",
+    "stage_contract_to_dict",
+    "validate_all_stage_contracts",
+    "validate_review_summary_schema",
+    "validate_stage_contract",
+    "effective_n_jobs",
+    "is_ci_environment",
+    "run_joblib_or_sequential",
+    "setup_runtime_environment",
     "flatten_marker_dict",
     "filter_marker_dict",
+    "DecisionRecord",
+    "EVIDENCE_SCHEMA_VERSION",
+    "EvidenceBundle",
+    "EvidenceItem",
+    "ReviewAction",
+    "model_to_dict",
     # Result cleanup
     "clear_sclucid_results",
     "list_sclucid_modules",

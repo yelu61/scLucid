@@ -10,6 +10,7 @@ import numpy as np
 from anndata import AnnData
 
 from ..tumor.config import TumorAnalysisConfig
+from ..utils.context import AnalysisContext, infer_analysis_context
 from .schema import ParameterRecommendation, RecommendationSection
 
 log = logging.getLogger(__name__)
@@ -18,17 +19,58 @@ log = logging.getLogger(__name__)
 def adapt_tumor_recommendation(
     adata: AnnData,
     config: Optional[TumorAnalysisConfig] = None,
+    context: Optional[AnalysisContext] = None,
     cancer_type: Optional[str] = None,
 ) -> RecommendationSection:
     """Build a RecommendationSection for tumor-specific analysis."""
     if config is None:
         config = TumorAnalysisConfig()
+    if context is None:
+        context = infer_analysis_context(adata, cancer_type=cancer_type)
 
     parameters: List[ParameterRecommendation] = []
     concerns: List[str] = []
     notes: List[str] = []
 
     n_cells = int(adata.n_obs)
+    if not context.enables_tumor_module:
+        concerns.append(
+            f"Tumor-specific analysis disabled for dataset_type='{context.dataset_type}'."
+        )
+        disabled_config = config.model_copy(
+            update={
+                "run_malignancy": False,
+                "run_tme": False,
+                "run_cnv": False,
+                "run_therapy": False,
+            }
+        )
+        for name in ["run_malignancy", "run_tme", "run_cnv", "run_therapy"]:
+            parameters.append(
+                ParameterRecommendation(
+                    name=name,
+                    value=False,
+                    method="dataset_type_gate",
+                    confidence=0.9,
+                    rationale="Tumor-specific modules are only enabled for tumor datasets.",
+                    evidence={"dataset_type": context.dataset_type},
+                )
+            )
+        return RecommendationSection(
+            name="tumor",
+            summary=f"Tumor analysis disabled for dataset_type='{context.dataset_type}'.",
+            confidence=0.9,
+            parameters=parameters,
+            concerns=concerns,
+            notes=notes,
+            raw_result=disabled_config,
+            metadata={
+                "dataset_type": context.dataset_type,
+                "cancer_type": cancer_type or context.cancer_type,
+                "n_cells": n_cells,
+            },
+        )
+
     has_cnv_score = "cnv_score" in adata.obs.columns or "cnv" in adata.obs.columns
     infercnvpy_available = importlib.util.find_spec("infercnvpy") is not None
 
@@ -192,6 +234,7 @@ def adapt_tumor_recommendation(
         notes=notes,
         raw_result=recommended_config,
         metadata={
+            "dataset_type": context.dataset_type,
             "cancer_type": cancer_type,
             "n_cells": n_cells,
             "infercnvpy_available": infercnvpy_available,

@@ -12,10 +12,12 @@ from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Dict, Optional
 
+from .runtime import setup_runtime_environment
+
+setup_runtime_environment()
+
 # Default to non-interactive plotting to prevent pop-up windows in scripts/CI.
 # Users can enable interactivity via scl.set_interactive_mode(True).
-import warnings
-
 if not os.environ.get("MPLBACKEND"):
     import matplotlib
 
@@ -70,12 +72,12 @@ rc = recommendation
 # --- Configuration and Settings ---
 try:
     from .settings import (
-    is_interactive_mode,
-    reset_figure_params,
-    set_figure_params,
-    set_interactive_mode,
-    setup_logging,
-)
+        is_interactive_mode,
+        reset_figure_params,
+        set_figure_params,
+        set_interactive_mode,
+        setup_logging,
+    )
 except Exception as exc:
     warnings.warn(f"Could not import settings module: {exc}", ImportWarning)
 
@@ -88,8 +90,26 @@ except Exception as exc:
     setup_logging = _settings_unavailable
     set_figure_params = _settings_unavailable
     reset_figure_params = _settings_unavailable
+    set_interactive_mode = _settings_unavailable
+
+    def is_interactive_mode() -> bool:
+        return False
 
 from .config import get_config, reset_config, set_config
+from .utils.context import (
+    AnalysisContext,
+    DatasetProfile,
+    infer_analysis_context,
+    infer_dataset_profile,
+    normalize_dataset_type,
+)
+from .utils.contracts import (
+    Modules,
+    UnsKeys,
+    build_config_lineage,
+    record_contract_result,
+    validate_stage_contract,
+)
 from .utils.validation import (
     ValidationError,
     assert_analysis_ready,
@@ -170,11 +190,19 @@ def run_pipeline(
     adata,
     stages: list[str] = None,
     *,
+    context=None,
+    dataset_type: str = None,
     qc_config=None,
     preprocess_config=None,
     analysis_config=None,
     show_progress: bool = True,
     tissue_type: str = "unknown",
+    tissue: str = None,
+    species: str = "human",
+    cancer_type: str = None,
+    sample_key: str = None,
+    batch_key: str = None,
+    condition_key: str = None,
     **kwargs,
 ):
     """
@@ -198,8 +226,15 @@ def run_pipeline(
         Configuration for analysis stage
     show_progress : bool, default=True
         Show progress bars
+    context : AnalysisContext or dict, optional
+        Shared dataset context used to tune defaults and document assumptions.
+    dataset_type : str, optional
+        Canonical or alias dataset type, e.g. ``"pbmc_or_blood"``,
+        ``"normal_tissue"``, ``"tumor_tissue"``, ``"cell_line"``,
+        ``"organoid"``, or ``"spatial"``. Multi-sample status is tracked
+        separately as ``AnalysisContext.is_multi_sample``.
     tissue_type : str, default="unknown"
-        Tissue type hint passed to QC
+        Backward-compatible tissue type hint passed to QC when no context is provided.
     **kwargs
         Additional parameters passed to individual stages
 
@@ -228,8 +263,33 @@ def run_pipeline(
     if invalid:
         raise ValueError(f"Invalid stages: {invalid}. Valid stages are: {valid_stages}")
 
+    global_config = get_config()
+    effective_dataset_type = (
+        dataset_type
+        if dataset_type is not None
+        else getattr(global_config, "default_dataset_type", "unknown")
+    )
+    effective_species = species or getattr(global_config, "default_species", "human")
+
+    analysis_context = infer_analysis_context(
+        adata,
+        context=context,
+        dataset_type=effective_dataset_type,
+        species=effective_species,
+        tissue=tissue,
+        tissue_type=tissue_type,
+        cancer_type=cancer_type,
+        sample_key=sample_key,
+        batch_key=batch_key,
+        condition_key=condition_key,
+    )
+
     # Cross-module context to propagate settings across stages
-    pipeline_context: Dict[str, Any] = {}
+    pipeline_context: Dict[str, Any] = analysis_context.to_dict()
+    pipeline_context["config_lineage"] = build_config_lineage(
+        global_config=global_config.to_dict() if hasattr(global_config, "to_dict") else {},
+        inherited=analysis_context.to_dict(),
+    )
 
     # Run QC
     if "qc" in stages:
@@ -239,17 +299,19 @@ def run_pipeline(
         adata = run_standard_qc(
             adata,
             config=qc_config,
-            tissue_type=tissue_type,
+            tissue_type=analysis_context.qc_tissue_type,
             show_progress=show_progress,
             **_stage_kwargs("qc", kwargs),
         )
+        qc_contract = validate_stage_contract(adata, "qc", when="output")
+        record_contract_result(adata, Modules.QC, qc_contract)
         # Capture upstream context from QC results
-        qc_uns = adata.uns.get("sclucid", {}).get("qc", {})
-        qc_config_dict = qc_uns.get("workflow_config", {})
+        qc_uns = adata.uns.get("sclucid", {}).get(Modules.QC, {})
+        qc_config_dict = qc_uns.get(UnsKeys.WORKFLOW_CONFIG, {})
         pipeline_context["species"] = qc_config_dict.get(
-            "species", getattr(qc_config, "species", "human")
+            "species", getattr(qc_config, "species", analysis_context.species)
         )
-        pipeline_context["tissue_type"] = tissue_type
+        pipeline_context["tissue_type"] = analysis_context.qc_tissue_type
 
     # Run Preprocessing
     if "preprocess" in stages:
@@ -266,13 +328,15 @@ def run_pipeline(
         adata = run_preprocessing(
             adata,
             config=preprocess_config,
-            tissue_type=tissue_type,
+            tissue_type=analysis_context.qc_tissue_type,
             show_progress=show_progress,
             **_stage_kwargs("preprocess", kwargs),
         )
+        preprocess_contract = validate_stage_contract(adata, "preprocess", when="output")
+        record_contract_result(adata, Modules.PREPROCESS, preprocess_contract)
         # Capture upstream context from preprocess results
-        pp_uns = adata.uns.get("sclucid", {}).get("preprocess", {})
-        pp_config_dict = pp_uns.get("workflow_config", {})
+        pp_uns = adata.uns.get("sclucid", {}).get(Modules.PREPROCESS, {})
+        pp_config_dict = pp_uns.get(UnsKeys.WORKFLOW_CONFIG, {})
         integration_cfg = pp_config_dict.get("integration", {})
         if integration_cfg.get("batch_key"):
             pipeline_context["batch_key"] = integration_cfg["batch_key"]
@@ -294,7 +358,7 @@ def run_pipeline(
         # Inherit species from QC context if analysis_config is not explicitly provided
         effective_analysis_config = analysis_config
         if effective_analysis_config is None and "species" in pipeline_context:
-            from .analysis.config import AnalysisWorkflowConfig, AnnotationConfig
+            from .analysis.config import AnalysisWorkflowConfig
 
             effective_analysis_config = AnalysisWorkflowConfig()
             if effective_analysis_config.annotation is not None:
@@ -310,9 +374,12 @@ def run_pipeline(
             show_progress=show_progress,
             **_stage_kwargs("analysis", kwargs),
         )
+        analysis_contract = validate_stage_contract(adata, "analysis", when="output")
+        record_contract_result(adata, Modules.ANALYSIS, analysis_contract)
 
     # Store pipeline context for downstream inspection
-    adata.uns.setdefault("sclucid", {})["pipeline_context"] = pipeline_context
+    adata.uns.setdefault("sclucid", {})[UnsKeys.PIPELINE_CONTEXT] = pipeline_context
+    adata.uns.setdefault("sclucid", {})[UnsKeys.ANALYSIS_CONTEXT] = analysis_context.to_dict()
 
     return adata
 
@@ -330,6 +397,11 @@ __all__ = [
     "plotting",
     "utils",
     "recommendation",
+    "AnalysisContext",
+    "DatasetProfile",
+    "infer_analysis_context",
+    "infer_dataset_profile",
+    "normalize_dataset_type",
     "setup_logging",
     "set_figure_params",
     "reset_figure_params",

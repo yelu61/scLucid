@@ -24,7 +24,9 @@ If you are new to scLucid, start with:
 
    installation
    quickstart
+   data_contracts
    best_practices
+   workflow_hardening
 
 Workflow Guides
 ---------------
@@ -46,6 +48,7 @@ API Reference
    api/qc
    api/preprocess
    api/analysis
+   api/recommendation
    api/tools
    api/plotting
    api/utils

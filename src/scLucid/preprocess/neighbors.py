@@ -13,8 +13,8 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 from anndata import AnnData
-from joblib import Parallel, delayed
 
+from ..runtime import run_joblib_or_sequential
 from .config import NeighborsConfig, apply_config_overrides
 
 log = logging.getLogger(__name__)
@@ -183,8 +183,14 @@ def optimize_neighbors_pcs(
     except ImportError:
         iterator = param_combinations
 
-    results = Parallel(n_jobs=active_config.n_jobs)(
-        delayed(_compute_silhouette_for_params)(adata_opt, active_config, n, p) for n, p in iterator
+    results = run_joblib_or_sequential(
+        lambda params: _compute_silhouette_for_params(
+            adata_opt, active_config, params[0], params[1]
+        ),
+        iterator,
+        n_jobs=active_config.n_jobs,
+        backend="loky",
+        description="neighbors/PC optimization",
     )
 
     # --- 5. Process and display results ---
@@ -227,7 +233,7 @@ def optimize_neighbors_pcs(
         log.info(f"Saved optimization results to {results_path}")
 
     if active_config.plot:
-        fig = _plot_neighbors_grid_search(
+        _plot_neighbors_grid_search(
             df_results,
             save_path=save_dir / "neighbors_optimization_heatmap.png" if save_dir else None,
         )

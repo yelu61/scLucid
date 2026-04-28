@@ -7,11 +7,12 @@ This file is automatically discovered by pytest and provides:
 - Shared utilities
 """
 
-import os
-import tempfile
+# ruff: noqa: E402, F401, I001
 
-# Force non-interactive matplotlib backend BEFORE any import that might load it
-os.environ.setdefault("MPLBACKEND", "Agg")
+from scLucid.runtime import setup_runtime_environment
+
+# Force writable caches and non-interactive plotting before heavy imports.
+setup_runtime_environment()
 
 import matplotlib  # noqa: E402
 matplotlib.use("Agg", force=True)
@@ -28,11 +29,6 @@ from tests.fixtures.synthetic_data import (
     qc_test_adata,
     synthetic_generator,
 )
-
-# Ensure writable runtime caches for matplotlib/numba in sandboxed CI environments.
-os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "mplcfg"))
-os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(), "numba-cache"))
-
 
 def pytest_configure(config):
     """Configure pytest with custom markers."""
