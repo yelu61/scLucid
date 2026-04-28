@@ -1,5 +1,18 @@
 name: CI
 
+env:
+  MPLBACKEND: Agg
+  XDG_CACHE_HOME: /tmp/sclucid/cache
+  MPLCONFIGDIR: /tmp/sclucid/matplotlib
+  NUMBA_CACHE_DIR: /tmp/sclucid/numba
+  JOBLIB_TEMP_FOLDER: /tmp/sclucid/joblib
+  SCLUCID_SAFE_PARALLEL: "1"
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  VECLIB_MAXIMUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+
 on:
   push:
     branches: [master, main]
@@ -28,6 +41,26 @@ jobs:
 
       - name: Run ruff
         run: ruff check src/scLucid tests
+
+  type-check:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy pydantic numpy pandas-stubs
+
+      - name: Run mypy
+        run: mypy src/scLucid --config-file=pyproject.toml
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -59,8 +92,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Run smoke tests after fresh install
+        run: |
+          mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" "$JOBLIB_TEMP_FOLDER"
+          pytest -q tests/smoke
+
       - name: Run tests with coverage
         run: |
+          mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" "$JOBLIB_TEMP_FOLDER"
           pytest --cov=src/scLucid --cov-report=xml --cov-report=term -m "not slow and not integration" --ignore=tests/integration
 
       - name: Upload coverage to Codecov
@@ -99,6 +138,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[all,dev]"
 
+      - name: Run full pipeline smoke after fresh install
+        run: |
+          mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" "$JOBLIB_TEMP_FOLDER"
+          pytest -q tests/integration/test_full_pipeline.py tests/smoke
+
       - name: Run integration tests
         run: |
+          mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" "$JOBLIB_TEMP_FOLDER"
           pytest tests/integration -v --tb=short

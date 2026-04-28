@@ -78,6 +78,31 @@ _export(
     optional=True,
 )
 _export("workflow", ["run_advanced_qc", "run_standard_qc"])
+_export(
+    "benchmark",
+    [
+        "QC_BENCHMARK_SCHEMA_VERSION",
+        "BENCHMARK_PROFILES",
+        "build_qc_benchmark_assessment",
+        "compute_marker_fidelity",
+        "compute_retention_metrics",
+        "evaluate_qc_benchmark",
+        "export_qc_benchmark_report",
+        "infer_qc_benchmark_profile",
+        "render_qc_benchmark_compact_markdown",
+        "render_qc_benchmark_markdown",
+    ],
+)
+_export(
+    "trace",
+    [
+        "QC_TRACE_SCHEMA_VERSION",
+        "QC_REQUIRED_REVIEW_SECTIONS",
+        "build_qc_decision_table",
+        "enrich_qc_review_summary",
+        "validate_qc_review_summary",
+    ],
+)
 
 # Intelligent QC
 _export(

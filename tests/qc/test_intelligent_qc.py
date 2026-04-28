@@ -527,6 +527,14 @@ class TestIntegration:
         assert "min_genes" in saved_data
         assert "max_mt_percent" in saved_data
 
+    def test_recommendation_creates_missing_output_dir(self, sample_adata_with_qc, temp_output_dir):
+        """Recommendation export should create nested output directories."""
+        output_dir = temp_output_dir / "missing" / "nested"
+
+        recommend_intelligent_qc(sample_adata_with_qc, tissue_type="normal", save_dir=output_dir)
+
+        assert (output_dir / "qc_recommendation.json").exists()
+
     def test_comparison_with_fixed_thresholds(self, sample_adata_with_qc):
         """Test intelligent QC vs traditional fixed thresholds."""
         # Get intelligent recommendations

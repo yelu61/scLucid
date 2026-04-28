@@ -13,6 +13,8 @@ from anndata import AnnData
 from sklearn.cluster import DBSCAN
 from sklearn.mixture import GaussianMixture
 
+from ..runtime import effective_n_jobs
+
 log = logging.getLogger(__name__)
 
 #: Scale factor to convert MAD to approximate standard deviation for a normal distribution.
@@ -491,7 +493,7 @@ class MultiMetricAdaptiveLearner:
             self._model = IsolationForest(
                 contamination=self.contamination,
                 random_state=self.random_state,
-                n_jobs=-1,
+                n_jobs=effective_n_jobs(-1),
             )
             self._model.fit(X)
 
@@ -501,7 +503,7 @@ class MultiMetricAdaptiveLearner:
             self._model = LocalOutlierFactor(
                 contamination=self.contamination,
                 n_neighbors=20,
-                n_jobs=-1,
+                n_jobs=effective_n_jobs(-1),
             )
             self._model.fit(X)
 

@@ -8,6 +8,14 @@
 
 The toolkit's philosophy is to balance ease-of-use for standard workflows with deep customizability for advanced, exploratory research. It achieves this through a modular architecture, high-level workflow functions, and a unique, biology-aware marker management system.
 
+### Project Status
+
+scLucid is in active development. The core package already has stable workflow
+entrypoints, AnnData contracts, review summaries, and lightweight CI gates. The
+next development stage is real-data workflow hardening: running the same
+traceable path on PBMC and PDAC datasets, then using active research projects as
+acceptance tests for biological plausibility and usability.
+
 ### Key Features
 
 * **🧪 End-to-End Workflows**: High-level functions like `run_standard_qc` and `run_preprocessing` to go from raw data to a clustered UMAP with just a few lines of code.
@@ -31,28 +39,37 @@ The toolkit is modular. You can install the lightweight core and add extras as n
 
 ```bash
 # Standard Installation (Core QC, Preprocessing, Analysis, and Plotting)
-pip install scLucid
+pip install sclucid
 
 # To include additional analysis packages (CellTypist, cosg, etc.)
-pip install scLucid[analysis]
+pip install "sclucid[analysis]"
 
 # To include all advanced tools (scVelo, rpy2, infercnvpy, etc.)
-pip install scLucid[tools]
+pip install "sclucid[tools]"
 
 # To install everything
-pip install scLucid[all]
+pip install "sclucid[all]"
 ```
 
 You can also install the latest development version directly from GitHub:
 ```bash
-pip install git+[https://github.com/yelu61/scLucid.git](https://github.com/yelu61/scLucid.git)
+pip install "git+https://github.com/yelu61/scLucid.git"
 ```
 
 For developers, clone the repository and install in editable mode:
 ```bash
-git clone [https://github.com/yelu61/scLucid.git](https://github.com/yelu61/scLucid.git)
+git clone https://github.com/yelu61/scLucid.git
 cd scLucid
-pip install -e .[all]
+pip install -e ".[all]"
+```
+
+On the local development machine, the maintained single-cell environment can run
+the lightweight gates directly:
+
+```bash
+MAMBA_EXE=/opt/homebrew/bin/mamba \
+SCLUCID_TEST_ENV_PATH=/Users/luye/micromamba/envs/scrna-env \
+scripts/run_test_gates.sh
 ```
 
 ### Quick Start: A 5-Minute Analysis
@@ -60,42 +77,28 @@ pip install -e .[all]
 Here is a minimal example of a complete workflow.
 
 ```python
-import scLucid as scl # It is common to create a short alias
-from scLucid.preprocess import WorkflowConfig
-from scLucid.analysis import ClusteringConfig, AnnotationConfig
+import scanpy as sc
+import scLucid as scl
 
-# --- 1. Load Data (assuming adata is already loaded) ---
-# adata = scl.utils.load_10x_data(...)
+# --- 1. Load Data ---
+adata = sc.read_h5ad("data/pbmc3k.h5ad")
+adata.layers["counts"] = adata.X.copy()
 
-# --- 2. Run Quality Control ---
-adata_qc = scl.qc.run_standard_qc(adata, species="human")
-
-# --- 3. Run Preprocessing ---
-# This single function handles normalization, HVG selection, scaling, PCA, and Harmony integration
-prep_config = WorkflowConfig(
-    integration={"method": "harmony", "batch_key": "sampleID"}
+# --- 2. Run the supported core workflow ---
+adata_final = scl.run_pipeline(
+    adata,
+    stages=["qc", "preprocess", "analysis"],
+    dataset_type="pbmc_or_blood",
+    species="human",
+    show_progress=True,
 )
-adata_prep = scl.preprocess.run_preprocessing(adata_qc, config=prep_config)
 
-# --- 4. Run Clustering & Annotation ---
-# Define a clustering strategy
-cluster_config = ClusteringConfig(resolution=0.8, use_rep="X_harmony")
-adata_clustered = scl.analysis.cluster_cells(adata_prep, config=cluster_config)
-
-# Define an annotation strategy
-anno_config = AnnotationConfig(
-    cluster_key="leiden_res0.8",
-    marker_species="human",
-    final_method="combined" # Use both scoring and enrichment
-)
-adata_final = scl.analysis.run_annotation(adata_clustered, config=anno_config)
-
-# --- 5. Visualize Final Results ---
+# --- 3. Visualize Final Results ---
 # Set publication-ready font style for your target journal
 from scLucid import FONT_NATURE, FONT_CELL, FONT_TRADITIONAL
 scl.set_figure_params(dpi=300, font_style=FONT_NATURE)  # For Nature/Science
 
-scl.utils.plot_embedding(adata_final, color_by="cell_type")
+scl.pl.plot_embedding(adata_final, color_by="cell_type_auto", show=False)
 
 # Save with embedded fonts for publication
 import matplotlib.pyplot as plt
@@ -109,7 +112,9 @@ For detailed tutorials, how-to guides, and the full API reference:
 * **Plugin Development**: [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) - Create custom analysis plugins
 * **Naming Conventions**: [Naming Conventions](docs/NAMING_CONVENTIONS.md) - Code style guidelines
 * **OpenSpec Specifications**: [openspec/specs/](openspec/specs/) - Technical specifications
-* **Full Documentation**: [**Your Documentation URL Here**](docs/) (Under construction)
+* **Local Documentation Source**: [docs/source/](docs/source/) - Sphinx documentation sources for installation, quickstart, API references, and best practices
+* **Core Data Contracts**: [docs/source/data_contracts.rst](docs/source/data_contracts.rst) - Stable AnnData and review-summary conventions shared across workflow stages
+* **Workflow Hardening Plan**: [docs/source/workflow_hardening.rst](docs/source/workflow_hardening.rst) - Real-data vertical-slice plan for PBMC, PDAC, and active project validation
 
 For quick examples, see the `examples/` directory.
 
@@ -123,6 +128,6 @@ We welcome contributions from the community! If you'd like to contribute, please
 
 ### How to Cite
 
-If you use `scLucid` in your research, please cite our paper:
-
-> *Your Name, et al. (2025). scLucid: A comprehensive and flexible system for single-cell analysis. Journal Name.*
+If you use `scLucid` in your research before a formal methods paper is available,
+please cite the GitHub repository and include the package version used in your
+analysis. A manuscript citation will be added once available.

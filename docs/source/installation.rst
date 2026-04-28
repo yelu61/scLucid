@@ -23,25 +23,25 @@ Install from PyPI (recommended for most users)::
 
 Install with all optional dependencies::
 
-    pip install sclucid[all]
+    pip install "sclucid[all]"
 
 Install with specific extras::
 
     # Analysis tools (scrublet, celltypist, gseapy, etc.)
-    pip install sclucid[analysis]
+    pip install "sclucid[analysis]"
 
     # External tools (scVelo, CellPhoneDB, etc.)
-    pip install sclucid[tools]
+    pip install "sclucid[tools]"
 
     # Development version
-    pip install sclucid[dev]
+    pip install "sclucid[dev]"
 
 Install from Source
 -------------------
 
 For the latest development version::
 
-    git clone https://github.com/yourusername/scLucid.git
+    git clone https://github.com/yelu61/scLucid.git
     cd scLucid
     pip install -e .
 
@@ -85,7 +85,7 @@ Development Setup
 For contributors::
 
     # Clone repository
-    git clone https://github.com/yourusername/scLucid.git
+    git clone https://github.com/yelu61/scLucid.git
     cd scLucid
 
     # Create virtual environment
@@ -94,6 +94,14 @@ For contributors::
 
     # Install development dependencies
     pip install -e ".[dev]"
+
+    # Run lightweight project gates
+    scripts/run_test_gates.sh
+
+    # Or run them in the maintained local single-cell environment
+    MAMBA_EXE=/opt/homebrew/bin/mamba \
+    SCLUCID_TEST_ENV_PATH=/Users/luye/micromamba/envs/scrna-env \
+    scripts/run_test_gates.sh
 
     # Install pre-commit hooks (optional)
     pre-commit install

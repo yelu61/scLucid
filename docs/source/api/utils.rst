@@ -58,3 +58,11 @@ Storage Management
 .. autofunction:: scLucid.utils.save_workflow_result
 
 .. autofunction:: scLucid.utils.load_workflow_result
+
+Workflow Contracts
+------------------
+
+.. automodule:: scLucid.utils.contracts
+   :members:
+   :undoc-members:
+   :show-inheritance:

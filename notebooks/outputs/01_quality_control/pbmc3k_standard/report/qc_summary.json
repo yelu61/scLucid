@@ -1,0 +1,204 @@
+{
+  "dataset_shape_after": [
+    2523,
+    32738
+  ],
+  "dataset_shape_before": [
+    2700,
+    32738
+  ],
+  "context": {
+    "sample_key": "sampleID",
+    "threshold_mode": "hierarchical",
+    "n_samples": 4,
+    "tissue_type": "pbmc",
+    "use_recommendations": true
+  },
+  "recommendation": {
+    "min_genes": {
+      "threshold": 643,
+      "ci_lower": 643,
+      "ci_upper": 661,
+      "confidence": 0.5,
+      "method": "GMM + Bootstrap",
+      "evidence": {
+        "gmm_bic": 34445.36767657689,
+        "n_components": 2,
+        "strategy": "aggressive",
+        "method": "GMM + Bootstrap"
+      }
+    },
+    "max_mt_percent": {
+      "threshold": 3.1,
+      "ci_lower": 3.0,
+      "ci_upper": 3.2,
+      "confidence": 0.5,
+      "method": "distribution fitting (beta)",
+      "evidence": {
+        "best_distribution": "beta",
+        "params": [
+          4.965247868272593,
+          12068856471813.39,
+          0,
+          5389711373076.936
+        ],
+        "tissue_type": "pbmc",
+        "median_mt": 2.030456781387329,
+        "method": "distribution fitting (beta)"
+      }
+    },
+    "doublet_threshold": {
+      "threshold": 0.5,
+      "ci_lower": 0.5,
+      "ci_upper": 0.5,
+      "confidence": 0.0,
+      "method": "no_doublet_scores",
+      "evidence": {
+        "reason": "Doublet scores not calculated"
+      }
+    },
+    "n_counts": {
+      "threshold": 1503,
+      "ci_lower": 1477,
+      "ci_upper": 1531,
+      "confidence": 1.0,
+      "method": "log-normal distribution + bootstrap",
+      "evidence": {
+        "n_cells": 2700
+      }
+    },
+    "overall_strategy": "aggressive",
+    "overall_confidence": 0.5,
+    "data_quality_score": 100.0,
+    "concerns": [
+      "Missing metrics detected (pct_counts_mt); attempting automatic QC metric calculation"
+    ],
+    "tumor_specific_considerations": []
+  },
+  "filtering_summary": {
+    "initial_cells": 2700,
+    "final_cells": "2523",
+    "removed_cells": "177",
+    "removed_fraction": 0.06555555555555556,
+    "criteria_used": [
+      "outlier_min_genes",
+      "outlier_mt"
+    ],
+    "combination_logic": "any",
+    "criteria_counts": {
+      "outlier_min_genes": "77",
+      "outlier_mt": "117"
+    },
+    "config": {
+      "save_dir": null,
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "criteria_to_filter": [
+        "outlier_min_genes",
+        "outlier_mt",
+        "predicted_doublet"
+      ],
+      "combination_logic": "any",
+      "custom_logic_expr": null,
+      "min_criteria_for_removal": 2,
+      "metadata_filters": null
+    }
+  },
+  "tumor_aware_flags": {},
+  "warnings": [],
+  "sample_thresholds": {
+    "sample3": {
+      "n_genes_by_counts": {
+        "lower": 414.8008551308287,
+        "upper": 1299.4907872969393,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.13089005235602094,
+        "n_cells": 664
+      },
+      "total_counts": {
+        "lower": 735.7638064414334,
+        "upper": 4067.657580277317,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.13089005235602094,
+        "n_cells": 664
+      },
+      "pct_counts_mt": {
+        "lower": 0.10672539620835364,
+        "upper": 4.304848013825826,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.13089005235602094,
+        "n_cells": 664
+      }
+    },
+    "sample4": {
+      "n_genes_by_counts": {
+        "lower": 365.736566078408,
+        "upper": 1336.518093810239,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.13071895424836602,
+        "n_cells": 665
+      },
+      "total_counts": {
+        "lower": 430.9008808743092,
+        "upper": 4335.368162094441,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.13071895424836602,
+        "n_cells": 665
+      },
+      "pct_counts_mt": {
+        "lower": 0.46067479780697207,
+        "upper": 3.9606680519244732,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.13071895424836602,
+        "n_cells": 665
+      }
+    },
+    "sample1": {
+      "n_genes_by_counts": {
+        "lower": 392.2930019567215,
+        "upper": 1288.7217481241958,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.12484394506866417,
+        "n_cells": 701
+      },
+      "total_counts": {
+        "lower": 644.7238557560709,
+        "upper": 4018.761984087679,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.12484394506866417,
+        "n_cells": 701
+      },
+      "pct_counts_mt": {
+        "lower": 0.2599900451298125,
+        "upper": 4.150874784887277,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.12484394506866417,
+        "n_cells": 701
+      }
+    },
+    "sample2": {
+      "n_genes_by_counts": {
+        "lower": 360.3914138485985,
+        "upper": 1318.7343196771349,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.12987012987012986,
+        "n_cells": 670
+      },
+      "total_counts": {
+        "lower": 472.2788808490627,
+        "upper": 4233.331470713438,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.12987012987012986,
+        "n_cells": 670
+      },
+      "pct_counts_mt": {
+        "lower": 0.38276984965710525,
+        "upper": 4.095086786390258,
+        "method": "hierarchical",
+        "shrinkage_factor": 0.12987012987012986,
+        "n_cells": 670
+      }
+    }
+  }
+}

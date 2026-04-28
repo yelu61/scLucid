@@ -7,9 +7,11 @@ import threading
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import Field, model_validator
+
+from .runtime import effective_n_jobs
 
 try:
     from .base_config import SclucidBaseConfig
@@ -63,6 +65,15 @@ class GlobalConfig(SclucidBaseConfig):
 
     # Species-specific settings
     default_species: str = Field(default="human", description="Default species")
+    default_dataset_type: Literal[
+        "unknown",
+        "pbmc_or_blood",
+        "normal_tissue",
+        "tumor_tissue",
+        "cell_line",
+        "organoid",
+        "spatial",
+    ] = Field(default="unknown", description="Default dataset context for workflows")
 
     # Resource paths
     marker_db_path: Optional[Path] = Field(default=None, description="Path to marker database")
@@ -132,6 +143,13 @@ class GlobalConfig(SclucidBaseConfig):
         if self.verbosity not in [0, 1, 2]:
             warnings.warn(
                 f"verbosity={self.verbosity} is invalid. Setting to 1 (INFO).", UserWarning
+            )
+
+        if effective_n_jobs(self.n_jobs) != self.n_jobs:
+            logging.getLogger(__name__).debug(
+                "Runtime will execute n_jobs=%s as n_jobs=%s in the current environment.",
+                self.n_jobs,
+                effective_n_jobs(self.n_jobs),
             )
 
     def set(self, **kwargs):

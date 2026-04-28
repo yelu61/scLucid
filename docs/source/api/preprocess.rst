@@ -52,6 +52,31 @@ run_preprocessing
 
 .. autofunction:: scLucid.preprocess.run_preprocessing
 
+Preprocessing Review Contract
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``run_preprocessing`` stores an auditable review bundle at
+``adata.uns["sclucid"]["preprocess"]["review_summary"]``. The bundle includes:
+
+* ``applied_parameter_summary``: effective normalization, HVG, regression,
+  scaling, PCA, batch-correction, and graph parameters used by the run.
+* ``layer_transition_summary``: expression-layer and embedding transitions from
+  counts to normalized/scaled layers, PCA, and optional integrated embeddings.
+* ``hvg_selection_evidence_summary``: HVG method, input layer, selected count,
+  selected fraction, input statistics, and excluded gene-type evidence.
+* ``tumor_aware_batch_correction_warnings``: tumor-context warnings when batch
+  correction could over-correct malignant-state, clone, patient, or TME signal.
+* ``downstream_analysis_recommendations``: preprocessing-to-analysis handoff
+  guidance, including which representation should be considered downstream.
+* ``preprocess_readiness`` and ``review_action_items``: machine-readable status,
+  score, blockers, review reasons, and prioritized human review actions.
+* ``evidence_bundle``: shared scLucid evidence schema view of preprocessing
+  evidence, action items, context, and reproducibility-critical parameters.
+
+.. autofunction:: scLucid.preprocess.validate_preprocessing_review_summary
+
+.. autofunction:: scLucid.preprocess.enrich_preprocessing_review_summary
+
 normalize_data
 ~~~~~~~~~~~~~~
 

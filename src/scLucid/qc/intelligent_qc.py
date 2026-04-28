@@ -102,6 +102,9 @@ class IntelligentQCConfig(SclucidBaseConfig):
     min_genes_absolute: int = Field(
         default=50, ge=10, description="Absolute minimum for min_genes threshold"
     )
+    random_state: int = Field(
+        default=42, description="Random seed used for bootstrap confidence intervals"
+    )
 
 
 @dataclass
@@ -296,6 +299,10 @@ class IntelligentQCRecommender:
         log.info("=" * 70)
         log.info("Intelligent QC Recommendation System")
         log.info("=" * 70)
+
+        if save_dir:
+            save_dir = Path(save_dir)
+            save_dir.mkdir(parents=True, exist_ok=True)
 
         # Ensure required QC columns exist; fallback to safe auto-derivation when possible.
         metric_flags = self._prepare_required_qc_metrics(adata)
@@ -597,8 +604,9 @@ class IntelligentQCRecommender:
         # Bootstrap for confidence interval
         boot_thresholds = []
 
+        rng = np.random.default_rng(cfg.random_state)
         for _ in range(cfg.n_bootstrap):
-            boot_sample = np.random.choice(n_genes, size=len(n_genes), replace=True)
+            boot_sample = rng.choice(n_genes, size=len(n_genes), replace=True)
             boot_threshold = np.percentile(boot_sample, percentile_value)
             boot_thresholds.append(boot_threshold)
 
@@ -651,8 +659,9 @@ class IntelligentQCRecommender:
         threshold = max(cfg.min_genes_absolute, threshold)
 
         # Simple bootstrap CI
+        rng = np.random.default_rng(cfg.random_state)
         boot = [
-            np.percentile(np.random.choice(n_genes, size=len(n_genes), replace=True), pct)
+            np.percentile(rng.choice(n_genes, size=len(n_genes), replace=True), pct)
             for _ in range(cfg.n_bootstrap)
         ]
         ci_lower = int(np.percentile(boot, cfg.bootstrap_percentile_lower))
@@ -723,7 +732,8 @@ class IntelligentQCRecommender:
         # Determine threshold based on strategy and tissue type
         tissue_lower = tissue_type.lower()
 
-        if "tumor" in tissue_lower:
+        is_tumor_context = "tumor" in tissue_lower or "cancer" in tissue_lower
+        if is_tumor_context or strategy == StrategyType.TUMOR_AWARE:
             # Tumor tissues: higher MT is normal
             if strategy == StrategyType.CONSERVATIVE:
                 threshold_percentile = 95.0  # Allow high MT cells
@@ -738,20 +748,22 @@ class IntelligentQCRecommender:
         threshold = np.percentile(mt_pct_nonzero, threshold_percentile)
 
         # Bootstrap CI
-        n_bootstrap = 100
+        cfg = self.config
+        n_bootstrap = cfg.n_bootstrap
         boot_thresholds = []
+        rng = np.random.default_rng(cfg.random_state)
         for _ in range(n_bootstrap):
-            boot_sample = np.random.choice(mt_pct_nonzero, size=len(mt_pct_nonzero), replace=True)
+            boot_sample = rng.choice(mt_pct_nonzero, size=len(mt_pct_nonzero), replace=True)
             boot_thresh = np.percentile(boot_sample, threshold_percentile)
             boot_thresholds.append(boot_thresh)
 
-        ci_lower = np.percentile(boot_thresholds, 2.5)
-        ci_upper = np.percentile(boot_thresholds, 97.5)
+        ci_lower = np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower)
+        ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
         threshold = float(np.clip(threshold, ci_lower, ci_upper))
 
         # Confidence based on distribution fit
         if best_dist != "percentile":
-            confidence = max(0.5, 1.0 - dist_results[best_dist]["ks_pval"])
+            confidence = min(1.0, max(0.5, 0.5 + 0.5 * dist_results[best_dist]["ks_pval"]))
         else:
             confidence = 0.7
 
@@ -801,17 +813,19 @@ class IntelligentQCRecommender:
         threshold = int(10**log_threshold)
 
         # Bootstrap CI
-        n_bootstrap = 100
+        cfg = self.config
+        n_bootstrap = cfg.n_bootstrap
         boot_thresholds = []
+        rng = np.random.default_rng(cfg.random_state)
         for _ in range(n_bootstrap):
-            boot_sample = np.random.choice(log_counts, size=len(log_counts), replace=True)
+            boot_sample = rng.choice(log_counts, size=len(log_counts), replace=True)
             boot_mu = boot_sample.mean()
             boot_std = boot_sample.std()
             boot_thresh = 10 ** (boot_mu + z_score * boot_std)
             boot_thresholds.append(boot_thresh)
 
-        ci_lower = np.percentile(boot_thresholds, 2.5)
-        ci_upper = np.percentile(boot_thresholds, 97.5)
+        ci_lower = np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower)
+        ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
         threshold = int(np.clip(threshold, ci_lower, ci_upper))
 
         # Confidence based on sample size
@@ -865,21 +879,23 @@ class IntelligentQCRecommender:
         threshold = np.percentile(doublet_scores, threshold_percentile)
 
         # Bootstrap CI
-        n_bootstrap = 100
+        cfg = self.config
+        n_bootstrap = cfg.n_bootstrap
         boot_thresholds = []
+        rng = np.random.default_rng(cfg.random_state)
         for _ in range(n_bootstrap):
-            boot_sample = np.random.choice(doublet_scores, size=len(doublet_scores), replace=True)
+            boot_sample = rng.choice(doublet_scores, size=len(doublet_scores), replace=True)
             boot_thresh = np.percentile(boot_sample, threshold_percentile)
             boot_thresholds.append(boot_thresh)
 
-        ci_lower = np.percentile(boot_thresholds, 2.5)
-        ci_upper = np.percentile(boot_thresholds, 97.5)
+        ci_lower = np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower)
+        ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
         threshold = float(np.clip(threshold, ci_lower, ci_upper))
 
         # Confidence based on distribution fit
         # Use KS test to check if beta distribution is a good fit
         ks_stat, ks_pval = stats.kstest(doublet_scores, beta.cdf(alpha, beta_loc, beta_scale))
-        confidence = max(0.5, 1.0 - ks_pval)
+        confidence = min(1.0, max(0.5, 0.5 + 0.5 * ks_pval))
 
         evidence = {
             "beta_alpha": alpha,
@@ -969,6 +985,8 @@ class IntelligentQCRecommender:
     def _save_recommendation_report(self, recommendation: QCRecommendation, save_dir: Path):
         """Save recommendation report."""
         import json
+
+        save_dir.mkdir(parents=True, exist_ok=True)
 
         def _json_safe(obj: Any):
             if isinstance(obj, dict):

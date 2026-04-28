@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+  "profile": "tumor",
+  "profile_label": "Tumor tissue",
+  "criteria": {
+    "min_retention": 0.35,
+    "max_retention": 0.99,
+    "min_marker_fidelity": 0.5
+  },
+  "retention": {
+    "initial_cells": 1500,
+    "final_cells": 1330,
+    "removed_cells": 170,
+    "retention_rate": 0.8866666666666667,
+    "per_sample": {
+      "GSM4293555": {
+        "initial_cells": 1500,
+        "final_cells": 1330,
+        "retention_rate": 0.8866666666666667
+      }
+    },
+    "per_cell_type": {}
+  },
+  "marker_fidelity": {
+    "available": true,
+    "overall_marker_fidelity": 0.9192560862697707,
+    "n_marker_sets_available": 5,
+    "per_marker_set": {
+      "Epithelial_tumor": {
+        "available_markers": [
+          "EPCAM",
+          "KRT18",
+          "KRT19",
+          "KRT8"
+        ],
+        "n_markers": 4,
+        "mean_expression_before": 8.106666666666666,
+        "mean_expression_after": 9.10827067669173,
+        "mean_expression_ratio": 1.1235531262366445,
+        "detection_fraction_before": 0.5466666666666666,
+        "detection_fraction_after": 0.5669172932330827,
+        "detection_fraction_delta": 0.020250626566416075,
+        "fidelity_score": 0.9271564843681458,
+        "status": "ok"
+      },
+      "Proliferation": {
+        "available_markers": [
+          "MKI67",
+          "PCNA",
+          "TOP2A"
+        ],
+        "n_markers": 3,
+        "mean_expression_before": 0.15711111111111115,
+        "mean_expression_after": 0.17694235588972432,
+        "mean_expression_ratio": 1.1262243302740584,
+        "detection_fraction_before": 0.136,
+        "detection_fraction_after": 0.15263157894736842,
+        "detection_fraction_delta": 0.016631578947368414,
+        "fidelity_score": 0.8894785256097165,
+        "status": "ok"
+      },
+      "EMT": {
+        "available_markers": [
+          "SNAI2",
+          "VIM",
+          "ZEB1"
+        ],
+        "n_markers": 3,
+        "mean_expression_before": 2.5846666666666662,
+        "mean_expression_after": 2.890726817042607,
+        "mean_expression_ratio": 1.1184137801299745,
+        "detection_fraction_before": 0.694,
+        "detection_fraction_after": 0.7398496240601504,
+        "detection_fraction_delta": 0.04584962406015047,
+        "fidelity_score": 0.9160759581780834,
+        "status": "ok"
+      },
+      "Immune_microenvironment": {
+        "available_markers": [
+          "CD3D",
+          "LYZ",
+          "PTPRC"
+        ],
+        "n_markers": 3,
+        "mean_expression_before": 1.5428888888888888,
+        "mean_expression_after": 1.6859649122807017,
+        "mean_expression_ratio": 1.0927325515286128,
+        "detection_fraction_before": 0.6026666666666667,
+        "detection_fraction_after": 0.630827067669173,
+        "detection_fraction_delta": 0.028160401002506275,
+        "fidelity_score": 0.9352482825423953,
+        "status": "ok"
+      },
+      "Stromal_microenvironment": {
+        "available_markers": [
+          "COL1A1",
+          "COL1A2",
+          "DCN"
+        ],
+        "n_markers": 3,
+        "mean_expression_before": 4.709777777777777,
+        "mean_expression_after": 5.277192982456141,
+        "mean_expression_ratio": 1.1204760036355872,
+        "detection_fraction_before": 0.282,
+        "detection_fraction_after": 0.2924812030075188,
+        "detection_fraction_delta": 0.010481203007518813,
+        "fidelity_score": 0.9283211806505132,
+        "status": "ok"
+      }
+    }
+  },
+  "checks": [
+    {
+      "name": "minimum_retention",
+      "passed": true,
+      "value": 0.8866666666666667,
+      "threshold": 0.35
+    },
+    {
+      "name": "maximum_retention",
+      "passed": true,
+      "value": 0.8866666666666667,
+      "threshold": 0.99
+    },
+    {
+      "name": "marker_fidelity",
+      "passed": true,
+      "value": 0.9192560862697707,
+      "threshold": 0.5
+    }
+  ],
+  "status": "pass"
+}

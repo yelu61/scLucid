@@ -1,0 +1,567 @@
+{
+  "recommendation_summary": {
+    "available": true,
+    "overall_strategy": "tumor_aware",
+    "overall_confidence": 0.5,
+    "data_quality_score": 100.0,
+    "concerns": [
+      "Missing metrics detected (n_genes, n_counts, pct_counts_mt); attempting automatic QC metric calculation"
+    ],
+    "key_thresholds": {
+      "min_genes": {
+        "recommended": 369,
+        "user_provided": 200
+      },
+      "pc_mt": {
+        "recommended": null,
+        "user_provided": 20.0
+      },
+      "min_counts": {
+        "recommended": null,
+        "user_provided": null
+      },
+      "doublet_threshold": {
+        "recommended": 0.5,
+        "user_provided": null
+      }
+    }
+  },
+  "applied_threshold_summary": {
+    "min_genes": 369,
+    "max_genes": null,
+    "min_counts": 885,
+    "max_counts": null,
+    "pc_mt": 10.8,
+    "pc_hb": 20.0,
+    "nmads": 5.0
+  },
+  "user_override_summary": {
+    "overrides_detected": false,
+    "details": {},
+    "note": "User-specified thresholds take precedence over recommendations. Empty details means the user accepted all recommendations or no recommendation was generated."
+  },
+  "sample_threshold_summary": {
+    "mode": "hierarchical",
+    "n_samples_with_thresholds": 0,
+    "per_sample": {},
+    "note": "Per-sample thresholds are only computed in hierarchical/independent mode with >1 sample. Pooled mode uses a single global threshold."
+  },
+  "tumor_aware_summary": {
+    "enabled": true,
+    "tissue_type": "pancreatic_tumor",
+    "notes": [
+      "Tumor-aware QC is active: elevated mitochondrial content is flagged rather than hard-filtered.",
+      "Mitochondrial outlier filtering was disabled for this tumor dataset."
+    ]
+  },
+  "filtering_summary": {
+    "initial_cells": 1500,
+    "final_cells": 1330,
+    "removed_cells": 170,
+    "removed_fraction": 0.11333333333333333,
+    "criteria_used": [
+      "outlier_min_genes"
+    ]
+  },
+  "warnings": [],
+  "benchmark_summary": {
+    "schema_version": "1.0",
+    "profile": "tumor",
+    "profile_label": "Tumor tissue",
+    "criteria": {
+      "min_retention": 0.35,
+      "max_retention": 0.99,
+      "min_marker_fidelity": 0.5
+    },
+    "retention": {
+      "initial_cells": 1500,
+      "final_cells": 1330,
+      "removed_cells": 170,
+      "retention_rate": 0.8866666666666667,
+      "per_sample": {
+        "GSM4293555": {
+          "initial_cells": 1500,
+          "final_cells": 1330,
+          "retention_rate": 0.8866666666666667
+        }
+      },
+      "per_cell_type": {}
+    },
+    "marker_fidelity": {
+      "available": true,
+      "overall_marker_fidelity": 0.9192560862697707,
+      "n_marker_sets_available": 5,
+      "per_marker_set": {
+        "Epithelial_tumor": {
+          "available_markers": [
+            "EPCAM",
+            "KRT18",
+            "KRT19",
+            "KRT8"
+          ],
+          "n_markers": 4,
+          "mean_expression_before": 8.106666666666666,
+          "mean_expression_after": 9.10827067669173,
+          "mean_expression_ratio": 1.1235531262366445,
+          "detection_fraction_before": 0.5466666666666666,
+          "detection_fraction_after": 0.5669172932330827,
+          "detection_fraction_delta": 0.020250626566416075,
+          "fidelity_score": 0.9271564843681458,
+          "status": "ok"
+        },
+        "Proliferation": {
+          "available_markers": [
+            "MKI67",
+            "PCNA",
+            "TOP2A"
+          ],
+          "n_markers": 3,
+          "mean_expression_before": 0.15711111111111115,
+          "mean_expression_after": 0.17694235588972432,
+          "mean_expression_ratio": 1.1262243302740584,
+          "detection_fraction_before": 0.136,
+          "detection_fraction_after": 0.15263157894736842,
+          "detection_fraction_delta": 0.016631578947368414,
+          "fidelity_score": 0.8894785256097165,
+          "status": "ok"
+        },
+        "EMT": {
+          "available_markers": [
+            "SNAI2",
+            "VIM",
+            "ZEB1"
+          ],
+          "n_markers": 3,
+          "mean_expression_before": 2.5846666666666662,
+          "mean_expression_after": 2.890726817042607,
+          "mean_expression_ratio": 1.1184137801299745,
+          "detection_fraction_before": 0.694,
+          "detection_fraction_after": 0.7398496240601504,
+          "detection_fraction_delta": 0.04584962406015047,
+          "fidelity_score": 0.9160759581780834,
+          "status": "ok"
+        },
+        "Immune_microenvironment": {
+          "available_markers": [
+            "CD3D",
+            "LYZ",
+            "PTPRC"
+          ],
+          "n_markers": 3,
+          "mean_expression_before": 1.5428888888888888,
+          "mean_expression_after": 1.6859649122807017,
+          "mean_expression_ratio": 1.0927325515286128,
+          "detection_fraction_before": 0.6026666666666667,
+          "detection_fraction_after": 0.630827067669173,
+          "detection_fraction_delta": 0.028160401002506275,
+          "fidelity_score": 0.9352482825423953,
+          "status": "ok"
+        },
+        "Stromal_microenvironment": {
+          "available_markers": [
+            "COL1A1",
+            "COL1A2",
+            "DCN"
+          ],
+          "n_markers": 3,
+          "mean_expression_before": 4.709777777777777,
+          "mean_expression_after": 5.277192982456141,
+          "mean_expression_ratio": 1.1204760036355872,
+          "detection_fraction_before": 0.282,
+          "detection_fraction_after": 0.2924812030075188,
+          "detection_fraction_delta": 0.010481203007518813,
+          "fidelity_score": 0.9283211806505132,
+          "status": "ok"
+        }
+      }
+    },
+    "checks": [
+      {
+        "name": "minimum_retention",
+        "passed": true,
+        "value": 0.8866666666666667,
+        "threshold": 0.35
+      },
+      {
+        "name": "maximum_retention",
+        "passed": true,
+        "value": 0.8866666666666667,
+        "threshold": 0.99
+      },
+      {
+        "name": "marker_fidelity",
+        "passed": true,
+        "value": 0.9192560862697707,
+        "threshold": 0.5
+      }
+    ],
+    "status": "pass"
+  },
+  "qc_schema_version": "1.0",
+  "decision_table": [
+    {
+      "parameter": "min_genes",
+      "obs_metric": "n_genes_by_counts",
+      "filtering_flag": "outlier_min_genes",
+      "direction": "lower_bound",
+      "recommended": 369,
+      "applied": 369,
+      "user_provided": 200,
+      "source": "recommendation",
+      "recommendation_method": "GMM + Bootstrap",
+      "confidence": 0.5,
+      "ci_lower": 322,
+      "ci_upper": 369,
+      "evidence": {
+        "gmm_bic": 22774.408818759737,
+        "n_components": 2,
+        "strategy": "tumor_aware",
+        "method": "GMM + Bootstrap"
+      },
+      "is_filtering_enabled": true
+    },
+    {
+      "parameter": "max_genes",
+      "obs_metric": "n_genes_by_counts",
+      "filtering_flag": "outlier_max_genes",
+      "direction": "upper_bound",
+      "recommended": null,
+      "applied": null,
+      "user_provided": null,
+      "source": "disabled_or_not_available",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "n_counts",
+      "obs_metric": "total_counts",
+      "filtering_flag": "outlier_min_counts",
+      "direction": "lower_bound",
+      "recommended": 885,
+      "applied": 885,
+      "user_provided": null,
+      "source": "recommendation",
+      "recommendation_method": "log-normal distribution + bootstrap",
+      "confidence": 1.0,
+      "ci_lower": 825,
+      "ci_upper": 950,
+      "evidence": {
+        "n_cells": 1500
+      },
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "max_counts",
+      "obs_metric": "total_counts",
+      "filtering_flag": "outlier_max_counts",
+      "direction": "upper_bound",
+      "recommended": null,
+      "applied": null,
+      "user_provided": null,
+      "source": "disabled_or_not_available",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "max_mt_percent",
+      "obs_metric": "pct_counts_mt",
+      "filtering_flag": "outlier_mt",
+      "direction": "upper_bound",
+      "recommended": 10.8,
+      "applied": 10.8,
+      "user_provided": 20.0,
+      "source": "recommendation",
+      "recommendation_method": "distribution fitting (beta)",
+      "confidence": 0.5,
+      "ci_lower": 9.6,
+      "ci_upper": 12.3,
+      "evidence": {
+        "best_distribution": "beta",
+        "params": [
+          1.1860550838612594,
+          678802.9000685373,
+          0,
+          2929097.4177635415
+        ],
+        "tissue_type": "pancreatic_tumor",
+        "median_mt": 3.261399808724449,
+        "method": "distribution fitting (beta)"
+      },
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "max_hb_percent",
+      "obs_metric": "pct_counts_hb",
+      "filtering_flag": "outlier_hb",
+      "direction": "upper_bound",
+      "recommended": null,
+      "applied": 20.0,
+      "user_provided": 20.0,
+      "source": "default_or_config",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    },
+    {
+      "parameter": "doublet_threshold",
+      "obs_metric": "doublet_score",
+      "filtering_flag": "predicted_doublet",
+      "direction": "upper_bound",
+      "recommended": 0.5,
+      "applied": null,
+      "user_provided": null,
+      "source": "disabled_or_not_available",
+      "recommendation_method": "no_doublet_scores",
+      "confidence": 0.0,
+      "ci_lower": 0.5,
+      "ci_upper": 0.5,
+      "evidence": {
+        "reason": "Doublet scores not calculated"
+      },
+      "is_filtering_enabled": true
+    },
+    {
+      "parameter": "nmads",
+      "obs_metric": "qc_metric_distribution",
+      "filtering_flag": "outlier_qc_metrics",
+      "direction": "mad_outlier",
+      "recommended": null,
+      "applied": 5.0,
+      "user_provided": 5.0,
+      "source": "default_or_config",
+      "recommendation_method": null,
+      "confidence": null,
+      "ci_lower": null,
+      "ci_upper": null,
+      "evidence": {},
+      "is_filtering_enabled": false
+    }
+  ],
+  "execution_trace": {
+    "qc_schema_version": "1.0",
+    "steps_executed": [
+      "qc_metrics",
+      "filtering"
+    ],
+    "sample_key": "sampleID",
+    "threshold_mode": "hierarchical",
+    "n_samples": 1,
+    "tissue_type": "pancreatic_tumor",
+    "use_recommendations": true,
+    "recommendation_available": true,
+    "tumor_aware_enabled": true,
+    "sample_thresholds_computed": false,
+    "warnings_count": 0
+  },
+  "output_health": {
+    "status": "ok",
+    "n_cells": 1330,
+    "n_genes": 19882,
+    "initial_cells": 1500,
+    "final_cells": 1330,
+    "retention_fraction": 0.8866666666666667,
+    "missing_required_obs_metrics": [],
+    "issues": []
+  },
+  "evidence_chain": [
+    {
+      "stage": "recommendation",
+      "available": true,
+      "strategy": "tumor_aware",
+      "confidence": 0.5,
+      "data_quality_score": 100.0,
+      "concerns": [
+        "Missing metrics detected (n_genes, n_counts, pct_counts_mt); attempting automatic QC metric calculation"
+      ]
+    },
+    {
+      "stage": "threshold_application",
+      "n_decisions": 8,
+      "user_overrides": [],
+      "recommendation_driven": [
+        "min_genes",
+        "n_counts",
+        "max_mt_percent"
+      ]
+    },
+    {
+      "stage": "sample_thresholds",
+      "computed": false,
+      "n_samples_with_thresholds": 0
+    },
+    {
+      "stage": "filtering",
+      "initial_cells": 1500,
+      "final_cells": 1330,
+      "removed_cells": 170,
+      "removed_fraction": 0.11333333333333333,
+      "criteria_used": [
+        "outlier_min_genes"
+      ]
+    },
+    {
+      "stage": "output_health",
+      "status": "ok",
+      "issues": []
+    }
+  ],
+  "required_obs_metrics": [
+    "n_genes_by_counts",
+    "total_counts",
+    "pct_counts_mt"
+  ],
+  "schema_version": "1.0",
+  "module": "qc",
+  "workflow_name": "standard",
+  "generated_at": "2026-04-27T16:31:40.592093",
+  "steps_executed": [
+    "qc_metrics",
+    "filtering"
+  ],
+  "data_shape": {
+    "n_cells": 1330,
+    "n_genes": 19882
+  },
+  "config": {
+    "save_dir": "/Users/luye/Scripts/scLucid/notebooks/outputs/01_quality_control/pdac_tumor_aware",
+    "verbose": true,
+    "plot": true,
+    "report": true,
+    "n_jobs": -1,
+    "random_state": 42,
+    "metrics_reporting_config": {
+      "save_dir": null,
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "include_standard_qc": true,
+      "plot_violin": false,
+      "plot_scatter": false,
+      "plot_top_genes": false,
+      "show_plots": false,
+      "export_stats": false,
+      "export_xlsx": false,
+      "print_stats": false
+    },
+    "marking_config": {
+      "save_dir": "/Users/luye/Scripts/scLucid/notebooks/outputs/01_quality_control/pdac_tumor_aware/low_quality",
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "thresholds": {
+        "save_dir": null,
+        "verbose": true,
+        "plot": true,
+        "report": true,
+        "min_genes": 369,
+        "max_genes": null,
+        "min_counts": 885,
+        "max_counts": null,
+        "nmads": 5.0,
+        "pc_mt": 10.8,
+        "pc_hb": 20.0,
+        "pc_top_genes": {},
+        "use_fixed_top_gene_threshold": false
+      },
+      "qc_metrics_mad": [
+        [
+          "log1p_total_counts",
+          "both"
+        ],
+        [
+          "log1p_n_genes_by_counts",
+          "both"
+        ],
+        [
+          "pct_counts_in_top_20_genes",
+          "upper"
+        ]
+      ],
+      "custom_outlier_functions": null,
+      "plot_outliers": false,
+      "cols_to_plot": null,
+      "show_plots": false
+    },
+    "doublet_config": {
+      "save_dir": null,
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "run_algorithm": false,
+      "method": "scrublet",
+      "scr_n_pcs": 30,
+      "scr_plot_umap": false,
+      "solo_n_epochs": 400,
+      "solo_learning_rate": 0.001,
+      "solo_use_gpu": true,
+      "solo_use_raw": true,
+      "solo_clear_cache": true,
+      "dd_n_components": 30,
+      "dd_n_top_var_genes": 10000,
+      "dd_p_thresh": 1e-16,
+      "dd_voter_thresh": 0.8,
+      "dd_use_raw": true,
+      "use_heuristics": false,
+      "marker_species": "human",
+      "marker_tissue": null,
+      "marker_configs": null,
+      "default_expression_threshold": 2.0,
+      "default_min_genes_required": 2,
+      "default_use_raw": true,
+      "min_lineage_prevalence": 0.005,
+      "min_lineages_for_doublet": 2,
+      "ignore_coexpression_pairs": [
+        [
+          "Epithelial",
+          "Mesenchymal"
+        ]
+      ],
+      "merge_strategy": "weighted_average",
+      "algorithm_weight": 0.7,
+      "expected_doublet_rate": null,
+      "score_threshold": null,
+      "random_state": 61,
+      "plot_summary": true,
+      "plot_bar": true,
+      "plot_scatter": true,
+      "plot_upset": true,
+      "export_stats": false,
+      "show_plots": false
+    },
+    "filter_config": {
+      "save_dir": null,
+      "verbose": true,
+      "plot": true,
+      "report": true,
+      "criteria_to_filter": [
+        "outlier_min_genes",
+        "predicted_doublet"
+      ],
+      "combination_logic": "any",
+      "custom_logic_expr": null,
+      "min_criteria_for_removal": 2,
+      "metadata_filters": null
+    },
+    "sample_key": "sampleID",
+    "species": "human",
+    "tissue": "pancreas",
+    "tissue_type": "pancreatic_tumor",
+    "threshold_mode": "hierarchical",
+    "use_recommendations": true,
+    "use_parallel": false
+  },
+  "contract": {
+    "schema_version": "1.0"
+  }
+}
