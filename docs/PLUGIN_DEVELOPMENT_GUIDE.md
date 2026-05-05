@@ -282,7 +282,6 @@ AnalysisStepFactory.register('interactive_plot', InteractivePlotter)
 - `src/scLucid/base_interfaces.py` - 抽象基类定义
 - `examples/plugin_development_example.py` - 完整示例代码
 - `docs/NAMING_CONVENTIONS.md` - 命名规范
-- `openspec/specs/global-config/extensibility-spec.md` - 技术规范
 
 ### 外部资源
 - Python ABC (Abstract Base Classes): https://docs.python.org/3/library/abc.html
