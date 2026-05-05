@@ -24,7 +24,7 @@ from typing import Any, Dict, Optional, Union
 
 from anndata import AnnData
 
-from .contracts import SCLUCID_ROOT, Modules, module_namespace
+from .contracts import SCHEMA_VERSION, SCLUCID_ROOT, Modules, UnsKeys, module_namespace, record_artifact
 
 log = logging.getLogger(__name__)
 
@@ -103,14 +103,34 @@ def save_result(
             f"Key '{key}' already exists in {module} storage. " f"Use overwrite=True to replace."
         )
 
+    canonical_direct_keys = {
+        UnsKeys.WORKFLOW_CONFIG,
+        UnsKeys.STEPS_EXECUTED,
+        UnsKeys.REVIEW_SUMMARY,
+        UnsKeys.CONFIG_LINEAGE,
+        UnsKeys.CONTRACT,
+        UnsKeys.ARTIFACTS,
+        UnsKeys.ERRORS,
+    }
+    if key in canonical_direct_keys:
+        storage[key] = data
+        log.debug(f"Saved canonical result '{key}' to {module} storage")
+        return
+
     # Store result with metadata
     storage[key] = {
+        "schema_version": SCHEMA_VERSION,
+        "module": module,
+        "key": key,
         "data": data,
         "timestamp": datetime.now().isoformat(),
     }
 
     if config is not None:
         storage[f"{key}_config"] = {
+            "schema_version": SCHEMA_VERSION,
+            "module": module,
+            "key": f"{key}_config",
             "data": config,
             "timestamp": datetime.now().isoformat(),
         }
@@ -200,7 +220,11 @@ def list_results(adata: AnnData, module: Optional[str] = None) -> Dict[str, list
             return {module: list(root[module].keys())}
         return {}
 
-    return {mod: list(keys.keys()) for mod, keys in root.items()}
+    return {
+        mod: list(keys.keys())
+        for mod, keys in root.items()
+        if mod != UnsKeys.NAMESPACE_METADATA and isinstance(keys, dict)
+    }
 
 
 def clear_storage(
@@ -291,13 +315,23 @@ def migrate_legacy_storage(adata: AnnData, dry_run: bool = False) -> Dict[str, l
 
 
 def save_workflow_result(
-    adata: AnnData, module: str, workflow_name: str, steps: list, config: Dict[str, Any]
+    adata: AnnData,
+    module: str,
+    workflow_name: str,
+    steps: list,
+    config: Dict[str, Any],
+    *,
+    artifacts: Optional[Dict[str, Union[str, Path]]] = None,
 ) -> None:
     """
     Save workflow completion metadata.
 
     Standardized format used by all workflow modules.
     """
+    storage = get_storage(adata, module, create=True)
+    storage[UnsKeys.WORKFLOW_CONFIG] = config
+    storage[UnsKeys.STEPS_EXECUTED] = list(steps)
+
     save_result(
         adata,
         module,
@@ -309,6 +343,9 @@ def save_workflow_result(
         },
         config=config,
     )
+    if artifacts:
+        for key, path in artifacts.items():
+            record_artifact(adata, module, key, str(path), description=f"{workflow_name} artifact")
 
 
 def load_workflow_result(
@@ -323,6 +360,7 @@ def export_review_summary(
     save_dir: Union[str, Path],
     module: str,
     title: Optional[str] = None,
+    adata: Optional[AnnData] = None,
 ) -> Dict[str, Path]:
     """
     Export a review summary as JSON and Markdown sidecars.
@@ -385,7 +423,18 @@ def export_review_summary(
     md_path.write_text("\n".join(md_lines), encoding="utf-8")
 
     log.info(f"Review summary exported to {json_path} and {md_path}")
-    return {"json": json_path, "md": md_path}
+    artifacts = {"json": json_path, "md": md_path}
+    if adata is not None:
+        for key, path in artifacts.items():
+            record_artifact(
+                adata,
+                module,
+                f"{module}_review_summary_{key}",
+                str(path),
+                kind=key,
+                description=f"{module} review summary {key.upper()} sidecar",
+            )
+    return artifacts
 
 
 __all__ = [

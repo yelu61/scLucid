@@ -49,6 +49,15 @@ _export(
 )
 _export("infercnv", ["find_tumor", "run_cnv_analysis"])
 _export(
+    "spatial",
+    [
+        "run_spatial_analysis",
+        "plot_spatial",
+        "run_spatial_batch",
+        "export_spatial_report",
+    ],
+)
+_export(
     "pySCENIC",
     [
         "analyze_scenic_results",

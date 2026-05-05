@@ -389,6 +389,7 @@ def run_standard_analysis(
             save_dir=config.save_dir,
             module="analysis",
             title="Analysis Review Summary",
+            adata=adata,
         )
 
     log.info("=" * 60)

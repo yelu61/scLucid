@@ -1,8 +1,9 @@
 Notebooks
 =========
 
-Project notebooks are intentionally kept outside the documentation source tree in
-the top-level ``notebooks/`` directory.
+Project notebooks are intentionally kept outside the documentation source tree.
+In the current repository layout they live under
+``examples/03_advanced_notebooks/``.
 
 Why Notebooks Are Separate
 --------------------------
@@ -33,15 +34,28 @@ That guidance should remain in :doc:`quickstart` and :doc:`best_practices`.
 Current Notebook Directory
 --------------------------
 
-See the repository-level ``notebooks/`` directory for:
+See ``examples/03_advanced_notebooks/`` for:
 
-- ``01_quality_control.ipynb``
-- ``02_preprocessing.ipynb``
-- ``03_clustering_annotation.ipynb``
+- ``Step1A-QC_Audit.ipynb`` - benchmark-grade QC audit notebook. It writes
+  ``data/processed/Step1-sce_cleaned.h5ad``.
+- ``Step1B-Preprocessing_Audit.ipynb`` - benchmark-grade preprocessing audit
+  notebook with QC handoff context, layer transition evidence, and
+  preprocessing ``step_evidence_summary``. It writes
+  ``data/processed/Step2-sce_preprocessed.h5ad``.
+- ``Step2-Annotation_and_Malignancy.ipynb`` - clustering, annotation,
+  malignancy review, and CNV-aware interpretation. It writes
+  ``data/processed/Step3-sce_annotated.h5ad``.
+- ``Step3-Standard_Downstream.ipynb`` - composition, proportion,
+  differential expression, and enrichment.
+- ``Step4-Signature_and_Target_Analysis.ipynb`` - project-specific signatures,
+  focused cell-state analysis, and target-oriented exports.
+- ``Step1-QC_and_Preprocessing.ipynb`` and
+  ``Step2-Celltype_annotation.ipynb`` - legacy unsplit project references.
 - ``04_advanced_topics.ipynb``
 - ``04_differential_expression.ipynb``
 - ``05_trajectory_inference.ipynb``
 - ``06_advanced_tools.ipynb``
 
 If these notebooks evolve into a publication-facing tutorial set, keep them in
-``notebooks/`` and add a short README that explains their scope and expected inputs.
+``examples/03_advanced_notebooks/`` and maintain a short README that explains
+their scope and expected inputs.

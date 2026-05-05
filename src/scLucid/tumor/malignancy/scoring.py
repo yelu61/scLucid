@@ -7,13 +7,72 @@ metastatic potential.
 """
 
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 
 log = logging.getLogger(__name__)
+
+# Cancer-type-specific marker gene sets for malignancy scoring.
+# These complement the universal markers and are used when a cancer_type is specified.
+CANCER_MARKER_SETS: Dict[str, Dict[str, List[str]]] = {
+    "pancreatic": {
+        "proliferation": ["MKI67", "PCNA", "TOP2A", "AURKA", "CCNB1", "CCNE1", "AURKB"],
+        "oncogenes": ["KRAS", "MYC", "EGFR", "ERBB2", "MET", "ARNTL"],
+        "tumor_suppressors": ["TP53", "CDKN2A", "SMAD4", "ARID1A", "PTEN", "BRCA2"],
+    },
+    "lung": {
+        "proliferation": ["MKI67", "PCNA", "TOP2A", "AURKA", "CCNB1", "MCM2"],
+        "oncogenes": ["EGFR", "KRAS", "BRAF", "MET", "ALK", "ROS1", "MYC"],
+        "tumor_suppressors": ["TP53", "STK11", "KEAP1", "PTEN", "RB1", "CDKN2A"],
+    },
+    "colorectal": {
+        "proliferation": ["MKI67", "PCNA", "TOP2A", "AURKA", "CCNB1", "TYMS"],
+        "oncogenes": ["KRAS", "NRAS", "BRAF", "PIK3CA", "MYC", "EGFR"],
+        "tumor_suppressors": ["TP53", "APC", "SMAD4", "PTEN", "FBXW7"],
+    },
+    "breast": {
+        "proliferation": ["MKI67", "PCNA", "TOP2A", "AURKA", "CCNB1", "CCNE1"],
+        "oncogenes": ["ERBB2", "MYC", "PIK3CA", "KRAS", "EGFR"],
+        "tumor_suppressors": ["TP53", "BRCA1", "BRCA2", "PTEN", "RB1", "CDH1"],
+    },
+    "liver": {
+        "proliferation": ["MKI67", "PCNA", "TOP2A", "AURKA", "CCNB1", "STMN1"],
+        "oncogenes": ["MYC", "CTNNB1", "TP53", "AXIN1", "ARID1A", "TERT"],
+        "tumor_suppressors": ["TP53", "RB1", "PTEN", "CDKN2A", "AXIN1"],
+    },
+}
+
+
+def _resolve_cancer_type(cancer_type: Optional[str]) -> Optional[str]:
+    """Normalize cancer type string to canonical key."""
+    if cancer_type is None:
+        return None
+    ct = cancer_type.lower().strip()
+    # Common aliases
+    aliases = {
+        "pdac": "pancreatic",
+        "pancreatic cancer": "pancreatic",
+        "pancreas": "pancreatic",
+        "paad": "pancreatic",
+        "luad": "lung",
+        "lusc": "lung",
+        "nsclc": "lung",
+        "lung cancer": "lung",
+        "coad": "colorectal",
+        "read": "colorectal",
+        "crc": "colorectal",
+        "colorectal cancer": "colorectal",
+        "brca": "breast",
+        "breast cancer": "breast",
+        "hcc": "liver",
+        "lihc": "liver",
+        "liver cancer": "liver",
+        "hepatocellular": "liver",
+    }
+    return aliases.get(ct, ct)
 
 
 class MalignancyScorer:
@@ -31,6 +90,9 @@ class MalignancyScorer:
         List of oncogene genes
     tumor_suppressor_genes : list
         List of tumor suppressor genes
+    cancer_type : str, optional
+        Cancer type to load cancer-specific marker sets (e.g. "pancreatic", "lung",
+        "colorectal", "breast", "liver"). Falls back to universal markers if unknown.
     """
 
     def __init__(
@@ -38,22 +100,29 @@ class MalignancyScorer:
         proliferation_genes: Optional[List[str]] = None,
         oncogene_genes: Optional[List[str]] = None,
         tumor_suppressor_genes: Optional[List[str]] = None,
+        cancer_type: Optional[str] = None,
     ):
-        self.proliferation_genes = proliferation_genes or [
-            "MKI67",
-            "PCNA",
-            "TOP2A",
-            "AURKA",
-            "CCNB1",
-        ]
-        self.oncogene_genes = oncogene_genes or ["MYC", "KRAS", "EGFR", "BRAF", "PIK3CA"]
-        self.tumor_suppressor_genes = tumor_suppressor_genes or [
-            "TP53",
-            "PTEN",
-            "RB1",
-            "CDKN2A",
-            "APC",
-        ]
+        canonical = _resolve_cancer_type(cancer_type)
+        cancer_markers = CANCER_MARKER_SETS.get(canonical) if canonical else None
+
+        if cancer_markers is not None:
+            log.info(f"Using cancer-specific marker set for '{canonical}' malignancy scoring.")
+
+        self.proliferation_genes = proliferation_genes or (
+            cancer_markers["proliferation"] if cancer_markers else [
+                "MKI67", "PCNA", "TOP2A", "AURKA", "CCNB1",
+            ]
+        )
+        self.oncogene_genes = oncogene_genes or (
+            cancer_markers["oncogenes"] if cancer_markers else [
+                "MYC", "KRAS", "EGFR", "BRAF", "PIK3CA",
+            ]
+        )
+        self.tumor_suppressor_genes = tumor_suppressor_genes or (
+            cancer_markers["tumor_suppressors"] if cancer_markers else [
+                "TP53", "PTEN", "RB1", "CDKN2A", "APC",
+            ]
+        )
         self.scores_: Optional[pd.Series] = None
 
     def fit(self, adata: AnnData) -> "MalignancyScorer":
@@ -115,6 +184,7 @@ def score_malignancy(
     oncogene_genes: Optional[List[str]] = None,
     key_added: str = "malignancy",
     copy: bool = False,
+    cancer_type: Optional[str] = None,
 ) -> AnnData:
     """
     Calculate malignancy scores for all cells.
@@ -131,6 +201,9 @@ def score_malignancy(
         Key for storing scores
     copy : bool
         Return a copy of adata
+    cancer_type : str, optional
+        Cancer type to load cancer-specific marker sets (e.g. "pancreatic", "lung",
+        "colorectal", "breast", "liver", "pdac").
 
     Returns:
     -------
@@ -143,6 +216,7 @@ def score_malignancy(
     scorer = MalignancyScorer(
         proliferation_genes=proliferation_genes,
         oncogene_genes=oncogene_genes,
+        cancer_type=cancer_type,
     )
     scorer.fit(adata)
 

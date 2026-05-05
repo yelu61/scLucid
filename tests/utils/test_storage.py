@@ -257,6 +257,23 @@ class TestWorkflowResultHelpers:
         assert result["name"] == "standard"
         assert result["steps_executed"] == ["step1", "step2"]
         assert "completed_at" in result
+        assert empty_adata.uns[STORAGE_ROOT]["qc"]["workflow_config"] == {"param": "value"}
+        assert empty_adata.uns[STORAGE_ROOT]["qc"]["steps_executed"] == ["step1", "step2"]
+
+    def test_save_canonical_review_summary_direct(self, empty_adata):
+        """Canonical stable keys should be stored directly, not metadata-wrapped."""
+        summary = {
+            "schema_version": "1.0",
+            "module": "qc",
+            "workflow_name": "standard",
+            "steps_executed": [],
+            "data_shape": {"n_cells": 10, "n_genes": 5},
+        }
+
+        save_result(empty_adata, "qc", "review_summary", summary)
+
+        assert empty_adata.uns[STORAGE_ROOT]["qc"]["review_summary"] == summary
+        assert load_result(empty_adata, "qc", "review_summary") == summary
 
     def test_load_workflow_result_none(self, empty_adata):
         """Test load_workflow_result with no result."""

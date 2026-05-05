@@ -28,6 +28,7 @@ from ..config import (
 from .de_plots import plot_volcano
 from .de_utils import _safe_filename
 from .scanpy_compat import _to_frac, standardize_pct_columns as _standardize_pct_columns
+from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ def find_markers(
 
     # Parameter tracking
     params = active_config.to_dict()
-    params["scanpy_version"] = getattr(sc, "__version__", "unknown")
+    params["scanpy_version"] = version("scanpy")
     root[f"{key_added}_params"] = sanitize_for_hdf5(params)
 
     if active_config.verbose:

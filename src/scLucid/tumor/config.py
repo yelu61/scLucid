@@ -21,8 +21,8 @@ class TumorAnalysisConfig(SclucidBaseConfig):
     run_malignancy: bool = Field(
         default=True, description="Run malignancy scoring and classification."
     )
-    malignancy_method: Literal["cnv", "threshold", "ml"] = Field(
-        default="cnv", description="Method for malignant cell classification."
+    malignancy_method: Literal["cnv", "threshold", "ml", "combined"] = Field(
+        default="combined", description="Method for malignant cell classification."
     )
     malignancy_reference_key: Optional[str] = Field(
         default=None,

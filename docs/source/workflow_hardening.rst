@@ -49,7 +49,8 @@ Execution Order
 
 1. PBMC golden path
    Run QC, preprocessing, clustering, annotation, and figure export on
-   ``data/pbmc3k.h5ad``. The goal is a fast, stable non-tumor baseline.
+   ``data/pbmc3k.h5ad``. The goal is a fast, stable non-tumor baseline. The
+   maintained entrypoint is ``scripts/run_pbmc_golden_path.py``.
 
 2. PDAC tumor golden path
    Run QC, preprocessing, standard analysis, and the first tumor-specific slice
@@ -63,7 +64,7 @@ Execution Order
 
 4. Real-project acceptance pass
    Apply the current golden workflow to the user's active project data. Gaps
-   discovered here should become targeted issues or OpenSpec changes rather than
+   discovered here should become targeted issues rather than
    broad rewrites.
 
 5. Module polishing
@@ -97,3 +98,46 @@ Use the maintained single-cell environment for local gates:
 
 Longer real-data workflow checks should be separate from pre-merge gates so the
 fast test loop remains usable.
+
+PBMC Golden Path
+----------------
+
+The PBMC golden path is the first vertical-slice regression target. It should
+remain small enough for local iteration while still exercising the user-facing
+workflow across QC, preprocessing, analysis, annotation, plotting, contracts,
+and final artifact writing.
+
+Run a quick subset check:
+
+.. code-block:: bash
+
+   /Users/luye/micromamba/envs/scrna-env/bin/python \
+     scripts/run_pbmc_golden_path.py \
+     --n-cells 300 \
+     --n-top-genes 500 \
+     --n-pcs 20 \
+     --n-neighbors 10 \
+     --output-dir results/golden/pbmc3k_subset \
+     --overwrite
+
+Run the integration acceptance test:
+
+.. code-block:: bash
+
+   /Users/luye/micromamba/envs/scrna-env/bin/python \
+     -m pytest -q tests/integration/test_pbmc_golden_path.py \
+     -m "slow and integration"
+
+Expected outputs include:
+
+- ``manifest.json`` with versions, shapes, runtime, contract validation, and
+  artifact paths
+- ``pbmc3k_golden_final.h5ad`` with compact scLucid review summaries retained
+  under ``adata.uns["sclucid"]``
+- QC, preprocessing, and analysis output directories
+- UMAP figures for Leiden clusters, automatic cell-type labels, and sample IDs
+
+The final ``.h5ad`` intentionally stores compact review summaries instead of
+embedding every intermediate evidence object. Full evidence should remain in
+the run manifest and stage output directories so the saved AnnData stays
+portable and does not fail HDF5 serialization.

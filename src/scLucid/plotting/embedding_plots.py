@@ -12,6 +12,8 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 
+from .plotting_utils import _get_palette_map, _subset_adata
+
 # Try importing adjustText softly
 try:
     from adjustText import adjust_text
@@ -110,23 +112,23 @@ def plot_embedding(
         if len(color_by) == 1:
             return plot_embedding(
                 adata_to_plot,
-                color_by[0],
-                basis,
-                title,
-                show_labels,
-                palette,
-                size,
-                alpha,
-                ncols,
-                figsize,
-                legend_loc,
-                label_size,
-                save,
-                dpi,
-                ax,
-                show,
-                legend_style,
-                rasterized,
+                color_by=color_by[0],
+                basis=basis,
+                title=title,
+                show_labels=show_labels,
+                palette=palette,
+                size=size,
+                alpha=alpha,
+                ncols=ncols,
+                figsize=figsize,
+                legend_loc=legend_loc,
+                label_size=label_size,
+                save=save,
+                dpi=dpi,
+                ax=ax,
+                show=show,
+                legend_style=legend_style,
+                rasterized=rasterized,
                 subset=None,
                 **kwargs,
             )

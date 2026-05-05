@@ -139,7 +139,14 @@ Next Steps
 ----------
 
 - :doc:`quickstart` - Get started with a basic workflow
-- :doc:`../notebooks/01_quality_control` - Interactive QC tutorial
-- :doc:`../notebooks/02_preprocessing` - Interactive preprocessing tutorial
-- :doc:`../notebooks/03_clustering_annotation` - Clustering and annotation tutorial
+- ``examples/02_simple_api/qc_preprocess_review.py`` - stage-level QC +
+  preprocessing with review-summary inspection
+- ``examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb`` - advanced QC
+  benchmark notebook writing ``Step1-sce_cleaned.h5ad``
+- ``examples/03_advanced_notebooks/Step1B-Preprocessing_Audit.ipynb`` -
+  advanced preprocessing benchmark notebook writing
+  ``Step2-sce_preprocessed.h5ad``
+- ``examples/03_advanced_notebooks/Step2-Annotation_and_Malignancy.ipynb`` -
+  advanced annotation and malignancy notebook writing
+  ``Step3-sce_annotated.h5ad``
 - :doc:`best_practices` - Recommended practices for scLucid usage

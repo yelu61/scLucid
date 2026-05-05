@@ -17,6 +17,7 @@ from anndata import AnnData
 SCHEMA_VERSION = "1.0"
 SCLUCID_ROOT = "sclucid"
 STAGE_ORDER = ("qc", "preprocess", "analysis")
+API_LAYER_ORDER = ("workflow", "simple_api", "advanced")
 REVIEW_SUMMARY_REQUIRED_KEYS = (
     "schema_version",
     "module",
@@ -29,6 +30,8 @@ REVIEW_SUMMARY_RECOMMENDED_KEYS = (
     "warnings",
     "config",
     "contract",
+    "config_lineage",
+    "artifacts",
 )
 
 
@@ -69,12 +72,16 @@ class ObsmKeys:
 class UnsKeys:
     """Canonical uns keys under adata.uns['sclucid'][module]."""
 
+    NAMESPACE_METADATA = "_metadata"
     WORKFLOW_CONFIG = "workflow_config"
     STEPS_EXECUTED = "steps_executed"
     REVIEW_SUMMARY = "review_summary"
     PIPELINE_CONTEXT = "pipeline_context"
     ANALYSIS_CONTEXT = "analysis_context"
+    CONFIG_LINEAGE = "config_lineage"
     CONTRACT = "contract"
+    ARTIFACTS = "artifacts"
+    ERRORS = "errors"
 
 
 class Modules:
@@ -88,6 +95,97 @@ class Modules:
 
 
 StageName = Literal["qc", "preprocess", "analysis"]
+APILayerName = Literal["workflow", "simple_api", "advanced"]
+
+
+@dataclass(frozen=True)
+class APILayerContract:
+    """Stable public API layer contract."""
+
+    name: APILayerName
+    purpose: str
+    primary_entrypoints: tuple[str, ...]
+    example_artifacts: tuple[str, ...] = ()
+    expected_outputs: tuple[str, ...] = ()
+
+
+API_LAYER_CONTRACTS: dict[APILayerName, APILayerContract] = {
+    "workflow": APILayerContract(
+        name="workflow",
+        purpose="Run the supported baseline workflow with minimal user code.",
+        primary_entrypoints=(
+            "scLucid.run_pipeline",
+            "scLucid.qc.run_standard_qc",
+            "scLucid.preprocess.run_preprocessing",
+            "scLucid.analysis.run_standard_analysis",
+        ),
+        example_artifacts=("examples/01_workflow/basic_pipeline.py",),
+        expected_outputs=(
+            'adata.uns["sclucid"]["qc"]["review_summary"]',
+            'adata.uns["sclucid"]["preprocess"]["review_summary"]',
+            'adata.uns["sclucid"]["analysis"]["review_summary"]',
+        ),
+    ),
+    "simple_api": APILayerContract(
+        name="simple_api",
+        purpose="Expose composable stage-level functions for inspection and overrides.",
+        primary_entrypoints=(
+            "scLucid.qc.calculate_qc_metric",
+            "scLucid.qc.recommend_intelligent_qc",
+            "scLucid.qc.mark_low_quality_cell",
+            "scLucid.qc.filter_cells",
+            "scLucid.preprocess.normalize_data",
+            "scLucid.preprocess.find_hvgs",
+            "scLucid.preprocess.scale_data",
+            "scLucid.preprocess.batch_correction",
+        ),
+        example_artifacts=(
+            "examples/02_simple_api/qc_step_by_step.py",
+            "examples/02_simple_api/preprocess_step_by_step.py",
+            "examples/02_simple_api/qc_preprocess_review.py",
+        ),
+        expected_outputs=(
+            "inspectable intermediate AnnData state",
+            "stage review summaries when workflow entrypoints are used",
+            "reviewable tables and reports for manual decisions",
+        ),
+    ),
+    "advanced": APILayerContract(
+        name="advanced",
+        purpose="Support full audit trails for real exploratory analysis projects.",
+        primary_entrypoints=(
+            "examples/03_advanced_notebooks/Step1-QC_and_Preprocessing.ipynb",
+            "scripts/run_pbmc_golden_path.py",
+        ),
+        example_artifacts=(
+            "examples/03_advanced_notebooks/",
+            "scripts/run_pbmc_golden_path.py",
+        ),
+        expected_outputs=(
+            "final .h5ad",
+            "stage review summaries",
+            "figures and sidecar artifacts",
+            "machine-readable manifest for golden paths",
+        ),
+    ),
+}
+
+MINIMAL_WORKFLOW_CONTRACT: dict[str, Any] = {
+    "schema_version": SCHEMA_VERSION,
+    "storage_root": SCLUCID_ROOT,
+    "stage_order": STAGE_ORDER,
+    "stages": STAGE_ORDER,
+    "required_stage_namespace_keys": (
+        UnsKeys.WORKFLOW_CONFIG,
+        UnsKeys.STEPS_EXECUTED,
+        UnsKeys.REVIEW_SUMMARY,
+    ),
+    "pipeline_records": (
+        UnsKeys.PIPELINE_CONTEXT,
+        UnsKeys.ANALYSIS_CONTEXT,
+    ),
+    "contract_validation": "run_pipeline records input and output validation under each stage namespace",
+}
 
 
 @dataclass(frozen=True)
@@ -264,6 +362,15 @@ def stage_contract_to_dict(contract: StageContract) -> Dict[str, Any]:
     return data
 
 
+def api_layer_contract_to_dict(contract: APILayerContract) -> Dict[str, Any]:
+    """Return a JSON-serializable representation of one API layer contract."""
+    data = asdict(contract)
+    for key, value in list(data.items()):
+        if isinstance(value, tuple):
+            data[key] = list(value)
+    return data
+
+
 def get_stage_contract(stage: StageName) -> Dict[str, Any]:
     """Return the canonical contract for one workflow stage."""
     if stage not in STAGE_CONTRACTS:
@@ -272,12 +379,40 @@ def get_stage_contract(stage: StageName) -> Dict[str, Any]:
     return stage_contract_to_dict(STAGE_CONTRACTS[stage])
 
 
+def get_api_layer_spec(layer: Optional[APILayerName] = None) -> Dict[str, Any]:
+    """Return the frozen public API layer specification."""
+    if layer is not None:
+        if layer not in API_LAYER_CONTRACTS:
+            valid = ", ".join(API_LAYER_ORDER)
+            raise ValueError(f"Unknown API layer {layer!r}. Valid layers are: {valid}.")
+        return api_layer_contract_to_dict(API_LAYER_CONTRACTS[layer])
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "layer_order": list(API_LAYER_ORDER),
+        "layers": {
+            name: api_layer_contract_to_dict(contract)
+            for name, contract in API_LAYER_CONTRACTS.items()
+        },
+    }
+
+
+def get_minimal_workflow_contract() -> Dict[str, Any]:
+    """Return the frozen minimal workflow contract."""
+    return {
+        key: list(value) if isinstance(value, tuple) else value
+        for key, value in MINIMAL_WORKFLOW_CONTRACT.items()
+    }
+
+
 def get_contract_spec() -> Dict[str, Any]:
     """Return the public scLucid data-contract specification."""
     return {
         "schema_version": SCHEMA_VERSION,
         "storage_root": SCLUCID_ROOT,
         "stage_order": list(STAGE_ORDER),
+        "api_layers": get_api_layer_spec(),
+        "minimal_workflow": get_minimal_workflow_contract(),
         "canonical_keys": {
             "layers": {
                 "counts": LayerKeys.COUNTS,
@@ -302,12 +437,16 @@ def get_contract_spec() -> Dict[str, Any]:
                 "spatial": ObsmKeys.SPATIAL,
             },
             "uns": {
+                "namespace_metadata": UnsKeys.NAMESPACE_METADATA,
                 "workflow_config": UnsKeys.WORKFLOW_CONFIG,
                 "steps_executed": UnsKeys.STEPS_EXECUTED,
                 "review_summary": UnsKeys.REVIEW_SUMMARY,
                 "pipeline_context": UnsKeys.PIPELINE_CONTEXT,
                 "analysis_context": UnsKeys.ANALYSIS_CONTEXT,
+                "config_lineage": UnsKeys.CONFIG_LINEAGE,
                 "contract": UnsKeys.CONTRACT,
+                "artifacts": UnsKeys.ARTIFACTS,
+                "errors": UnsKeys.ERRORS,
             },
             "modules": {
                 "qc": Modules.QC,
@@ -361,7 +500,24 @@ def format_contract_error(result: ContractValidationResult) -> str:
 
 def ensure_sclucid_namespace(adata: AnnData) -> Dict[str, Any]:
     """Ensure and return ``adata.uns['sclucid']``."""
-    return adata.uns.setdefault(SCLUCID_ROOT, {})
+    existing = adata.uns.get(SCLUCID_ROOT)
+    if existing is None:
+        root: Dict[str, Any] = {}
+        adata.uns[SCLUCID_ROOT] = root
+    elif not isinstance(existing, dict):
+        raise TypeError(
+            f"adata.uns[{SCLUCID_ROOT!r}] must be a dictionary, "
+            f"got {type(existing).__name__}."
+        )
+    else:
+        root = existing
+
+    now = datetime.now().isoformat()
+    metadata = root.setdefault(UnsKeys.NAMESPACE_METADATA, {})
+    metadata.setdefault("schema_version", SCHEMA_VERSION)
+    metadata.setdefault("created_at", now)
+    metadata["updated_at"] = now
+    return root
 
 
 def module_namespace(adata: AnnData, module: str, *, create: bool = True) -> Dict[str, Any]:
@@ -371,7 +527,20 @@ def module_namespace(adata: AnnData, module: str, *, create: bool = True) -> Dic
         if not create:
             return {}
         root[module] = {}
-    return root[module]
+    namespace = root[module]
+    if not isinstance(namespace, dict):
+        raise TypeError(
+            f"adata.uns[{SCLUCID_ROOT!r}][{module!r}] must be a dictionary, "
+            f"got {type(namespace).__name__}."
+        )
+    if create:
+        now = datetime.now().isoformat()
+        metadata = namespace.setdefault(UnsKeys.NAMESPACE_METADATA, {})
+        metadata.setdefault("schema_version", SCHEMA_VERSION)
+        metadata.setdefault("module", module)
+        metadata.setdefault("created_at", now)
+        metadata["updated_at"] = now
+    return namespace
 
 
 def build_config_lineage(
@@ -379,12 +548,15 @@ def build_config_lineage(
     global_config: Optional[Dict[str, Any]] = None,
     inherited: Optional[Dict[str, Any]] = None,
     stage_config: Optional[Dict[str, Any]] = None,
+    effective_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a standard record explaining configuration inheritance."""
     return {
+        "schema_version": SCHEMA_VERSION,
         "global": global_config or {},
         "inherited": inherited or {},
         "stage": stage_config or {},
+        "effective": effective_config or {},
         "precedence": ["explicit stage config", "inherited pipeline context", "global defaults"],
     }
 
@@ -398,6 +570,8 @@ def normalize_review_summary(
     steps_executed: Optional[list[str]] = None,
     config: Optional[Dict[str, Any]] = None,
     warnings: Optional[list[str]] = None,
+    config_lineage: Optional[Dict[str, Any]] = None,
+    artifacts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Add the standard review summary envelope while preserving existing fields."""
     normalized = dict(summary or {})
@@ -418,6 +592,8 @@ def normalize_review_summary(
     normalized.setdefault("warnings", warnings or normalized.get("warnings", []))
     if config is not None:
         normalized.setdefault("config", config)
+    normalized.setdefault("config_lineage", config_lineage or {})
+    normalized.setdefault("artifacts", artifacts or {})
     normalized.setdefault(
         "contract",
         {
@@ -425,6 +601,12 @@ def normalize_review_summary(
             "required_keys": list(REVIEW_SUMMARY_REQUIRED_KEYS),
         },
     )
+    # Backward-compatible read view for older tests/notebooks that accessed
+    # ``adata.uns["sclucid"][module]["review_summary"]["data"]``. The canonical
+    # contract remains the flat envelope above; ``data`` is a shallow mirror so
+    # nested artifacts/contract updates stay shared without creating recursion.
+    if "data" not in normalized or not isinstance(normalized.get("data"), dict):
+        normalized["data"] = {key: value for key, value in normalized.items() if key != "data"}
     return normalized
 
 
@@ -471,6 +653,16 @@ def validate_review_summary_schema(
             for key in ("n_cells", "n_genes"):
                 if key in data_shape and not isinstance(data_shape[key], int):
                     errors.append(f"Review summary data_shape[{key!r}] must be an integer.")
+    if "warnings" in summary and not isinstance(summary["warnings"], list):
+        errors.append("Review summary 'warnings' must be a list.")
+    if "config" in summary and not isinstance(summary["config"], dict):
+        errors.append("Review summary 'config' must be a dictionary.")
+    if "contract" in summary and not isinstance(summary["contract"], dict):
+        errors.append("Review summary 'contract' must be a dictionary.")
+    if "config_lineage" in summary and not isinstance(summary["config_lineage"], dict):
+        errors.append("Review summary 'config_lineage' must be a dictionary.")
+    if "artifacts" in summary and not isinstance(summary["artifacts"], dict):
+        errors.append("Review summary 'artifacts' must be a dictionary.")
 
     result = ContractValidationResult(
         valid=len(errors) == 0,
@@ -494,12 +686,84 @@ def record_contract_result(
     namespace = module_namespace(adata, module, create=True)
     contract_ns = namespace.setdefault(UnsKeys.CONTRACT, {})
     contract_ns[f"{result.when}_validation"] = result.to_dict()
+    summary = namespace.get(UnsKeys.REVIEW_SUMMARY)
+    if isinstance(summary, dict):
+        summary.setdefault(UnsKeys.CONTRACT, {})
+        summary[UnsKeys.CONTRACT][f"{result.when}_validation"] = result.to_dict()
+
+
+def record_config_lineage(
+    adata: AnnData,
+    module: str,
+    lineage: Dict[str, Any],
+) -> None:
+    """Store config lineage in the module namespace and review summary."""
+    namespace = module_namespace(adata, module, create=True)
+    namespace[UnsKeys.CONFIG_LINEAGE] = lineage
+    summary = namespace.get(UnsKeys.REVIEW_SUMMARY)
+    if isinstance(summary, dict):
+        summary[UnsKeys.CONFIG_LINEAGE] = lineage
+        if isinstance(summary.get("data"), dict):
+            summary["data"][UnsKeys.CONFIG_LINEAGE] = lineage
+
+
+def record_artifact(
+    adata: AnnData,
+    module: str,
+    key: str,
+    path: str,
+    *,
+    kind: str = "file",
+    description: Optional[str] = None,
+) -> None:
+    """Record a saved artifact path under the module namespace."""
+    namespace = module_namespace(adata, module, create=True)
+    artifacts = namespace.setdefault(UnsKeys.ARTIFACTS, {})
+    artifact = {
+        "path": str(path),
+        "kind": kind,
+        "description": description,
+        "recorded_at": datetime.now().isoformat(),
+    }
+    artifacts[key] = artifact
+    summary = namespace.get(UnsKeys.REVIEW_SUMMARY)
+    if isinstance(summary, dict):
+        summary.setdefault(UnsKeys.ARTIFACTS, {})
+        summary[UnsKeys.ARTIFACTS][key] = artifact
+
+
+def record_error(
+    adata: AnnData,
+    module: str,
+    error: BaseException,
+    *,
+    step_name: str = "unknown",
+    context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Record a structured workflow error under the module namespace."""
+    namespace = module_namespace(adata, module, create=True)
+    errors = namespace.setdefault(UnsKeys.ERRORS, [])
+    record = {
+        "schema_version": SCHEMA_VERSION,
+        "module": module,
+        "step_name": step_name,
+        "error_type": type(error).__name__,
+        "message": str(error),
+        "context": context or {},
+        "recorded_at": datetime.now().isoformat(),
+    }
+    errors.append(record)
+    return record
 
 
 __all__ = [
+    "API_LAYER_CONTRACTS",
+    "API_LAYER_ORDER",
+    "APILayerContract",
     "ContractError",
     "ContractValidationResult",
     "LayerKeys",
+    "MINIMAL_WORKFLOW_CONTRACT",
     "Modules",
     "ObsmKeys",
     "ObsKeys",
@@ -512,14 +776,20 @@ __all__ = [
     "StageContract",
     "UnsKeys",
     "VarKeys",
+    "api_layer_contract_to_dict",
     "build_config_lineage",
     "ensure_sclucid_namespace",
     "format_contract_error",
     "get_contract_spec",
+    "get_api_layer_spec",
+    "get_minimal_workflow_contract",
     "get_stage_contract",
     "module_namespace",
     "normalize_review_summary",
+    "record_artifact",
     "record_contract_result",
+    "record_config_lineage",
+    "record_error",
     "stage_contract_to_dict",
     "validate_all_stage_contracts",
     "validate_review_summary_schema",

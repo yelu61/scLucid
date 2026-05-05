@@ -97,9 +97,16 @@ _export(
     "trace",
     [
         "QC_TRACE_SCHEMA_VERSION",
+        "QC_MODULE_MATURITY_SCHEMA_VERSION",
         "QC_REQUIRED_REVIEW_SECTIONS",
+        "QC_REQUIRED_OBS_METRICS",
+        "QC_STABLE_ENTRYPOINTS",
         "build_qc_decision_table",
+        "build_qc_module_maturity_assessment",
         "enrich_qc_review_summary",
+        "get_qc_module_contract",
+        "summarize_qc_review_summary",
+        "validate_qc_module_completeness",
         "validate_qc_review_summary",
     ],
 )

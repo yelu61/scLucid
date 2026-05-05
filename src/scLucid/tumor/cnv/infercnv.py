@@ -343,4 +343,6 @@ def _gini_coefficient(x: np.ndarray) -> float:
     sorted_x = np.sort(x)
     n = len(x)
     cumsum = np.cumsum(sorted_x)
+    if cumsum[-1] == 0:
+        return 0.0
     return (n + 1 - 2 * np.sum(cumsum) / cumsum[-1]) / n

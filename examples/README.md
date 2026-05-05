@@ -1,35 +1,59 @@
 # scLucid Examples
 
-This directory contains short runnable scripts.
+This directory contains runnable scripts organized by **analysis layer**.
 
-Use these files when you want a template to adapt quickly.
-Use `docs/` when you want the official recommended path and API guidance.
-Use `notebooks/` when you want a full analysis walkthrough with richer outputs.
+scLucid is designed around three user-facing layers. Choose the one that matches your needs:
 
-## Current Scripts
+## 01_workflow/ — One-Line Analysis
 
-`quickstart.py`
-- Minimal end-to-end path: QC → preprocessing → clustering → annotation.
-- Best first script to copy for a new project.
+For **beginners and standard projects**. Load data, configure, run.
 
-`preprocessing.py`
-- Shows three preprocessing modes:
-  - standard default path
-  - intelligent preprocessing with review summary
-  - manual step-by-step path
+| Script | What it shows |
+|--------|---------------|
+| `basic_pipeline.py` | Minimal end-to-end: QC → preprocess → cluster → annotate in one call |
+| `prepare_data.py` | Loading 10x data and attaching metadata |
+| `plugin_development.py` | How to extend scLucid with custom plugins |
 
-`intelligent_qc_example.py`
-- Focused demonstration of intelligent QC recommendations.
-- Useful when reviewing threshold recommendation behavior.
+**When to use**: You have a standard dataset and want results fast.
+**API**: `scl.run_pipeline()`, `scl.run_standard_qc()`, `scl.run_preprocessing()`
 
-`intelligent_preprocessing_example.py`
-- Focused demonstration of intelligent preprocessing recommendations and summaries.
+## 02_simple_api/ — Composable Steps
 
-`annotation_report.py`
-- Shows how to export reviewer-facing annotation reports and sidecars.
+For **analysts who need control**. Inspect, tweak, or replace individual stages.
 
-`curated_annotation_workflow.py`
-- Shows how to replace long notebook-specific annotation code with reusable APIs.
+| Script | What it shows |
+|--------|---------------|
+| `preprocess_step_by_step.py` | Manual normalization → HVG → scaling → PCA → integration |
+| `qc_preprocess_review.py` | Stage-level QC + preprocessing with review-summary inspection |
+| `intelligent_qc.py` | Data-driven threshold recommendations with confidence intervals |
+| `intelligent_preprocess.py` | Smart parameter selection with review summaries |
+| `annotation_workflow.py` | Customizable cell-type annotation pipeline |
+| `annotation_report.py` | Export reviewer-facing reports |
+| `qc_evaluation.py` | Evaluate QC decisions with benchmarks |
+
+**When to use**: You want to understand what each step does and adjust parameters.
+**API**: `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, `scl.pl.plot_embedding()`, etc.
+
+## 03_advanced_notebooks/ — Full Transparency
+
+For **real exploratory projects** where every decision must be auditable.
+
+Use the split advanced sequence when presenting a real project-style analysis:
+
+| Notebook | What it shows |
+|----------|---------------|
+| `Step1A-QC_Audit.ipynb` | QC benchmark path, threshold evidence, module maturity, and `Step1-sce_cleaned.h5ad` |
+| `Step1B-Preprocessing_Audit.ipynb` | QC handoff, layer audit, preprocessing parameter/layer evidence, and `Step2-sce_preprocessed.h5ad` |
+| `Step2-Annotation_and_Malignancy.ipynb` | Clustering, annotation, malignancy review, CNV-aware interpretation, and `Step3-sce_annotated.h5ad` |
+| `Step3-Standard_Downstream.ipynb` | Composition, proportion, differential expression, and enrichment |
+| `Step4-Signature_and_Target_Analysis.ipynb` | Project-specific signatures, focused cell states, and target-oriented exports |
+
+The legacy unsplit `Step1-QC_and_Preprocessing.ipynb` and
+`Step2-Celltype_annotation.ipynb` are retained as project references, but the
+split sequence is the recommended product-facing demonstration.
+
+**When to use**: You are doing research where every threshold, diagnostic, and override must remain visible and reviewable.
+**Format**: Jupyter notebooks with step-by-step parameter blocks, decision-support tools, and audit trails.
 
 ## Scope Rules
 

@@ -138,7 +138,7 @@ def analyze_celltype_proportion(
     --------
     recommend_method : 根据数据特征推荐分析方法
     ProportionConfig : 分析配置类
-    scLucid.tools.sccoda.run_sccoda : scCODA 详细接口
+    scLucid.analysis.proportion.run_sccoda : scCODA 详细接口
 
     Notes:
     -----

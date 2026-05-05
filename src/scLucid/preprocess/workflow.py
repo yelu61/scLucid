@@ -447,6 +447,7 @@ def run_preprocessing(
             save_dir=results_path,
             module="preprocess",
             title="Preprocessing Review Summary",
+            adata=adata,
         )
 
     log.info("=" * 60)

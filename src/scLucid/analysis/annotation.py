@@ -19,6 +19,7 @@ from anndata import AnnData
 from ..utils import Manager, get_marker_manager, sanitize_for_hdf5, use_layer_as_X
 from .config import AnnotationConfig
 from .scoring import FunctionalSignatureManager, score_by_gene_sets
+from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -573,7 +574,7 @@ def annotate_clusters(
             "score_weight": score_weight,
             "enrichment_weight": enrichment_weight,
             "mapping": mapping,
-            "scanpy_version": getattr(sc, "__version__", "unknown"),
+            "scanpy_version": version("scanpy"),
             "n_markers": {k: len(v.markers) for k, v in getattr(mgr, "CELLS", {}).items()},
         }
     )
@@ -1911,7 +1912,7 @@ def evaluate_annotation(
         {
             "cluster_key": cluster_key,
             "annotation_key": annotation_key,
-            "scanpy_version": getattr(sc, "__version__", "unknown"),
+            "scanpy_version": version("scanpy"),
             "n_types_in_manager": len(getattr(mgr, "CELLS", {})),
         }
     )

@@ -22,9 +22,13 @@ class MalignancyClassifier:
     Parameters
     ----------
     method : str
-        Classification method ("threshold", "cnv", "ml")
+        Classification method ("threshold", "cnv", "ml", "combined")
     cnv_threshold : float
-        Threshold for CNV-based classification
+        Threshold for CNV-based classification.
+        When method="combined", this is a percentile (0-1) used to select
+        high-CNV cells before intersecting with malignancy score.
+    malignancy_threshold : float
+        Threshold for malignancy score (used by "combined" method).
 
     Attributes:
     ----------
@@ -36,9 +40,11 @@ class MalignancyClassifier:
         self,
         method: str = "cnv",
         cnv_threshold: float = 0.1,
+        malignancy_threshold: float = 0.30,
     ):
         self.method = method
         self.cnv_threshold = cnv_threshold
+        self.malignancy_threshold = malignancy_threshold
         self.is_malignant_: Optional[pd.Series] = None
 
     def fit(
@@ -67,6 +73,8 @@ class MalignancyClassifier:
             self.is_malignant_ = self._classify_by_threshold(adata, reference_adata)
         elif self.method == "ml":
             self.is_malignant_ = self._classify_by_ml(adata, reference_adata)
+        elif self.method == "combined":
+            self.is_malignant_ = self._classify_by_combined(adata)
         else:
             raise ValueError(f"Unknown method: {self.method}")
 
@@ -83,6 +91,72 @@ class MalignancyClassifier:
             cnv_score = self._estimate_cnv_from_expression(adata)
 
         is_malignant = cnv_score > self.cnv_threshold
+
+        return pd.Series(is_malignant, index=adata.obs_names, name="is_malignant")
+
+    def _classify_by_combined(self, adata: AnnData) -> pd.Series:
+        """Classify using combined CNV + malignancy score evidence.
+
+        Requires both ``cnv_score`` (from CNV inference) and ``malignancy``
+        (from :func:`score_malignancy`) to be present in ``adata.obs``.
+
+        Strategy
+        --------
+        1. Normalise CNV score and malignancy score independently to [0, 1].
+        2. Compute a weighted combined score:
+           ``combined = 0.6 * cnv_norm + 0.4 * mal_norm``
+        3. Use a percentile-based threshold (default top 35 %) to call
+           malignant cells.
+
+        The malignancy score acts as a *re-weighting* factor: cells with
+        low marker expression (e.g. quiescent CAFs) have their combined
+        score pulled down even if CNV is moderately elevated, whereas
+        cells with high proliferation/oncogene expression (true tumour
+        cells) are boosted.
+        """
+        if "cnv_score" not in adata.obs.columns:
+            log.warning(
+                "cnv_score not found in adata.obs; falling back to pure CNV classification."
+            )
+            return self._classify_by_cnv(adata)
+
+        if "malignancy" not in adata.obs.columns:
+            log.warning(
+                "malignancy score not found in adata.obs; falling back to pure CNV classification."
+            )
+            return self._classify_by_cnv(adata)
+
+        cnv_score = adata.obs["cnv_score"]
+        malignancy = adata.obs["malignancy"]
+
+        # Normalise each score to [0, 1] within this dataset
+        def _norm(s: pd.Series) -> pd.Series:
+            return (s - s.min()) / (s.max() - s.min() + 1e-10)
+
+        cnv_norm = _norm(cnv_score)
+        mal_norm = _norm(malignancy)
+
+        # Weighted combined score
+        combined = 0.6 * cnv_norm + 0.4 * mal_norm
+
+        # Percentile-based threshold (default top 35 %)
+        if self.cnv_threshold <= 1.0:
+            # cnv_threshold is being used as the percentile cut-off
+            pct = 1.0 - self.cnv_threshold
+        else:
+            pct = 0.65  # default: top 35 %
+        thr = combined.quantile(pct)
+
+        log.info(
+            f"Combined classifier: CNV_norm mean={cnv_norm.mean():.3f}, "
+            f"mal_norm mean={mal_norm.mean():.3f}, "
+            f"combined_thr={thr:.3f} ({pct*100:.0f}th percentile)"
+        )
+
+        is_malignant = combined > thr
+
+        n_mal = is_malignant.sum()
+        log.info(f"Combined: {n_mal} cells classified as malignant ({n_mal/len(adata)*100:.1f}%)")
 
         return pd.Series(is_malignant, index=adata.obs_names, name="is_malignant")
 

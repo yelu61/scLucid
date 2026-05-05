@@ -16,6 +16,7 @@ from scipy.stats import mannwhitneyu, ttest_ind, zscore
 
 from ..utils import sanitize_for_hdf5
 from ..utils.manager import _get_marker_path, _load_marker_file
+from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -405,7 +406,7 @@ def score_by_gene_sets(
                 "score_name_suffix": score_name_suffix,
                 "preserve_missing": preserve_missing,
                 "min_genes_required": min_genes_required,
-                "scanpy_version": getattr(sc, "__version__", "unknown"),
+                "scanpy_version": version("scanpy"),
             },
         }
     )

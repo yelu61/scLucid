@@ -73,8 +73,16 @@ from .normalize import normalize_data, plot_normalization_effect
 from .scale import plot_scaling_effect, regress_out, scale_data
 from .trace import (
     PREPROCESS_REQUIRED_REVIEW_SECTIONS,
+    PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION,
+    PREPROCESS_STABLE_ENTRYPOINTS,
     PREPROCESS_TRACE_SCHEMA_VERSION,
+    build_preprocess_module_maturity_assessment,
+    build_qc_input_context,
+    build_step_evidence_summary,
     enrich_preprocessing_review_summary,
+    get_preprocess_module_contract,
+    summarize_preprocess_review_summary,
+    validate_preprocess_module_completeness,
     validate_preprocessing_review_summary,
 )
 
@@ -103,8 +111,16 @@ __all__ = [
     "WorkflowError",
     "PartialWorkflowResult",
     "PREPROCESS_REQUIRED_REVIEW_SECTIONS",
+    "PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION",
+    "PREPROCESS_STABLE_ENTRYPOINTS",
     "PREPROCESS_TRACE_SCHEMA_VERSION",
+    "build_preprocess_module_maturity_assessment",
+    "build_qc_input_context",
+    "build_step_evidence_summary",
     "enrich_preprocessing_review_summary",
+    "get_preprocess_module_contract",
+    "summarize_preprocess_review_summary",
+    "validate_preprocess_module_completeness",
     "validate_preprocessing_review_summary",
     # Core Functions
     "apply_gene_biotype_strategy",

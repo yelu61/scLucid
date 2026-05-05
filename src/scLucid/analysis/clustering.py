@@ -24,6 +24,7 @@ from sklearn import metrics
 from ..base_config import apply_config_overrides
 from ..utils import sanitize_for_hdf5
 from .config import ClusteringConfig, MergeClustersConfig, ResolutionSearchConfig
+from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -515,7 +516,7 @@ def cluster_cells(
     trace = {
         "config": active_config.to_dict(),
         "n_clusters": n_clusters,
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
+        "scanpy_version": version("scanpy"),
     }
     try:
         import sklearn
@@ -686,7 +687,7 @@ def merge_clusters(
             "merged_clusters": n_merged,
             "mapping": mapping,
             "config": active_config.to_dict(),
-            "scanpy_version": getattr(sc, "__version__", "unknown"),
+            "scanpy_version": version("scanpy"),
         }
     )
     return adata

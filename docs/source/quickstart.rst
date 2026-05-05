@@ -63,10 +63,11 @@ Use `run_intelligent_preprocessing()` when:
 Related Repository Entry Points
 -------------------------------
 
-- ``examples/quickstart.py``: shortest runnable script
-- ``examples/preprocessing.py``: standard path + intelligent path + manual path
-- ``examples/annotation_report.py``: reviewer-facing annotation export
-- ``notebooks/``: full notebook analyses with richer outputs
+- ``examples/01_workflow/basic_pipeline.py``: shortest maintained workflow-layer script
+- ``examples/02_simple_api/qc_step_by_step.py``: composable QC inspection path
+- ``examples/02_simple_api/preprocess_step_by_step.py``: composable preprocessing path
+- ``examples/03_advanced_notebooks/``: full notebook analyses with richer outputs
+- ``scripts/run_pbmc_golden_path.py``: real-data acceptance script with manifest output
 
 When To Use Stage-Specific Functions
 ------------------------------------
@@ -76,3 +77,6 @@ Use ``run_standard_qc()``, ``run_preprocessing()``, ``cluster_cells()``, and
 testing a single module, or overriding a specific parameter family. The unified
 pipeline is the recommended first screen; stage-specific functions are the
 expert path.
+
+See :doc:`usage_layers` for the full product-layer model and :doc:`qc_preprocess_maturity`
+for the QC/preprocessing hardening standard.

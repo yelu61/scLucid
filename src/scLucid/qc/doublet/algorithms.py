@@ -36,6 +36,22 @@ def _run_scrublet(
         log.warning(f"No doublet rate provided for sample '{sample_name}', using default of 0.1.")
         current_rate = 0.1
 
+    # Data-quality guard: skip samples with too few features or too-low counts
+    if adata_view.n_vars < 100:
+        log.warning(
+            f"Skipping Scrublet for sample '{sample_name}': only {adata_view.n_vars} genes "
+            f"(minimum 100 required for reliable doublet detection)."
+        )
+        return None, None
+    _cell_sums = np.array(adata_view.X.sum(axis=1)).ravel()
+    median_counts = float(np.median(_cell_sums))
+    if median_counts < 200:
+        log.warning(
+            f"Skipping Scrublet for sample '{sample_name}': median UMI count {median_counts:.0f} "
+            f"is too low (minimum 200 required)."
+        )
+        return None, None
+
     actual_n_pcs = min(config.scr_n_pcs, adata_view.n_obs - 1, adata_view.n_vars - 1)
 
     try:
@@ -46,7 +62,11 @@ def _run_scrublet(
         predicted = scrub.call_doublets(verbose=False)
 
         if predicted is None:
-            log.error(f"Scrublet call_doublets returned None for sample {sample_name}")
+            log.warning(
+                f"Scrublet call_doublets returned None for sample '{sample_name}' "
+                f"(simulated doublets may be too similar to real cells). "
+                f"Falling back to heuristic-only for this sample."
+            )
             return scores, np.zeros(scores.shape, dtype=bool) if scores is not None else None
 
         doublet_count = sum(predicted)
