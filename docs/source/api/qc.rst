@@ -73,6 +73,8 @@ QC Review Contract
   availability, applied thresholds, threshold sources, and config snapshots.
 * ``evidence_bundle``: shared scLucid evidence schema view of QC decisions, evidence,
   action items, context, and reproducibility metadata for cross-stage reporting.
+* ``module_maturity``: benchmark-module completeness assessment for the QC result,
+  including whether the review bundle satisfies the frozen QC module contract.
 * ``benchmark_summary``: profile-aware retention, stratified-retention, marker-fidelity,
   risk-level, reason, and action-item checks for PBMC, tissue, tumor, and cell-line style
   datasets when pre/post-filtering data are available.
@@ -84,6 +86,47 @@ results are additionally exported as ``qc_benchmark.json`` and ``qc_benchmark.md
 .. autofunction:: scLucid.qc.build_qc_decision_table
 
 .. autofunction:: scLucid.qc.validate_qc_review_summary
+
+QC Module Maturity
+~~~~~~~~~~~~~~~~~~
+
+QC is the first scLucid benchmark module. A benchmark-grade QC result should be
+auditable from the AnnData object alone: metrics, decisions, recommendations,
+overrides, output health, downstream guidance, action items, and reproducibility
+metadata should all be present under ``adata.uns["sclucid"]["qc"]``.
+
+Inspect the frozen QC module contract:
+
+.. code-block:: python
+
+   import scLucid as scl
+
+   contract = scl.qc.get_qc_module_contract()
+   print(contract["stable_entrypoints"])
+
+Validate a QC result:
+
+.. code-block:: python
+
+   validation = scl.qc.validate_qc_module_completeness(adata)
+   print(validation["valid"])
+   print(validation["summary"])
+
+Create a compact display summary:
+
+.. code-block:: python
+
+   review = adata.uns["sclucid"]["qc"]["review_summary"]
+   compact = scl.qc.summarize_qc_review_summary(review)
+   print(compact)
+
+.. autofunction:: scLucid.qc.get_qc_module_contract
+
+.. autofunction:: scLucid.qc.validate_qc_module_completeness
+
+.. autofunction:: scLucid.qc.summarize_qc_review_summary
+
+.. autofunction:: scLucid.qc.build_qc_module_maturity_assessment
 
 QC Benchmarking
 ~~~~~~~~~~~~~~~

@@ -134,16 +134,43 @@ class WorkflowError(Exception):
         message: str,
         step_name: str = "unknown",
         original_error: Optional[Exception] = None,
+        module: str = "unknown",
+        hint: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(message)
         self.step_name = step_name
         self.original_error = original_error
+        self.module = module
+        self.hint = hint
+        self.context = context or {}
 
     def __str__(self) -> str:
         message = str(self.args[0]) if self.args else "Unknown error"
+        prefix = f"[{self.module}:{self.step_name}] " if self.module != "unknown" else ""
         if self.original_error:
-            return f"{message} (step: {self.step_name}, caused by: {type(self.original_error).__name__})"
-        return f"{message} (step: {self.step_name})"
+            message = (
+                f"{prefix}{message} "
+                f"(step: {self.step_name}, caused by: {type(self.original_error).__name__})"
+            )
+        else:
+            message = f"{prefix}{message} (step: {self.step_name})"
+        if self.hint:
+            message = f"{message}. Hint: {self.hint}"
+        return message
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a structured, JSON-serializable error record."""
+        return {
+            "module": self.module,
+            "step_name": self.step_name,
+            "message": str(self.args[0]) if self.args else "Unknown error",
+            "error_type": (
+                type(self.original_error).__name__ if self.original_error else type(self).__name__
+            ),
+            "hint": self.hint,
+            "context": self.context,
+        }
 
 
 class StepError(WorkflowError):

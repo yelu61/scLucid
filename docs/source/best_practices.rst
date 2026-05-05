@@ -93,3 +93,19 @@ Recommended validation tiers:
 - active project data for final product acceptance and biological plausibility
 
 See :doc:`workflow_hardening` for the detailed execution plan.
+
+QC And Preprocessing First
+--------------------------
+
+For productization, QC and preprocessing should be treated as the first two
+benchmark modules. They are the foundation for annotation, differential
+expression, tumor analysis, and visualization.
+
+Recommended order:
+
+- stabilize the shared workflow contract
+- harden QC on PBMC and tumor data
+- harden preprocessing on the QC output
+- then move to analysis and annotation polish
+
+See :doc:`qc_preprocess_maturity` for the module-level maturity checklist.

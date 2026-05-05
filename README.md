@@ -33,6 +33,23 @@ acceptance tests for biological plausibility and usability.
 * **🔄 Reproducible Science**: A configuration-driven approach using **Pydantic** ensures automatic validation, type safety, and reproducibility with JSON serialization.
 * **🔌 Extensible Plugin Architecture**: Abstract base classes and factory pattern allow you to create custom analysis plugins without modifying core code. See [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) for details.
 
+### Choose Your Analysis Mode
+
+scLucid offers **three user-facing layers** designed for different levels of control and expertise:
+
+| Your Goal | Recommended Layer | Entry Point | Best For |
+|-----------|-------------------|-------------|----------|
+| **One-line analysis** — load data and run the full pipeline | **Workflow** | `scl.run_pipeline()` | Beginners, standard projects, reproducible pipelines |
+| **Composable steps** — inspect or replace individual stages | **Simple API** | `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, etc. | Analysts who need parameter control |
+| **Full transparency** — every threshold, diagnostic, and override visible | **Advanced** | `notebooks/Step1-QC_and_Preprocessing.ipynb` | Real exploratory projects, review-grade audits |
+
+> **💡 How to choose**: If you just want results, use **Workflow**. If you need to tweak parameters, use **Simple API**. If you are doing research where every decision must be auditable, use **Advanced**.
+
+**Examples for each layer:**
+- **Workflow**: `examples/01_workflow/basic_pipeline.py`
+- **Simple API**: `examples/02_simple_api/qc_step_by_step.py`
+- **Advanced**: `notebooks/Step1-QC_and_Preprocessing.ipynb`
+
 ### Installation
 
 The toolkit is modular. You can install the lightweight core and add extras as needed.
@@ -70,6 +87,16 @@ the lightweight gates directly:
 MAMBA_EXE=/opt/homebrew/bin/mamba \
 SCLUCID_TEST_ENV_PATH=/Users/luye/micromamba/envs/scrna-env \
 scripts/run_test_gates.sh
+```
+
+The first real-data workflow gate is the PBMC golden path:
+
+```bash
+/Users/luye/micromamba/envs/scrna-env/bin/python \
+  scripts/run_pbmc_golden_path.py \
+  --n-cells 300 \
+  --output-dir results/golden/pbmc3k_subset \
+  --overwrite
 ```
 
 ### Quick Start: A 5-Minute Analysis
@@ -111,10 +138,10 @@ For detailed tutorials, how-to guides, and the full API reference:
 
 * **Plugin Development**: [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) - Create custom analysis plugins
 * **Naming Conventions**: [Naming Conventions](docs/NAMING_CONVENTIONS.md) - Code style guidelines
-* **OpenSpec Specifications**: [openspec/specs/](openspec/specs/) - Technical specifications
 * **Local Documentation Source**: [docs/source/](docs/source/) - Sphinx documentation sources for installation, quickstart, API references, and best practices
 * **Core Data Contracts**: [docs/source/data_contracts.rst](docs/source/data_contracts.rst) - Stable AnnData and review-summary conventions shared across workflow stages
 * **Workflow Hardening Plan**: [docs/source/workflow_hardening.rst](docs/source/workflow_hardening.rst) - Real-data vertical-slice plan for PBMC, PDAC, and active project validation
+* **PBMC Golden Path**: [scripts/run_pbmc_golden_path.py](scripts/run_pbmc_golden_path.py) - Runnable real-data baseline that emits a manifest, final `.h5ad`, and inspection figures
 
 For quick examples, see the `examples/` directory.
 

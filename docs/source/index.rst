@@ -24,9 +24,11 @@ If you are new to scLucid, start with:
 
    installation
    quickstart
+   usage_layers
    data_contracts
    best_practices
    workflow_hardening
+   qc_preprocess_maturity
 
 Workflow Guides
 ---------------

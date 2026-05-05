@@ -22,6 +22,7 @@ from ..utils.evidence import (
 )
 
 QC_TRACE_SCHEMA_VERSION = "1.0"
+QC_MODULE_MATURITY_SCHEMA_VERSION = "1.0"
 
 QC_REQUIRED_REVIEW_SECTIONS = {
     "recommendation_summary",
@@ -41,6 +42,7 @@ QC_REQUIRED_REVIEW_SECTIONS = {
     "review_action_items",
     "reproducibility_manifest",
     "evidence_bundle",
+    "module_maturity",
 }
 
 QC_REQUIRED_OBS_METRICS = [
@@ -48,6 +50,21 @@ QC_REQUIRED_OBS_METRICS = [
     "total_counts",
     "pct_counts_mt",
 ]
+
+QC_STABLE_ENTRYPOINTS = (
+    "scLucid.qc.run_standard_qc",
+    "scLucid.qc.calculate_qc_metric",
+    "scLucid.qc.recommend_intelligent_qc",
+    "scLucid.qc.mark_low_quality_cell",
+    "scLucid.qc.filter_cells",
+)
+
+QC_EXPECTED_ARTIFACTS = (
+    "qc_review_summary.json",
+    "qc_review_summary.md",
+    "qc_benchmark.json",
+    "qc_benchmark.md",
+)
 
 _PARAMETER_SPECS = [
     {
@@ -145,6 +162,16 @@ def _to_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _review_payload(summary: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the canonical review payload from flat or backward-compatible summary."""
+    if not isinstance(summary, Mapping):
+        return {}
+    data = summary.get("data")
+    if isinstance(data, Mapping):
+        return data
+    return summary
+
+
 def _get_nested(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
     current: Any = data
     for key in path:
@@ -177,6 +204,22 @@ def _decision_source(
     if applied_value is None:
         return "disabled_or_not_available"
     return "default_or_config"
+
+
+def get_qc_module_contract() -> dict[str, Any]:
+    """Return the frozen QC module maturity contract."""
+    return {
+        "schema_version": QC_MODULE_MATURITY_SCHEMA_VERSION,
+        "module": "qc",
+        "stable_entrypoints": list(QC_STABLE_ENTRYPOINTS),
+        "required_obs_metrics": list(QC_REQUIRED_OBS_METRICS),
+        "required_review_sections": sorted(QC_REQUIRED_REVIEW_SECTIONS),
+        "expected_sidecar_artifacts": list(QC_EXPECTED_ARTIFACTS),
+        "canonical_namespace": 'adata.uns["sclucid"]["qc"]',
+        "readiness_key": "qc_readiness",
+        "decision_table_key": "decision_table",
+        "evidence_bundle_key": "evidence_bundle",
+    }
 
 
 def build_qc_decision_table(
@@ -856,6 +899,108 @@ def build_qc_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, Any]:
     return model_to_dict(bundle)
 
 
+def build_qc_module_maturity_assessment(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Assess whether a QC review summary satisfies the benchmark module contract."""
+    payload = _review_payload(summary)
+    required_sections = set(QC_REQUIRED_REVIEW_SECTIONS)
+    # ``module_maturity`` is produced by this function, so it cannot be required
+    # while the assessment is being built.
+    required_sections.discard("module_maturity")
+    missing_sections = sorted(required_sections - set(payload.keys()))
+    decision_table = payload.get("decision_table")
+    evidence_bundle = payload.get("evidence_bundle")
+    readiness = payload.get("qc_readiness", {})
+    output_health = payload.get("output_health", {})
+    manifest = payload.get("reproducibility_manifest", {})
+
+    issues: list[str] = []
+    if missing_sections:
+        issues.append("Missing required QC review sections: " + ", ".join(missing_sections))
+    if not isinstance(decision_table, list) or not decision_table:
+        issues.append("QC decision_table must be a non-empty list.")
+    if not isinstance(evidence_bundle, Mapping) or evidence_bundle.get("module") != "qc":
+        issues.append("QC evidence_bundle must be present and identify module='qc'.")
+    if not isinstance(readiness, Mapping) or "status" not in readiness:
+        issues.append("QC readiness assessment must be present.")
+    if not isinstance(output_health, Mapping) or "status" not in output_health:
+        issues.append("QC output_health summary must be present.")
+    if not isinstance(manifest, Mapping) or manifest.get("workflow") != "run_standard_qc":
+        issues.append("QC reproducibility_manifest must identify workflow='run_standard_qc'.")
+
+    review_required = []
+    if isinstance(readiness, Mapping) and readiness.get("status") != "ready":
+        review_required.append(f"qc_readiness.status={readiness.get('status')}")
+    if isinstance(output_health, Mapping) and output_health.get("status") != "ok":
+        review_required.append(f"output_health.status={output_health.get('status')}")
+
+    if issues:
+        status = "incomplete"
+    elif review_required:
+        status = "review_required"
+    else:
+        status = "complete"
+
+    return _json_safe(
+        {
+            "schema_version": QC_MODULE_MATURITY_SCHEMA_VERSION,
+            "module": "qc",
+            "status": status,
+            "issues": issues,
+            "review_required": review_required,
+            "contract": get_qc_module_contract(),
+            "summary": (
+                "QC review summary satisfies the benchmark module contract."
+                if status == "complete"
+                else "QC review summary is present but requires review."
+                if status == "review_required"
+                else "QC review summary does not satisfy the benchmark module contract."
+            ),
+        }
+    )
+
+
+def summarize_qc_review_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a compact user-facing summary of the QC review bundle."""
+    payload = _review_payload(summary)
+    readiness = payload.get("qc_readiness", {}) if isinstance(payload, Mapping) else {}
+    filtering = payload.get("filtering_summary", {}) if isinstance(payload, Mapping) else {}
+    recommendation = (
+        payload.get("recommended_threshold_summary", {}) if isinstance(payload, Mapping) else {}
+    )
+    maturity = payload.get("module_maturity", {}) if isinstance(payload, Mapping) else {}
+    decision_table = payload.get("decision_table", []) if isinstance(payload, Mapping) else []
+    action_items = payload.get("review_action_items", []) if isinstance(payload, Mapping) else []
+
+    applied_thresholds = {
+        row.get("parameter"): row.get("applied")
+        for row in decision_table
+        if isinstance(row, Mapping) and row.get("parameter")
+    }
+    threshold_sources = {
+        row.get("parameter"): row.get("source")
+        for row in decision_table
+        if isinstance(row, Mapping) and row.get("parameter")
+    }
+
+    return _json_safe(
+        {
+            "module": "qc",
+            "maturity_status": maturity.get("status"),
+            "readiness_status": readiness.get("status"),
+            "readiness_score": readiness.get("score"),
+            "verdict": readiness.get("verdict"),
+            "recommendation_available": recommendation.get("available"),
+            "overall_confidence": recommendation.get("overall_confidence"),
+            "initial_cells": filtering.get("initial_cells"),
+            "final_cells": filtering.get("final_cells"),
+            "removed_fraction": filtering.get("removed_fraction"),
+            "applied_thresholds": applied_thresholds,
+            "threshold_sources": threshold_sources,
+            "n_review_action_items": len(action_items) if isinstance(action_items, list) else None,
+        }
+    )
+
+
 def enrich_qc_review_summary(
     summary: dict[str, Any],
     *,
@@ -935,6 +1080,7 @@ def enrich_qc_review_summary(
         decision_table=decision_table,
     )
     summary["evidence_bundle"] = build_qc_evidence_bundle(summary)
+    summary["module_maturity"] = build_qc_module_maturity_assessment(summary)
     return _json_safe(summary)
 
 
@@ -974,10 +1120,68 @@ def validate_qc_review_summary(
         errors.append("QC review summary field 'evidence_bundle' must be a mapping.")
     elif bundle.get("module") != "qc":
         errors.append("QC evidence_bundle.module must be 'qc'.")
+    maturity = summary.get("module_maturity")
+    if not isinstance(maturity, Mapping):
+        errors.append("QC review summary field 'module_maturity' must be a mapping.")
+    elif maturity.get("module") != "qc":
+        errors.append("QC module_maturity.module must be 'qc'.")
 
     if errors and raise_on_error:
         raise ValueError("; ".join(errors))
     return errors
+
+
+def validate_qc_module_completeness(
+    adata: AnnData,
+    *,
+    require_ready: bool = False,
+    raise_on_error: bool = False,
+) -> dict[str, Any]:
+    """Validate that an AnnData object contains a benchmark-grade QC result."""
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    qc_ns = adata.uns.get("sclucid", {}).get("qc", {})
+    if not isinstance(qc_ns, Mapping):
+        issues.append('Missing or invalid adata.uns["sclucid"]["qc"] namespace.')
+        qc_ns = {}
+
+    review_summary = qc_ns.get("review_summary")
+    payload = _review_payload(review_summary) if isinstance(review_summary, Mapping) else {}
+    if not payload:
+        issues.append('Missing adata.uns["sclucid"]["qc"]["review_summary"].')
+        maturity = build_qc_module_maturity_assessment({})
+    else:
+        validation_errors = validate_qc_review_summary(payload)
+        issues.extend(validation_errors)
+        maturity = build_qc_module_maturity_assessment(payload)
+        if maturity.get("status") == "incomplete":
+            issues.extend(maturity.get("issues", []))
+        elif maturity.get("status") == "review_required":
+            warnings.extend(maturity.get("review_required", []))
+
+    missing_metrics = [metric for metric in QC_REQUIRED_OBS_METRICS if metric not in adata.obs]
+    if missing_metrics:
+        issues.append("Missing required QC obs metrics: " + ", ".join(missing_metrics))
+
+    readiness = payload.get("qc_readiness", {}) if isinstance(payload, Mapping) else {}
+    if require_ready and readiness.get("status") != "ready":
+        issues.append(f"QC readiness is {readiness.get('status')!r}, expected 'ready'.")
+
+    result = {
+        "schema_version": QC_MODULE_MATURITY_SCHEMA_VERSION,
+        "module": "qc",
+        "valid": len(issues) == 0,
+        "status": "valid" if not issues else "invalid",
+        "issues": list(dict.fromkeys(str(item) for item in issues)),
+        "warnings": list(dict.fromkeys(str(item) for item in warnings)),
+        "maturity": maturity,
+        "summary": summarize_qc_review_summary(payload) if payload else {},
+    }
+
+    if result["issues"] and raise_on_error:
+        raise ValueError("; ".join(result["issues"]))
+    return _json_safe(result)
 
 
 def _is_tumor_context(tissue_type: Any) -> bool:

@@ -361,14 +361,14 @@ def quality_aware_normalize(
     adata.obs["quality_bin"] = quality_bins
 
     log.info(f"Stratified cells into {n_bins} quality bins:")
-    for bin_name in quality_bins.cat.categories:
+    for bin_name in quality_bins.categories:
         n_cells = (quality_bins == bin_name).sum()
         log.info(f"  {bin_name}: {n_cells} cells")
 
     # === 3. Normalize within each bin ===
     X_normalized = np.zeros_like(X)
 
-    for bin_name in quality_bins.cat.categories:
+    for bin_name in quality_bins.categories:
         bin_mask = quality_bins == bin_name
         bin_indices = np.where(bin_mask)[0]
 

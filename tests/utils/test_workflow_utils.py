@@ -32,10 +32,20 @@ class TestWorkflowError:
     def test_workflow_error_with_details(self):
         """Test WorkflowError with step and original error."""
         original = ValueError("Original problem")
-        err = WorkflowError("Workflow failed", step_name="normalization", original_error=original)
+        err = WorkflowError(
+            "Workflow failed",
+            step_name="normalization",
+            original_error=original,
+            module="preprocess",
+            hint="Check input layers",
+            context={"required_layer": "counts"},
+        )
 
         assert err.step_name == "normalization"
         assert err.original_error is original
+        assert err.module == "preprocess"
+        assert err.to_dict()["context"]["required_layer"] == "counts"
+        assert "Check input layers" in str(err)
 
     def test_workflow_error_str(self):
         """Test WorkflowError string representation."""

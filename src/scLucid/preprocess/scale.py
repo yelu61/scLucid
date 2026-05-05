@@ -19,6 +19,7 @@ from anndata import AnnData
 
 from .config import ScalingConfig, apply_config_overrides
 from .utils import validate_matrix_input
+from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -318,7 +319,7 @@ def regress_out(
         "input_layer": input_layer,
         "output_layer": output_layer,
         "vars_to_regress": vars_to_regress,
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
+        "scanpy_version": version("scanpy"),
     }
     return adata
 

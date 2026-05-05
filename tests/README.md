@@ -40,4 +40,12 @@ PYTHONPATH=src MPLCONFIGDIR=/tmp/mplcfg NUMBA_CACHE_DIR=/tmp/numba-cache pytest 
 
 # Integration-only
 PYTHONPATH=src MPLCONFIGDIR=/tmp/mplcfg NUMBA_CACHE_DIR=/tmp/numba-cache pytest -m integration -q
+
+# PBMC golden-path acceptance test
+/Users/luye/micromamba/envs/scrna-env/bin/python -m pytest -q tests/integration/test_pbmc_golden_path.py -m "slow and integration"
 ```
+
+The PBMC golden-path test runs a 300-cell subset of `data/pbmc3k.h5ad` through
+QC, preprocessing, analysis, annotation, figure export, manifest writing, and
+final `.h5ad` serialization. It is marked `slow` and `integration`, so keep it
+outside the fastest edit-test loop unless the workflow boundary changed.

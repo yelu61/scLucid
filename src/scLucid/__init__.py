@@ -54,13 +54,6 @@ tools = _import_optional(
     hint="Install with 'pip install sclucid[tools]' to use advanced features",
 )
 
-# --- Optional Web Module ---
-_web = _import_optional(
-    "web",
-    hint="Install with 'pip install sclucid[web]' to use web features",
-)
-launch_web_app = getattr(_web, "launch_web_app", None)
-
 # --- Convenient Aliases ---
 pp = preprocess
 al = analysis
@@ -107,7 +100,9 @@ from .utils.contracts import (
     Modules,
     UnsKeys,
     build_config_lineage,
+    ensure_sclucid_namespace,
     record_contract_result,
+    record_config_lineage,
     validate_stage_contract,
 )
 from .utils.validation import (
@@ -122,6 +117,39 @@ def _stage_kwargs(prefix: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """Return kwargs for one pipeline stage with the stage prefix stripped."""
     token = f"{prefix}_"
     return {key[len(token) :]: value for key, value in kwargs.items() if key.startswith(token)}
+
+
+def _config_dict(config: Any) -> Dict[str, Any]:
+    """Return a serializable config dict when possible."""
+    if config is None:
+        return {}
+    if hasattr(config, "to_dict"):
+        return config.to_dict()
+    if hasattr(config, "model_dump"):
+        return config.model_dump()
+    if isinstance(config, dict):
+        return dict(config)
+    return {}
+
+
+def _record_pipeline_stage_lineage(
+    adata,
+    *,
+    module: str,
+    global_config: Dict[str, Any],
+    inherited_context: Dict[str, Any],
+    user_config: Any = None,
+) -> None:
+    """Record config lineage for one pipeline stage."""
+    stage_uns = adata.uns.get("sclucid", {}).get(module, {})
+    effective_config = stage_uns.get(UnsKeys.WORKFLOW_CONFIG, {})
+    lineage = build_config_lineage(
+        global_config=global_config,
+        inherited=inherited_context,
+        stage_config=_config_dict(user_config),
+        effective_config=effective_config if isinstance(effective_config, dict) else {},
+    )
+    record_config_lineage(adata, module, lineage)
 
 
 # --- Abstract Base Classes for Extensibility ---
@@ -285,9 +313,10 @@ def run_pipeline(
     )
 
     # Cross-module context to propagate settings across stages
+    global_config_dict = global_config.to_dict() if hasattr(global_config, "to_dict") else {}
     pipeline_context: Dict[str, Any] = analysis_context.to_dict()
     pipeline_context["config_lineage"] = build_config_lineage(
-        global_config=global_config.to_dict() if hasattr(global_config, "to_dict") else {},
+        global_config=global_config_dict,
         inherited=analysis_context.to_dict(),
     )
 
@@ -296,6 +325,7 @@ def run_pipeline(
         if run_standard_qc is None:
             raise RuntimeError("QC module not available")
         assert_qc_ready(adata)
+        qc_input_contract = validate_stage_contract(adata, "qc", when="input", raise_on_error=True)
         adata = run_standard_qc(
             adata,
             config=qc_config,
@@ -303,8 +333,16 @@ def run_pipeline(
             show_progress=show_progress,
             **_stage_kwargs("qc", kwargs),
         )
+        record_contract_result(adata, Modules.QC, qc_input_contract)
         qc_contract = validate_stage_contract(adata, "qc", when="output")
         record_contract_result(adata, Modules.QC, qc_contract)
+        _record_pipeline_stage_lineage(
+            adata,
+            module=Modules.QC,
+            global_config=global_config_dict,
+            inherited_context=pipeline_context,
+            user_config=qc_config,
+        )
         # Capture upstream context from QC results
         qc_uns = adata.uns.get("sclucid", {}).get(Modules.QC, {})
         qc_config_dict = qc_uns.get(UnsKeys.WORKFLOW_CONFIG, {})
@@ -325,6 +363,9 @@ def run_pipeline(
                     f"Preprocessing stage requires QC results, but QC was skipped. "
                     f"Include 'qc' in stages or run QC manually first. Details: {e}"
                 )
+        preprocess_input_contract = validate_stage_contract(
+            adata, "preprocess", when="input", raise_on_error=True
+        )
         adata = run_preprocessing(
             adata,
             config=preprocess_config,
@@ -332,8 +373,16 @@ def run_pipeline(
             show_progress=show_progress,
             **_stage_kwargs("preprocess", kwargs),
         )
+        record_contract_result(adata, Modules.PREPROCESS, preprocess_input_contract)
         preprocess_contract = validate_stage_contract(adata, "preprocess", when="output")
         record_contract_result(adata, Modules.PREPROCESS, preprocess_contract)
+        _record_pipeline_stage_lineage(
+            adata,
+            module=Modules.PREPROCESS,
+            global_config=global_config_dict,
+            inherited_context=pipeline_context,
+            user_config=preprocess_config,
+        )
         # Capture upstream context from preprocess results
         pp_uns = adata.uns.get("sclucid", {}).get(Modules.PREPROCESS, {})
         pp_config_dict = pp_uns.get(UnsKeys.WORKFLOW_CONFIG, {})
@@ -355,6 +404,9 @@ def run_pipeline(
                     f"Analysis stage requires preprocessing results, but preprocessing was skipped. "
                     f"Include 'preprocess' in stages or run preprocessing manually first. Details: {e}"
                 )
+        analysis_input_contract = validate_stage_contract(
+            adata, "analysis", when="input", raise_on_error=True
+        )
         # Inherit species from QC context if analysis_config is not explicitly provided
         effective_analysis_config = analysis_config
         if effective_analysis_config is None and "species" in pipeline_context:
@@ -374,12 +426,21 @@ def run_pipeline(
             show_progress=show_progress,
             **_stage_kwargs("analysis", kwargs),
         )
+        record_contract_result(adata, Modules.ANALYSIS, analysis_input_contract)
         analysis_contract = validate_stage_contract(adata, "analysis", when="output")
         record_contract_result(adata, Modules.ANALYSIS, analysis_contract)
+        _record_pipeline_stage_lineage(
+            adata,
+            module=Modules.ANALYSIS,
+            global_config=global_config_dict,
+            inherited_context=pipeline_context,
+            user_config=effective_analysis_config,
+        )
 
     # Store pipeline context for downstream inspection
-    adata.uns.setdefault("sclucid", {})[UnsKeys.PIPELINE_CONTEXT] = pipeline_context
-    adata.uns.setdefault("sclucid", {})[UnsKeys.ANALYSIS_CONTEXT] = analysis_context.to_dict()
+    root_namespace = ensure_sclucid_namespace(adata)
+    root_namespace[UnsKeys.PIPELINE_CONTEXT] = pipeline_context
+    root_namespace[UnsKeys.ANALYSIS_CONTEXT] = analysis_context.to_dict()
 
     return adata
 
@@ -429,6 +490,5 @@ __all__ = [
     "PlottingBackend",
     "ProportionAnalysisMethod",
     "AnalysisStepFactory",
-    "launch_web_app",
     "rc",
 ]

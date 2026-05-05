@@ -22,6 +22,7 @@ from ..utils import (
     WorkflowError,
     get_progress_bar,
     normalize_review_summary,
+    record_artifact,
     save_result,
     save_workflow_result,
     validate_review_summary_schema,
@@ -790,6 +791,7 @@ def _detect_cell_type_key(adata: AnnData) -> Optional[str]:
 def _export_qc_review_summary(
     review_summary: Dict[str, Any],
     save_dir: Path,
+    adata: Optional[AnnData] = None,
 ) -> None:
     """Export review summary as JSON and Markdown sidecars."""
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -1026,6 +1028,23 @@ def _export_qc_review_summary(
 
     md_path = save_dir / "qc_review_summary.md"
     md_path.write_text("\n".join(md_lines), encoding="utf-8")
+    if adata is not None:
+        record_artifact(
+            adata,
+            "qc",
+            "qc_review_summary_json",
+            str(json_path),
+            kind="json",
+            description="QC review summary JSON sidecar",
+        )
+        record_artifact(
+            adata,
+            "qc",
+            "qc_review_summary_md",
+            str(md_path),
+            kind="md",
+            description="QC review summary Markdown sidecar",
+        )
     log.info(f"QC review summary exported to {json_path} and {md_path}")
 
 
@@ -1395,7 +1414,7 @@ def run_standard_qc(
             adata_before_filtering=adata,
         )
         if results_path is not None:
-            _export_qc_review_summary(review_summary, results_path)
+            _export_qc_review_summary(review_summary, results_path, adata_filtered)
             benchmark_summary = review_summary.get("benchmark_summary")
             if isinstance(benchmark_summary, dict):
                 export_qc_benchmark_report(benchmark_summary, results_path)
@@ -1595,7 +1614,7 @@ def run_advanced_qc(
             adata_before_filtering=adata,
         )
         if results_path is not None:
-            _export_qc_review_summary(review_summary, results_path)
+            _export_qc_review_summary(review_summary, results_path, adata_filtered)
             benchmark_summary = review_summary.get("benchmark_summary")
             if isinstance(benchmark_summary, dict):
                 export_qc_benchmark_report(benchmark_summary, results_path)

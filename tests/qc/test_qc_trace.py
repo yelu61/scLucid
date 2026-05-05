@@ -111,6 +111,7 @@ REVIEW_SUMMARY_SECTIONS = {
     "qc_readiness",
     "review_action_items",
     "reproducibility_manifest",
+    "module_maturity",
 }
 
 
@@ -192,3 +193,56 @@ def test_qc_review_summary_exported_to_disk(adata_pbmc, tmp_path):
 
     loaded = json.loads(json_path.read_text())
     assert "filtering_summary" in loaded
+
+
+def test_qc_module_maturity_and_compact_summary(adata_pbmc):
+    import scLucid as scl
+
+    config = QCWorkflowConfig(
+        save_dir=None,
+        use_recommendations=True,
+        threshold_mode="hierarchical",
+        metrics_reporting_config=MetricsReportingConfig(show_plots=False),
+        marking_config=MarkingConfig(show_plots=False, plot_outliers=False),
+        doublet_config=DoubletConfig(run_algorithm=False, use_heuristics=False, show_plots=False),
+        filter_config={"criteria_to_filter": ["outlier_min_genes", "outlier_mt"]},
+    )
+    adata_f = run_standard_qc(adata_pbmc, config=config)
+    review = adata_f.uns["sclucid"]["qc"]["review_summary"]
+    payload = review["data"]
+
+    assert payload["module_maturity"]["module"] == "qc"
+    assert payload["module_maturity"]["status"] in {
+        "complete",
+        "review_required",
+        "incomplete",
+    }
+
+    validation = scl.qc.validate_qc_module_completeness(adata_f)
+    assert validation["valid"] is True
+    assert validation["maturity"]["module"] == "qc"
+
+    compact = scl.qc.summarize_qc_review_summary(review)
+    assert compact["module"] == "qc"
+    assert compact["final_cells"] == payload["filtering_summary"]["final_cells"]
+    assert "min_genes" in compact["applied_thresholds"]
+
+
+def test_qc_module_completeness_detects_missing_result(adata_pbmc):
+    import scLucid as scl
+
+    result = scl.qc.validate_qc_module_completeness(adata_pbmc)
+
+    assert result["valid"] is False
+    assert any("review_summary" in issue for issue in result["issues"])
+
+
+def test_qc_module_contract_is_public():
+    import scLucid as scl
+
+    contract = scl.qc.get_qc_module_contract()
+
+    assert contract["module"] == "qc"
+    assert "scLucid.qc.run_standard_qc" in contract["stable_entrypoints"]
+    assert "decision_table" in contract["required_review_sections"]
+    assert "n_genes_by_counts" in contract["required_obs_metrics"]

@@ -18,6 +18,7 @@ from anndata import AnnData
 
 from .config import NormalizationConfig, apply_config_overrides
 from .utils import validate_matrix_input
+from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -348,7 +349,7 @@ def normalize_data(
         "params": active_config.to_dict(),  # Pydantic's built-in serialization
         "input_stats": stats_before,
         "output_stats": stats_after,
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
+        "scanpy_version": version("scanpy"),
         "log_transformed": final_log_transformed,
         "input_layer": input_layer,
         "output_layer": output_layer,

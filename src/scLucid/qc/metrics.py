@@ -19,6 +19,7 @@ import seaborn as sns
 from anndata import AnnData
 
 from .config import MetricsReportingConfig
+from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -761,7 +762,7 @@ def calculate_qc_metric(
         "include_standard_qc": cfg.include_standard_qc,
         "extra_gene_sets_provided": bool(extra_gene_sets),
         "percent_top_calculated": percent_top_list,
-        "scanpy_version": getattr(sc, "__version__", "unknown"),
+        "scanpy_version": version("scanpy"),
     }
 
     # --- Optional: Cell cycle scoring ---

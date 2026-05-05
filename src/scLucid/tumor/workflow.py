@@ -335,8 +335,10 @@ def _run_tumor_stage(
             executed_steps.append("malignancy_scoring")
 
             log.info("Tumor stage: classifying malignant cells")
-            if config.malignancy_method == "cnv":
-                classify_malignant_cells(adata, method="cnv", key_added="is_malignant")
+            if config.malignancy_method in ("cnv", "combined"):
+                classify_malignant_cells(
+                    adata, method=config.malignancy_method, key_added="is_malignant"
+                )
             elif config.malignancy_method in ("threshold", "ml"):
                 # reference key may be used to subset reference cells
                 ref_key = config.malignancy_reference_key

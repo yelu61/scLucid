@@ -15,6 +15,7 @@ def _adata(n_obs=20, n_vars=30):
 
 def test_contract_constants_define_core_keys():
     from scLucid.utils.contracts import (
+        API_LAYER_ORDER,
         LayerKeys,
         Modules,
         ObsKeys,
@@ -29,22 +30,73 @@ def test_contract_constants_define_core_keys():
     assert ObsKeys.QC_N_GENES == "n_genes_by_counts"
     assert Modules.PREPROCESS == "preprocess"
     assert UnsKeys.REVIEW_SUMMARY == "review_summary"
+    assert UnsKeys.CONFIG_LINEAGE == "config_lineage"
+    assert UnsKeys.ARTIFACTS == "artifacts"
     assert STAGE_ORDER == ("qc", "preprocess", "analysis")
+    assert API_LAYER_ORDER == ("workflow", "simple_api", "advanced")
 
 
 def test_contract_spec_is_serializable_and_documents_stages():
-    from scLucid.utils.contracts import get_contract_spec, get_stage_contract
+    from scLucid.utils.contracts import (
+        get_api_layer_spec,
+        get_contract_spec,
+        get_minimal_workflow_contract,
+        get_stage_contract,
+    )
 
     spec = get_contract_spec()
     preprocess = get_stage_contract("preprocess")
+    workflow_layer = get_api_layer_spec("workflow")
+    workflow_contract = get_minimal_workflow_contract()
 
     assert spec["schema_version"] == "1.0"
     assert spec["storage_root"] == "sclucid"
+    assert spec["api_layers"]["layer_order"] == ["workflow", "simple_api", "advanced"]
+    assert spec["minimal_workflow"]["stage_order"] == ["qc", "preprocess", "analysis"]
     assert "review_summary" in spec
+    assert spec["canonical_keys"]["uns"]["namespace_metadata"] == "_metadata"
+    assert spec["canonical_keys"]["uns"]["config_lineage"] == "config_lineage"
     assert spec["canonical_keys"]["layers"]["counts"] == "counts"
     assert spec["stages"]["qc"]["name"] == "qc"
     assert preprocess["input_layers"] == ["counts"]
     assert preprocess["output_obsm"] == ["X_pca"]
+    assert workflow_layer["primary_entrypoints"][0] == "scLucid.run_pipeline"
+    assert workflow_contract["required_stage_namespace_keys"] == [
+        "workflow_config",
+        "steps_executed",
+        "review_summary",
+    ]
+
+
+def test_frozen_api_layer_entrypoints_resolve():
+    import importlib
+
+    from scLucid.utils.contracts import get_api_layer_spec
+
+    def resolve_dotted(name: str):
+        parts = name.split(".")
+        module = importlib.import_module(parts[0])
+        current = module
+        for part in parts[1:]:
+            current = getattr(current, part)
+        return current
+
+    spec = get_api_layer_spec()
+    for layer in ("workflow", "simple_api"):
+        for entrypoint in spec["layers"][layer]["primary_entrypoints"]:
+            assert callable(resolve_dotted(entrypoint)), entrypoint
+
+
+def test_frozen_api_layer_examples_exist():
+    from pathlib import Path
+
+    from scLucid.utils.contracts import get_api_layer_spec
+
+    repo_root = Path(__file__).resolve().parents[1]
+    spec = get_api_layer_spec()
+    for layer in spec["layers"].values():
+        for artifact in layer["example_artifacts"]:
+            assert (repo_root / artifact).exists(), artifact
 
 
 def test_stage_contract_reports_missing_preprocess_inputs():
@@ -95,7 +147,50 @@ def test_review_summary_schema_is_backwards_compatible():
     assert summary["schema_version"] == "1.0"
     assert summary["module"] == "qc"
     assert summary["data_shape"] == {"n_cells": adata.n_obs, "n_genes": adata.n_vars}
+    assert summary["data"]["recommendation_summary"]["available"] is False
+    assert summary["data"]["schema_version"] == "1.0"
     assert validate_review_summary_schema(summary, module="qc").valid is True
+
+
+def test_namespace_helpers_add_metadata_and_stage_records():
+    from scLucid.utils.contracts import (
+        UnsKeys,
+        build_config_lineage,
+        ensure_sclucid_namespace,
+        module_namespace,
+        record_artifact,
+        record_config_lineage,
+    )
+
+    adata = _adata()
+    root = ensure_sclucid_namespace(adata)
+    qc_ns = module_namespace(adata, "qc")
+    lineage = build_config_lineage(
+        global_config={"default_species": "human"},
+        inherited={"dataset_type": "pbmc_or_blood"},
+        stage_config={"sample_key": "sampleID"},
+        effective_config={"sample_key": "sampleID", "species": "human"},
+    )
+
+    qc_ns[UnsKeys.REVIEW_SUMMARY] = {
+        "schema_version": "1.0",
+        "module": "qc",
+        "workflow_name": "standard",
+        "steps_executed": [],
+        "data_shape": {"n_cells": adata.n_obs, "n_genes": adata.n_vars},
+    }
+    record_config_lineage(adata, "qc", lineage)
+    record_artifact(adata, "qc", "summary_json", "/tmp/qc_review_summary.json")
+
+    assert root[UnsKeys.NAMESPACE_METADATA]["schema_version"] == "1.0"
+    assert qc_ns[UnsKeys.NAMESPACE_METADATA]["module"] == "qc"
+    assert qc_ns[UnsKeys.CONFIG_LINEAGE]["effective"]["species"] == "human"
+    assert qc_ns[UnsKeys.REVIEW_SUMMARY][UnsKeys.CONFIG_LINEAGE]["stage"]["sample_key"] == (
+        "sampleID"
+    )
+    assert qc_ns[UnsKeys.ARTIFACTS]["summary_json"]["path"].endswith(
+        "qc_review_summary.json"
+    )
 
 
 def test_review_summary_schema_rejects_invalid_core_types():
