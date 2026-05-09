@@ -129,6 +129,173 @@ class TestBatchCorrection:
         batch_correction(adata, config=config)
         assert config.to_dict() == original_dict
 
+    def test_scvi_integration_mock(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+
+        def fake_scvi(adata, batch_key, embedding_key, **kwargs):
+            adata.obsm[embedding_key] = adata.obsm["X_pca"].copy()
+            adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
+                "integration", {}
+            )["scvi"] = {"batch_key": batch_key}
+            return adata
+
+        monkeypatch.setattr(integrate_module, "_integrate_scvi", fake_scvi)
+
+        result = batch_correction(
+            adata,
+            config=IntegrationConfig(
+                method="scvi",
+                batch_key="batch",
+                use_rep="X_pca",
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+        )
+        assert "X_scvi" in result.obsm
+        integration_meta = result.uns["sclucid"]["preprocess"]["integration"]
+        assert integration_meta["workflow"]["method"] == "scvi"
+
+    def test_bbknn_integration_mock(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+
+        def fake_bbknn(adata, batch_key, use_rep, **kwargs):
+            adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
+                "integration", {}
+            )["bbknn"] = {"batch_key": batch_key}
+            return adata
+
+        monkeypatch.setattr(integrate_module, "_integrate_bbknn", fake_bbknn)
+
+        result = batch_correction(
+            adata,
+            config=IntegrationConfig(
+                method="bbknn",
+                batch_key="batch",
+                use_rep="X_pca",
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+        )
+        integration_meta = result.uns["sclucid"]["preprocess"]["integration"]
+        assert integration_meta["workflow"]["method"] == "bbknn"
+
+    def test_unknown_method_raises_validation_error(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        # Pydantic's Literal type catches unknown methods at config validation time
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="method"):
+            IntegrationConfig(
+                method="nonexistent_method",
+                batch_key="batch",
+                plot=False,
+                report=False,
+                verbose=False,
+            )
+
+    def test_missing_batch_key_raises_valueerror(self, minimal_adata):
+        adata = minimal_adata.copy()
+        with pytest.raises(ValueError, match="not found in adata.obs"):
+            batch_correction(
+                adata,
+                config=IntegrationConfig(
+                    method="harmony",
+                    batch_key="missing_batch_column",
+                    use_rep="X_pca",
+                    plot=False,
+                    report=False,
+                    verbose=False,
+                ),
+            )
+
+    def test_force_rerun_when_output_exists(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+        adata.obsm["X_harmony"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+
+        call_count = [0]
+
+        def fake_harmony(adata, covariate_keys, basis, embedding_key, **kwargs):
+            call_count[0] += 1
+            adata.obsm[embedding_key] = adata.obsm[basis].copy()
+            return adata
+
+        monkeypatch.setattr(integrate_module, "_integrate_harmony", fake_harmony)
+
+        # Without force: should return early (harmony already exists)
+        result = batch_correction(
+            adata,
+            config=IntegrationConfig(
+                method="harmony",
+                batch_key="batch",
+                use_rep="X_pca",
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+            force=False,
+        )
+        assert call_count[0] == 0  # never called
+
+        # With force: should re-run
+        result = batch_correction(
+            adata,
+            config=IntegrationConfig(
+                method="harmony",
+                batch_key="batch",
+                use_rep="X_pca",
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+            force=True,
+        )
+        assert call_count[0] == 1  # called once
+
+    def test_batch_key_list_for_harmony(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch1"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obs["batch2"] = "c"
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+
+        received_keys = []
+
+        def fake_harmony(adata, covariate_keys, basis, embedding_key, **kwargs):
+            received_keys.append(list(covariate_keys) if isinstance(covariate_keys, list) else covariate_keys)
+            adata.obsm[embedding_key] = adata.obsm[basis].copy()
+            return adata
+
+        monkeypatch.setattr(integrate_module, "_integrate_harmony", fake_harmony)
+
+        batch_correction(
+            adata,
+            config=IntegrationConfig(
+                method="harmony",
+                batch_key=["batch1", "batch2"],
+                use_rep="X_pca",
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+        )
+        assert received_keys[0] == ["batch1", "batch2"]
+
 
 @pytest.mark.unit
 class TestEvaluateIntegration:

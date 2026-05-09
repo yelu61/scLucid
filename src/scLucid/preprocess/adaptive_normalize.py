@@ -334,17 +334,27 @@ def quality_aware_normalize(
     quality_scores = np.zeros(adata.n_obs)
 
     for metric in quality_metrics:
-        values = adata.obs[metric].values
+        values = adata.obs[metric].values.astype(np.float64)
+
+        # Use nanmin/nanmax so a single NaN doesn't poison all cells
+        vmin = np.nanmin(values)
+        vmax = np.nanmax(values)
+        denom = (vmax - vmin) + 1e-8
 
         # Normalize to [0, 1]
         # For metrics like pct_counts_mt: lower is better
         # For metrics like n_genes: higher is better
         if "mt" in metric.lower() or "pct" in metric.lower():
             # Lower is better
-            normalized = 1 - (values - values.min()) / (values.max() - values.min() + 1e-8)
+            normalized = 1.0 - (values - vmin) / denom
         else:
             # Higher is better
-            normalized = (values - values.min()) / (values.max() - values.min() + 1e-8)
+            normalized = (values - vmin) / denom
+
+        # Replace NaN cells (e.g. original NaN) with mid-quality score
+        nan_mask = np.isnan(normalized)
+        if nan_mask.any():
+            normalized[nan_mask] = 0.5
 
         quality_scores += normalized
 
@@ -355,12 +365,28 @@ def quality_aware_normalize(
     adata.obs["quality_score"] = quality_scores
 
     # === 2. Stratify into quality bins ===
-    quality_bins = pd.qcut(
-        quality_scores, q=n_bins, labels=[f"Q{i+1}" for i in range(n_bins)], duplicates="drop"
-    )
+    quality_span = quality_scores.max() - quality_scores.min()
+    if quality_span < 1e-10:
+        # All quality scores are identical — single bin
+        quality_bins = pd.Categorical(
+            ["Q1"] * adata.n_obs, categories=[f"Q{i+1}" for i in range(n_bins)], ordered=True
+        )
+    else:
+        # qcut may reduce the effective bin count when duplicates="drop" kicks in,
+        # so generate labels after the fact to stay in sync.
+        quality_bins = pd.qcut(
+            quality_scores, q=n_bins, labels=False, duplicates="drop"
+        )
+        n_actual = quality_bins.max() + 1  # bins are 0-indexed
+        bin_labels = {i: f"Q{i+1}" for i in range(n_bins)}
+        quality_bins = pd.Categorical(
+            [bin_labels.get(b, f"Q{b+1}") for b in quality_bins],
+            categories=[f"Q{i+1}" for i in range(n_actual)],
+            ordered=True,
+        )
     adata.obs["quality_bin"] = quality_bins
 
-    log.info(f"Stratified cells into {n_bins} quality bins:")
+    log.info(f"Stratified cells into {len(quality_bins.categories)} quality bins:")
     for bin_name in quality_bins.categories:
         n_cells = (quality_bins == bin_name).sum()
         log.info(f"  {bin_name}: {n_cells} cells")

@@ -368,36 +368,40 @@ def plot_scaling_effect(
     if len(genes_to_plot) == 1:
         axes = np.array([axes])
 
+    def _get_gene_data(matrix, gene_name):
+        idx = adata.var.index.get_loc(gene_name)
+        data = matrix[:, idx]
+        if scipy.sparse.issparse(data):
+            return data.toarray().flatten()
+        return data.flatten()
+
     for i, gene in enumerate(genes_to_plot):
-        gene_idx = np.where(adata.var_names == gene)[0][0]
-        orig = original_data[:, gene_idx]
-        if scipy.sparse.issparse(orig):
-            orig = orig.toarray().flatten()
-        else:
-            orig = orig.flatten()
-        scaled = adata.layers[scaled_layer][:, gene_idx]
-        if scipy.sparse.issparse(scaled):
-            scaled = scaled.toarray().flatten()
-        else:
-            scaled = scaled.flatten()
-        sns.histplot(orig, bins=30, kde=True, ax=axes[i, 0])
-        axes[i, 0].set_title(f"{gene} - Before Scaling")
-        axes[i, 0].text(
-            0.05,
-            0.95,
-            f"Mean: {np.mean(orig):.2f}\nStd: {np.std(orig):.2f}",
-            transform=axes[i, 0].transAxes,
-            va="top",
-        )
-        sns.histplot(scaled, bins=30, kde=True, ax=axes[i, 1])
-        axes[i, 1].set_title(f"{gene} - After Scaling")
-        axes[i, 1].text(
-            0.05,
-            0.95,
-            f"Mean: {np.mean(scaled):.2f}\nStd: {np.std(scaled):.2f}",
-            transform=axes[i, 1].transAxes,
-            va="top",
-        )
+        try:
+            orig = _get_gene_data(original_data, gene)
+            scaled = _get_gene_data(adata.layers[scaled_layer], gene)
+
+            sns.histplot(orig, bins=30, kde=True, ax=axes[i, 0])
+            axes[i, 0].set_title(f"{gene} - Before Scaling")
+            axes[i, 0].text(
+                0.05,
+                0.95,
+                f"Mean: {np.mean(orig):.2f}\nStd: {np.std(orig):.2f}",
+                transform=axes[i, 0].transAxes,
+                va="top",
+            )
+            sns.histplot(scaled, bins=30, kde=True, ax=axes[i, 1])
+            axes[i, 1].set_title(f"{gene} - After Scaling")
+            axes[i, 1].text(
+                0.05,
+                0.95,
+                f"Mean: {np.mean(scaled):.2f}\nStd: {np.std(scaled):.2f}",
+                transform=axes[i, 1].transAxes,
+                va="top",
+            )
+        except Exception as e:
+            log.warning(f"Failed to plot gene {gene}: {str(e)}")
+            axes[i, 0].text(0.5, 0.5, f"Error plotting {gene}", ha="center", va="center")
+            axes[i, 1].text(0.5, 0.5, f"Error plotting {gene}", ha="center", va="center")
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
 
