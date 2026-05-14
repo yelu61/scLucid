@@ -279,6 +279,45 @@ class TestTrajectory:
 
         assert "pseudotime" in cds.cell_metadata.columns
 
+    def test_order_cells_root_by_cell_name(self, preprocessed_cds):
+        """order_cells accepts a string matching a cell name as the root."""
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
+        cds = cluster_cells(cds)
+        cds = partition_cells(cds)
+        cds = learn_graph(cds)
+
+        target_cell = cds.cell_metadata.index[0]
+        cds = order_cells(cds, root_cells=target_cell)
+
+        assert "pseudotime" in cds.cell_metadata.columns
+        # The named root cell should sit at pseudotime 0 by construction.
+        assert cds.cell_metadata.loc[target_cell, "pseudotime"] == pytest.approx(0.0)
+
+    def test_order_cells_root_by_cluster_id(self, preprocessed_cds):
+        """order_cells accepts a cluster id string and uses every cell in it."""
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
+        cds = cluster_cells(cds)
+        cds = partition_cells(cds)
+        cds = learn_graph(cds)
+
+        target_cluster = str(cds.clusters.astype(str).iloc[0])
+        cds = order_cells(cds, root_cells=target_cluster)
+
+        assert "pseudotime" in cds.cell_metadata.columns
+        # All cells in the root cluster should have pseudotime 0.
+        cluster_mask = cds.clusters.astype(str) == target_cluster
+        assert (cds.cell_metadata.loc[cluster_mask, "pseudotime"] == 0).all()
+
+    def test_order_cells_root_string_unknown_raises(self, preprocessed_cds):
+        """Unknown root strings should raise ValueError with a helpful message."""
+        cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")
+        cds = cluster_cells(cds)
+        cds = partition_cells(cds)
+        cds = learn_graph(cds)
+
+        with pytest.raises(ValueError, match="root_cells"):
+            order_cells(cds, root_cells="definitely_not_a_real_cluster")
+
     def test_graph_test(self, preprocessed_cds):
         """Test graph-based differential expression"""
         cds = reduce_dimension(preprocessed_cds, reduction_method="UMAP")

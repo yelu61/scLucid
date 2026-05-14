@@ -16,6 +16,84 @@ from .core import CellDataSet
 log = logging.getLogger(__name__)
 
 
+def _resolve_root_string(cds: CellDataSet, query: str) -> List[int]:
+    """
+    Map a string query to integer cell indices for trajectory rooting.
+
+    Mirrors the R Monocle3 ``order_cells(root_cells = "...")`` convention:
+    the string can name either a single cell, a cluster id (from
+    ``cluster_cells``), or a partition id (from ``partition_cells``). The
+    first match wins, in that order. All cells whose group label matches
+    become roots.
+
+    Parameters
+    ----------
+    cds : CellDataSet
+        Source dataset; ``cell_metadata`` index supplies cell names while
+        ``clusters`` and ``partitions`` supply group labels.
+    query : str
+        String identifier supplied by the user.
+
+    Returns:
+    -------
+    list of int
+        Integer cell-row indices in ``cds.expression_data`` to use as roots.
+
+    Raises:
+    ------
+    ValueError
+        If ``query`` matches no cell, cluster, or partition label.
+    """
+    cell_index = cds.cell_metadata.index
+
+    if query in cell_index:
+        loc = int(cell_index.get_loc(query))
+        log.info("Root resolved by cell name '%s' -> index %d", query, loc)
+        return [loc]
+
+    if cds.clusters is not None:
+        cluster_str = cds.clusters.astype(str)
+        match = cluster_str == query
+        if match.any():
+            indices = np.where(match.to_numpy())[0].tolist()
+            log.info(
+                "Root resolved by cluster id '%s' -> %d cell(s)",
+                query,
+                len(indices),
+            )
+            return [int(i) for i in indices]
+
+    if cds.partitions is not None:
+        partition_str = cds.partitions.astype(str)
+        match = partition_str == query
+        if match.any():
+            indices = np.where(match.to_numpy())[0].tolist()
+            log.info(
+                "Root resolved by partition id '%s' -> %d cell(s)",
+                query,
+                len(indices),
+            )
+            return [int(i) for i in indices]
+
+    available_clusters = (
+        sorted(cds.clusters.astype(str).unique().tolist())
+        if cds.clusters is not None
+        else []
+    )
+    available_partitions = (
+        sorted(cds.partitions.astype(str).unique().tolist())
+        if cds.partitions is not None
+        else []
+    )
+    raise ValueError(
+        f"root_cells={query!r} did not match any cell name, cluster id, or "
+        f"partition id. "
+        f"Example cell names: {cell_index[:3].tolist()}. "
+        f"Available clusters: {available_clusters[:10]}. "
+        f"Available partitions: {available_partitions[:10]}."
+    )
+
+
 def learn_graph(
     cds: CellDataSet,
     reduction_method: str = "UMAP",
@@ -216,8 +294,7 @@ def order_cells(
         root_cells = int(np.argmin(degrees))
         log.info(f"Auto-selected root cell: {root_cells}")
     elif isinstance(root_cells, str):
-        # Root based on metadata query
-        raise NotImplementedError("String-based root selection not yet implemented")
+        root_cells = _resolve_root_string(cds, root_cells)
 
     if isinstance(root_cells, int):
         root_cells = [root_cells]

@@ -13,9 +13,6 @@ def test_analysis_exports_resolve():
 
 @pytest.mark.unit
 def test_clustering_config_success_and_invalid_method():
-    if not hasattr(analysis, "ClusteringConfig"):
-        pytest.skip("ClusteringConfig not available in current environment")
-
     cfg = analysis.ClusteringConfig(method="leiden", resolution=1.0)
     assert cfg.method == "leiden"
 

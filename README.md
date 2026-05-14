@@ -8,6 +8,20 @@
 
 The toolkit's philosophy is to balance ease-of-use for standard workflows with deep customizability for advanced, exploratory research. It achieves this through a modular architecture, high-level workflow functions, and a unique, biology-aware marker management system.
 
+### 60-Second Quickstart
+
+From a Cell Ranger output to a clustered, annotated AnnData with a shareable HTML audit trail — four lines:
+
+```python
+import scLucid as scl
+
+adata = scl.read_10x("path/to/filtered_feature_bc_matrix/", species="human")
+adata = scl.run_pipeline(adata, dataset_type="pbmc_or_blood")
+scl.export_audit_report(adata, "report.html")
+```
+
+`scl.read_10x` handles both Cell Ranger directories and `.h5` files, copies the counts to `layers["counts"]` automatically, and attaches your dataset context (species / tissue / cancer type) so downstream stages pick it up without extra arguments. For an existing `.h5ad` file, use `scl.read_h5ad` instead.
+
 ### Project Status
 
 scLucid is in active development. The core package already has stable workflow
@@ -31,6 +45,7 @@ acceptance tests for biological plausibility and usability.
 * **📊 Publication-Quality Visualizations**: A rich plotting library to generate stunning and informative figures for every step of the analysis.
 * **🎨 Academic Journal Font Styles**: Pre-configured font styles for top journals - Nature (Arial), Cell (Helvetica), and Traditional (Times New Roman).
 * **🔄 Reproducible Science**: A configuration-driven approach using **Pydantic** ensures automatic validation, type safety, and reproducibility with JSON serialization.
+* **📝 Auditable Reports**: `scl.export_audit_report(adata, "report.html")` renders every recommendation rationale, applied threshold, configuration lineage, and contract validation result into one self-contained HTML page — review-ready out of the box.
 * **🔌 Extensible Plugin Architecture**: Abstract base classes and factory pattern allow you to create custom analysis plugins without modifying core code. See [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) for details.
 
 ### Choose Your Analysis Mode
@@ -41,14 +56,14 @@ scLucid offers **three user-facing layers** designed for different levels of con
 |-----------|-------------------|-------------|----------|
 | **One-line analysis** — load data and run the full pipeline | **Workflow** | `scl.run_pipeline()` | Beginners, standard projects, reproducible pipelines |
 | **Composable steps** — inspect or replace individual stages | **Simple API** | `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, etc. | Analysts who need parameter control |
-| **Full transparency** — every threshold, diagnostic, and override visible | **Advanced** | `notebooks/Step1-QC_and_Preprocessing.ipynb` | Real exploratory projects, review-grade audits |
+| **Full transparency** — every threshold, diagnostic, and override visible | **Advanced** | `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb` | Real exploratory projects, review-grade audits |
 
 > **💡 How to choose**: If you just want results, use **Workflow**. If you need to tweak parameters, use **Simple API**. If you are doing research where every decision must be auditable, use **Advanced**.
 
 **Examples for each layer:**
 - **Workflow**: `examples/01_workflow/basic_pipeline.py`
 - **Simple API**: `examples/02_simple_api/qc_step_by_step.py`
-- **Advanced**: `notebooks/Step1-QC_and_Preprocessing.ipynb`
+- **Advanced**: `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb` -> `Step1B-Preprocessing_Audit.ipynb` -> `Step2-Annotation_and_Malignancy.ipynb`
 
 ### Installation
 
@@ -104,23 +119,28 @@ The first real-data workflow gate is the PBMC golden path:
 Here is a minimal example of a complete workflow.
 
 ```python
-import scanpy as sc
 import scLucid as scl
 
-# --- 1. Load Data ---
-adata = sc.read_h5ad("data/pbmc3k.h5ad")
-adata.layers["counts"] = adata.X.copy()
+# --- 1. Load data (Cell Ranger dir, .h5, or .h5ad) ---
+adata = scl.read_10x(
+    "data/pbmc3k/filtered_feature_bc_matrix/",
+    species="human",
+    tissue="PBMC",
+)
 
 # --- 2. Run the supported core workflow ---
 adata_final = scl.run_pipeline(
     adata,
     stages=["qc", "preprocess", "analysis"],
     dataset_type="pbmc_or_blood",
-    species="human",
     show_progress=True,
 )
 
-# --- 3. Visualize Final Results ---
+# --- 3. Export an auditable HTML report ---
+# Every threshold, parameter source, and warning is rendered into one file.
+scl.export_audit_report(adata_final, "results/audit_report.html")
+
+# --- 4. Visualize Final Results ---
 # Set publication-ready font style for your target journal
 from scLucid import FONT_NATURE, FONT_CELL, FONT_TRADITIONAL
 scl.set_figure_params(dpi=300, font_style=FONT_NATURE)  # For Nature/Science
@@ -137,6 +157,7 @@ plt.savefig("results.pdf", dpi=600, bbox_inches="tight")
 For detailed tutorials, how-to guides, and the full API reference:
 
 * **Plugin Development**: [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) - Create custom analysis plugins
+* **R Parity Matrix**: [docs/source/r_parity.rst](docs/source/r_parity.rst) - What each R-package port (BayesPrism, Monocle3, CellChat, DWLS) covers vs the R original
 * **Naming Conventions**: [Naming Conventions](docs/NAMING_CONVENTIONS.md) - Code style guidelines
 * **Local Documentation Source**: [docs/source/](docs/source/) - Sphinx documentation sources for installation, quickstart, API references, and best practices
 * **Core Data Contracts**: [docs/source/data_contracts.rst](docs/source/data_contracts.rst) - Stable AnnData and review-summary conventions shared across workflow stages

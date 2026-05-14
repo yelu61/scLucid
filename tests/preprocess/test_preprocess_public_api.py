@@ -14,9 +14,6 @@ def test_preprocess_exports_resolve():
 
 @pytest.mark.unit
 def test_normalization_config_success_and_reserved_layer_validation():
-    if not hasattr(pp, "NormalizationConfig"):
-        pytest.skip("NormalizationConfig not available in current environment")
-
     cfg = pp.NormalizationConfig(target_sum=1e4, output_layer="normalized")
     assert cfg.target_sum == 1e4
 

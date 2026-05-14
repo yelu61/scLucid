@@ -28,12 +28,15 @@ ENV/
 
 # Test / coverage artifacts
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 .pytest_cache/
 .benchmarks/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
+pytestdebug.log
 
 # Test output directories (hardcoded paths in old tests)
 results/
@@ -50,10 +53,19 @@ from_json/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+**/.ipynb_checkpoints/
 
 # OS files
 .DS_Store
+**/.DS_Store
 
 # Validation / ad-hoc outputs
 validation_outputs/
 figures/
+
+# Documentation build artifacts
+docs/_build/
+docs/source/_build/
+
+# Local editor / tool caches
+.claude/

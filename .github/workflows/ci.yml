@@ -95,7 +95,7 @@ jobs:
       - name: Run smoke tests after fresh install
         run: |
           mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" "$JOBLIB_TEMP_FOLDER"
-          pytest -q tests/smoke
+          pytest --no-cov -q tests/smoke
 
       - name: Run tests with coverage
         run: |
@@ -141,7 +141,7 @@ jobs:
       - name: Run full pipeline smoke after fresh install
         run: |
           mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" "$JOBLIB_TEMP_FOLDER"
-          pytest -q tests/integration/test_full_pipeline.py tests/smoke
+          pytest --no-cov -q tests/integration/test_full_pipeline.py tests/smoke
 
       - name: Run integration tests
         run: |

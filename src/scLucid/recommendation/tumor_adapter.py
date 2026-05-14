@@ -93,6 +93,7 @@ def adapt_tumor_recommendation(
             confidence=malignancy_confidence,
             rationale="Malignancy scoring is recommended for tumor datasets with sufficient cells.",
             evidence={"n_cells": n_cells},
+            alternatives=[True, False],
         )
     )
 
@@ -121,6 +122,7 @@ def adapt_tumor_recommendation(
             confidence=tme_confidence,
             rationale="TME deconvolution is recommended when cell type annotations are available.",
             evidence={"n_cells": n_cells, "cell_type_key": cell_type_key},
+            alternatives=[True, False],
         )
     )
     if cell_type_key != config.tme_cell_type_key:
@@ -131,6 +133,7 @@ def adapt_tumor_recommendation(
                 method="fallback_annotation_key",
                 confidence=0.7,
                 rationale="Fallback cell type key selected for TME analysis.",
+                alternatives=[config.tme_cell_type_key, "cell_type", "cell_type_auto"],
             )
         )
 
@@ -164,6 +167,7 @@ def adapt_tumor_recommendation(
                 "has_cnv_score": has_cnv_score,
                 "infercnvpy_available": infercnvpy_available,
             },
+            alternatives=[True, False],
         )
     )
 
@@ -185,6 +189,7 @@ def adapt_tumor_recommendation(
             confidence=therapy_confidence,
             rationale="Therapy prediction is recommended when a specific cancer type is provided.",
             evidence={"cancer_type": cancer_type},
+            alternatives=[True, False],
         )
     )
 

@@ -158,6 +158,9 @@ from .validation import (
     validate_analysis_results,
     validate_config,
 )
+from .audit_report import export_audit_report
+from .helpers import read_10x
+from .io import read_h5ad
 
 # Import workflow utilities
 from .workflow_utils import (
@@ -303,6 +306,11 @@ __all__ = [
     "assert_qc_ready",
     "assert_preprocessing_ready",
     "assert_analysis_ready",
+    # Audit reporting
+    "export_audit_report",
+    # Data loading
+    "read_10x",
+    "read_h5ad",
     # Profiling utilities
     "PerformanceStats",
     "PerformanceProfiler",

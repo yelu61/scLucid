@@ -159,3 +159,59 @@ class TestAdaptTumorRecommendation:
         )
         assert section.name == "tumor"
         assert section.metadata["cancer_type"] == "pancreatic"
+
+
+class TestAlternativesPopulated:
+    """Every recommended tumor parameter should expose ``alternatives``.
+
+    The ``alternatives`` field is what tells users which other values the
+    recommender considered before settling on the recommended one. If we
+    leave it empty, downstream UIs (the audit report, plugin authors,
+    notebook reviewers) have no way to show the user the option space.
+    """
+
+    def test_all_tumor_params_have_alternatives(self, tumor_adata):
+        from scLucid.utils.context import AnalysisContext
+
+        ctx = AnalysisContext(dataset_type="tumor_tissue", tissue="pancreas")
+        section = adapt_tumor_recommendation(
+            tumor_adata,
+            config=TumorAnalysisConfig(),
+            context=ctx,
+            cancer_type="pancreatic",
+        )
+        # Each parameter should declare at least one alternative.
+        for param in section.parameters:
+            assert param.alternatives, (
+                f"Parameter {param.name!r} on tumor adapter has empty "
+                f"alternatives; users cannot see the option space."
+            )
+
+    def test_run_flags_alternatives_are_boolean(self, tumor_adata):
+        from scLucid.utils.context import AnalysisContext
+
+        ctx = AnalysisContext(dataset_type="tumor_tissue", tissue="pancreas")
+        section = adapt_tumor_recommendation(
+            tumor_adata,
+            config=TumorAnalysisConfig(),
+            context=ctx,
+            cancer_type="pancreatic",
+        )
+        for name in ("run_malignancy", "run_tme", "run_cnv", "run_therapy"):
+            param = section.get_parameter(name)
+            assert param is not None
+            assert set(param.alternatives) == {True, False}
+
+    def test_malignancy_method_alternatives_cover_documented_methods(self, tumor_adata):
+        from scLucid.utils.context import AnalysisContext
+
+        ctx = AnalysisContext(dataset_type="tumor_tissue", tissue="pancreas")
+        section = adapt_tumor_recommendation(
+            tumor_adata,
+            config=TumorAnalysisConfig(),
+            context=ctx,
+            cancer_type="pancreatic",
+        )
+        param = section.get_parameter("malignancy_method")
+        assert param is not None
+        assert set(param.alternatives) >= {"cnv", "threshold", "ml"}

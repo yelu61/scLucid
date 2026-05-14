@@ -159,6 +159,7 @@ class AnnotationMixin:
                 evidence={
                     "cluster_best_labels": annotation_evidence.get("cluster_best_labels", {}),
                 },
+                alternatives=["enrichment", "max_score", "combined"],
             ),
             ParameterRecommendation(
                 name="run_celltypist",
@@ -166,6 +167,7 @@ class AnnotationMixin:
                 method="dependency_and_evidence_check",
                 confidence=0.9 if (celltypist_available or existing_celltypist) else 0.6,
                 rationale="Whether CellTypist should be executed as part of annotation.",
+                alternatives=[True, False],
             ),
             ParameterRecommendation(
                 name="run_scoring",
@@ -173,6 +175,7 @@ class AnnotationMixin:
                 method="marker_support_assessment",
                 confidence=float(annotation_evidence["eligible_ratio"]),
                 rationale="Whether marker gene scoring should be part of the annotation workflow.",
+                alternatives=[True, False],
             ),
             ParameterRecommendation(
                 name="celltypist_model",

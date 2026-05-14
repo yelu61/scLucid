@@ -111,6 +111,9 @@ from .utils.validation import (
     assert_preprocessing_ready,
     assert_qc_ready,
 )
+from .utils.audit_report import export_audit_report
+from .utils.helpers import read_10x
+from .utils.io import read_h5ad
 
 
 def _stage_kwargs(prefix: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -480,6 +483,9 @@ __all__ = [
     "run_annotation",
     "characterize_clusters",
     "recommend_analysis_parameters",
+    "export_audit_report",
+    "read_10x",
+    "read_h5ad",
     "get_config",
     "set_config",
     "reset_config",

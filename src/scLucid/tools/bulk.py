@@ -1,12 +1,13 @@
 """
 Pure Python implementation of bulk RNA-seq deconvolution tools.
 
-This module provides R-free implementations of:
-- BayesPrism: Bayesian cell type proportion inference
-- DWLS: Dampened Weighted Least Squares deconvolution
-- Bisque: Marker-based deconvolution (simplified Python implementation)
+Provides a unified interface to two R-free deconvolution backends:
 
-All implementations use only Python/NumPy/SciPy/scikit-learn, no rpy2 required.
+- BayesPrism: Bayesian cell type proportion inference (Gibbs sampling).
+- DWLS: Dampened Weighted Least Squares deconvolution (Tsoucas et al., 2019).
+
+Both backends use only Python/NumPy/SciPy/scikit-learn and require no rpy2
+or R installation.
 """
 
 import logging
@@ -29,43 +30,52 @@ def deconvolve_bulk(
     bulk_data: pd.DataFrame,
     cell_type_key: str,
     sample_key: str = "sampleID",
-    method: Literal["DWLS", "BayesPrism", "Bisque", "NNLS"] = "BayesPrism",
+    method: Literal["BayesPrism", "DWLS"] = "BayesPrism",
     key_added: str = "bulk_deconvolution",
     **method_kwargs,
 ) -> AnnData:
     """
     Estimate cell type proportions in bulk RNA-seq data using pure Python.
 
-    This function provides a unified interface to multiple deconvolution methods,
-    all implemented in Python without R dependencies.
+    Parameters
+    ----------
+    adata_ref : AnnData
+        Single-cell reference data (cells x genes).
+    bulk_data : pd.DataFrame
+        Bulk RNA-seq data (genes x samples).
+    cell_type_key : str
+        Column in ``adata_ref.obs`` with cell type labels.
+    sample_key : str, default="sampleID"
+        Column in ``adata_ref.obs`` with sample IDs (used by BayesPrism).
+    method : {"BayesPrism", "DWLS"}, default="BayesPrism"
+        Deconvolution backend.
 
-    Args:
-        adata_ref: Single-cell reference data (genes x cells)
-        bulk_data: Bulk RNA-seq data (genes x samples)
-        cell_type_key: Column in adata_ref.obs with cell type labels
-        sample_key: Column in adata_ref.obs with sample IDs (for BayesPrism)
-        method: Deconvolution method to use:
-            - "BayesPrism": Bayesian inference with Gibbs sampling
-            - "DWLS": Dampened Weighted Least Squares
-            - "Bisque": Simplified marker-based approach
-            - "NNLS": Non-negative Least Squares (baseline)
-        key_added: Key for storing results in adata_ref.uns
-        **method_kwargs: Method-specific parameters
+        - ``"BayesPrism"``: Bayesian inference with Gibbs sampling.
+        - ``"DWLS"``: Dampened Weighted Least Squares per Tsoucas et al. 2019.
+    key_added : str, default="bulk_deconvolution"
+        Key under ``adata_ref.uns["sclucid"]["tools"]`` where results are stored.
+    **method_kwargs
+        Method-specific parameters. For DWLS: ``dampen_factor``, ``n_markers``,
+        ``min_cells``, ``method`` (signature aggregation). For BayesPrism:
+        ``n_iter``, ``n_chains``, ``burnin``.
 
     Returns:
-        adata_ref with deconvolution results in .uns['sclucid']['tools'][key_added]
+    -------
+    AnnData
+        ``adata_ref`` with deconvolution results stored under
+        ``.uns["sclucid"]["tools"][key_added]``.
 
-    Example:
-        >>> adata_ref = sc.read_h5ad("sc_reference.h5ad")
-        >>> bulk_data = pd.read_csv("bulk_rnaseq.csv", index_col=0)
-        >>> adata_ref = deconvolve_bulk(
-        ...     adata_ref, bulk_data,
-        ...     cell_type_key="cell_type",
-        ...     method="BayesPrism",
-        ...     n_iter=100
-        ... )
+    Examples:
+    --------
+    >>> adata_ref = sc.read_h5ad("sc_reference.h5ad")
+    >>> bulk_data = pd.read_csv("bulk_rnaseq.csv", index_col=0)
+    >>> adata_ref = deconvolve_bulk(
+    ...     adata_ref, bulk_data,
+    ...     cell_type_key="cell_type",
+    ...     method="DWLS",
+    ...     dampen_factor=1.0,
+    ... )
     """
-    # Find common genes
     common_genes = adata_ref.var_names.intersection(bulk_data.index)
     if len(common_genes) < 100:
         raise ValueError(
@@ -75,25 +85,22 @@ def deconvolve_bulk(
 
     log.info(f"Found {len(common_genes)} common genes for deconvolution.")
 
-    # Subset to common genes
     adata_ref_sub = adata_ref[:, common_genes].copy()
     bulk_data_sub = bulk_data.loc[common_genes]
 
-    # Method dispatch
     if method == "BayesPrism":
         proportions_df = _run_bayesprism(
             adata_ref_sub, bulk_data_sub, cell_type_key, sample_key, **method_kwargs
         )
     elif method == "DWLS":
-        proportions_df = _run_dwls(adata_ref_sub, bulk_data_sub, cell_type_key, **method_kwargs)
-    elif method == "Bisque":
-        proportions_df = _run_bisque(adata_ref_sub, bulk_data_sub, cell_type_key, **method_kwargs)
-    elif method == "NNLS":
-        proportions_df = _run_nnls(adata_ref_sub, bulk_data_sub, cell_type_key)
+        proportions_df = _run_dwls(
+            adata_ref_sub, bulk_data_sub, cell_type_key, **method_kwargs
+        )
     else:
-        raise ValueError(f"Unknown method: {method}")
+        raise ValueError(
+            f"Unknown method: {method!r}. Supported methods: 'BayesPrism', 'DWLS'."
+        )
 
-    # Store results
     adata_ref.uns.setdefault("sclucid", {}).setdefault("tools", {})
     adata_ref.uns["sclucid"]["tools"][key_added] = {
         "proportions": proportions_df,
@@ -105,7 +112,9 @@ def deconvolve_bulk(
         },
     }
 
-    log.info(f"Deconvolution complete. Results stored in .uns['sclucid']['tools']['{key_added}']")
+    log.info(
+        f"Deconvolution complete. Results stored in .uns['sclucid']['tools']['{key_added}']"
+    )
     return adata_ref
 
 
@@ -122,7 +131,6 @@ def _run_bayesprism(
     """Run BayesPrism deconvolution."""
     log.info(f"Running BayesPrism with {n_iter} iterations, {n_chains} chains...")
 
-    # Create reference
     reference = pd.DataFrame(
         adata_ref.X.T if hasattr(adata_ref.X, "toarray") else adata_ref.X.T,
         index=adata_ref.var_names,
@@ -131,24 +139,15 @@ def _run_bayesprism(
 
     cell_type_labels = adata_ref.obs[cell_type_key]
 
-    # Initialize BayesPrism
     prism_ref = BayesPrismReference(
         reference=reference, cell_type_labels=cell_type_labels, pseudo_min=1e-8
     )
 
-    # Run deconvolution for each bulk sample
     proportions = {}
-
     for sample_id in bulk_data.columns:
         bulk_expr = bulk_data[sample_id].values
-
-        # Initialize BayesPrism model
         config = PrismConfig(n_iter=n_iter, n_chains=n_chains, burnin=burnin, **kwargs)
-
-        # Run Gibbs sampling (simplified version)
-        # Note: Full implementation would use the complete BayesPrism class
         theta = _bayesprism_gibbs_sample(prism_ref.phi, bulk_expr, config)
-
         proportions[sample_id] = theta
 
     proportions_df = pd.DataFrame(proportions, index=prism_ref.cell_types).T
@@ -161,29 +160,22 @@ def _bayesprism_gibbs_sample(
     """Simplified Gibbs sampling for BayesPrism."""
     n_cell_types = phi.shape[1]
 
-    # Initialize with NNLS
     theta_init, _ = nnls(phi, bulk_expr)
     theta_init = theta_init / (theta_init.sum() + 1e-10)
 
-    # Simple MCMC (simplified for speed)
     theta_samples = []
     theta_curr = theta_init.copy()
 
     for i in range(config.n_iter + config.burnin):
-        # Gibbs update for each cell type proportion
         for k in range(n_cell_types):
-            # Sample from Dirichlet-like posterior
-            alpha = phi[:, k] @ bulk_expr + 1.0  # Prior + Likelihood
+            alpha = phi[:, k] @ bulk_expr + 1.0
             theta_curr[k] = np.random.gamma(alpha, 1.0)
 
-        # Normalize
         theta_curr = theta_curr / (theta_curr.sum() + 1e-10)
 
-        # Collect samples after burnin
         if i >= config.burnin:
             theta_samples.append(theta_curr.copy())
 
-    # Return mean of samples
     return np.mean(theta_samples, axis=0) if theta_samples else theta_init
 
 
@@ -191,116 +183,77 @@ def _run_dwls(
     adata_ref: AnnData,
     bulk_data: pd.DataFrame,
     cell_type_key: str,
-    dampening_factor: float = 0.1,
-    **kwargs,
-) -> pd.DataFrame:
-    """Run DWLS deconvolution."""
-    log.info("Running DWLS deconvolution...")
-
-    # Build signature matrix
-    signature_matrix = _build_signature_matrix(adata_ref, cell_type_key)
-
-    # Initialize DWLS
-    dwls = DWLS(signature_matrix=signature_matrix, bulk_data=bulk_data)
-
-    # Run deconvolution
-    proportions = {}
-
-    for sample_id in bulk_data.columns:
-        # Solve with dampening
-        theta = _dwls_solve(signature_matrix.values, bulk_data[sample_id].values, dampening_factor)
-        proportions[sample_id] = theta
-
-    proportions_df = pd.DataFrame(proportions, index=signature_matrix.columns).T
-    return proportions_df
-
-
-def _dwls_solve(signature: np.ndarray, bulk: np.ndarray, dampening: float) -> np.ndarray:
-    """Solve DWLS optimization problem."""
-    n_cell_types = signature.shape[1]
-
-    # Initial NNLS solution
-    theta, _ = nnls(signature, bulk)
-
-    # Dampening: downweight high-expression genes
-    for _ in range(10):  # Iterative refinement
-        # Calculate residuals
-        predicted = signature @ theta
-        residuals = np.abs(bulk - predicted)
-
-        # Dampening weights
-        weights = 1.0 / (1.0 + dampening * residuals)
-
-        # Weighted NNLS (approximated by scaling)
-        signature_weighted = signature * weights[:, np.newaxis]
-        bulk_weighted = bulk * weights
-
-        theta, _ = nnls(signature_weighted, bulk_weighted)
-
-        if theta.sum() == 0:
-            break
-
-    # Normalize to sum to 1
-    theta = theta / (theta.sum() + 1e-10)
-    return theta
-
-
-def _run_bisque(
-    adata_ref: AnnData,
-    bulk_data: pd.DataFrame,
-    cell_type_key: str,
-    marker_genes: Optional[list] = None,
+    dampen_factor: float = 1.0,
+    n_markers: Optional[int] = 50,
+    min_cells: int = 10,
+    signature_method: Literal["mean", "trimmed_mean"] = "mean",
     **kwargs,
 ) -> pd.DataFrame:
     """
-    Simplified Bisque-like deconvolution using marker genes.
+    Run DWLS deconvolution using the full ``scLucid.tools.pyDWLS.DWLS`` class.
 
-    This is a simplified implementation that uses marker gene expression
-    to estimate cell type proportions.
+    Parameters
+    ----------
+    adata_ref : AnnData
+        Single-cell reference, already restricted to genes shared with bulk.
+    bulk_data : pd.DataFrame
+        Bulk expression matrix (genes x samples).
+    cell_type_key : str
+        Column in ``adata_ref.obs`` with cell type labels.
+    dampen_factor : float, default=1.0
+        DWLS dampening factor; ``0`` reduces to ordinary NNLS.
+    n_markers : int or None, default=50
+        Markers per cell type to select. ``None`` skips marker selection and
+        uses all common genes for the signature.
+    min_cells : int, default=10
+        Minimum cells per cell type when building the signature.
+    signature_method : {"mean", "trimmed_mean"}, default="mean"
+        Aggregation method for the signature matrix.
+
+    Returns:
+    -------
+    pd.DataFrame
+        Cell-type proportions (samples x cell types), each row summing to 1.
     """
-    log.info("Running Bisque-like deconvolution...")
+    log.info("Running DWLS deconvolution via scLucid.tools.pyDWLS.DWLS")
 
-    cell_types = adata_ref.obs[cell_type_key].unique()
+    sc_expr = adata_ref.X
+    if hasattr(sc_expr, "toarray"):
+        sc_expr = sc_expr.toarray()
+    sc_data = pd.DataFrame(
+        sc_expr.T,
+        index=adata_ref.var_names,
+        columns=adata_ref.obs_names,
+    )
+    cell_type_labels = pd.Series(
+        adata_ref.obs[cell_type_key].values, index=adata_ref.obs_names
+    )
 
-    # Identify marker genes if not provided
-    if marker_genes is None:
-        marker_genes = _identify_markers(adata_ref, cell_type_key)
+    dwls = DWLS(dampen_factor=dampen_factor, use_nonneg=True)
 
-    # Subset to marker genes
-    available_markers = [g for g in marker_genes if g in adata_ref.var_names]
-    if len(available_markers) < 10:
-        raise ValueError(f"Only {len(available_markers)} marker genes found")
+    genes_to_use: Optional[list]
+    if n_markers is not None:
+        genes_to_use = dwls.select_marker_genes(
+            sc_data=sc_data,
+            cell_type_labels=cell_type_labels,
+            n_markers=n_markers,
+        )
+        log.info("DWLS selected %d marker genes", len(genes_to_use))
+    else:
+        genes_to_use = None
 
-    adata_marker = adata_ref[:, available_markers]
+    dwls.build_signature_matrix(
+        sc_data=sc_data,
+        cell_type_labels=cell_type_labels,
+        genes_to_use=genes_to_use,
+        method=signature_method,
+        min_cells=min_cells,
+    )
 
-    # Build signature from markers
-    signature = _build_signature_matrix(adata_marker, cell_type_key)
+    common_genes = dwls.signature_matrix.index.intersection(bulk_data.index)
+    bulk_aligned = bulk_data.loc[common_genes]
 
-    # Simple linear regression on markers
-    proportions = {}
-    for sample_id in bulk_data.columns:
-        bulk_marker = bulk_data.loc[available_markers, sample_id].values
-        theta, _ = nnls(signature.values, bulk_marker)
-        theta = theta / (theta.sum() + 1e-10)
-        proportions[sample_id] = theta
-
-    proportions_df = pd.DataFrame(proportions, index=cell_types).T
-    return proportions_df
-
-
-def _run_nnls(adata_ref: AnnData, bulk_data: pd.DataFrame, cell_type_key: str) -> pd.DataFrame:
-    """Baseline NNLS deconvolution."""
-    log.info("Running NNLS baseline deconvolution...")
-
-    signature = _build_signature_matrix(adata_ref, cell_type_key)
-
-    proportions = {}
-    for sample_id in bulk_data.columns:
-        theta, _ = nnls(signature.values, bulk_data[sample_id].values)
-        theta = theta / (theta.sum() + 1e-10)
-        proportions[sample_id] = theta
-
-    proportions_df = pd.DataFrame(proportions, index=signature.columns).T
+    proportions_df = dwls.deconvolve(bulk_aligned, verbose=False)
     return proportions_df
 
 
@@ -311,7 +264,6 @@ def _build_signature_matrix(adata_ref: AnnData, cell_type_key: str) -> pd.DataFr
     signatures = {}
     for ct in cell_types:
         mask = adata_ref.obs[cell_type_key] == ct
-        # Mean expression per cell type
         if hasattr(adata_ref.X, "toarray"):
             sig = np.array(adata_ref[mask].X.mean(axis=0)).flatten()
         else:
@@ -320,31 +272,6 @@ def _build_signature_matrix(adata_ref: AnnData, cell_type_key: str) -> pd.DataFr
 
     signature_df = pd.DataFrame(signatures, index=adata_ref.var_names)
     return signature_df
-
-
-def _identify_markers(adata_ref: AnnData, cell_type_key: str, n_markers: int = 50) -> list:
-    """Identify marker genes for each cell type."""
-    from scipy.stats import ttest_ind
-
-    cell_types = adata_ref.obs[cell_type_key].unique()
-    markers = []
-
-    for ct in cell_types:
-        mask = adata_ref.obs[cell_type_key] == ct
-
-        # t-test for each gene
-        pvals = []
-        for i in range(adata_ref.n_vars):
-            ct_expr = adata_ref[mask, i].X.flatten()
-            other_expr = adata_ref[~mask, i].X.flatten()
-            _, pval = ttest_ind(ct_expr, other_expr)
-            pvals.append(pval)
-
-        # Top markers for this cell type
-        top_idx = np.argsort(pvals)[:n_markers]
-        markers.extend(adata_ref.var_names[top_idx].tolist())
-
-    return list(set(markers))  # Remove duplicates
 
 
 def differential_abundance(
@@ -358,18 +285,24 @@ def differential_abundance(
     """
     Perform differential abundance analysis on deconvolution results.
 
-    Args:
-        proportions_df: DataFrame of cell type proportions (samples x cell_types)
-        metadata_df: DataFrame with clinical metadata (indexed by sample ID)
-        group_col: Column defining groups
-        group1: First group
-        group2: Second group
-        method: Statistical test
+    Parameters
+    ----------
+    proportions_df : pd.DataFrame
+        Cell type proportions (samples x cell_types).
+    metadata_df : pd.DataFrame
+        Clinical metadata indexed by sample ID.
+    group_col : str
+        Column in ``metadata_df`` defining groups.
+    group1, group2 : str
+        Group values to compare.
+    method : {"ttest", "wilcoxon"}, default="wilcoxon"
+        Statistical test.
 
     Returns:
-        DataFrame with differential abundance results
+    -------
+    pd.DataFrame
+        Per-cell-type test statistics, p-values, and abundance summaries.
     """
-    # Align data
     data = proportions_df.join(metadata_df, how="inner")
 
     group1_samples = data[data[group_col] == group1].index
@@ -410,16 +343,23 @@ def correlate_abundance_with_clinical(
     method: Literal["pearson", "spearman"] = "spearman",
 ) -> pd.DataFrame:
     """
-    Correlate cell type abundance with continuous clinical variable.
+    Correlate cell type abundance with a continuous clinical variable.
 
-    Args:
-        proportions_df: DataFrame of cell type proportions
-        metadata_df: DataFrame with clinical metadata
-        clinical_variable: Continuous variable to correlate
-        method: Correlation method
+    Parameters
+    ----------
+    proportions_df : pd.DataFrame
+        Cell type proportions (samples x cell_types).
+    metadata_df : pd.DataFrame
+        Clinical metadata indexed by sample ID.
+    clinical_variable : str
+        Continuous variable in ``metadata_df`` to correlate against.
+    method : {"pearson", "spearman"}, default="spearman"
+        Correlation method.
 
     Returns:
-        DataFrame with correlation results
+    -------
+    pd.DataFrame
+        Per-cell-type correlation coefficients and p-values.
     """
     data = proportions_df.join(metadata_df, how="inner")
 

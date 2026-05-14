@@ -1,7 +1,7 @@
 """
 Tests for R-free bulk deconvolution tools.
 
-Tests BayesPrism, DWLS, Bisque, and NNLS implementations.
+Tests BayesPrism and DWLS implementations.
 """
 
 import sys
@@ -12,12 +12,9 @@ import pytest
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
-try:
-    from scLucid.tools.bulk import deconvolve_bulk, differential_abundance
-    from scLucid.tools.pyBayesPrism import BayesPrismReference, PrismConfig
-    from scLucid.tools.pyDWLS import DWLS
-except Exception as exc:  # pragma: no cover - optional backend availability
-    pytest.skip(f"Skipping bulk deconvolution tests: {exc}", allow_module_level=True)
+from scLucid.tools.bulk import deconvolve_bulk, differential_abundance
+from scLucid.tools.pyBayesPrism import BayesPrismReference, PrismConfig
+from scLucid.tools.pyDWLS import DWLS
 
 from tests.fixtures.synthetic_data import generate_minimal_adata
 
@@ -65,9 +62,9 @@ def bulk_data(sc_reference):
 class TestBulkDeconvolution:
     """Test bulk deconvolution methods."""
 
-    def test_deconvolve_bulk_nnls(self, sc_reference, bulk_data):
-        """Test NNLS deconvolution."""
-        result = deconvolve_bulk(sc_reference, bulk_data, cell_type_key="cell_type", method="NNLS")
+    def test_deconvolve_bulk_dwls(self, sc_reference, bulk_data):
+        """Test DWLS deconvolution."""
+        result = deconvolve_bulk(sc_reference, bulk_data, cell_type_key="cell_type", method="DWLS")
 
         # Check results stored
         assert "bulk_deconvolution" in result.uns["sclucid"]["tools"]
@@ -76,24 +73,9 @@ class TestBulkDeconvolution:
         assert isinstance(props, pd.DataFrame)
         assert props.shape == (3, 3)  # 3 samples x 3 cell types
 
-    def test_deconvolve_bulk_dwls(self, sc_reference, bulk_data):
-        """Test DWLS deconvolution."""
-        result = deconvolve_bulk(sc_reference, bulk_data, cell_type_key="cell_type", method="DWLS")
-
-        props = result.uns["sclucid"]["tools"]["bulk_deconvolution"]["proportions"]
-
         # Check proportions sum to ~1
         row_sums = props.sum(axis=1)
         np.testing.assert_allclose(row_sums, 1.0, atol=0.1)
-
-    def test_deconvolve_bulk_bisque(self, sc_reference, bulk_data):
-        """Test Bisque-like deconvolution."""
-        result = deconvolve_bulk(
-            sc_reference, bulk_data, cell_type_key="cell_type", method="Bisque"
-        )
-
-        props = result.uns["sclucid"]["tools"]["bulk_deconvolution"]["proportions"]
-        assert props.shape[0] == 3  # 3 samples
 
     def test_deconvolve_bulk_bayesprism(self, sc_reference, bulk_data):
         """Test BayesPrism deconvolution."""
@@ -112,7 +94,7 @@ class TestBulkDeconvolution:
 
     def test_proportions_sum_to_one(self, sc_reference, bulk_data):
         """Test that proportions sum to approximately 1."""
-        result = deconvolve_bulk(sc_reference, bulk_data, cell_type_key="cell_type", method="NNLS")
+        result = deconvolve_bulk(sc_reference, bulk_data, cell_type_key="cell_type", method="DWLS")
 
         props = result.uns["sclucid"]["tools"]["bulk_deconvolution"]["proportions"]
 
