@@ -30,7 +30,7 @@ from ..utils import (
     validate_review_summary_schema,
 )
 from .annotation import run_annotation
-from .clustering import cluster_cells, find_resolution
+from .clustering import cluster_cells, run_clustering_review
 from .config import AnalysisWorkflowConfig
 from .differential_expression import characterize_clusters, find_markers
 from .scoring import score_by_gene_sets
@@ -407,8 +407,12 @@ def _build_analysis_review_summary(
 ) -> Dict[str, Any]:
     """Build a human-reviewable summary of the analysis run."""
     summary: Dict[str, Any] = {
+        "module": "analysis",
+        "workflow_name": "standard",
         "steps_executed": successful_steps,
         "cluster_key": cluster_key,
+        "warnings": [],
+        "artifacts": {},
     }
 
     # Clustering summary
@@ -420,6 +424,12 @@ def _build_analysis_review_summary(
             "resolution": round(config.clustering.resolution, 2) if config.clustering else None,
             "use_rep": config.clustering.use_rep if config.clustering else "unknown",
         }
+        clustering_ns = adata.uns.get("sclucid", {}).get("analysis", {}).get("clustering", {})
+        if "clustering_review_summary" in clustering_ns:
+            summary["clustering"]["review"] = clustering_ns["clustering_review_summary"]
+            summary["artifacts"][
+                "clustering_review"
+            ] = 'adata.uns["sclucid"]["analysis"]["clustering"]["clustering_review"]'
 
     # Marker summary
     if "markers" in successful_steps:
@@ -444,6 +454,20 @@ def _build_analysis_review_summary(
                 "n_cell_types": int(n_types),
                 "method": config.annotation.final_method if config.annotation else "unknown",
             }
+            annotation_ns = adata.uns.get("sclucid", {}).get("analysis", {}).get("annotation", {})
+            if "annotation_review_table" in annotation_ns:
+                review_df = annotation_ns["annotation_review_table"]
+                summary["annotation"]["review_table_rows"] = (
+                    int(review_df.shape[0]) if hasattr(review_df, "shape") else None
+                )
+                summary["artifacts"][
+                    "annotation_review_table"
+                ] = 'adata.uns["sclucid"]["analysis"]["annotation"]["annotation_review_table"]'
+            confidence_key = f"{annotation_key}_confidence"
+            if confidence_key in adata.obs.columns:
+                low_conf = pd.to_numeric(adata.obs[confidence_key], errors="coerce") < 0.5
+                if bool(low_conf.any()):
+                    summary["warnings"].append("low_confidence_annotation_cells_present")
 
     # Characterization summary
     if "characterization" in successful_steps:
@@ -517,10 +541,16 @@ def run_custom_analysis(
     for i, step in enumerate(step_iterator, 1):
         log.info(f"Step {i}/{len(steps)}: {step}")
 
-        if step == "resolution":
+        if step in {"resolution", "clustering_review"}:
             config = step_configs.get(step, {})
-            eval_df, recommended_res = find_resolution(adata, **config)
-            log.info(f"  Optimal resolution: {recommended_res}")
+            run_clustering_review(adata, **config)
+            summary = (
+                adata.uns.get("sclucid", {})
+                .get("analysis", {})
+                .get("clustering", {})
+                .get("clustering_review_summary", {})
+            )
+            log.info(f"  Recommended resolution: {summary.get('recommended_resolution')}")
 
         elif step == "clustering":
             from .config import ClusteringConfig

@@ -248,6 +248,8 @@ class AdapterMixin:
             if denom > 0 and pd.notna(row.get("marker_abundance")):
                 normalized = (row["marker_abundance"] - eval_df["marker_abundance"].min()) / denom
                 confidence_parts.append(float(np.clip(normalized, 0.0, 1.0)))
+        if pd.notna(row.get("interpretability_score")):
+            confidence_parts.append(float(np.clip(row["interpretability_score"], 0.0, 1.0)))
         confidence = float(np.mean(confidence_parts)) if confidence_parts else 0.5
 
         alternatives = (
@@ -263,9 +265,9 @@ class AdapterMixin:
                 value=float(recommended),
                 ci_lower=ci_lower,
                 ci_upper=ci_upper,
-                method="resolution_grid_search",
+                method="clustering_review",
                 confidence=confidence,
-                rationale="Best-scoring clustering resolution from grid search.",
+                rationale="Best-supported practical clustering resolution from review evidence.",
                 evidence=evidence,
                 alternatives=alternatives,
             ),
@@ -335,10 +337,12 @@ class AdapterMixin:
         batch_key: Optional[str],
     ) -> Dict[str, Any]:
         context = analysis_context.to_dict()
-        context.update({
-            "n_cells": int(adata.n_obs),
-            "n_genes": int(adata.n_vars),
-        })
+        context.update(
+            {
+                "n_cells": int(adata.n_obs),
+                "n_genes": int(adata.n_vars),
+            }
+        )
         if batch_key is not None and batch_key in adata.obs.columns:
             context["batch_key"] = batch_key
             context["n_batches"] = int(adata.obs[batch_key].nunique())

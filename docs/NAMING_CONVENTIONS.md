@@ -12,7 +12,7 @@
 |------|------|------|
 | `run_*` | 运行完整的工作流或分析流程 | `run_preprocessing()`, `run_annotation()`, `analyze_celltype_proportion()` |
 | `calculate_*` | 计算指标或分数 | `calculate_qc_metrics()`, `calculate_signature_matrix()` |
-| `find_*` | 查找或识别特征 | `find_markers()`, `find_hvgs()`, `find_resolution()` |
+| `find_*` | 查找或识别特征 | `find_markers()`, `find_hvgs()` |
 | `get_*` | 获取数据或配置 | `get_marker_manager()`, `get_summary()` |
 | `plot_*` | 绘制图表 | `plot_embedding()`, `plot_volcano()` |
 | `score_*` | 评分计算 | `score_cell_types()`, `score_by_gene_sets()` |
