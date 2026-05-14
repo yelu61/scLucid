@@ -165,6 +165,16 @@ class TestLin2020PDACAcceptance:
                 f"{stage} review summary JSON missing at {json_path}; "
                 "auditability promise broken."
             )
+        assert (output_dir / "validation" / "qc_preprocess_validation.json").exists()
+        assert (output_dir / "validation" / "qc_preprocess_validation_table.csv").exists()
+
+    def test_qc_preprocess_validation_ready_for_comparison(self, pdac_manifest):
+        """The lightweight scaffold should mark QC/preprocess as comparison-ready."""
+        manifest, _ = pdac_manifest
+        validation = manifest["validation"]
+        assert validation["ready_for_comparative_validation"] is True
+        assert validation["readiness_status"] == "ready_for_comparative_validation"
+        assert "does not claim scientific superiority" in validation["claim_boundary"]
 
     def test_final_h5ad_round_trips(self, pdac_manifest):
         """The saved .h5ad must reload without errors."""

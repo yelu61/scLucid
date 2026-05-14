@@ -132,6 +132,11 @@ Expected outputs include:
 
 - ``manifest.json`` with versions, shapes, runtime, contract validation, and
   artifact paths
+- ``validation/qc_preprocess_validation.json`` and
+  ``validation/qc_preprocess_validation_table.csv`` with lightweight
+  QC/preprocess maturity metrics. These artifacts mark runs as ready for later
+  comparative validation; they do not claim superiority over external
+  workflows.
 - ``pbmc3k_golden_final.h5ad`` with compact scLucid review summaries retained
   under ``adata.uns["sclucid"]``
 - QC, preprocessing, and analysis output directories

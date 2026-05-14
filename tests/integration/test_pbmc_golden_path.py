@@ -52,8 +52,12 @@ def test_pbmc_golden_path_subset_outputs(tmp_path):
     for stage in ["qc", "preprocess", "analysis"]:
         assert manifest["contracts"][stage]["valid"] is True
 
+    assert manifest["validation"]["ready_for_comparative_validation"] is True
+    assert "does not claim scientific superiority" in manifest["validation"]["claim_boundary"]
     assert (output_dir / "pbmc3k_golden_final.h5ad").exists()
     assert (output_dir / "manifest.json").exists()
+    assert (output_dir / "validation" / "qc_preprocess_validation.json").exists()
+    assert (output_dir / "validation" / "qc_preprocess_validation_table.csv").exists()
     assert (output_dir / "qc" / "qc_review_summary.json").exists()
     assert (output_dir / "preprocess" / "preprocess_review_summary.json").exists()
     assert (output_dir / "analysis" / "analysis_review_summary.json").exists()

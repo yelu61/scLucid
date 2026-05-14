@@ -161,6 +161,14 @@ from .validation import (
 from .audit_report import export_audit_report
 from .helpers import read_10x
 from .io import read_h5ad
+from .validation_scaffold import (
+    COMPARATIVE_READINESS_LABEL,
+    VALIDATION_SCAFFOLD_SCHEMA_VERSION,
+    VALIDATION_SCOPE,
+    build_qc_preprocess_validation,
+    validation_table_to_dataframe,
+    write_validation_outputs,
+)
 
 # Import workflow utilities
 from .workflow_utils import (
@@ -306,6 +314,12 @@ __all__ = [
     "assert_qc_ready",
     "assert_preprocessing_ready",
     "assert_analysis_ready",
+    "COMPARATIVE_READINESS_LABEL",
+    "VALIDATION_SCAFFOLD_SCHEMA_VERSION",
+    "VALIDATION_SCOPE",
+    "build_qc_preprocess_validation",
+    "validation_table_to_dataframe",
+    "write_validation_outputs",
     # Audit reporting
     "export_audit_report",
     # Data loading

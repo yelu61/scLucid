@@ -29,6 +29,7 @@ If you are new to scLucid, start with:
    best_practices
    workflow_hardening
    qc_preprocess_maturity
+   validation_scaffold
 
 Workflow Guides
 ---------------

@@ -66,3 +66,11 @@ Workflow Contracts
    :members:
    :undoc-members:
    :show-inheritance:
+
+Validation Scaffold
+-------------------
+
+.. automodule:: scLucid.utils.validation_scaffold
+   :members:
+   :undoc-members:
+   :show-inheritance:
