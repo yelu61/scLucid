@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 from anndata import AnnData
 
-from ...analysis.clustering import find_resolution
+from ...analysis.clustering import run_clustering_review
 from ...analysis.config import ResolutionSearchConfig
 from ...preprocess.intelligent import (
     IntelligentPreprocessConfig,
@@ -147,7 +147,8 @@ class RecommendationEngine(AnnotationMixin, AdapterMixin):
         qc_overrides = {
             key: value
             for key, value in qc_config.model_dump().items()
-            if key not in {"plot", "save_dir", "tissue_type", "sample_metadata", "verbose", "report"}
+            if key
+            not in {"plot", "save_dir", "tissue_type", "sample_metadata", "verbose", "report"}
         }
         return recommend_intelligent_qc(
             adata,
@@ -208,11 +209,20 @@ class RecommendationEngine(AnnotationMixin, AdapterMixin):
             }
         )
 
-        eval_df, recommended = find_resolution(
+        start, end, steps = resolution_config.resolution_range
+        eval_df = run_clustering_review(
             working,
-            config=resolution_config,
-            auto_select=True,
-            selection_strategy=self.config.clustering_selection_strategy,
+            resolutions=np.linspace(start, end, steps).tolist(),
+            method=resolution_config.method,
+            use_rep=resolution_config.use_rep,
+            sample_col=getattr(self.config, "sample_col", None),
+        )
+        recommended = (
+            working.uns.get("sclucid", {})
+            .get("analysis", {})
+            .get("clustering", {})
+            .get("clustering_review_summary", {})
+            .get("recommended_resolution")
         )
         return self._adapt_clustering_search(eval_df, recommended)
 

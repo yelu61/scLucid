@@ -15,12 +15,17 @@ import scanpy as sc
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.analysis.annotation import (
+    apply_final_annotation,
     annotate_clusters,
     build_annotation_review_table,
+    build_llm_annotation_bundle,
     filter_marker_table_for_annotation,
     flag_suspect_clusters,
+    merge_annotation_evidence,
+    run_marker_annotation_evidence,
     run_lineage_state_annotation,
     score_cell_types,
+    standardize_cluster_marker_table,
 )
 from scLucid.analysis.config import AnnotationConfig
 from scLucid.utils.manager import Manager
@@ -138,6 +143,76 @@ class TestAnnotation:
         assert filtered["names"].tolist() == ["LTB", "NKG7"]
         assert "annotation_noise_category" in filtered.columns
         assert filtered["is_annotation_informative"].all()
+
+    def test_annotation_evidence_chain_builds_and_applies_final_labels(
+        self, clustered_adata, tmp_path
+    ):
+        """Marker evidence, LLM bundle, evidence merge, and final application should compose."""
+        adata = clustered_adata.copy()
+        clusters = adata.obs["leiden_clusters"].astype(str)
+        cluster_codes = clusters.drop_duplicates().tolist()
+
+        marker_file = _write_marker_toml(
+            tmp_path / "markers_evidence.toml",
+            ["LTB", "IL7R"],
+            ["NKG7", "CCL5"],
+        )
+        markers_df = pd.DataFrame(
+            {
+                "group": [
+                    cluster_codes[0],
+                    cluster_codes[0],
+                    cluster_codes[0],
+                    cluster_codes[1],
+                    cluster_codes[1],
+                ],
+                "names": ["LTB", "IL7R", "RPL13A", "NKG7", "CCL5"],
+                "scores": [8.0, 7.0, 6.0, 8.0, 7.0],
+                "logfoldchanges": [2.5, 2.0, 4.0, 3.0, 2.5],
+                "pvals_adj": [0.001, 0.002, 0.003, 0.001, 0.002],
+            }
+        )
+
+        marker_table = standardize_cluster_marker_table(markers_df, keep_top_n_per_cluster=3)
+        assert {"cluster", "gene", "marker_rank", "noise_category"}.issubset(marker_table.columns)
+        assert (
+            marker_table.loc[marker_table["gene"] == "RPL13A", "noise_category"].iloc[0]
+            == "ribosomal"
+        )
+
+        marker_evidence = run_marker_annotation_evidence(
+            adata,
+            "leiden_clusters",
+            marker_file,
+            markers_df=markers_df,
+            top_n_markers=3,
+        )
+        assert {"cluster", "marker_label", "marker_confidence"}.issubset(marker_evidence.columns)
+
+        bundle = build_llm_annotation_bundle(
+            adata,
+            "leiden_clusters",
+            markers_df=markers_df,
+            marker_evidence=marker_evidence,
+        )
+        assert bundle["schema_version"] == "analysis_annotation_bundle_v1"
+        assert cluster_codes[0] in bundle["clusters"]
+
+        llm_annotations = {
+            cluster_codes[0]: {"llm_label": "Type_A", "llm_confidence": 0.8},
+            cluster_codes[1]: {"llm_label": "Type_B", "llm_confidence": 0.8},
+        }
+        review = merge_annotation_evidence(
+            adata,
+            "leiden_clusters",
+            marker_evidence=marker_evidence,
+            llm_annotations=llm_annotations,
+        )
+        assert {"final_label", "annotation_confidence", "needs_review"}.issubset(review.columns)
+
+        result = apply_final_annotation(adata, "leiden_clusters", review)
+        assert "cell_type_final" in result.obs.columns
+        assert "cell_type_final_confidence" in result.obs.columns
 
     def test_flag_suspect_clusters_identifies_ribosomal_and_doublet_clusters(self, clustered_adata):
         """Cluster-level suspect flags should capture ribosomal dominance and doublet-heavy clusters."""

@@ -1,7 +1,7 @@
 """
 Tests for the analysis clustering module.
 
-Tests clustering, resolution optimization, and cluster merging.
+Tests clustering, practical resolution review, and cluster merging.
 """
 
 import sys
@@ -11,8 +11,12 @@ import scanpy as sc
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
-from scLucid.analysis.clustering import cluster_cells, find_resolution, merge_clusters
-from scLucid.analysis.config import ClusteringConfig, MergeClustersConfig, ResolutionSearchConfig
+from scLucid.analysis.clustering import (
+    cluster_cells,
+    merge_clusters,
+    run_clustering_review,
+)
+from scLucid.analysis.config import ClusteringConfig, MergeClustersConfig
 
 
 @pytest.fixture
@@ -91,44 +95,21 @@ class TestClustering:
         # Higher resolution should give more clusters
         assert n_high >= n_low
 
-
-@pytest.mark.integration
-class TestResolutionSearch:
-    """Test resolution optimization."""
-
-    def test_resolution_search_runs(self, preprocessed_adata):
-        """Test that resolution search runs without errors."""
-        config = ResolutionSearchConfig(
-            resolution_range=(0.2, 1.0, 5),
-            compute_silhouette=True,
-            compute_marker_abundance=False,
-            compute_stability=False,
-            plot=False,
+    def test_run_clustering_review_stores_practical_evidence(self, preprocessed_adata):
+        """Practical resolution review should summarize candidates and store artifacts."""
+        review = run_clustering_review(
+            preprocessed_adata,
+            resolutions=[0.5, 0.8],
+            n_top_markers=5,
+            min_cluster_cells=2,
         )
 
-        result_df, _ = find_resolution(preprocessed_adata, config=config)
-
-        # Check result structure
-        assert "resolution" in result_df.columns
-        assert "n_clusters" in result_df.columns
-        assert len(result_df) == 5  # 5 points in range
-
-    def test_resolution_search_metrics(self, preprocessed_adata):
-        """Test that resolution search computes all requested metrics."""
-        config = ResolutionSearchConfig(
-            resolution_range=(0.2, 1.0, 5),
-            compute_silhouette=True,
-            compute_marker_abundance=False,
-            compute_stability=True,
-            plot=False,
+        assert {"resolution", "cluster_key", "n_clusters", "interpretability_score"}.issubset(
+            review.columns
         )
-
-        result_df, _ = find_resolution(preprocessed_adata, config=config)
-
-        if config.compute_silhouette:
-            assert "silhouette" in result_df.columns
-        if config.compute_stability:
-            assert "stability" in result_df.columns
+        clustering_ns = preprocessed_adata.uns["sclucid"]["analysis"]["clustering"]
+        assert "clustering_review_summary" in clustering_ns
+        assert clustering_ns["clustering_review_summary"]["recommended_resolution"] in [0.5, 0.8]
 
 
 @pytest.mark.integration

@@ -46,7 +46,7 @@ _export(
         "AnalysisWorkflowConfig",
     ],
 )
-_export("clustering", ["find_resolution", "cluster_cells", "merge_clusters"])
+_export("clustering", ["run_clustering_review", "cluster_cells", "merge_clusters"])
 _export(
     "annotation",
     [
@@ -56,6 +56,11 @@ _export(
         "transfer_labels",
         "evaluate_annotation",
         "summarize_annotation_evidence",
+        "standardize_cluster_marker_table",
+        "run_marker_annotation_evidence",
+        "build_llm_annotation_bundle",
+        "merge_annotation_evidence",
+        "apply_final_annotation",
         "run_lineage_state_annotation",
         "filter_marker_table_for_annotation",
         "flag_suspect_clusters",

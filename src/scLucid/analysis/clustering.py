@@ -3,416 +3,346 @@ Clustering functions for single-cell RNA-seq analysis.
 
 This module provides:
 - Unsupervised clustering (Leiden, Louvain, K-means, HDBSCAN)
-- Resolution optimization providing comprehensive metrics to guide user choice.
+- Practical resolution review with marker and composition evidence.
 - Cluster merging based on marker overlap or expression correlation.
 - Standardized config dataclasses, logging, and results traceability.
 """
 
 import logging
+from importlib.metadata import version
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import seaborn as sns
 from anndata import AnnData
-from sklearn import metrics
 
 from ..base_config import apply_config_overrides
 from ..utils import sanitize_for_hdf5
-from .config import ClusteringConfig, MergeClustersConfig, ResolutionSearchConfig
-from importlib.metadata import PackageNotFoundError, version
+from .config import ClusteringConfig, MergeClustersConfig
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "find_resolution",
+    "run_clustering_review",
     "cluster_cells",
     "merge_clusters",
 ]
 
 
+_CLUSTERING_NOISE_EXACT_GENES = {
+    "MALAT1": "housekeeping",
+    "NEAT1": "housekeeping",
+    "XIST": "housekeeping",
+}
+
+_CLUSTERING_NOISE_PREFIXES = {
+    "ribosomal": ("RPL", "RPS", "MRPL", "MRPS"),
+    "mitochondrial": ("MT-",),
+    "stress": ("HSP", "HSPA", "HSPB", "DNAJ", "FOS", "JUN", "ATF3", "IER", "DDIT3"),
+}
+
+
+def _classify_marker_noise(gene: Any) -> Optional[str]:
+    """Classify common low-information marker genes for clustering review."""
+    if pd.isna(gene):
+        return None
+    gene_upper = str(gene).upper()
+    if gene_upper in _CLUSTERING_NOISE_EXACT_GENES:
+        return _CLUSTERING_NOISE_EXACT_GENES[gene_upper]
+    for category, prefixes in _CLUSTERING_NOISE_PREFIXES.items():
+        if any(gene_upper.startswith(prefix) for prefix in prefixes):
+            return category
+    return None
+
+
+def _format_top_distribution(values: pd.Series, n: int = 3) -> str:
+    """Return a compact top-category distribution string."""
+    if values.empty:
+        return ""
+    counts = values.astype(str).value_counts(normalize=True).head(n)
+    return ", ".join(f"{name}:{frac:.2f}" for name, frac in counts.items())
+
+
 # ====================== Clustering Evaluation Helpers ======================
-def _auto_select_resolution(
-    eval_df: pd.DataFrame,
-    strategy: str = "balanced",
-) -> float:
-    """
-    Automatically select the best resolution based on computed metrics.
-
-    Strategies:
-    1. 'elbow': Find elbow point in n_clusters vs resolution curve
-    2. 'peak': Maximum marker abundance
-    3. 'balanced': Composite score balancing all metrics
-    """
-    if strategy == "elbow":
-        # Detect elbow using kneedle algorithm
-        from kneed import KneeLocator
-
-        kn = KneeLocator(
-            eval_df["resolution"], eval_df["n_clusters"], curve="convex", direction="increasing"
-        )
-        return kn.elbow if kn.elbow is not None else eval_df["resolution"].median()
-
-    elif strategy == "peak":
-        # Simply pick max marker abundance
-        if "marker_abundance" in eval_df.columns:
-            idx = eval_df["marker_abundance"].idxmax()
-            return eval_df.loc[idx, "resolution"]
-        else:
-            return eval_df["resolution"].median()
-
-    elif strategy == "balanced":
-        # Composite score: normalize each metric and compute weighted sum
-        score = pd.Series(0.0, index=eval_df.index)
-
-        # Normalize each metric to [0, 1]
-        if "silhouette" in eval_df.columns:
-            sil_norm = (eval_df["silhouette"] - eval_df["silhouette"].min()) / (
-                eval_df["silhouette"].max() - eval_df["silhouette"].min() + 1e-8
-            )
-            score += 0.3 * sil_norm
-
-        if "marker_abundance" in eval_df.columns:
-            ma_norm = (eval_df["marker_abundance"] - eval_df["marker_abundance"].min()) / (
-                eval_df["marker_abundance"].max() - eval_df["marker_abundance"].min() + 1e-8
-            )
-            score += 0.5 * ma_norm  # Higher weight for biological signal
-
-        if "stability" in eval_df.columns:
-            # Penalize low stability
-            stab_norm = (eval_df["stability"] - eval_df["stability"].min()) / (
-                eval_df["stability"].max() - eval_df["stability"].min() + 1e-8
-            )
-            score += 0.2 * stab_norm
-
-        # Pick resolution with max composite score
-        idx = score.idxmax()
-        return eval_df.loc[idx, "resolution"]
-
-    else:
-        raise ValueError(
-            f"[analysis] Unknown selection strategy '{strategy}'. "
-            "Expected one of: elbow, peak, balanced."
-        )
-
-
-def _get_marker_abundance(
-    adata: AnnData, cluster_key: str, de_method: str, min_log2fc: float, min_pct: float
-) -> float:
-    """
-    Calculate the average number of significant markers per cluster.
-    A higher number suggests better biological separability.
-
-    Notes:
-    - Uses a temporary rank_genes_groups key to avoid interfering with user's results.
-    - Interprets pct columns in their native scale (expects 0–1 fraction here).
-    """
-    try:
-        rank_key = f"rank_genes_{cluster_key}_temp"
-        sc.tl.rank_genes_groups(
-            adata,
-            groupby=cluster_key,
-            method=de_method,
-            key_added=rank_key,
-            n_genes=100,  # enough to judge presence
-            pts=True,
-            use_raw=True,
-        )
-
-        markers_df = sc.get.rank_genes_groups_df(adata, key=rank_key, group=None)
-        # Harmonize pct column if needed
-        if "pct_nz_group" not in markers_df.columns and "pct_nz" in markers_df.columns:
-            markers_df = markers_df.rename(columns={"pct_nz": "pct_nz_group"})
-
-        sig_markers = markers_df[
-            (markers_df.get("logfoldchanges", 0) > float(min_log2fc))
-            & (markers_df.get("pvals_adj", 1.0) < 0.05)
-            & (markers_df.get("pct_nz_group", 0) > float(min_pct))
-        ]
-
-        # Average marker count per cluster (fill missing with 0)
-        if cluster_key not in adata.obs.columns or not pd.api.types.is_categorical_dtype(
-            adata.obs[cluster_key]
-        ):
-            # ensure categorical for stable category order
-            adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
-
-        marker_counts = (
-            sig_markers.groupby("group").size() if not sig_markers.empty else pd.Series(dtype=int)
-        )
-        avg_markers = (
-            marker_counts.reindex(adata.obs[cluster_key].cat.categories, fill_value=0).mean()
-            if len(adata.obs[cluster_key].cat.categories) > 0
-            else 0.0
-        )
-
-        # Cleanup temporary results
-        if rank_key in adata.uns:
-            del adata.uns[rank_key]
-
-        return float(avg_markers)
-
-    except Exception as e:
-        log.warning(f"Could not compute marker abundance for '{cluster_key}': {e}")
-        # Cleanup best effort
-        try:
-            if rank_key in adata.uns:
-                del adata.uns[rank_key]
-        except Exception:
-            pass
-        return 0.0
-
-
-def _get_clustering_stability(adata: AnnData, key1: str, key2: str) -> float:
-    """
-    Calculate stability between two clustering results using Normalized Mutual Information (NMI).
-    """
-    if key1 not in adata.obs or key2 not in adata.obs:
-        return np.nan
-    labels1 = adata.obs[key1]
-    labels2 = adata.obs[key2]
-    try:
-        return metrics.normalized_mutual_info_score(labels1, labels2, average_method="arithmetic")
-    except Exception:
-        return np.nan
-
-
-def _print_resolution_guidance(eval_df: pd.DataFrame) -> None:
-    """
-    Print guidance based on peak silhouette and marker abundance.
-    """
-    if eval_df.empty:
-        return
-    # Guard against columns missing
-    if "silhouette" in eval_df.columns and not eval_df["silhouette"].isna().all():
-        best_silhouette = eval_df.loc[eval_df["silhouette"].idxmax()]
-        log.info("--- Resolution Selection Guidance ---")
-        log.info(
-            f"Peak silhouette at resolution {best_silhouette['resolution']:.2f} "
-            f"({int(best_silhouette['n_clusters'])} clusters): better separation."
-        )
-    if "marker_abundance" in eval_df.columns and not eval_df["marker_abundance"].isna().all():
-        best_markers = eval_df.loc[eval_df["marker_abundance"].idxmax()]
-        log.info(
-            f"Peak marker abundance at resolution {best_markers['resolution']:.2f} "
-            f"({int(best_markers['n_clusters'])} clusters): higher biological separability."
-        )
-    log.info(
-        "Suggestion: Choose a resolution around an 'elbow/plateau' where marker abundance is high, "
-        "the silhouette is reasonable, and stability does not drop abruptly."
-    )
-
-
-# ====================== Main Functions ======================
-
-
-def find_resolution(
+def run_clustering_review(
     adata: AnnData,
-    config: Optional[ResolutionSearchConfig] = None,
-    auto_select: bool = True,
-    selection_strategy: Literal["elbow", "peak", "balanced"] = "balanced",
-    **kwargs,
+    resolutions: Optional[Sequence[float]] = None,
+    *,
+    method: Literal["leiden", "louvain"] = "leiden",
+    use_rep: str = "X_pca",
+    key_prefix: Optional[str] = None,
+    random_state: int = 42,
+    de_method: str = "wilcoxon",
+    use_raw: bool = True,
+    n_top_markers: int = 15,
+    min_cluster_fraction: float = 0.005,
+    min_cluster_cells: int = 20,
+    min_informative_markers: int = 3,
+    marker_quality_weight: float = 0.55,
+    size_balance_weight: float = 0.25,
+    sample_mixing_weight: float = 0.20,
+    sample_col: Optional[str] = None,
+    batch_col: Optional[str] = None,
+    copy: bool = False,
 ) -> pd.DataFrame:
     """
-    Grid search clustering resolutions and provide comprehensive metrics to guide selection.
+    Review practical clustering resolutions with marker and composition evidence.
 
-    Enhancements:
-    - Robust neighbors pre-check and informative logging.
-    - Silhouette computation with sampling and exception safety.
-    - Marker abundance calculation guarded against missing columns and empty DE results.
-    - Stable plotting even when some metrics are missing.
-    - Full trace saved under .uns['sclucid']['analysis']['clustering']['resolution_search'].
-
-    Args:
-        auto_select: If True, automatically recommend a resolution
-        selection_strategy: How to pick the best resolution:
-            - 'elbow': Elbow point in n_clusters curve
-            - 'peak': Maximum marker abundance
-            - 'balanced': Balance between silhouette, markers, and stability
-
-    Returns:
-        Tuple of (evaluation DataFrame, recommended resolution or None)
+    This lightweight path is intended for day-to-day annotation work. It does
+    not claim a mathematically optimal resolution; it summarizes whether each
+    candidate resolution yields interpretable clusters.
     """
-    if config is None:
-        active_config = ResolutionSearchConfig()
-    else:
-        active_config = apply_config_overrides(config, **kwargs)
-
-    start, end, steps = active_config.resolution_range
-    resolutions = np.linspace(start, end, steps).tolist()
-    method = active_config.method
-    use_rep = active_config.use_rep
-
-    # Check use_rep availability
+    if copy:
+        adata = adata.copy()
+    if resolutions is None:
+        if adata.n_obs < 5_000:
+            resolutions = [0.3, 0.5, 0.8]
+        elif adata.n_obs < 50_000:
+            resolutions = [0.5, 0.6, 0.8, 1.0]
+        else:
+            resolutions = [0.6, 0.8, 1.0, 1.2]
+    resolutions = [float(r) for r in resolutions]
+    if not resolutions:
+        raise ValueError("resolutions must contain at least one value.")
     if use_rep not in adata.obsm:
         raise ValueError(
             f"Representation '{use_rep}' not found in adata.obsm. "
             "Please compute PCA or the selected embedding first."
         )
-
-    # Ensure neighbors graph exists
     if "neighbors" not in adata.uns:
         log.info(f"Neighbors graph not found. Computing neighbors on '{use_rep}'.")
-        sc.pp.neighbors(adata, use_rep=use_rep)
+        sc.pp.neighbors(adata, use_rep=use_rep, random_state=random_state)
 
-    eval_results = []
-    previous_key = None
+    key_prefix = key_prefix or f"{method}_review"
+    review_rows: List[Dict[str, Any]] = []
+    cluster_rows: List[Dict[str, Any]] = []
+    marker_frames: List[pd.DataFrame] = []
 
-    log.info(f"Searching clustering resolution in [{start:.2f}, {end:.2f}] with {steps} steps...")
-    for res in resolutions:
-        current_key = f"{method}_res_{res:.3f}"
-        log.info(f"Testing resolution: {res:.3f}")
+    for resolution in resolutions:
+        cluster_key = f"{key_prefix}_{resolution:g}"
+        log.info(f"Reviewing {method} resolution {resolution:g} -> obs['{cluster_key}']")
+        if method == "leiden":
+            sc.tl.leiden(
+                adata,
+                resolution=resolution,
+                key_added=cluster_key,
+                random_state=random_state,
+            )
+        elif method == "louvain":
+            sc.tl.louvain(
+                adata,
+                resolution=resolution,
+                key_added=cluster_key,
+                random_state=random_state,
+            )
+        else:
+            raise ValueError("method must be 'leiden' or 'louvain'.")
 
-        # Clustering at this resolution
+        if not pd.api.types.is_categorical_dtype(adata.obs[cluster_key]):
+            adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
+
+        cluster_series = adata.obs[cluster_key].astype(str)
+        counts = cluster_series.value_counts()
+        n_clusters = int(counts.shape[0])
+        small_threshold = max(
+            int(min_cluster_cells), int(np.ceil(min_cluster_fraction * adata.n_obs))
+        )
+        n_small_clusters = int((counts < small_threshold).sum())
+        min_cluster_size = int(counts.min()) if not counts.empty else 0
+        median_cluster_size = float(counts.median()) if not counts.empty else 0.0
+
+        rank_key = f"rank_genes_{cluster_key}"
+        markers_df = pd.DataFrame()
         try:
-            if method == "leiden":
-                sc.tl.leiden(adata, resolution=float(res), key_added=current_key)
+            sc.tl.rank_genes_groups(
+                adata,
+                groupby=cluster_key,
+                method=de_method,
+                use_raw=use_raw and adata.raw is not None,
+                pts=True,
+                key_added=rank_key,
+            )
+            markers_df = sc.get.rank_genes_groups_df(adata, key=rank_key, group=None)
+            if not markers_df.empty:
+                markers_df["resolution"] = resolution
+                markers_df["cluster_key"] = cluster_key
+                markers_df["noise_category"] = markers_df["names"].map(_classify_marker_noise)
+                marker_frames.append(markers_df)
+        except Exception as exc:
+            log.warning(f"Marker review failed for resolution {resolution:g}: {exc}")
+
+        marker_quality_scores: List[float] = []
+        noise_fractions: List[float] = []
+        informative_counts: List[int] = []
+        sample_dominance: List[float] = []
+        batch_dominance: List[float] = []
+
+        for cluster, n_cells in counts.items():
+            if not markers_df.empty and "group" in markers_df.columns:
+                cluster_marker_df = markers_df[
+                    markers_df["group"].astype(str).to_numpy() == str(cluster)
+                ].copy()
             else:
-                sc.tl.louvain(adata, resolution=float(res), key_added=current_key)
-        except Exception as e:
-            log.error(f"Clustering failed at resolution {res:.3f}: {e}")
-            eval_results.append({"resolution": res, "n_clusters": np.nan})
-            previous_key = None
-            continue
+                cluster_marker_df = pd.DataFrame()
+            if not cluster_marker_df.empty and "scores" in cluster_marker_df.columns:
+                cluster_marker_df = cluster_marker_df.sort_values("scores", ascending=False)
+            top_markers = cluster_marker_df.head(n_top_markers)
+            noise_fraction = (
+                float(top_markers["noise_category"].notna().mean())
+                if "noise_category" in top_markers.columns and not top_markers.empty
+                else np.nan
+            )
+            informative_count = (
+                int(top_markers["noise_category"].isna().sum())
+                if "noise_category" in top_markers.columns and not top_markers.empty
+                else 0
+            )
+            informative_counts.append(informative_count)
+            if pd.notna(noise_fraction):
+                noise_fractions.append(float(noise_fraction))
+            marker_quality = min(1.0, informative_count / max(1, min_informative_markers))
+            marker_quality_scores.append(marker_quality)
 
-        # Ensure categorical for consistency
-        if not pd.api.types.is_categorical_dtype(adata.obs[current_key]):
-            adata.obs[current_key] = adata.obs[current_key].astype("category")
+            mask = cluster_series == str(cluster)
+            obs_subset = adata.obs.loc[mask]
+            sample_top = ""
+            batch_top = ""
+            sample_dom = np.nan
+            batch_dom = np.nan
+            if sample_col and sample_col in obs_subset.columns:
+                sample_counts = obs_subset[sample_col].astype(str).value_counts(normalize=True)
+                sample_dom = float(sample_counts.iloc[0]) if not sample_counts.empty else np.nan
+                sample_dominance.append(sample_dom)
+                sample_top = _format_top_distribution(obs_subset[sample_col])
+            if batch_col and batch_col in obs_subset.columns:
+                batch_counts = obs_subset[batch_col].astype(str).value_counts(normalize=True)
+                batch_dom = float(batch_counts.iloc[0]) if not batch_counts.empty else np.nan
+                batch_dominance.append(batch_dom)
+                batch_top = _format_top_distribution(obs_subset[batch_col])
 
-        n_clusters = int(adata.obs[current_key].nunique())
-        result = {"resolution": res, "n_clusters": n_clusters}
+            cluster_rows.append(
+                {
+                    "resolution": resolution,
+                    "cluster_key": cluster_key,
+                    "cluster": str(cluster),
+                    "n_cells": int(n_cells),
+                    "pct_cells": float(n_cells / max(1, adata.n_obs)),
+                    "n_informative_top_markers": informative_count,
+                    "noise_marker_fraction": noise_fraction,
+                    "top_markers": ", ".join(
+                        top_markers.get("names", pd.Series(dtype=str)).astype(str).head(8)
+                    ),
+                    "top_samples": sample_top,
+                    "top_batches": batch_top,
+                    "sample_dominance": sample_dom,
+                    "batch_dominance": batch_dom,
+                }
+            )
 
-        # Silhouette score with optional sampling
-        if active_config.compute_silhouette:
-            try:
-                from sklearn.metrics import silhouette_score
+        mean_marker_quality = (
+            float(np.mean(marker_quality_scores)) if marker_quality_scores else 0.0
+        )
+        mean_noise_fraction = float(np.nanmean(noise_fractions)) if noise_fractions else np.nan
+        marker_poor_fraction = (
+            float(np.mean([x < min_informative_markers for x in informative_counts]))
+            if informative_counts
+            else np.nan
+        )
+        small_cluster_fraction = float(n_small_clusters / max(1, n_clusters))
+        size_balance_score = float(np.clip(1.0 - small_cluster_fraction, 0.0, 1.0))
 
-                labels = adata.obs[current_key].cat.codes.values
-                X = adata.obsm[use_rep]
-                max_cells = min(20000, adata.n_obs)
-                if adata.n_obs > max_cells:
-                    rng = np.random.RandomState(42)
-                    idx = rng.choice(adata.n_obs, size=max_cells, replace=False)
-                    sil = silhouette_score(X[idx], labels[idx], sample_size=None)
-                else:
-                    sil = silhouette_score(X, labels, sample_size=None)
-                result["silhouette"] = float(sil)
-            except Exception as e:
-                log.warning(f"Silhouette failed at resolution {res:.3f}: {e}")
-                result["silhouette"] = np.nan
+        sample_mixing_score = 1.0
+        if sample_dominance:
+            sample_mixing_score = float(np.clip(1.0 - np.nanmean(sample_dominance), 0.0, 1.0))
+        batch_mixing_score = np.nan
+        if batch_dominance:
+            batch_mixing_score = float(np.clip(1.0 - np.nanmean(batch_dominance), 0.0, 1.0))
 
-        # Marker abundance (fix: use min_pct_for_markers from config)
-        if active_config.compute_marker_abundance:
-            try:
-                min_pct = float(getattr(active_config, "min_pct_for_markers", 0.25))
-                score = _get_marker_abundance(
-                    adata=adata,
-                    cluster_key=current_key,
-                    de_method=active_config.de_method_for_markers,
-                    min_log2fc=float(active_config.min_log2fc_for_markers),
-                    min_pct=min_pct,
-                )
-            except Exception as e:
-                log.warning(f"Marker abundance metric failed at {res:.3f}: {e}")
-                score = np.nan
-            result["marker_abundance"] = float(score) if score is not None else np.nan
+        interpretability_score = (
+            marker_quality_weight * mean_marker_quality
+            + size_balance_weight * size_balance_score
+            + sample_mixing_weight * sample_mixing_score
+        )
+        warnings: List[str] = []
+        if n_small_clusters:
+            warnings.append("small_clusters")
+        if pd.notna(marker_poor_fraction) and marker_poor_fraction > 0.25:
+            warnings.append("marker_poor_clusters")
+        if pd.notna(mean_noise_fraction) and mean_noise_fraction > 0.4:
+            warnings.append("noise_marker_dominance")
+        if sample_dominance and float(np.nanmean(sample_dominance)) > 0.8:
+            warnings.append("sample_specific_clusters")
 
-        # Stability (NMI vs previous)
-        if active_config.compute_stability:
-            try:
-                result["stability"] = (
-                    _get_clustering_stability(adata, previous_key, current_key)
-                    if previous_key is not None
-                    else np.nan
-                )
-            except Exception as e:
-                log.warning(f"Stability metric failed at {res:.3f}: {e}")
-                result["stability"] = np.nan
+        review_rows.append(
+            {
+                "resolution": resolution,
+                "cluster_key": cluster_key,
+                "n_clusters": n_clusters,
+                "min_cluster_size": min_cluster_size,
+                "median_cluster_size": median_cluster_size,
+                "n_small_clusters": n_small_clusters,
+                "small_cluster_fraction": small_cluster_fraction,
+                "mean_informative_top_markers": (
+                    float(np.mean(informative_counts)) if informative_counts else 0.0
+                ),
+                "marker_poor_cluster_fraction": marker_poor_fraction,
+                "mean_noise_marker_fraction": mean_noise_fraction,
+                "marker_quality_score": mean_marker_quality,
+                "size_balance_score": size_balance_score,
+                "sample_mixing_score": sample_mixing_score,
+                "batch_mixing_score": batch_mixing_score,
+                "interpretability_score": float(interpretability_score),
+                "warnings": ",".join(warnings),
+            }
+        )
 
-        eval_results.append(result)
-        previous_key = current_key
-
-    eval_df = pd.DataFrame(eval_results)
-
-    recommended_res = None
-    if auto_select and not eval_df.empty:
-        recommended_res = _auto_select_resolution(eval_df, strategy=selection_strategy)
-        log.info(f"🎯 Auto-selected resolution: {recommended_res:.3f}")
-
-    # Store recommendation
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
-        "clustering", {}
-    ).setdefault("resolution_search", {})
-    adata.uns["sclucid"]["analysis"]["clustering"]["resolution_search"].update(
-        {
-            "recommended_resolution": recommended_res,
-            "selection_strategy": selection_strategy,
-        }
+    review_df = pd.DataFrame(review_rows)
+    cluster_review_df = pd.DataFrame(cluster_rows)
+    marker_review_df = (
+        pd.concat(marker_frames, ignore_index=True) if marker_frames else pd.DataFrame()
     )
 
-    # Plotting
-    if getattr(active_config, "plot", False) and not eval_df.empty:
-        metrics_to_plot = [
-            m for m in ["silhouette", "marker_abundance", "stability"] if m in eval_df.columns
-        ]
-        n_plots = 1 + len(metrics_to_plot)
+    recommended_resolution = None
+    recommended_key = None
+    rationale = ""
+    if not review_df.empty:
+        ranked = review_df.sort_values(
+            ["interpretability_score", "marker_quality_score", "n_small_clusters"],
+            ascending=[False, False, True],
+        )
+        best = ranked.iloc[0]
+        recommended_resolution = float(best["resolution"])
+        recommended_key = str(best["cluster_key"])
+        rationale = (
+            f"Selected {recommended_resolution:g}: "
+            f"{int(best['n_clusters'])} clusters, "
+            f"marker quality {best['marker_quality_score']:.2f}, "
+            f"small-cluster fraction {best['small_cluster_fraction']:.2f}."
+        )
 
-        fig, axes = plt.subplots(n_plots, 1, figsize=(10, 4 * n_plots), sharex=True)
-        if n_plots == 1:
-            axes = [axes]
-        fig.suptitle("Clustering Resolution Optimization Guide", fontsize=16)
-
-        # n_clusters
-        ax = axes[0]
-        try:
-            sns.lineplot(data=eval_df, x="resolution", y="n_clusters", marker="o", ax=ax)
-        except Exception as e:
-            ax.text(0.5, 0.5, f"Plot failed: {e}", ha="center", va="center")
-        ax.set_title("Number of Clusters vs. Resolution")
-        ax.set_ylabel("Count")
-        ax.grid(True, linestyle="--")
-
-        # Other metrics
-        for i, metric in enumerate(metrics_to_plot):
-            ax = axes[i + 1]
-            try:
-                sns.lineplot(data=eval_df, x="resolution", y=metric, marker="o", ax=ax)
-                ax.set_title(f"{metric.replace('_', ' ').title()} vs. Resolution")
-                ax.set_ylabel("Score")
-                if metric == "silhouette":
-                    ax.text(
-                        0.02,
-                        0.05,
-                        "Note: Higher values may favor fewer clusters.",
-                        transform=ax.transAxes,
-                        fontsize=9,
-                        style="italic",
-                    )
-            except Exception as e:
-                ax.text(0.5, 0.5, f"Plot failed: {e}", ha="center", va="center")
-            ax.grid(True, linestyle="--")
-
-        axes[-1].set_xlabel("Resolution")
-        plt.tight_layout(rect=[0, 0.03, 1, 0.96])
-
-        if getattr(active_config, "save_dir", None):
-            save_path = Path(active_config.save_dir)
-            save_path.mkdir(parents=True, exist_ok=True)
-            figure_path = save_path / "resolution_search_guide.png"
-            plt.savefig(figure_path, dpi=300)
-            log.info(f"Saved resolution search plot to {figure_path}")
-
-        plt.show()
-
-    # Guidance message
-    if not eval_df.empty:
-        _print_resolution_guidance(eval_df)
-
-    return eval_df, recommended_res
+    clustering_ns = (
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("clustering", {})
+    )
+    clustering_ns["clustering_review"] = review_df
+    clustering_ns["clustering_review_by_cluster"] = cluster_review_df
+    clustering_ns["clustering_review_markers"] = marker_review_df
+    clustering_ns["clustering_review_summary"] = sanitize_for_hdf5(
+        {
+            "method": method,
+            "use_rep": use_rep,
+            "resolutions": resolutions,
+            "recommended_resolution": recommended_resolution,
+            "recommended_cluster_key": recommended_key,
+            "rationale": rationale,
+            "n_cells": int(adata.n_obs),
+            "n_genes": int(adata.n_vars),
+        }
+    )
+    return review_df
 
 
 def cluster_cells(
