@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+from anndata import AnnData
 
 from ...utils import Manager, get_marker_manager
 from ..config import AnnotationConfig
-from ..scoring import FunctionalSignatureManager
 
 _ANNOTATION_NOISE_EXACT_GENES = {
     "MALAT1": "housekeeping",
@@ -278,11 +279,32 @@ def _collect_state_signatures(
             metadata.update(config.custom_state_metadata)
 
     if config.state_signature_names or config.state_signature_categories:
-        manager = FunctionalSignatureManager(species=config.marker_species)
+        manager = get_marker_manager(
+            species=config.marker_species,
+            view="state_annotation",
+            include_functional=True,
+        )
+        requested_categories = set(config.state_signature_categories)
         for category in config.state_signature_categories:
-            signatures.update(manager.get_category(category))
+            matched = {
+                name: list(cell.markers)
+                for name, cell in manager.CELLS.items()
+                if cell.metadata.get("category") == category and cell.markers
+            }
+            if not matched:
+                raise KeyError(f"State signature category '{category}' not found")
+            signatures.update(matched)
+            for name in matched:
+                metadata[name] = dict(manager.CELLS[name].metadata)
         for name in config.state_signature_names:
-            signatures[name] = manager.get_signature(name)
+            if name not in manager.CELLS:
+                raise KeyError(f"State signature '{name}' not found")
+            cell = manager.CELLS[name]
+            signatures[name] = list(cell.markers)
+            metadata[name] = {
+                **dict(cell.metadata),
+                "requested_categories": sorted(requested_categories),
+            }
 
     return signatures, metadata
 

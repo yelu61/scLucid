@@ -1,0 +1,71 @@
+# =============================================================================
+# scLucid Marker Resource Manifest
+# =============================================================================
+# Purpose:
+# - Provide a stable map of marker resource files and their intended workflow use.
+# - Keep biological marker curation separate from code-level manager logic.
+# - Make future review/atlas-derived additions auditable and easy to route.
+#
+# Recommended per-entry metadata fields inside marker TOML resources:
+# - kind: cell_type | state | functional_program | tumor_evidence | cancer_context
+# - granularity: compartment | lineage | subtype | state | program | evidence
+# - compartment: immune | stromal | epithelial | neural | tumor | mixed | artifact
+# - lineage: broad lineage label when applicable
+# - scope: all | lineage_restricted | tumor_context | cancer_type_specific
+# - applies_to: list of compatible lineages/cancer types, or ["all"]
+# - marker_role: positive | negative | exclusion | evidence | program
+# - evidence_tier: seed | curated_review | atlas_supported | consensus | deprecated
+# - source_type: expert_seed | review | pan_cancer_atlas | disease_atlas | literature
+# - review_status: scaffold | needs_review | reviewed | conflict
+# - use_for_global_annotation: true/false
+# - use_for_state_annotation: true/false
+# - use_for_malignancy_interpretation: true/false
+# =============================================================================
+
+[metadata]
+version = "0.1.0"
+last_updated = "2026-05-14"
+description = "Manifest and curation contract for scLucid marker resources"
+default_species = ["human", "mouse"]
+
+[[resources]]
+name = "marker_base_human"
+species = "human"
+workflow = ["global_annotation", "doublet_lineage", "marker_evidence"]
+status = "active"
+description = "Core cross-tissue human lineage and subtype markers"
+
+[[resources]]
+name = "marker_base_mouse"
+species = "mouse"
+workflow = ["global_annotation", "doublet_lineage", "marker_evidence"]
+status = "active"
+description = "Core cross-tissue mouse lineage and subtype markers"
+
+[[resources]]
+name = "marker_cell_state_human"
+species = "human"
+workflow = ["state_annotation", "program_scoring", "qc_artifact"]
+status = "active"
+description = "Human cell state and artifact/QC programs"
+
+[[resources]]
+name = "marker_cell_state_mouse"
+species = "mouse"
+workflow = ["state_annotation", "program_scoring", "qc_artifact"]
+status = "scaffold"
+description = "Mouse cell state and artifact/QC programs"
+
+[[resources]]
+name = "marker_tissue_specific_human"
+species = "human"
+workflow = ["tissue_specific_annotation"]
+status = "active"
+description = "Human tissue-specific normal epithelial/parenchymal markers"
+
+[[resources]]
+name = "marker_cancer_human"
+species = "human"
+workflow = ["tumor_type_hint", "tumor_context", "malignancy_review", "cnv_assisted_annotation"]
+status = "active"
+description = "Cancer-type markers plus pan-cancer atlas and malignancy/CNV evidence scaffold"

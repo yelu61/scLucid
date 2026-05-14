@@ -32,13 +32,11 @@ Marker Management
    :members:
    :undoc-members:
 
-.. autoclass:: scLucid.utils.GeneSetManager
-   :members:
-   :undoc-members:
-
 .. autofunction:: scLucid.utils.get_marker_manager
 
-.. autofunction:: scLucid.utils.get_geneset_manager
+.. autofunction:: scLucid.utils.load_gene_set_manager
+
+.. autofunction:: scLucid.utils.load_gene_sets
 
 .. autofunction:: scLucid.utils._get_cancer_markers
 

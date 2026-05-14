@@ -26,7 +26,7 @@ minor = [
                 { name = "CD4+ Temra", color = "#00cc99", markers = ["CX3CR1", "FGFBP2", "GZMH", "TBX21"] },
                 { name = "Treg",       color = "#3b845e", markers = ["FOXP3", "IL2RA", "CTLA4", "TNFRSF9", "RTKN2"] },
                 { name = "Th17",       color = "#b0e313", markers = ["RORC", "IL17A", "IL17F", "CCR6", "STAT3", "TGFB1"] },
-                { name = "Tfh",        color = "#10a674", markers = ["CXCR5", "BCL6", "IL21", "TOX", "TCF7"] }
+                { name = "Tfh",        color = "#10a674", markers = ["CXCR5", "BCL6", "IL21", "MAF", "PDCD1", "TOX", "TCF7"] }
             ]},
             # CD8+ T
             { name = "CD8+ T", color = "#ff7f0e", markers = ["CD8A", "CD8B", "GZMA", "GZMB"], minor = [
@@ -38,8 +38,9 @@ minor = [
                 { name = "Tex",        color = "#cc5500", markers = ["PDCD1", "TOX", "LAG3", "HAVCR2", "CTLA4"] }
             ]},
             # NKT, MAIT
-            { name = "NKT", color = "#04650d", markers = ["KLRD1", "NKG7", "TYROBP", "KIR3DL1", "CD160"] },
-            { name = "MAIT", color = "#9467bd", markers = ["SLC4A10", "KLRB1", "ZBTB16"] }
+            { name = "NKT", color = "#04650d", markers = ["KLRD1", "NKG7", "TYROBP", "KIR3DL1", "CD160", "FCGR3A", "TRAC"] },
+            { name = "MAIT", color = "#9467bd", markers = ["TRAV1-2", "SLC4A10", "KLRB1", "ZBTB16"] },
+            { name = "Gamma delta T", color = "#6b8e23", markers = ["TRDC", "TRGC1", "TRGC2", "NKG7"] }
         ]},
         # Level 3: B cells
         { name = "B cells", color = "#7ccbc5", markers = ["MS4A1", "CD19", "CD79A", "CD79B", "BANK1", "PAX5", "IGHM", "IGHD", "CD22"], metadata = { doublet_lineage = true }, minor = [

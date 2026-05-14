@@ -3,7 +3,7 @@ Enhanced scoring module with comprehensive gene set management and visualization
 """
 
 import logging
-from pathlib import Path
+from importlib.metadata import version
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
@@ -15,13 +15,11 @@ from anndata import AnnData
 from scipy.stats import mannwhitneyu, ttest_ind, zscore
 
 from ..utils import sanitize_for_hdf5
-from ..utils.manager import _get_marker_path, _load_marker_file
-from importlib.metadata import PackageNotFoundError, version
+from ..utils.manager import Manager
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "FunctionalSignatureManager",
     "score_by_gene_sets",
     "run_module_scoring_workflow",
     "calculate_signature_matrix",
@@ -33,178 +31,19 @@ __all__ = [
 ]
 
 
-# ===================== Gene Set Manager =====================
-
-
-class FunctionalSignatureManager:
-    def __init__(self, species: str = "human", custom_signatures: Optional[str] = None):
-        self.species = species.lower()
-        self.signatures: Dict[str, List[str]] = {}
-        self.categories: Dict[str, List[str]] = {}  # ✅ 新增
-        self._load_builtin_signatures()
-        if custom_signatures:
-            self._load_custom_signatures(custom_signatures)
-
-    def _load_builtin_signatures(self):
-        """Load built-in functional signatures from resources."""
-        try:
-            marker_path = _get_marker_path("functional_signatures")
-            data = _load_marker_file(marker_path)
-
-            if self.species in data:
-                species_data = data[self.species]
-
-                # ✅ Load categories if available
-                if "_categories" in species_data:
-                    self.categories = species_data["_categories"]
-                    # Remove from signatures dict
-                    species_data = {k: v for k, v in species_data.items() if k != "_categories"}
-
-                self.signatures = species_data
-                log.info(f"Loaded {len(self.signatures)} built-in signatures for {self.species}")
-                if self.categories:
-                    log.info(f"Loaded {len(self.categories)} signature categories")
-            else:
-                raise ValueError(f"Species '{self.species}' not found")
-        except FileNotFoundError:
-            log.warning("Built-in functional_signatures.json not found.")
-
-    def get_category(self, category_name: str) -> Dict[str, List[str]]:
-        """
-        Get all signatures in a category.
-
-        Parameters
-        ----------
-        category_name : str
-            Category name (e.g., 'Immune_Function', 'Metabolism')
-
-        Returns:
-        -------
-        dict
-            Dictionary of {signature_name: genes} for that category
-
-        Examples:
-        --------
-        >>> manager = FunctionalSignatureManager(species='human')
-        >>> immune_sigs = manager.get_category('Immune_Function')
-        >>> print(list(immune_sigs.keys()))
-        ['Cytotoxicity', 'Exhausted', 'Pro_inflammatory', ...]
-        """
-        if category_name not in self.categories:
-            raise KeyError(
-                f"Category '{category_name}' not found. "
-                f"Available: {list(self.categories.keys())}"
-            )
-
-        sig_names = self.categories[category_name]
-        return {name: self.signatures[name] for name in sig_names if name in self.signatures}
-
-    def list_categories(self) -> List[str]:
-        """List all available categories."""
-        return list(self.categories.keys())
-
-    def _load_custom_signatures(self, custom_path: str):
-        """Load custom signatures from user-provided file."""
-        try:
-            custom_data = _load_marker_file(Path(custom_path))
-
-            # If custom file has species structure
-            if self.species in custom_data:
-                custom_data = custom_data[self.species]
-
-            # Merge with existing signatures
-            self.signatures.update(custom_data)
-            log.info(f"Loaded custom signatures from {custom_path}")
-        except Exception as e:
-            log.warning(f"Failed to load custom signatures: {e}")
-
-    def get_signature(self, name: str) -> List[str]:
-        """Get a specific signature by name."""
-        if name not in self.signatures:
-            raise KeyError(
-                f"Signature '{name}' not found. Available: {list(self.signatures.keys())}"
-            )
-        return self.signatures[name]
-
-    def get_all_signatures(self) -> Dict[str, List[str]]:
-        """Get all available signatures."""
-        return self.signatures.copy()
-
-    def add_signature(self, name: str, genes: List[str]):
-        """Add a custom signature."""
-        self.signatures[name] = genes
-        log.info(f"Added custom signature '{name}' with {len(genes)} genes")
-
-    def list_signatures(self) -> List[str]:
-        """List all available signature names."""
-        return list(self.signatures.keys())
-
-    def convert_to_species(self, target_species: str) -> "FunctionalSignatureManager":
-        """
-        Convert gene names to another species using gProfiler.
-        """
-        try:
-            from gprofiler import GProfiler
-        except ImportError:
-            raise ImportError(
-                "gprofiler-official required for species conversion. "
-                "Install with: pip install gprofiler-official"
-            )
-
-        org_map = {"human": "hsapiens", "mouse": "mmusculus"}
-
-        gp = GProfiler(return_dataframe=True)
-
-        # Collect all genes
-        all_genes = list({gene for genes in self.signatures.values() for gene in genes})
-
-        # Convert
-        log.info(f"Converting {len(all_genes)} genes from {self.species} to {target_species}...")
-        ortho = gp.orth(
-            query=all_genes,
-            organism=org_map.get(self.species, self.species),
-            target=org_map.get(target_species, target_species),
-        )
-
-        mapping = (
-            ortho[ortho["ortholog.name"] != "n.s."][["incoming.name", "ortholog.name"]]
-            .set_index("incoming.name")["ortholog.name"]
-            .to_dict()
-        )
-
-        # Create new manager with converted genes
-        new_manager = FunctionalSignatureManager.__new__(FunctionalSignatureManager)
-        new_manager.species = target_species
-        new_manager.signatures = {}
-        new_manager.categories = {}  # ✅ 初始化 categories
-
-        # Convert signatures
-        for name, genes in self.signatures.items():
-            converted = list({mapping[g] for g in genes if g in mapping})
-            if converted:
-                new_manager.add_signature(name, converted)
-            else:
-                log.warning(f"No genes converted for signature '{name}'")
-
-        # ✅ 尝试保留分类信息（如果签名名称未改变）
-        for category, sig_names in self.categories.items():
-            converted_sigs = [s for s in sig_names if s in new_manager.signatures]
-            if converted_sigs:
-                new_manager.categories[category] = converted_sigs
-
-        log.info(f"Conversion complete. {len(new_manager.signatures)} signatures available.")
-        if new_manager.categories:
-            log.info(f"Preserved {len(new_manager.categories)} categories.")
-
-        return new_manager
-
-
 # ===================== Helper Functions =====================
 
 
 def _ensure_scoring_namespace(adata: AnnData) -> dict:
     """Ensure the scoring namespace exists in adata.uns and return it."""
     return adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("scoring", {})
+
+
+def _coerce_gene_sets(gene_sets: Union[Dict[str, List[str]], Manager]) -> Dict[str, List[str]]:
+    """Accept either a plain gene-set mapping or the unified marker Manager."""
+    if isinstance(gene_sets, Manager):
+        return gene_sets.to_gene_sets()
+    return gene_sets
 
 
 def _cohens_d(x: np.ndarray, y: np.ndarray) -> Optional[float]:
@@ -276,7 +115,7 @@ def _validate_score_column(
 
 def score_by_gene_sets(
     adata: AnnData,
-    gene_sets: Union[Dict[str, List[str]], FunctionalSignatureManager],
+    gene_sets: Union[Dict[str, List[str]], Manager],
     layer: Optional[str] = "log1p_norm",
     use_raw: bool = False,
     ctrl_size: int = 50,
@@ -292,8 +131,8 @@ def score_by_gene_sets(
     ----------
     adata : AnnData
         Annotated data matrix
-    gene_sets : dict or FunctionalSignatureManager
-        Dictionary of {set_name: [genes]} or a signature manager
+    gene_sets : Mapping or Manager
+        Dictionary of {set_name: [genes]} or a marker Manager
     layer : str, optional
         Expression layer when use_raw=False
     use_raw : bool
@@ -323,9 +162,7 @@ def score_by_gene_sets(
 
     ns = _ensure_scoring_namespace(adata)
 
-    # Handle FunctionalSignatureManager input
-    if isinstance(gene_sets, FunctionalSignatureManager):
-        gene_sets = gene_sets.get_all_signatures()
+    gene_sets = _coerce_gene_sets(gene_sets)
 
     if use_raw:
         if adata.raw is None:
@@ -418,7 +255,7 @@ def score_by_gene_sets(
 
 def run_module_scoring_workflow(
     adata: AnnData,
-    modules: Union[Dict[str, List[str]], FunctionalSignatureManager],
+    modules: Union[Dict[str, List[str]], Manager],
     *,
     groupby: Optional[str] = None,
     sample_col: Optional[str] = None,
@@ -450,8 +287,7 @@ def run_module_scoring_workflow(
     if copy:
         adata = adata.copy()
 
-    if isinstance(modules, FunctionalSignatureManager):
-        modules = modules.get_all_signatures()
+    modules = _coerce_gene_sets(modules)
 
     adata = score_by_gene_sets(
         adata,
@@ -544,7 +380,7 @@ def run_module_scoring_workflow(
 
 def calculate_signature_matrix(
     adata: AnnData,
-    gene_sets: Union[Dict[str, List[str]], FunctionalSignatureManager],
+    gene_sets: Union[Dict[str, List[str]], Manager],
     groupby: str,
     subset_cells: Optional[List[str]] = None,
     use_raw: bool = True,
@@ -558,7 +394,7 @@ def calculate_signature_matrix(
     ----------
     adata : AnnData
         Annotated data matrix
-    gene_sets : dict or FunctionalSignatureManager
+    gene_sets : Mapping or Manager
         Gene sets to score
     groupby : str
         Column in adata.obs to group by
@@ -576,9 +412,7 @@ def calculate_signature_matrix(
     pd.DataFrame
         Matrix of signature scores (signatures × groups)
     """
-    # Handle FunctionalSignatureManager input
-    if isinstance(gene_sets, FunctionalSignatureManager):
-        gene_sets = gene_sets.get_all_signatures()
+    gene_sets = _coerce_gene_sets(gene_sets)
     source_var_names = (
         adata.raw.var_names if (use_raw and adata.raw is not None) else adata.var_names
     )
@@ -689,7 +523,7 @@ def plot_signature_heatmap(
 
 def plot_delta_heatmap(
     adata: AnnData,
-    gene_sets: Union[Dict[str, List[str]], FunctionalSignatureManager],
+    gene_sets: Union[Dict[str, List[str]], Manager],
     groupby: str,
     compare_group: str,
     ref_group: str,
@@ -712,7 +546,7 @@ def plot_delta_heatmap(
     ----------
     adata : AnnData
         Annotated data matrix
-    gene_sets : dict or FunctionalSignatureManager
+    gene_sets : Mapping or Manager
         Gene sets to score
     groupby : str
         Column for cell subsets (e.g., 'celltype')
@@ -742,9 +576,7 @@ def plot_delta_heatmap(
     tuple
         (matplotlib axes, delta DataFrame)
     """
-    # Handle FunctionalSignatureManager input
-    if isinstance(gene_sets, FunctionalSignatureManager):
-        gene_sets = gene_sets.get_all_signatures()
+    gene_sets = _coerce_gene_sets(gene_sets)
 
     source_var_names = (
         adata.raw.var_names if (use_raw and adata.raw is not None) else adata.var_names
@@ -835,7 +667,7 @@ def plot_delta_heatmap(
 
 def batch_plot_delta_heatmap(
     adata: AnnData,
-    gene_sets: Union[Dict[str, List[str]], FunctionalSignatureManager],
+    gene_sets: Union[Dict[str, List[str]], Manager],
     groupby: str,
     compare_group: str,
     condition_pairs: List[Tuple[str, str]],
@@ -876,9 +708,7 @@ def batch_plot_delta_heatmap(
     ...     save_prefix='delta_analysis'
     ... )
     """
-    # Handle FunctionalSignatureManager input
-    if isinstance(gene_sets, FunctionalSignatureManager):
-        gene_sets = gene_sets.get_all_signatures()
+    gene_sets = _coerce_gene_sets(gene_sets)
 
     n_pairs = len(condition_pairs)
     nrows = (n_pairs + ncols - 1) // ncols
