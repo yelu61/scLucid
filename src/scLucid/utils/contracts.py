@@ -154,7 +154,9 @@ API_LAYER_CONTRACTS: dict[APILayerName, APILayerContract] = {
         name="advanced",
         purpose="Support full audit trails for real exploratory analysis projects.",
         primary_entrypoints=(
-            "examples/03_advanced_notebooks/Step1-QC_and_Preprocessing.ipynb",
+            "examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb",
+            "examples/03_advanced_notebooks/Step1B-Preprocessing_Audit.ipynb",
+            "examples/03_advanced_notebooks/Step2-Annotation_and_Malignancy.ipynb",
             "scripts/run_pbmc_golden_path.py",
         ),
         example_artifacts=(

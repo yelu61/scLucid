@@ -61,16 +61,16 @@ EOF
 fi
 
 echo "==> Smoke tests"
-python -m pytest -q tests/smoke
+python -m pytest --no-cov -q tests/smoke
 
 echo "==> Core contract/config tests"
-python -m pytest -q \
+python -m pytest --no-cov -q \
   tests/test_contracts.py \
   tests/test_configs.py \
   tests/config/test_global_config_runtime.py \
   tests/utils/test_public_api.py
 
 echo "==> Lightweight integration tests"
-python -m pytest -q tests/integration/test_full_pipeline.py
+python -m pytest --no-cov -q tests/integration/test_full_pipeline.py
 
 echo "All lightweight gates passed."

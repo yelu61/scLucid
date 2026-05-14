@@ -10,13 +10,16 @@ import logging
 import os
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Union
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import anndata
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 from scipy import io
+
+from .contracts import LayerKeys, SCLUCID_ROOT, UnsKeys, ensure_sclucid_namespace
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ def _import_scanpy():
 
 
 __all__ = [
+    "read_10x",
     "load_10x_data",
     "use_layer_as_X",
     "sanitize_for_hdf5",
@@ -41,6 +45,452 @@ __all__ = [
     "subset_from_annotations",
     "merge_obs_metadata",
 ]
+
+
+def read_10x(
+    path: Optional[Union[str, Path]] = None,
+    *,
+    samples: Optional[List[str]] = None,
+    base_dir: Optional[Union[str, Path]] = None,
+    path_dict: Optional[Dict[str, str]] = None,
+    metadata_dicts: Optional[Dict[str, Dict[str, Any]]] = None,
+    possible_subpaths: Optional[List[str]] = None,
+    var_names: Literal["gene_symbols", "gene_ids"] = "gene_symbols",
+    make_unique: bool = True,
+    cache: bool = True,
+    sample_id: Optional[str] = None,
+    species: Optional[str] = None,
+    tissue: Optional[str] = None,
+    tissue_type: Optional[str] = None,
+    cancer_type: Optional[str] = None,
+    output_file: Optional[Union[str, Path]] = None,
+    compression: Optional[str] = "gzip",
+    backup_existing: bool = True,
+) -> AnnData:
+    """
+    Unified 10x Genomics loader for single-sample and multi-sample workflows.
+
+    The function operates in one of two modes, chosen by which arguments are
+    provided:
+
+    **Single-sample mode** — pass ``path`` and (optionally) the
+    sample-level metadata arguments. Auto-detects whether ``path`` is a
+    Cell Ranger ``filtered_feature_bc_matrix`` directory or a ``.h5`` file.
+
+    **Multi-sample mode** — pass ``samples`` together with either
+    ``base_dir`` (auto-search the standard Cell Ranger subpaths under
+    ``base_dir/<sample>/...``) or ``path_dict`` (explicit
+    ``{sample_id: path}`` mapping). Per-sample metadata can be supplied
+    via ``metadata_dicts`` (``{column: {sample_id: value}}``). The function
+    loads each sample, attaches ``sampleID`` plus any metadata columns,
+    falls back to a hand-written mtx parser when scanpy's reader fails, and
+    concatenates everything into one AnnData.
+
+    Both modes guarantee that the returned AnnData has ``layers["counts"]``
+    populated (when ``X`` looks like raw integer counts) and that user
+    metadata is also lifted into ``adata.uns["sclucid"]["analysis_context"]``
+    so downstream stages can pick it up without extra arguments.
+
+    Parameters
+    ----------
+    path : str or Path, optional
+        Single-sample input. Either a Cell Ranger output directory or a
+        ``.h5`` file produced by Cell Ranger.
+    samples : list of str, optional
+        Multi-sample sample IDs.
+    base_dir : str or Path, optional
+        Root directory used to locate ``<base_dir>/<sample>/<subpath>`` for
+        each entry in ``samples``.
+    path_dict : dict, optional
+        Explicit ``{sample_id: path}`` mapping (multi-sample mode).
+    metadata_dicts : dict of dicts, optional
+        ``{column_name: {sample_id: value}}``. For each sample, the matching
+        value is broadcast onto ``adata.obs[column_name]`` before concat.
+    possible_subpaths : list of str, optional
+        Candidate Cell Ranger subdirectory layouts. Defaults to common
+        ``outs/filtered_feature_bc_matrix`` / ``filtered_feature_bc_matrix``
+        layouts.
+    var_names : {"gene_symbols", "gene_ids"}, default="gene_symbols"
+        Whether to use gene symbols or Ensembl IDs as ``var_names``.
+    make_unique : bool, default=True
+        Make ``var_names`` unique by appending suffixes when symbols collide.
+    cache : bool, default=True
+        Cache the parsed matrix on disk (single-sample directory mode only).
+    sample_id, species, tissue, tissue_type, cancer_type : str, optional
+        Single-sample metadata stamped onto every cell of the result and
+        lifted into ``analysis_context``.
+    output_file : str or Path, optional
+        Multi-sample only: if provided, write the concatenated AnnData here.
+    compression : str, default="gzip"
+        Compression for ``output_file``.
+    backup_existing : bool, default=True
+        Multi-sample only: rename any existing ``output_file`` to a
+        timestamped backup before writing.
+
+    Returns:
+    -------
+    AnnData
+        Loaded data, ready for ``scl.run_pipeline()``.
+
+    Raises:
+    ------
+    ValueError
+        If neither single-sample nor multi-sample arguments are provided, or
+        both are provided.
+    FileNotFoundError
+        If a required path does not exist.
+
+    Examples:
+    --------
+    Single-sample (wet-lab one-liner):
+
+    >>> import scLucid as scl
+    >>> adata = scl.read_10x(
+    ...     "data/pbmc3k/filtered_feature_bc_matrix/",
+    ...     species="human",
+    ...     tissue="PBMC",
+    ... )
+
+    Multi-sample (project-style):
+
+    >>> adata = scl.read_10x(
+    ...     samples=["P1_tumor", "P1_normal", "P2_tumor"],
+    ...     base_dir="data/cellranger",
+    ...     metadata_dicts={
+    ...         "patient": {"P1_tumor": "P1", "P1_normal": "P1", "P2_tumor": "P2"},
+    ...         "condition": {"P1_tumor": "tumor", "P1_normal": "normal", "P2_tumor": "tumor"},
+    ...     },
+    ...     output_file="results/merged.h5ad",
+    ... )
+    """
+    multi_mode = samples is not None or path_dict is not None
+    single_mode = path is not None
+
+    if multi_mode and single_mode:
+        raise ValueError(
+            "Provide either `path` (single-sample) OR "
+            "`samples`/`path_dict` (multi-sample), not both."
+        )
+    if not multi_mode and not single_mode:
+        raise ValueError(
+            "read_10x requires either `path` (single-sample mode) "
+            "or `samples` with `base_dir`/`path_dict` (multi-sample mode)."
+        )
+
+    if single_mode:
+        adata = _read_10x_single(
+            path=path,
+            var_names=var_names,
+            make_unique=make_unique,
+            cache=cache,
+        )
+        _attach_counts_layer(adata)
+        _attach_sample_metadata(
+            adata,
+            sample_id=sample_id,
+            species=species,
+            tissue=tissue,
+            tissue_type=tissue_type,
+            cancer_type=cancer_type,
+        )
+        log.info(
+            "Loaded 10x AnnData: %d cells x %d genes (counts layer: %s)",
+            adata.n_obs,
+            adata.n_vars,
+            LayerKeys.COUNTS in adata.layers,
+        )
+        return adata
+
+    return _read_10x_multi(
+        samples=samples or list((path_dict or {}).keys()),
+        base_dir=base_dir,
+        path_dict=path_dict,
+        metadata_dicts=metadata_dicts,
+        possible_subpaths=possible_subpaths,
+        var_names=var_names,
+        make_unique=make_unique,
+        cache=cache,
+        output_file=output_file,
+        compression=compression,
+        backup_existing=backup_existing,
+        species=species,
+        tissue=tissue,
+        tissue_type=tissue_type,
+        cancer_type=cancer_type,
+    )
+
+
+def load_10x_data(
+    samples: List[str],
+    base_dir: Optional[str] = None,
+    path_dict: Optional[Dict[str, str]] = None,
+    metadata_dicts: Optional[Dict[str, Dict[str, Any]]] = None,
+    possible_subpaths: Optional[List[str]] = None,
+    output_file: Optional[str] = None,
+    compression: Optional[str] = "gzip",
+    backup_existing: bool = True,
+    chunk_size: Optional[int] = None,  # noqa: ARG001 — accepted for back-compat
+) -> AnnData:
+    """
+    Backward-compatible multi-sample 10x loader.
+
+    Thin alias for :func:`read_10x` in multi-sample mode. New code should
+    call :func:`read_10x` directly; this function is preserved so existing
+    scripts and notebooks keep working unchanged.
+
+    All arguments map 1:1 to :func:`read_10x`. ``chunk_size`` is accepted
+    but currently unused; multi-sample loads are not chunked.
+    """
+    return read_10x(
+        samples=samples,
+        base_dir=base_dir,
+        path_dict=path_dict,
+        metadata_dicts=metadata_dicts,
+        possible_subpaths=possible_subpaths,
+        output_file=output_file,
+        compression=compression,
+        backup_existing=backup_existing,
+    )
+
+
+def _read_10x_single(
+    *,
+    path: Union[str, Path],
+    var_names: str,
+    make_unique: bool,
+    cache: bool,
+) -> AnnData:
+    """Read a single Cell Ranger directory or .h5 file."""
+    path_obj = Path(path).expanduser().resolve()
+    if not path_obj.exists():
+        raise FileNotFoundError(f"10x data path does not exist: {path_obj}")
+
+    sc = _import_scanpy()
+
+    if path_obj.is_dir():
+        log.info("Reading 10x Cell Ranger directory: %s", path_obj)
+        try:
+            return sc.read_10x_mtx(
+                path_obj,
+                var_names=var_names,
+                make_unique=make_unique,
+                cache=cache,
+            )
+        except Exception as exc:
+            log.warning(
+                "scanpy.read_10x_mtx failed for %s: %s. Falling back to "
+                "manual mtx parser.",
+                path_obj,
+                exc,
+            )
+            return _read_10x_manually(str(path_obj))
+    if path_obj.suffix.lower() in {".h5", ".hdf5"}:
+        log.info("Reading 10x HDF5 file: %s", path_obj)
+        adata = sc.read_10x_h5(path_obj)
+        if make_unique:
+            adata.var_names_make_unique()
+        return adata
+
+    raise ValueError(
+        f"Cannot recognise '{path_obj}' as a Cell Ranger output. Expected a "
+        "directory containing matrix.mtx[.gz] or a .h5 file."
+    )
+
+
+def _read_10x_multi(
+    *,
+    samples: List[str],
+    base_dir: Optional[Union[str, Path]],
+    path_dict: Optional[Dict[str, str]],
+    metadata_dicts: Optional[Dict[str, Dict[str, Any]]],
+    possible_subpaths: Optional[List[str]],
+    var_names: str,
+    make_unique: bool,
+    cache: bool,
+    output_file: Optional[Union[str, Path]],
+    compression: Optional[str],
+    backup_existing: bool,
+    species: Optional[str],
+    tissue: Optional[str],
+    tissue_type: Optional[str],
+    cancer_type: Optional[str],
+) -> AnnData:
+    """Load multiple 10x samples, attach metadata, concat, optionally write."""
+    if path_dict is None:
+        if base_dir is None:
+            raise ValueError("Either base_dir or path_dict must be provided")
+        log.info("Searching for sample paths in %s", base_dir)
+        path_dict = _find_sample_paths(str(base_dir), samples, possible_subpaths)
+
+    sample_metadata: Dict[str, Dict[str, Any]] = {}
+    if metadata_dicts:
+        for sample in samples:
+            sample_metadata[sample] = {}
+            for metadata_name, metadata_dict in metadata_dicts.items():
+                if sample in metadata_dict:
+                    sample_metadata[sample][metadata_name] = metadata_dict[sample]
+
+    valid_samples = [s for s in samples if s in path_dict]
+    if len(valid_samples) < len(samples):
+        log.warning(
+            "Found valid paths for %d/%d samples", len(valid_samples), len(samples)
+        )
+
+    adata_list: List[AnnData] = []
+    sc = _import_scanpy()
+    for sample in valid_samples:
+        sample_path = path_dict[sample]
+        adata: Optional[AnnData] = None
+
+        try:
+            log.info("Loading %s with standard method from %s", sample, sample_path)
+            adata = sc.read_10x_mtx(
+                sample_path,
+                var_names=var_names,
+                cache=cache,
+                make_unique=make_unique,
+            )
+        except Exception as e:
+            log.warning("Standard method failed for %s: %s", sample, e)
+            log.info("Attempting robust fallback method for %s...", sample)
+            try:
+                adata = _read_10x_manually(sample_path)
+            except Exception as e2:
+                log.error("Robust fallback method also failed for %s: %s", sample, e2)
+                continue
+
+        if adata is None:
+            continue
+
+        adata.obs["sampleID"] = sample
+        if sample in sample_metadata:
+            for meta_key, meta_value in sample_metadata[sample].items():
+                adata.obs[meta_key] = meta_value
+        log.info(
+            "Successfully loaded %s: %d cells, %d genes",
+            sample,
+            adata.n_obs,
+            adata.n_vars,
+        )
+        adata_list.append(adata)
+        gc.collect()
+
+    if not adata_list:
+        log.error("No samples were loaded successfully.")
+        return AnnData()
+
+    log.info("Merging %d samples...", len(adata_list))
+    combined = anndata.concat(
+        adata_list, join="outer", keys=valid_samples, label="batch", index_unique="_"
+    )
+
+    log.info(
+        "Combined dataset: %d cells, %d genes", combined.n_obs, combined.n_vars
+    )
+
+    if output_file:
+        out_path = Path(output_file).expanduser()
+        if out_path.exists() and backup_existing:
+            backup_path = out_path.with_name(
+                f"{out_path.name}.bak.{int(time.time())}"
+            )
+            log.info("Backing up existing %s to %s", out_path, backup_path)
+            out_path.rename(backup_path)
+        log.info("Saving combined data to %s", out_path)
+        combined.write(out_path, compression=compression)
+
+    _attach_counts_layer(combined)
+    _attach_sample_metadata(
+        combined,
+        sample_id=None,  # Multi-sample mode uses per-sample sampleID column
+        species=species,
+        tissue=tissue,
+        tissue_type=tissue_type,
+        cancer_type=cancer_type,
+    )
+
+    return combined
+
+
+def _attach_counts_layer(adata: AnnData) -> None:
+    """Populate ``layers["counts"]`` from ``X`` when X looks like raw counts.
+
+    scLucid workflows treat ``layers["counts"]`` as the canonical raw-count
+    slot. Missing this layer is a common foot-gun, so we auto-fill it when:
+
+    - the layer is not already present, **and**
+    - ``X`` is non-negative integer-valued (heuristic check on a sample).
+
+    Otherwise we log a warning but leave ``X`` alone — the caller is
+    responsible for providing real counts.
+    """
+    if LayerKeys.COUNTS in adata.layers:
+        return
+    if _looks_like_counts(adata.X):
+        adata.layers[LayerKeys.COUNTS] = adata.X.copy()
+        log.info(
+            "Copied AnnData.X to layers['%s'] (detected integer counts).",
+            LayerKeys.COUNTS,
+        )
+    else:
+        log.warning(
+            "AnnData has no 'counts' layer and X does not look like raw counts. "
+            "Some scLucid workflows require raw counts; consider supplying them "
+            "via adata.layers['counts'] before calling run_pipeline()."
+        )
+
+
+def _looks_like_counts(matrix) -> bool:
+    """Return True if ``matrix`` appears to hold non-negative integer counts."""
+    try:
+        if hasattr(matrix, "dtype") and np.issubdtype(matrix.dtype, np.integer):
+            return True
+        sample = matrix[:64] if hasattr(matrix, "__getitem__") else matrix
+        if hasattr(sample, "toarray"):
+            sample = sample.toarray()
+        sample = np.asarray(sample)
+        if sample.size == 0:
+            return False
+        if np.any(sample < 0):
+            return False
+        return bool(np.all(sample == sample.astype(int)))
+    except Exception:
+        return False
+
+
+def _attach_sample_metadata(
+    adata: AnnData,
+    *,
+    sample_id: Optional[str],
+    species: Optional[str],
+    tissue: Optional[str],
+    tissue_type: Optional[str],
+    cancer_type: Optional[str],
+) -> None:
+    """Stamp sample-level metadata onto ``.obs`` and the analysis context."""
+    obs_columns = {
+        "sample_id": sample_id,
+        "species": species,
+        "tissue": tissue,
+        "tissue_type": tissue_type,
+        "cancer_type": cancer_type,
+    }
+    for column, value in obs_columns.items():
+        if value is None:
+            continue
+        adata.obs[column] = value
+
+    context_payload = {key: value for key, value in obs_columns.items() if value is not None}
+    if not context_payload:
+        return
+
+    root = ensure_sclucid_namespace(adata)
+    existing = root.get(UnsKeys.ANALYSIS_CONTEXT, {})
+    if not isinstance(existing, dict):
+        existing = {}
+    merged = {**existing, **context_payload}
+    root[UnsKeys.ANALYSIS_CONTEXT] = merged
+    adata.uns[SCLUCID_ROOT] = root
 
 
 def _find_sample_paths(
@@ -185,98 +635,6 @@ def _read_10x_manually(sample_path: str) -> AnnData:
         )
 
     return adata
-
-
-def load_10x_data(
-    samples: List[str],
-    base_dir: Optional[str] = None,
-    path_dict: Optional[Dict[str, str]] = None,
-    metadata_dicts: Optional[Dict[str, Dict[str, str]]] = None,
-    possible_subpaths: Optional[List[str]] = None,
-    output_file: Optional[str] = None,
-    compression: Optional[str] = "gzip",
-    backup_existing: bool = True,
-    chunk_size: Optional[int] = None,
-) -> AnnData:
-    """
-    Load multiple 10x Genomics samples with a robust fallback mechanism.
-    First tries the standard scanpy reader, then falls back to a manual method.
-    """
-    adata_list = []
-
-    if path_dict is None:
-        if base_dir is None:
-            raise ValueError("Either base_dir or path_dict must be provided")
-        log.info(f"Searching for sample paths in {base_dir}")
-        path_dict = _find_sample_paths(base_dir, samples, possible_subpaths)
-
-    sample_metadata = {}
-    if metadata_dicts:
-        for sample in samples:
-            sample_metadata[sample] = {}
-            for metadata_name, metadata_dict in metadata_dicts.items():
-                if sample in metadata_dict:
-                    sample_metadata[sample][metadata_name] = metadata_dict[sample]
-
-    valid_samples = [s for s in samples if s in path_dict]
-    if len(valid_samples) < len(samples):
-        log.warning(f"Found valid paths for {len(valid_samples)}/{len(samples)} samples")
-
-    for sample in valid_samples:
-        sample_path = path_dict[sample]
-        adata = None
-
-        # --- Main method with fallback ---
-        try:
-            sc = _import_scanpy()
-            log.info(f"Loading {sample} with standard method from {sample_path}")
-            adata = sc.read_10x_mtx(
-                sample_path, var_names="gene_symbols", cache=True, make_unique=True
-            )
-        except Exception as e:
-            log.warning(f"Standard method failed for {sample}: {e}")
-            log.info(f"Attempting robust fallback method for {sample}...")
-            try:
-                adata = _read_10x_manually(sample_path)
-            except Exception as e2:
-                log.error(f"Robust fallback method also failed for {sample}: {e2}")
-                continue  # Skip to the next sample
-
-        # --- Post-loading processing (common for both methods) ---
-        if adata is not None:
-            adata.obs["sampleID"] = sample
-            if sample in sample_metadata:
-                for meta_key, meta_value in sample_metadata[sample].items():
-                    adata.obs[meta_key] = meta_value
-
-            log.info(f"Successfully loaded {sample}: {adata.n_obs} cells, {adata.n_vars} genes")
-            adata_list.append(adata)
-            gc.collect()
-
-    if not adata_list:
-        log.error("No samples were loaded successfully.")
-        return AnnData()
-
-    log.info(f"Merging {len(adata_list)} samples...")
-    combined_adata = anndata.concat(
-        adata_list, join="outer", keys=valid_samples, label="batch", index_unique="_"
-    )
-
-    log.info(f"Combined dataset: {combined_adata.n_obs} cells, {combined_adata.n_vars} genes")
-
-    if output_file:
-        if os.path.exists(output_file) and backup_existing:
-            backup_file = f"{output_file}.bak.{int(time.time())}"
-            log.info(f"File {output_file} exists, creating backup: {backup_file}")
-            os.rename(output_file, backup_file)
-
-        log.info(f"Saving combined data to {output_file}")
-        combined_adata.write(output_file, compression=compression)
-        log.info(f"Data successfully saved to {output_file}")
-
-    combined_adata.layers["counts"] = combined_adata.X.copy()
-
-    return combined_adata
 
 
 @contextmanager

@@ -55,6 +55,20 @@ split sequence is the recommended product-facing demonstration.
 **When to use**: You are doing research where every threshold, diagnostic, and override must remain visible and reviewable.
 **Format**: Jupyter notebooks with step-by-step parameter blocks, decision-support tools, and audit trails.
 
+## 04_publication_figures/ — Journal-Ready Figures
+
+For **manuscript figure preparation**. Self-contained scripts that produce one publication-quality PDF each, with TrueType-embedded fonts (`pdf.fonttype=42`) so every label can be edited in Illustrator before submission.
+
+| Script | Figure type |
+|--------|-------------|
+| `01_umap_annotation.py` | UMAP scatter colored by cell type — Nature-themed |
+| `02_marker_heatmap.py` | Per-cell-type marker expression heatmap (z-score) |
+| `03_volcano_de.py` | Differential expression volcano with top-hit labels |
+| `04_cnv_heatmap.py` | Chromosome-ordered CNV profile by cell group |
+
+**When to use**: You have analyzed data and need camera-ready figures. Copy a script, swap in your AnnData, tweak palette / sizes / labels.
+**API**: `scl.pl.plot_embedding`, `scl.pl.plot_marker_heatmap`, `scl.pl.plot_volcano`, plus direct matplotlib for custom layouts.
+
 ## Scope Rules
 
 Examples should stay:

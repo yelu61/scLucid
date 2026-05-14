@@ -39,6 +39,7 @@ Workflow Guides
    examples
    notebooks
    proportion_methods_guide
+   r_parity
    faq
 
 API Reference

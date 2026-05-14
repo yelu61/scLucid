@@ -151,7 +151,12 @@ def validate_adata(
 
     # Check normalized layer
     if check_normalized:
-        if "normalized" not in adata.layers and not hasattr(adata, "raw"):
+        # AnnData always exposes a `.raw` attribute (it may be None), so a
+        # plain hasattr check is not informative. Detect either a populated
+        # raw slot or a normalized layer.
+        has_normalized_layer = "normalized" in adata.layers
+        has_raw = getattr(adata, "raw", None) is not None
+        if not has_normalized_layer and not has_raw:
             warnings.append(
                 "No normalized data found. Expected 'normalized' layer or .raw attribute"
             )

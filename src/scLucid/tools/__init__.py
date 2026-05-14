@@ -3,12 +3,38 @@
 import warnings
 from collections.abc import Iterable
 from importlib import import_module
+from importlib.util import find_spec
 
 __all__ = []
 
 
-def _export(module: str, names: Iterable[str], *, optional: bool = True) -> bool:
-    """Import names from a backend submodule without breaking package import."""
+def _export(
+    module: str,
+    names: Iterable[str],
+    *,
+    optional: bool = True,
+    requires: Iterable[str] = (),
+) -> bool:
+    """Import names from a backend submodule without breaking package import.
+
+    Parameters
+    ----------
+    module : str
+        Submodule name under ``scLucid.tools``.
+    names : Iterable[str]
+        Public symbols to re-export.
+    optional : bool, default=True
+        Tag for the warning message when an unexpected error occurs.
+    requires : Iterable[str], default=()
+        External pip packages this backend depends on. If any are not
+        installed, the backend is skipped **silently** — declared optional
+        deps are not a defect. A warning is still raised if the backend's
+        own internals fail to import (i.e., a real bug).
+    """
+    for dep in requires:
+        if find_spec(dep) is None:
+            return False
+
     try:
         loaded = import_module(f"{__name__}.{module}")
     except Exception as exc:
@@ -56,6 +82,7 @@ _export(
         "run_spatial_batch",
         "export_spatial_report",
     ],
+    requires=("squidpy",),
 )
 _export(
     "pySCENIC",

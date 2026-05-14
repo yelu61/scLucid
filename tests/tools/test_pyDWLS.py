@@ -10,19 +10,16 @@ import pytest
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
-try:
-    from scLucid.tools.pyDWLS import (
-        DWLS,
-        CrossValidator,
-        DampenedWLS,
-        MarkerSelector,
-        SignatureBuilder,
-        create_pseudo_bulk,
-        filter_genes,
-        normalize_data,
-    )
-except Exception as exc:  # pragma: no cover - optional backend availability
-    pytest.skip(f"Skipping pyDWLS tests: {exc}", allow_module_level=True)
+from scLucid.tools.pyDWLS import (
+    DWLS,
+    CrossValidator,
+    DampenedWLS,
+    MarkerSelector,
+    SignatureBuilder,
+    create_pseudo_bulk,
+    filter_genes,
+    normalize_data,
+)
 
 
 @pytest.fixture
@@ -129,7 +126,11 @@ class TestDampenedWLS:
 
         S = np.random.rand(n_genes, n_cell_types)
         S[0, :] *= 10  # Make first gene highly expressed
-        b = S @ np.array([0.3, 0.4, 0.3])
+        # Add per-gene noise so the system is over-determined; without noise
+        # both the unweighted and the iteratively reweighted optimum coincide
+        # at the exact ground-truth proportions and dampening cannot bite.
+        noise = np.random.randn(n_genes) * 0.05
+        b = S @ np.array([0.3, 0.4, 0.3]) + noise
 
         solver_no_dampen = DampenedWLS(dampen_factor=0.0)
         solver_dampen = DampenedWLS(dampen_factor=2.0)
