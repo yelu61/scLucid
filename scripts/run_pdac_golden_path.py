@@ -31,7 +31,11 @@ from scLucid.analysis import (
 from scLucid.preprocess import WorkflowConfig
 from scLucid.qc import QCWorkflowConfig
 from scLucid.tumor.config import TumorAnalysisConfig
-from scLucid.utils import validate_all_stage_contracts
+from scLucid.utils import (
+    build_qc_preprocess_validation,
+    validate_all_stage_contracts,
+    write_validation_outputs,
+)
 
 
 DEFAULT_DATA_PATH = Path("data/lin2020.pdac.h5ad")
@@ -469,11 +473,22 @@ def run_pdac_golden_path(
     adata, tumor_steps, tumor_warnings = run_tumor_stage(adata, tumor_config)
 
     figure_artifacts = save_embedding_figures(adata, output_dir / "figures")
+    elapsed = time.perf_counter() - started
+    validation = build_qc_preprocess_validation(
+        adata,
+        run_manifest={
+            "workflow": "pdac_golden_path",
+            "input_shape": input_shape,
+            "retention_fraction": float(adata.n_obs / input_shape["n_cells"]),
+        },
+        dataset_role="pdac_tumor",
+        workflow_name="pdac_golden_path",
+    )
+    validation_artifacts = write_validation_outputs(validation, output_dir / "validation")
     prepare_adata_for_write(adata)
     final_h5ad = output_dir / "pdac_golden_final.h5ad"
     adata.write(final_h5ad)
 
-    elapsed = time.perf_counter() - started
     manifest = write_manifest(
         manifest_path=output_dir / "manifest.json",
         data_path=data_path,
@@ -487,6 +502,11 @@ def run_pdac_golden_path(
         tumor_warnings=tumor_warnings,
         subset_n_cells=n_cells,
         random_state=random_state,
+    )
+    manifest["validation"] = validation
+    manifest["artifacts"]["validation"] = validation_artifacts
+    Path(manifest["artifacts"]["manifest"]).write_text(
+        json.dumps(manifest, indent=2, default=str), encoding="utf-8"
     )
 
     return manifest
