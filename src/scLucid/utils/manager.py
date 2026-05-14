@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Set, Tuple, Union
 
 import tomllib
 from anndata import AnnData
@@ -38,6 +38,23 @@ KNOWN_SPECIES = [
     "human",
     "mouse",
 ]
+
+_CELL_DEF_KEYS = {
+    "name",
+    "color",
+    "markers",
+    "negative_markers",
+    "minor",
+    "metadata",
+}
+
+_MARKER_VIEWS = {
+    "global_annotation",
+    "state_annotation",
+    "program_scoring",
+    "tumor_interpretation",
+    "qc_artifact",
+}
 
 
 def _get_marker_path(name_or_path: str) -> Path:
@@ -166,6 +183,8 @@ class CellType:
         # Ensure markers list is unique
         if self.markers:
             self.markers = list(dict.fromkeys(self.markers))
+        if self.negative_markers:
+            self.negative_markers = list(dict.fromkeys(self.negative_markers))
 
     def to_dict(self) -> dict:
         """
@@ -204,6 +223,19 @@ class CellType:
         # Add only markers that aren't already in the list
         existing = set(self.markers)
         self.markers.extend([m for m in new_markers if m not in existing])
+
+    def add_negative_markers(self, new_markers: List[str]) -> None:
+        """
+        Adds negative markers to this cell type, ensuring uniqueness.
+
+        Args:
+            new_markers: List of marker gene names expected to be absent
+        """
+        if not new_markers:
+            return
+
+        existing = set(self.negative_markers)
+        self.negative_markers.extend([m for m in new_markers if m not in existing])
 
     def copy_shallow(self) -> CellType:
         """Return a shallow copy of the cell type without parent/children links."""
@@ -283,6 +315,7 @@ class Manager:
 
         self.CELLS: Dict[str, CellType] = {}
         self.CLUSTERS: Dict[str, List[CellType]] = {}
+        self.metadata: Dict[str, object] = {}
         self.case_sensitive = case_sensitive
         self._source_file = config
 
@@ -309,6 +342,21 @@ class Manager:
             log.error(f"Error initializing marker manager: {str(e)}")
             raise
 
+    def _process_marker_list(self, markers: Iterable[Any]) -> List[str]:
+        """Normalize marker lists according to the manager case policy."""
+        processed = [str(m) for m in markers if isinstance(m, str) and m]
+        if not self.case_sensitive:
+            processed = [m.upper() for m in processed]
+        return list(dict.fromkeys(processed))
+
+    def _extract_cell_metadata(self, cell_def: dict) -> Dict[str, object]:
+        """Collect explicit metadata plus extra marker definition fields."""
+        metadata = dict(cell_def.get("metadata", {}) or {})
+        for key, value in cell_def.items():
+            if key not in _CELL_DEF_KEYS:
+                metadata[key] = value
+        return metadata
+
     def _parse_level(self, level_data: dict, parent_obj: Optional[CellType] = None) -> None:
         """
         Recursively parses a level of the marker hierarchy.
@@ -319,6 +367,17 @@ class Manager:
         """
         for major_name, definitions in level_data.items():
             log.debug(f"Parsing level: {major_name}")
+
+            if parent_obj is None and major_name in {"metadata", "_metadata"}:
+                if isinstance(definitions, dict):
+                    self.metadata.update(definitions)
+                continue
+
+            if not isinstance(definitions, list):
+                log.warning(
+                    f"Skipping top-level key '{major_name}' because it is not a list of definitions"
+                )
+                continue
 
             if parent_obj is None:
                 self.CLUSTERS[major_name] = []
@@ -343,32 +402,30 @@ class Manager:
                     if "color" in cell_def and cell_def["color"]:
                         cell_obj.color = cell_def["color"]
 
-                    # Add new markers
-                    new_markers = cell_def.get("markers", [])
-                    if not self.case_sensitive:
-                        new_markers = [m.upper() for m in new_markers]
+                    cell_obj.add_markers(self._process_marker_list(cell_def.get("markers", [])))
+                    cell_obj.add_negative_markers(
+                        self._process_marker_list(cell_def.get("negative_markers", []))
+                    )
 
-                    cell_obj.add_markers(new_markers)
-
-                    # Update metadata if provided
-                    if "metadata" in cell_def:
-                        cell_obj.metadata.update(cell_def["metadata"])
+                    cell_obj.metadata.update(self._extract_cell_metadata(cell_def))
 
                     log.debug(f"Updated existing cell type: {cell_name}")
 
                 else:
                     # Create new cell type
-                    markers = cell_def.get("markers", [])
-                    if not self.case_sensitive:
-                        markers = [m.upper() for m in markers]
+                    markers = self._process_marker_list(cell_def.get("markers", []))
+                    negative_markers = self._process_marker_list(
+                        cell_def.get("negative_markers", [])
+                    )
 
                     cell_obj = CellType(
                         name=cell_name,
                         color=cell_def.get("color"),
                         markers=markers,
                         level="minor" if parent_obj else "major",
+                        negative_markers=negative_markers,
                         parent=parent_obj,
-                        metadata=cell_def.get("metadata", {}),
+                        metadata=self._extract_cell_metadata(cell_def),
                     )
                     self.CELLS[cell_name] = cell_obj
                     log.debug(f"Created new cell type: {cell_name} with {len(markers)} markers")
@@ -680,7 +737,8 @@ class Manager:
         markers: List[str],
         parent: Optional[str] = None,
         color: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None,
+        metadata: Optional[Dict[str, object]] = None,
+        negative_markers: Optional[List[str]] = None,
     ) -> CellType:
         """
         Adds a new cell type to the manager.
@@ -691,6 +749,7 @@ class Manager:
             parent: Name of the parent cell type (if any)
             color: Color for visualization
             metadata: Additional metadata
+            negative_markers: Markers expected to be absent
 
         Returns:
             The newly created CellType object
@@ -702,7 +761,8 @@ class Manager:
         if name in self.CELLS:
             log.warning(f"Cell type '{name}' already exists, updating instead of creating new")
             cell_obj = self.CELLS[name]
-            cell_obj.add_markers(markers)
+            cell_obj.add_markers(self._process_marker_list(markers))
+            cell_obj.add_negative_markers(self._process_marker_list(negative_markers or []))
             if color:
                 cell_obj.color = color
             if metadata:
@@ -710,8 +770,8 @@ class Manager:
             return cell_obj
 
         # Process markers for case sensitivity
-        if not self.case_sensitive:
-            markers = [m.upper() for m in markers]
+        markers = self._process_marker_list(markers)
+        negative_markers = self._process_marker_list(negative_markers or [])
 
         # Create new cell type
         parent_obj = None
@@ -729,6 +789,7 @@ class Manager:
             color=color,
             markers=markers,
             level=level,
+            negative_markers=negative_markers,
             parent=parent_obj,
             metadata=metadata or {},
         )
@@ -787,6 +848,7 @@ class Manager:
         selected = Manager.__new__(Manager)
         selected.CELLS = {}
         selected.CLUSTERS = {}
+        selected.metadata = dict(getattr(self, "metadata", {}))
         selected.case_sensitive = self.case_sensitive
         selected._source_file = getattr(self, "_source_file", "selected")
 
@@ -811,140 +873,205 @@ class Manager:
 
         return selected
 
+    def select_by_metadata(
+        self,
+        *,
+        include_children: bool = True,
+        **criteria: object,
+    ) -> Manager:
+        """
+        Build a new manager containing cells whose metadata matches all criteria.
+
+        Criteria values can be scalars or iterables. When a cell metadata value is
+        itself a list, any overlap with the requested value is treated as a match.
+        """
+
+        def _as_values(value: object) -> Set[str]:
+            if isinstance(value, (list, tuple, set)):
+                return {str(v).lower() for v in value}
+            return {str(value).lower()}
+
+        def _matches(cell: CellType) -> bool:
+            for key, expected in criteria.items():
+                actual = cell.metadata.get(key)
+                if actual is None:
+                    return False
+                expected_values = _as_values(expected)
+                actual_values = _as_values(actual)
+                if not expected_values.intersection(actual_values):
+                    return False
+            return True
+
+        return self.select_cells(
+            [name for name, cell in self.CELLS.items() if _matches(cell)],
+            include_children=include_children,
+        )
+
+    def to_gene_sets(self, *, level: Literal["major", "minor", "all"] = "all") -> Dict[str, List[str]]:
+        """Return marker lists in the simple {name: genes} format used by scoring."""
+        return {
+            name: list(cell.markers)
+            for name, cell in self.CELLS.items()
+            if (level == "all" or cell.level == level) and cell.markers
+        }
+
+    def get_view(self, view: str) -> Manager:
+        """
+        Return a marker-manager view for a specific workflow use case.
+
+        Supported views are:
+        - ``global_annotation``: lineage/subtype labels, excluding state/program/tumor evidence
+        - ``state_annotation`` / ``program_scoring``: state and functional programs
+        - ``tumor_interpretation``: cancer and malignancy-interpretation evidence
+        - ``qc_artifact``: QC/artifact signatures
+        """
+        if view not in _MARKER_VIEWS:
+            raise ValueError(f"Unknown marker manager view '{view}'. Available: {sorted(_MARKER_VIEWS)}")
+
+        selected: List[str] = []
+        for name, cell in self.CELLS.items():
+            kind = str(cell.metadata.get("kind", "")).lower()
+            category = str(cell.metadata.get("category", "")).lower()
+
+            if view == "global_annotation":
+                include_global = cell.metadata.get("use_for_global_annotation", True)
+                if include_global is False:
+                    continue
+                if kind in {
+                    "state",
+                    "functional_program",
+                    "artifact",
+                    "tumor_evidence",
+                    "cancer_hallmark",
+                    "geneset",
+                }:
+                    continue
+                selected.append(name)
+            elif view in {"state_annotation", "program_scoring"}:
+                if (
+                    kind in {"state", "functional_program"}
+                    or cell.metadata.get("use_for_state_annotation") is True
+                ):
+                    selected.append(name)
+            elif view == "tumor_interpretation":
+                if (
+                    kind in {"tumor_evidence", "cancer", "cancer_hallmark", "functional_program"}
+                    or cell.metadata.get("use_for_malignancy_interpretation") is True
+                ):
+                    selected.append(name)
+            elif view == "qc_artifact":
+                if kind == "artifact" or category in {"artifact_qc", "quality", "qc"}:
+                    selected.append(name)
+
+        return self.select_cells(selected, include_children=True)
+
 
 # =============================================================================
-# GeneSet Manager for functional signatures
+# Gene-set resources as Manager instances
 # =============================================================================
 
 
-class GeneSetManager:
-    """
-    Manages functional gene sets and signatures.
+def _extract_genesets(data: dict) -> Dict[str, List[str]]:
+    """Extract gene lists from supported JSON gene-set resource shapes."""
+    genesets: Dict[str, List[str]] = {}
+    for key, value in data.items():
+        if str(key).startswith("_"):
+            continue
+        if isinstance(value, list):
+            genesets[str(key)] = [g for g in value if isinstance(g, str)]
+        elif isinstance(value, dict) and "genes" in value:
+            genesets[str(key)] = [g for g in value["genes"] if isinstance(g, str)]
+    return genesets
 
-    This class provides access to curated gene signatures such as:
-    - Cancer hallmarks (MSigDB)
-    - Cell cycle phases
-    - EMT and stemness signatures
-    - Therapy response signatures
 
-    Attributes:
-        _genesets: Dictionary of loaded gene sets
-        _species: Species identifier ("human", "mouse", etc.)
-    """
+def load_gene_sets(
+    species: str = "human",
+    name: str = "functional_signatures",
+) -> Dict[str, List[str]]:
+    """Load a built-in gene-set resource as a simple ``{signature: genes}`` mapping."""
+    species = species.lower()
+    file_patterns = [
+        f"marker_{name}.json",
+        f"genesets_{name}.json",
+        f"{name}_genes.json",
+        f"{name}.json",
+    ]
 
-    def __init__(self, species: str = "human"):
-        """
-        Initialize the GeneSetManager.
-
-        Args:
-            species: Species identifier
-        """
-        self._genesets: Dict[str, Dict] = {}
-        self._species = species.lower()
-        log.debug(f"Initialized GeneSetManager for species: {species}")
-
-    def load_geneset(self, name: str) -> Dict[str, List[str]]:
-        """
-        Load a gene set collection from resources.
-
-        Args:
-            name: Name of the gene set file (e.g., "cancer_hallmarks", "cell_cycle")
-
-        Returns:
-            Dictionary mapping signature names to gene lists
-
-        Raises:
-            FileNotFoundError: If the gene set file cannot be found
-        """
-        if name in self._genesets:
-            return self._genesets[name]
-
-        # Try different file patterns
-        file_patterns = [
-            f"genesets_{name}.json",
-            f"{name}_genes.json",
-            f"{name}.json",
-        ]
-
-        for pattern in file_patterns:
-            try:
-                resource_path = resources.files("scLucid").joinpath(f"resources/{pattern}")
-                if resource_path.is_file():
-                    with open(resource_path, encoding="utf-8") as f:
-                        data = json.load(f)
-
-                    # Extract genesets for the species
-                    if self._species in data:
-                        genesets = self._extract_genesets(data[self._species])
-                    else:
-                        # Assume flat structure
-                        genesets = self._extract_genesets(data)
-
-                    self._genesets[name] = genesets
-                    log.info(f"Loaded gene set '{name}' with {len(genesets)} signatures")
-                    return genesets
-            except (ModuleNotFoundError, FileNotFoundError):
+    for pattern in file_patterns:
+        try:
+            resource_path = resources.files("scLucid").joinpath(f"resources/{pattern}")
+            if not resource_path.is_file():
                 continue
+            with open(resource_path, encoding="utf-8") as f:
+                data = json.load(f)
+            if species in data:
+                return _extract_genesets(data[species])
+            return _extract_genesets(data)
+        except (ModuleNotFoundError, FileNotFoundError):
+            continue
 
-        raise FileNotFoundError(f"Gene set '{name}' not found in resources")
+    raise FileNotFoundError(f"Gene-set resource '{name}' not found in resources")
 
-    def _extract_genesets(self, data: dict) -> Dict[str, List[str]]:
-        """Extract gene lists from loaded data structure."""
-        genesets = {}
 
-        for key, value in data.items():
-            if key.startswith("_"):
-                continue  # Skip metadata
+def load_gene_set_manager(
+    species: str = "human",
+    name: str = "functional_signatures",
+    *,
+    case_sensitive: bool = True,
+    kind: str = "functional_program",
+    category: Optional[str] = None,
+) -> Manager:
+    """Load a gene-set JSON resource into the unified marker ``Manager``."""
+    species = species.lower()
+    data = None
+    categories: Dict[str, str] = {}
+    if name == "functional_signatures":
+        try:
+            data = _load_marker_file(_get_marker_path(name))
+        except FileNotFoundError:
+            data = None
 
-            if isinstance(value, list):
-                genesets[key] = value
-            elif isinstance(value, dict) and "genes" in value:
-                genesets[key] = value["genes"]
+    if data is not None and species in data:
+        species_data = data[species]
+        for cat_name, sig_names in species_data.get("_categories", {}).items():
+            for sig_name in sig_names:
+                categories[str(sig_name)] = str(cat_name)
+        genesets = _extract_genesets(species_data)
+    else:
+        genesets = load_gene_sets(species=species, name=name)
 
-        return genesets
+    mgr = Manager.__new__(Manager)
+    mgr.CELLS = {}
+    mgr.CLUSTERS = {}
+    mgr.metadata = {"source": name, "species": species, "kind": kind}
+    mgr.case_sensitive = case_sensitive
+    mgr._source_file = name
+    cluster = "Functional programs" if kind == "functional_program" else name
+    mgr.CLUSTERS[cluster] = []
 
-    def get_signature(self, geneset_name: str, signature_name: str) -> List[str]:
-        """
-        Get a specific gene signature.
-
-        Args:
-            geneset_name: Name of the gene set collection
-            signature_name: Name of the specific signature
-
-        Returns:
-            List of genes in the signature
-
-        Raises:
-            KeyError: If the signature is not found
-        """
-        genesets = self.load_geneset(geneset_name)
-
-        if signature_name not in genesets:
-            raise KeyError(f"Signature '{signature_name}' not found in '{geneset_name}'")
-
-        return genesets[signature_name]
-
-    def list_signatures(self, geneset_name: str) -> List[str]:
-        """
-        List all available signatures in a gene set.
-
-        Args:
-            geneset_name: Name of the gene set collection
-
-        Returns:
-            List of signature names
-        """
-        genesets = self.load_geneset(geneset_name)
-        return list(genesets.keys())
-
-    def get_all_genesets(self) -> Dict[str, Dict[str, List[str]]]:
-        """
-        Get all loaded gene sets.
-
-        Returns:
-            Dictionary of all loaded gene sets
-        """
-        return self._genesets.copy()
+    for sig_name, genes in genesets.items():
+        sig_category = category or categories.get(sig_name)
+        metadata: Dict[str, object] = {
+            "kind": kind,
+            "source": name,
+            "scope": "all",
+            "use_for_global_annotation": False,
+            "use_for_state_annotation": kind == "functional_program",
+            "use_for_malignancy_interpretation": name
+            in {"cancer_hallmarks", "cancer_signatures"},
+        }
+        if sig_category:
+            metadata["category"] = sig_category
+        cell = CellType(
+            name=sig_name,
+            color=None,
+            markers=mgr._process_marker_list(genes),
+            level="major",
+            metadata=metadata,
+        )
+        mgr.CELLS[sig_name] = cell
+        mgr.CLUSTERS[cluster].append(cell)
+    return mgr
 
 
 def _get_cancer_markers(species: str = "human") -> Dict[str, Dict[str, List[str]]]:
@@ -966,6 +1093,8 @@ def _get_cancer_markers(species: str = "human") -> Dict[str, Dict[str, List[str]
 
         cancer_markers = {}
         for category, definitions in data.items():
+            if category in {"metadata", "_metadata"} or not isinstance(definitions, list):
+                continue
             for cancer_def in definitions:
                 name = cancer_def.get("name", "")
                 cancer_markers[name] = {
@@ -989,25 +1118,15 @@ def _get_cancer_markers(species: str = "human") -> Dict[str, Dict[str, List[str]
         return {}
 
 
-def get_geneset_manager(species: str = "human") -> GeneSetManager:
-    """
-    Factory function to create a GeneSetManager.
-
-    Args:
-        species: Species identifier
-
-    Returns:
-        Configured GeneSetManager instance
-    """
-    return GeneSetManager(species=species)
-
-
 def get_marker_manager(
     species: str,
     tissue: Optional[str] = None,
     states: Optional[List[str]] = None,
     cancer_type: Optional[str] = None,
     case_sensitive: bool = True,
+    view: Optional[str] = None,
+    include_functional: bool = False,
+    gene_sets: Optional[List[str]] = None,
 ) -> Manager:
     """
     Factory function to build a Manager by combining base, tissue, state, and cancer markers.
@@ -1021,6 +1140,9 @@ def get_marker_manager(
         states: A list of cell states, corresponding to keys in the cell-state file
         cancer_type: Cancer type name, corresponding to a top-level key in the cancer marker file
         case_sensitive: Whether gene names should be case-sensitive
+        view: Optional workflow-specific view to return
+        include_functional: Merge marker_functional_signatures.json as functional programs
+        gene_sets: Additional genesets_* JSON resources to merge as marker entries
 
     Returns:
         A fully configured and combined Manager instance
@@ -1033,7 +1155,10 @@ def get_marker_manager(
     if species not in KNOWN_SPECIES:
         log.warning(f"Species '{species}' not in known list: {KNOWN_SPECIES}")
 
-    log.info(f"Building marker manager for species: {species}, tissue: {tissue}, states: {states}")
+    log.info(
+        f"Building marker manager for species: {species}, tissue: {tissue}, "
+        f"states: {states}, view: {view}"
+    )
 
     try:
         # Load base markers for the species
@@ -1092,8 +1217,41 @@ def get_marker_manager(
             except (FileNotFoundError, KeyError) as e:
                 log.warning(f"Could not load cancer markers for '{cancer_type}': {str(e)}")
 
+        should_load_functional = include_functional or view in {
+            "state_annotation",
+            "program_scoring",
+            "tumor_interpretation",
+        }
+        if should_load_functional:
+            try:
+                mgr.merge_from(
+                    load_gene_set_manager(
+                        species=species,
+                        name="functional_signatures",
+                        case_sensitive=case_sensitive,
+                        kind="functional_program",
+                    )
+                )
+                log.info("Merged functional signature programs")
+            except FileNotFoundError as e:
+                log.warning(f"Could not load functional signatures: {str(e)}")
+
+        for gene_set_name in gene_sets or []:
+            try:
+                mgr.merge_from(
+                    load_gene_set_manager(
+                        species=species,
+                        name=gene_set_name,
+                        case_sensitive=case_sensitive,
+                        kind="geneset",
+                    )
+                )
+                log.info(f"Merged gene-set resource '{gene_set_name}'")
+            except FileNotFoundError as e:
+                log.warning(f"Could not load gene-set resource '{gene_set_name}': {str(e)}")
+
         log.info(f"Manager built successfully with {len(mgr.CELLS)} cell types")
-        return mgr
+        return mgr.get_view(view) if view else mgr
 
     except Exception as e:
         log.error(f"Error building marker manager: {str(e)}")

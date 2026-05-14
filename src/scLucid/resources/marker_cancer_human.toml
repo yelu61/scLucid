@@ -104,3 +104,36 @@ name = "Glioblastoma"
 color = "#800080"
 markers = ["GFAP", "EGFR", "PTEN", "IDH1", "MGMT", "OLIG2", "NES"]
 description = "Glioblastoma multiforme markers"
+
+# =============================================================================
+# Pan-cancer atlas and malignancy evidence scaffold
+# =============================================================================
+# These sections are intentionally kept in marker_cancer_human.toml rather than
+# separate TOML files. The routing happens through metadata + Manager views.
+# Use these as placeholders for future pan-cancer scRNA atlas curation.
+# =============================================================================
+
+[["Pan-Cancer Atlas Programs"]]
+name = "Pan-Cancer Atlas Programs"
+color = "#e15759"
+markers = []
+metadata = { kind = "cancer_context", granularity = "program_family", compartment = "tumor", scope = "tumor_context", applies_to = ["Tumor", "Epithelial"], evidence_tier = "seed", source_type = "pan_cancer_atlas", review_status = "scaffold", use_for_global_annotation = false, use_for_state_annotation = true, use_for_malignancy_interpretation = true }
+minor = [
+    { name = "Epithelial tumor identity", color = "#d62728", markers = ["EPCAM", "KRT8", "KRT18", "KRT19", "MUC1"], negative_markers = ["PTPRC", "PECAM1", "COL1A1"], metadata = { kind = "tumor_evidence", granularity = "evidence", compartment = "tumor", lineage = "Epithelial", marker_role = "positive", evidence_tier = "seed", source_type = "pan_cancer_atlas", review_status = "needs_review", use_for_malignancy_interpretation = true } },
+    { name = "EMT plasticity program", color = "#b56576", markers = ["VIM", "FN1", "SNAI1", "SNAI2", "ZEB1", "CDH2"], metadata = { kind = "functional_program", granularity = "program", compartment = "tumor", lineage = "Epithelial/Tumor", category = "plasticity", scope = "tumor_context", applies_to = ["Tumor", "Epithelial"], marker_role = "program", evidence_tier = "seed", source_type = "pan_cancer_atlas", review_status = "needs_review", use_for_state_annotation = true, use_for_malignancy_interpretation = true } },
+    { name = "Cycling tumor program", color = "#a32121", markers = ["MKI67", "TOP2A", "PCNA", "UBE2C", "CENPF", "BIRC5"], metadata = { kind = "functional_program", granularity = "program", compartment = "tumor", lineage = "Tumor", category = "cell_cycle", scope = "tumor_context", applies_to = ["Tumor"], marker_role = "program", evidence_tier = "seed", source_type = "pan_cancer_atlas", review_status = "needs_review", use_for_state_annotation = true, use_for_malignancy_interpretation = true } },
+    { name = "CAF activation program", color = "#c56543", markers = ["COL1A1", "COL1A2", "POSTN", "CTHRC1", "THY1", "FAP"], metadata = { kind = "functional_program", granularity = "program", compartment = "stromal", lineage = "Fibroblasts", category = "caf_activation", scope = "lineage_restricted", applies_to = ["Fibroblasts", "Stromal"], marker_role = "program", evidence_tier = "seed", source_type = "pan_cancer_atlas", review_status = "needs_review", use_for_state_annotation = true } },
+    { name = "Angiogenic endothelial program", color = "#f1c40f", markers = ["KDR", "FLT1", "ESM1", "ANGPT2", "PECAM1", "VWF"], metadata = { kind = "functional_program", granularity = "program", compartment = "stromal", lineage = "Endothelial cells", category = "angiogenesis", scope = "lineage_restricted", applies_to = ["Endothelial cells"], marker_role = "program", evidence_tier = "seed", source_type = "pan_cancer_atlas", review_status = "needs_review", use_for_state_annotation = true } }
+]
+
+[["Malignancy Evidence"]]
+name = "Malignancy Evidence"
+color = "#6c757d"
+markers = []
+metadata = { kind = "tumor_evidence", granularity = "evidence_family", compartment = "mixed", scope = "tumor_context", applies_to = ["all"], evidence_tier = "seed", source_type = "expert_seed", review_status = "scaffold", use_for_global_annotation = false, use_for_malignancy_interpretation = true }
+minor = [
+    { name = "Carcinoma epithelial evidence", color = "#d62728", markers = ["EPCAM", "KRT8", "KRT18", "KRT19", "CLDN4", "MUC1"], negative_markers = ["PTPRC", "PECAM1", "COL1A1"], metadata = { kind = "tumor_evidence", granularity = "evidence", compartment = "tumor", lineage = "Epithelial", marker_role = "positive", evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_malignancy_interpretation = true } },
+    { name = "Squamous epithelial evidence", color = "#b22222", markers = ["KRT5", "KRT6A", "KRT14", "TP63", "SOX2"], negative_markers = ["PTPRC", "PECAM1"], metadata = { kind = "tumor_evidence", granularity = "evidence", compartment = "tumor", lineage = "Squamous epithelial", marker_role = "positive", evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_malignancy_interpretation = true } },
+    { name = "Diploid immune anchor", color = "#4e79a7", markers = ["PTPRC", "CD3D", "MS4A1", "LYZ", "NKG7"], negative_markers = ["EPCAM", "KRT8", "KRT18", "KRT19"], metadata = { kind = "tumor_evidence", granularity = "reference_anchor", compartment = "immune", marker_role = "negative_control", evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_malignancy_interpretation = true } },
+    { name = "Diploid stromal anchor", color = "#f28e2b", markers = ["COL1A1", "DCN", "PECAM1", "VWF", "RGS5"], negative_markers = ["EPCAM", "KRT8", "KRT18", "KRT19"], metadata = { kind = "tumor_evidence", granularity = "reference_anchor", compartment = "stromal", marker_role = "negative_control", evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_malignancy_interpretation = true } }
+]

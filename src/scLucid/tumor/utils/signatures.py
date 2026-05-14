@@ -4,7 +4,7 @@ Cancer hallmark signatures and scoring utilities.
 This module provides curated gene signatures for cancer hallmarks
 and utilities for calculating signature scores.
 
-Note: Gene signature data is now loaded from resources/ directory via GeneSetManager.
+Note: Gene signature data is now loaded from resources/ directory via Manager helpers.
 This module provides backward-compatible wrapper functions and scoring classes.
 """
 
@@ -43,11 +43,10 @@ class HallmarkCalculator:
     ):
         # Load from resources if not provided
         if signatures is None:
-            from ...utils.manager import GeneSetManager
+            from ...utils.manager import load_gene_sets
 
-            gsm = GeneSetManager(species="human")
             try:
-                self.signatures = gsm.load_geneset("cancer_hallmarks")
+                self.signatures = load_gene_sets(species="human", name="cancer_hallmarks")
             except FileNotFoundError:
                 log.warning("Could not load hallmarks from resources, using empty set")
                 self.signatures = {}
@@ -121,14 +120,12 @@ def load_hallmark_signatures(
     Note:
     ----
     This function now loads from resources/genesets_cancer_hallmarks.json
-    via GeneSetManager.
+    via unified Manager helpers.
     """
-    from ...utils.manager import GeneSetManager
-
-    gsm = GeneSetManager(species="human")
+    from ...utils.manager import load_gene_sets
 
     try:
-        signatures = gsm.load_geneset("cancer_hallmarks")
+        signatures = load_gene_sets(species="human", name="cancer_hallmarks")
     except FileNotFoundError:
         log.warning("Could not load hallmarks from resources, returning empty dict")
         signatures = {}

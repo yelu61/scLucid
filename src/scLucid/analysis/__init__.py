@@ -96,7 +96,6 @@ if not _export("differential_expression", _de_names, optional=True):
 _export(
     "scoring",
     [
-        "FunctionalSignatureManager",
         "score_by_gene_sets",
         "run_module_scoring_workflow",
         "calculate_signature_matrix",

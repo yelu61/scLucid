@@ -104,11 +104,11 @@ from .manager import (
     KNOWN_SPECIES,
     MARKER_FORMATS,
     CellType,
-    GeneSetManager,
     Manager,
     _get_cancer_markers,
-    get_geneset_manager,
     get_marker_manager,
+    load_gene_set_manager,
+    load_gene_sets,
 )
 from .marker_sets import filter_marker_dict, flatten_marker_dict
 
@@ -285,9 +285,9 @@ __all__ = [
     # Marker management
     "CellType",
     "Manager",
-    "GeneSetManager",
     "get_marker_manager",
-    "get_geneset_manager",
+    "load_gene_set_manager",
+    "load_gene_sets",
     "_get_cancer_markers",
     "KNOWN_SPECIES",
     "MARKER_FORMATS",

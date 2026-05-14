@@ -168,14 +168,12 @@ def get_proliferation_markers(
 
     Note:
     ----
-    This function now loads from resources/cell_cycle_genes.json
+    This function now loads resource gene sets through the unified Manager helpers.
     """
-    from ...utils.manager import GeneSetManager
-
-    gsm = GeneSetManager(species="human")
+    from ...utils.manager import load_gene_sets
 
     try:
-        genesets = gsm.load_geneset("cell_cycle")
+        genesets = load_gene_sets(species="human", name="cell_cycle")
     except FileNotFoundError:
         # Fallback to minimal set
         return {
@@ -219,14 +217,12 @@ def get_emt_markers(
 
     Note:
     ----
-    This function now loads from resources/genesets_cancer_signatures.json
+    This function now loads resource gene sets through the unified Manager helpers.
     """
-    from ...utils.manager import GeneSetManager
-
-    gsm = GeneSetManager(species="human")
+    from ...utils.manager import load_gene_sets
 
     try:
-        genesets = gsm.load_geneset("cancer_signatures")
+        genesets = load_gene_sets(species="human", name="cancer_signatures")
     except FileNotFoundError:
         # Fallback
         return {

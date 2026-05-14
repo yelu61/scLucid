@@ -299,7 +299,7 @@ class TestAnnotationConfig:
         config = AnnotationConfig(
             final_method="hierarchical",
             target_lineage="T cells",
-            lineage_marker_config="tcell_human",
+            lineage_marker_config="base_human",
             state_signature_names=["T_cell_activation"],
             nomenclature_style="modular",
         )
