@@ -13,9 +13,11 @@ Your job is not to redesign the package from scratch. Your job is to extend the 
 - strong in tumor-specific analysis;
 - capable of publication-quality visual output;
 - usable by people with different coding backgrounds;
-- modular enough for future external tool wrappers and translational cancer workflows.
+- structured as a three-layer product: automated workflow, simple API, and advanced customizable usage;
+- modular enough for future external tool wrappers and translational cancer workflows;
+- honest about validation boundaries: auditability, reproducibility, and workflow maturity are not the same claim as proven superiority over standard workflows.
 
-When developing scLucid, act like a senior scientific software engineer and tumor single-cell method developer. Prefer conservative, testable additions that fit the current codebase over large rewrites.
+When developing scLucid, act like a senior scientific software engineer and tumor single-cell method developer. Prefer conservative, testable additions that fit the current codebase over large rewrites. The current product trajectory is: make QC and preprocess candidate benchmark modules, then bring analysis to the same audit and evidence standard before claiming full workflow superiority.
 
 ## 2. scLucid Project Context
 
@@ -28,13 +30,27 @@ scLucid currently uses a layered workflow architecture:
 - `src/scLucid/tumor/`: malignancy, CNV, TME, therapy, heterogeneity, evolution, and tumor workflow.
 - `src/scLucid/plotting/`: publication-style plotting helpers, themes, and domain plots.
 - `src/scLucid/tools/`: wrappers for external methods such as inferCNV, CellPhoneDB/CellChat-like workflows, pySCENIC, Monocle3-style tools, BayesPrism/DWLS-like deconvolution.
-- `src/scLucid/utils/`: validation, contracts, storage, context, resource loading, profiling, workflow utilities.
+- `src/scLucid/utils/`: validation, validation scaffold, contracts, storage, context, resource loading, profiling, workflow utilities.
 
-The current P0 development focus is:
+The public product surface should be treated as three layers:
 
-1. QC
-2. Preprocess
-3. Analysis
+- Workflow layer: `scl.run_pipeline`, `run_standard_qc`, `run_preprocessing`, and `run_standard_analysis` for users who want supported end-to-end execution.
+- Simple API layer: `scl.qc.*`, `scl.pp.*`, `scl.al.*`, and related module functions for notebook users who want direct calls without deep framework knowledge.
+- Advanced layer: documented notebooks and scripts that expose decision evidence, intermediate objects, and expert overrides.
+
+The current advanced notebook sequence is:
+
+- `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb`
+- `examples/03_advanced_notebooks/Step1B-Preprocessing_Audit.ipynb`
+- `examples/03_advanced_notebooks/Step2-Annotation_and_Malignancy.ipynb`
+- `examples/03_advanced_notebooks/Step3-Standard_Downstream.ipynb`
+- `examples/03_advanced_notebooks/Step4-Signature_and_Target_Analysis.ipynb`
+
+The current development status is:
+
+1. QC and preprocess are candidate benchmark modules. They should keep complete module contracts, layer contracts, step evidence, review summaries, and lightweight validation scaffold outputs.
+2. Analysis is the active next benchmark target. Improve clustering resolution evidence, annotation evidence, malignancy/CNV-assisted interpretation, and `adata.uns["sclucid"]["analysis"]["review_summary"]`.
+3. Tumor, tools, plotting, and report modules should consume stable QC/preprocess/analysis outputs before receiving large new features.
 
 These modules are the foundation for downstream tumor, spatial, therapy, and report features. Improve them first before expanding advanced modules.
 
@@ -90,14 +106,20 @@ Use the current framework before creating anything new:
 - Workflow stage contracts live in `src/scLucid/utils/contracts.py`.
 - Storage helpers live in `src/scLucid/utils/storage.py`.
 - Validation helpers live in `src/scLucid/utils/validation.py`.
+- Lightweight QC/preprocess validation scaffold lives in `src/scLucid/utils/validation_scaffold.py`.
 - Marker resources are centrally managed through `src/scLucid/utils/manager.py` and `src/scLucid/resources/`.
 - Public workflow entrypoints already exist:
   - `run_standard_qc`
   - `run_preprocessing`
   - `run_standard_analysis`
   - `RecommendationEngine.recommend`
+- Public validation scaffold entrypoints already exist:
+  - `build_qc_preprocess_validation`
+  - `write_validation_outputs`
+  - `validation_table_to_dataframe`
 - Review summaries should use `normalize_review_summary` and `validate_review_summary_schema`.
 - Workflow steps support `steps`, `skip_steps`, progress display, error recovery, and partial result recovery.
+- Golden path validation outputs should use `validation/qc_preprocess_validation.json` and `validation/qc_preprocess_validation_table.csv` unless there is a clear reason to add a new convention.
 
 Prefer extending existing files and subpackages over adding parallel versions. Do not create `*_v2.py` modules unless explicitly requested.
 
@@ -149,6 +171,35 @@ Design rules:
   `granularity`, `scope`, `applies_to`, `evidence_tier`, `source_type`, and
   `review_status`.
 
+## 4B. API Layers, Maturity Status, and Validation Boundary
+
+scLucid should present the same scientific contract through three usage layers:
+
+1. Workflow: one-command supported routes for complete QC, preprocess, and analysis execution.
+2. Simple API: short module calls that stay easy for notebook users and basic tumor researchers.
+3. Advanced usage: notebooks and scripts that expose decision evidence, intermediate artifacts, and expert override points for bioinformaticians.
+
+Do not let these layers drift. A feature is product-ready only when the workflow, API, documentation, and examples describe the same AnnData contract and output locations.
+
+Current maturity language:
+
+- QC and preprocess may be described as candidate benchmark modules for auditability, reproducibility, and real-project workflow fit.
+- Analysis is the next module to bring to the same maturity level.
+- Do not describe any module as scientifically superior to Scanpy, Seurat, scran, or other standard workflows without a comparative validation design, fixed datasets, metrics, and reproducible results.
+
+The lightweight validation scaffold is for readiness, not final benchmark claims. It should summarize:
+
+- cell retention fraction;
+- QC warning count;
+- low-quality and doublet proportion;
+- counts, raw, normalized, scaled, and layer contract checks;
+- HVG count and stability summary;
+- PCA, neighbors, and UMAP availability;
+- review summary completeness;
+- compact validation table status.
+
+The future formal validation target is `qc_preprocess_analysis_validation`, but only after analysis has comparable audit evidence. That validation should cover PBMC baseline, PDAC tumor data, a second tumor dataset, at least one real project notebook, and a supported workflow versus standard workflow comparison.
+
 ## 5. Non-negotiable Design Principles
 
 Every feature must satisfy these principles:
@@ -163,6 +214,8 @@ Every feature must satisfy these principles:
 8. Non-destructive by default: avoid unexpected mutation unless an explicit `inplace=True` API exists.
 9. Graceful dependencies: optional methods must fail with clear messages or warnings, not silent failures.
 10. Publication-ready: plotting APIs must return figure objects and support high-quality export.
+11. Layer-consistent: workflow, simple API, and advanced notebooks must share the same contracts and terminology.
+12. Claim-calibrated: evidence claims must match validation level; do not turn workflow maturity into unproven scientific superiority.
 
 ## 6. Data Object and Storage Rules
 
@@ -196,6 +249,14 @@ For workflow outputs, always store:
 - `adata.uns["sclucid"][module]["workflow_config"]`
 - `adata.uns["sclucid"][module]["steps_executed"]`
 - `adata.uns["sclucid"][module]["review_summary"]`
+
+For advanced notebook handoffs, use canonical filenames unless the dataset requires a clearer prefix:
+
+- Step1A QC output: `Step1-sce_cleaned.h5ad`
+- Step1B preprocess output: `Step2-sce_preprocessed.h5ad`
+- Step2 annotation and malignancy output: `Step3-sce_annotated.h5ad`
+
+For validation outputs, prefer sidecar artifacts under `validation/` and manifest entries under `artifacts["validation"]`. Do not embed bulky validation tables or rendered reports inside AnnData unless they are needed for downstream computation.
 
 For user-facing annotation and tumor outputs, prefer explicit `obs` columns:
 
@@ -322,6 +383,15 @@ Development rules:
 - Store annotation evidence in `adata.uns["sclucid"]["analysis"]` or a dedicated annotation namespace.
 - For tumor immune annotation, design state vocabularies that can transfer across cancer types.
 
+Current analysis polishing target:
+
+- clustering resolution evidence should record candidate resolutions, selection rationale, marker support, and risks;
+- marker-based annotation evidence should produce reviewable lineage, subtype, state, confidence, supporting evidence, and conflict evidence;
+- annotation review tables should help users inspect uncertain or mixed clusters before accepting labels;
+- malignancy and CNV-assisted interpretation should explain how CNV, epithelial evidence, tumor programs, and reference support affect malignant calls;
+- `adata.uns["sclucid"]["analysis"]["review_summary"]` should record key reasoning, not only completed steps;
+- `Step2-Annotation_and_Malignancy.ipynb` should become the second product showcase after QC/preprocess.
+
 Lineage-specific minimum rules:
 
 - T cells: distinguish CD4, CD8, Treg, Tfh/CXCL13-like, Trm, cytotoxic, proliferating, pre-exhausted/plastic exhausted, terminal exhausted, stress-response, and tumor-reactive candidate states. If TCR data is present, clonality is evidence, not the sole label source.
@@ -416,6 +486,7 @@ Workflow rules:
 - Generate a review summary for each major stage.
 - Include warnings, user overrides, assumptions, and downstream recommendations.
 - Keep outputs reviewable by humans, not just machine-readable.
+- When validation scaffold outputs are produced, register their JSON and CSV paths in the workflow manifest.
 
 Review summaries should answer:
 
@@ -448,11 +519,21 @@ Validation rules:
 - Validate shape consistency after filtering/subsetting.
 - Validate that review summaries pass `validate_review_summary_schema`.
 
+Validation tiers:
+
+1. Lightweight gates: unit tests, contract checks, review summary schema checks, and small AnnData behavior.
+2. Maturity scaffold: compact QC/preprocess validation tables proving auditability, reproducibility, and workflow readiness.
+3. Golden path acceptance: PBMC and tumor notebooks/scripts that run end to end with stable outputs.
+4. Comparative validation: fixed datasets and metrics comparing scLucid with Scanpy standard workflow and optional Seurat/scran-style references.
+5. Manuscript-level benchmark: broader datasets, statistical summaries, runtime comparisons, and figure-quality reporting.
+
+Do not conflate these tiers. Current lightweight QC/preprocess validation means "ready for comparative validation", not "scientifically proven better than standard workflows".
+
 Current useful datasets:
 
 - PBMC3K for normal baseline behavior.
-- LUAD for tumor-aware QC and tumor-normal/TME mixture.
-- Mouse melanoma for multi-batch and heterogeneous tumor behavior.
+- Lin2020 PDAC for tumor-aware QC, preprocessing, annotation, and malignancy/CNV workflow fit.
+- Schlesinger2020 PDAC as a second tumor dataset candidate for generalization checks.
 
 ## 15. Documentation Rules
 
@@ -468,6 +549,19 @@ For public APIs, include:
 - notes about tumor-aware behavior or assumptions.
 
 For workflow changes, update relevant docs or examples when the user-facing API changes.
+
+When changing QC, preprocess, validation, or advanced notebook contracts, check whether these docs/examples need synchronized updates:
+
+- `README.md`
+- `docs/source/workflow_hardening.rst`
+- `docs/source/validation_scaffold.rst`
+- `docs/source/data_contracts.rst`
+- `docs/source/qc_preprocess_maturity.rst`
+- `docs/source/usage_layers.rst`
+- `docs/source/notebooks.rst`
+- `docs/source/examples.rst`
+- `examples/03_advanced_notebooks/`
+- golden path scripts and their manifests
 
 For recommendation or automated behavior, documentation must explain:
 
@@ -486,8 +580,10 @@ When implementing a scLucid feature, Codex should report:
 4. Config changes.
 5. Storage keys written under `adata.uns["sclucid"]`.
 6. Recommendation or trace behavior.
-7. Tests run and results.
-8. Known caveats or next best follow-up.
+7. Validation or benchmark claim boundary.
+8. Docs/examples updated.
+9. Tests run and results.
+10. Known caveats or next best follow-up.
 
 For code review tasks, prioritize findings first with file and line references.
 
@@ -510,6 +606,9 @@ Avoid these patterns:
 - Adding broad abstractions before two or more modules need them.
 - Adding verbose comments that restate the code.
 - Forgetting review summaries and decision traces.
+- Claiming "better than standard workflow" without comparative validation.
+- Creating validation metrics that cannot be reproduced from AnnData contracts, manifests, or saved artifacts.
+- Updating only one usage layer while leaving workflow/API/docs/examples inconsistent.
 
 ## 18. Example Development Prompts
 
@@ -537,4 +636,12 @@ Add an integration diagnostic to the preprocess workflow that warns when batch c
 
 ```text
 Implement a review-summary validator for analysis outputs that checks clustering, marker, annotation, and characterization sections.
+```
+
+```text
+Extend the lightweight validation scaffold so analysis can report clustering evidence, annotation confidence, malignancy/CNV evidence, and review-summary completeness after the analysis module reaches QC/preprocess maturity.
+```
+
+```text
+Polish Step2-Annotation_and_Malignancy.ipynb so it explains why clustering, annotation, and malignant calls were accepted or flagged, using existing analysis APIs and stored review summaries.
 ```
