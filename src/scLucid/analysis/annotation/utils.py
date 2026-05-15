@@ -205,11 +205,12 @@ def _resolve_annotation_manager(
     tissue: Optional[str],
     states: Optional[List[str]] = None,
     marker_config: Optional[str] = None,
+    view: Optional[str] = None,
 ):
     """Resolve either a custom marker file or the built-in combined marker manager."""
     if marker_config:
         return Manager(marker_config, case_sensitive=True)
-    return get_marker_manager(species=species, tissue=tissue, states=states)
+    return get_marker_manager(species=species, tissue=tissue, states=states, view=view)
 
 
 def _label_matches_target_lineage(labels: pd.Series, target_lineage: Optional[str]) -> pd.Series:

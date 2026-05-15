@@ -1,0 +1,607 @@
+# ============================================================================
+# scLucid Human Tumor Marker Resource v2
+# Generated from curated marker resources; edit by schema sections.
+# ============================================================================
+
+[metadata]
+version = "2.0"
+species = "human"
+description = "Cancer-context markers, tumor evidence signatures, and malignancy interpretation anchors."
+schema = "scLucid_marker_tumor_resource_v2"
+resource_type = "marker_tumor"
+sections = ["epithelial_support", "malignancy_program", "tumor_type_hint", "cancer_state", "reference_anchor"]
+curation_status = "seed_registry"
+
+# epithelial_support
+
+[[epithelial_support]]
+name = "Pan-Cancer"
+color = "#FF0000"
+markers = ["EPCAM", "KRT5", "KRT8", "KRT18", "KRT19", "MUC1", "CD24", "CD44", "ALCAM", "MET"]
+description = "General epithelial/carcinoma markers"
+
+[epithelial_support.metadata]
+kind = "tumor_evidence"
+granularity = "epithelial_support"
+compartment = "tumor"
+scope = "tumor_context"
+applies_to = ["Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "epithelial_support"
+
+[[epithelial_support]]
+name = "Epithelial tumor identity"
+color = "#d62728"
+markers = ["EPCAM", "KRT8", "KRT18", "KRT19", "MUC1"]
+negative_markers = ["PTPRC", "PECAM1", "COL1A1"]
+
+[epithelial_support.metadata]
+kind = "tumor_evidence"
+granularity = "epithelial_support"
+compartment = "tumor"
+lineage = "Epithelial"
+marker_role = "positive"
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_malignancy_interpretation = true
+category = "epithelial_support"
+
+[[epithelial_support]]
+name = "Carcinoma epithelial evidence"
+color = "#d62728"
+markers = ["EPCAM", "KRT8", "KRT18", "KRT19", "CLDN4", "MUC1"]
+negative_markers = ["PTPRC", "PECAM1", "COL1A1"]
+
+[epithelial_support.metadata]
+kind = "tumor_evidence"
+granularity = "epithelial_support"
+compartment = "tumor"
+lineage = "Epithelial"
+marker_role = "positive"
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_malignancy_interpretation = true
+category = "epithelial_support"
+
+[[epithelial_support]]
+name = "Squamous epithelial evidence"
+color = "#b22222"
+markers = ["KRT5", "KRT6A", "KRT14", "TP63", "SOX2"]
+negative_markers = ["PTPRC", "PECAM1"]
+
+[epithelial_support.metadata]
+kind = "tumor_evidence"
+granularity = "epithelial_support"
+compartment = "tumor"
+lineage = "Squamous epithelial"
+marker_role = "positive"
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_malignancy_interpretation = true
+category = "epithelial_support"
+
+# malignancy_program
+
+[[malignancy_program]]
+name = "EMT plasticity program"
+color = "#b56576"
+markers = ["VIM", "FN1", "SNAI1", "SNAI2", "ZEB1", "CDH2"]
+
+[malignancy_program.metadata]
+kind = "functional_program"
+granularity = "program"
+compartment = "tumor"
+lineage = "Epithelial/Tumor"
+category = "plasticity"
+scope = "tumor_context"
+applies_to = ["Tumor", "Epithelial"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+use_for_global_annotation = false
+
+[[malignancy_program]]
+name = "Cycling tumor program"
+color = "#a32121"
+markers = ["MKI67", "TOP2A", "PCNA", "UBE2C", "CENPF", "BIRC5"]
+
+[malignancy_program.metadata]
+kind = "functional_program"
+granularity = "program"
+compartment = "tumor"
+lineage = "Tumor"
+category = "cell_cycle"
+scope = "tumor_context"
+applies_to = ["Tumor"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+use_for_global_annotation = false
+
+[[malignancy_program]]
+name = "CAF activation program"
+color = "#c56543"
+markers = ["COL1A1", "COL1A2", "POSTN", "CTHRC1", "THY1", "FAP"]
+
+[malignancy_program.metadata]
+kind = "functional_program"
+granularity = "program"
+compartment = "stromal"
+lineage = "Fibroblasts"
+category = "caf_activation"
+scope = "lineage_restricted"
+applies_to = ["Fibroblasts", "Stromal"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_state_annotation = true
+use_for_global_annotation = false
+use_for_malignancy_interpretation = true
+
+[[malignancy_program]]
+name = "Angiogenic endothelial program"
+color = "#f1c40f"
+markers = ["KDR", "FLT1", "ESM1", "ANGPT2", "PECAM1", "VWF"]
+
+[malignancy_program.metadata]
+kind = "functional_program"
+granularity = "program"
+compartment = "stromal"
+lineage = "Endothelial cells"
+category = "angiogenesis"
+scope = "lineage_restricted"
+applies_to = ["Endothelial cells"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_state_annotation = true
+use_for_global_annotation = false
+use_for_malignancy_interpretation = true
+
+# tumor_type_hint
+
+[[tumor_type_hint]]
+name = "Lung Cancer"
+color = "#4169E1"
+markers = ["NKX2-1", "SFTPC", "SFTPA1", "SFTPB", "AGER", "SCGB1A1", "SCGB3A2", "MUC5B", "MUC5AC"]
+description = "Non-small cell lung cancer markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "lung"
+scope = "cancer_type_specific"
+applies_to = ["Lung Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+[[tumor_type_hint.minor]]
+name = "LUAD"
+color = "#6495ED"
+markers = ["NKX2-1", "SFTPC", "SFTPA1", "NAPSA"]
+description = "Lung adenocarcinoma"
+
+[tumor_type_hint.minor.metadata]
+kind = "cancer_context"
+granularity = "cancer_subtype"
+tissue = "lung"
+alias_markers = ["Napsin A"]
+
+[[tumor_type_hint.minor]]
+name = "LUSC"
+color = "#4682B4"
+markers = ["KRT5", "KRT6A", "TP63", "SOX2"]
+description = "Lung squamous cell carcinoma"
+
+[[tumor_type_hint.minor]]
+name = "SCLC"
+color = "#1E90FF"
+markers = ["ASCL1", "NEUROD1", "CHGA", "SYP", "NCAM1"]
+description = "Small cell lung cancer"
+
+[[tumor_type_hint]]
+name = "Breast Cancer"
+color = "#FF69B4"
+markers = ["ESR1", "PGR", "ERBB2", "MKI67", "FOXA1", "GATA3", "KRT8", "KRT18", "MUC1"]
+description = "Breast carcinoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "breast"
+scope = "cancer_type_specific"
+applies_to = ["Breast Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+[[tumor_type_hint.minor]]
+name = "ER+"
+color = "#FFB6C1"
+markers = ["ESR1", "PGR", "FOXA1", "GATA3", "TFF1", "GREB1"]
+description = "ER-positive breast cancer"
+
+[[tumor_type_hint.minor]]
+name = "HER2+"
+color = "#FF1493"
+markers = ["ERBB2", "GRB7", "STARD3", "PGAP3"]
+description = "HER2-positive breast cancer"
+
+[[tumor_type_hint.minor]]
+name = "TNBC"
+color = "#C71585"
+markers = ["KRT5", "KRT14", "EGFR", "VIM", "KIT"]
+description = "Triple-negative breast cancer"
+
+[[tumor_type_hint]]
+name = "Colorectal Cancer"
+color = "#8B4513"
+markers = ["EPCAM", "KRT20", "CDX2", "FABP1", "REG4", "MUC2", "TFF3", "CEACAM5", "CA7"]
+description = "Colorectal adenocarcinoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "colorectal"
+scope = "cancer_type_specific"
+applies_to = ["Colorectal Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+[[tumor_type_hint.minor]]
+name = "CMS1"
+color = "#A0522D"
+markers = ["IL6", "CXCL1", "CXCL10", "STAT1"]
+description = "Consensus Molecular Subtype 1 (MSI immune)"
+
+[[tumor_type_hint.minor]]
+name = "CMS2"
+color = "#CD853F"
+markers = ["WNT5A", "TCF7L2", "MYC", "CCND1"]
+description = "Canonical subtype"
+
+[[tumor_type_hint.minor]]
+name = "CMS3"
+color = "#D2691E"
+markers = ["KRAS", "AKT1", "MTOR", "SNAI1"]
+description = "Metabolic subtype"
+
+[[tumor_type_hint.minor]]
+name = "CMS4"
+color = "#BC8F8F"
+markers = ["VIM", "TWIST1", "ZEB1", "TGFB1", "ACTA2"]
+description = "Mesenchymal subtype"
+
+[[tumor_type_hint]]
+name = "Liver Cancer"
+color = "#228B22"
+markers = ["ALB", "AFP", "HNF4A", "CYP3A4", "CYP2E1", "GPC3", "ARG1", "ASGR1", "EPCAM"]
+description = "Hepatocellular carcinoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "liver"
+scope = "cancer_type_specific"
+applies_to = ["Liver Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+[[tumor_type_hint.minor]]
+name = "HCC"
+color = "#32CD32"
+markers = ["ALB", "AFP", "GPC3", "HNF1A", "CYP3A4"]
+description = "Hepatocellular carcinoma"
+
+[[tumor_type_hint.minor]]
+name = "ICC"
+color = "#006400"
+markers = ["KRT19", "KRT7", "EPCAM", "CFTR", "SOX9"]
+description = "Intrahepatic cholangiocarcinoma"
+
+[[tumor_type_hint]]
+name = "Gastric Cancer"
+color = "#FFD700"
+markers = ["MUC5AC", "MUC6", "PGC", "GKN1", "GKN2", "TFF1", "TFF2", "REG4", "CHGA"]
+description = "Gastric adenocarcinoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "stomach"
+scope = "cancer_type_specific"
+applies_to = ["Gastric Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+[[tumor_type_hint.minor]]
+name = "EBV+"
+color = "#DAA520"
+markers = ["PIK3CA", "CD274"]
+description = "EBV-positive gastric cancer; viral EBER signals are not host gene symbols and should be handled as assay metadata."
+
+[tumor_type_hint.minor.metadata]
+alias_markers = ["PD-L1"]
+excluded_non_gene_markers = ["EBER1", "EBER2"]
+
+[[tumor_type_hint.minor]]
+name = "MSI"
+color = "#B8860B"
+markers = ["MLH1", "MSH2", "MSH6", "PMS2"]
+description = "Microsatellite unstable"
+
+[[tumor_type_hint.minor]]
+name = "CIN"
+color = "#F0E68C"
+markers = ["TP53", "ERBB2", "EGFR", "MYC"]
+description = "Chromosomally unstable"
+
+[[tumor_type_hint.minor]]
+name = "GS"
+color = "#EEE8AA"
+markers = ["CDH1", "RHOA", "CLDN18", "MUC6"]
+description = "Genomically stable"
+
+[[tumor_type_hint]]
+name = "Prostate Cancer"
+color = "#4682B4"
+markers = ["KLK3", "AR", "NKX3-1", "TMPRSS2", "FOLH1", "ACPP", "AMACR"]
+description = "Prostate adenocarcinoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "prostate"
+scope = "cancer_type_specific"
+applies_to = ["Prostate Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+[[tumor_type_hint]]
+name = "Ovarian Cancer"
+color = "#9370DB"
+markers = ["PAX8", "WT1", "MUC16", "WFDC2", "EPCAM", "KRT7"]
+description = "Ovarian carcinoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "ovary"
+scope = "cancer_type_specific"
+applies_to = ["Ovarian Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+alias_markers = ["CA125", "HE4"]
+category = "tumor_type_hint"
+
+[[tumor_type_hint.minor]]
+name = "HGSOC"
+color = "#8A2BE2"
+markers = ["PAX8", "TP53", "WT1", "BRCA1", "BRCA2"]
+description = "High-grade serous ovarian cancer"
+
+[[tumor_type_hint.minor]]
+name = "LGSOC"
+color = "#9932CC"
+markers = ["PAX8", "KRAS", "BRAF", "ERBB2"]
+description = "Low-grade serous ovarian cancer"
+
+[[tumor_type_hint]]
+name = "Pancreatic Cancer"
+color = "#8B008B"
+markers = ["KRT7", "KRT19", "MUC1", "MUC5AC", "MUC6", "CEACAM5", "SMAD4"]
+description = "Pancreatic ductal adenocarcinoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+tissue = "pancreas"
+scope = "cancer_type_specific"
+applies_to = ["Pancreatic Cancer", "Epithelial", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+excluded_non_gene_markers = ["CA19-9"]
+category = "tumor_type_hint"
+
+[[tumor_type_hint.minor]]
+name = "PDAC"
+color = "#9400D3"
+markers = ["KRT19", "MUC1", "SMAD4", "CDH17", "KRT7"]
+description = "Pancreatic ductal adenocarcinoma"
+
+[[tumor_type_hint]]
+name = "Melanoma"
+color = "#2F4F4F"
+markers = ["MLANA", "PMEL", "TYR", "MITF", "SOX10", "S100B"]
+description = "Melanoma markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+lineage = "Melanocyte"
+scope = "cancer_type_specific"
+applies_to = ["Melanoma", "Melanocyte", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+[[tumor_type_hint]]
+name = "Glioblastoma"
+color = "#800080"
+markers = ["GFAP", "EGFR", "PTEN", "IDH1", "MGMT", "OLIG2", "NES"]
+description = "Glioblastoma multiforme markers"
+
+[tumor_type_hint.metadata]
+kind = "cancer_context"
+granularity = "tumor_type_hint"
+compartment = "tumor"
+lineage = "Neural"
+tissue = "brain"
+scope = "cancer_type_specific"
+applies_to = ["Glioblastoma", "Neural", "Tumor"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+category = "tumor_type_hint"
+
+# cancer_state
+
+[[cancer_state]]
+name = "Malignant cycling state"
+color = "#a32121"
+markers = ["MKI67", "TOP2A", "UBE2C", "CENPF", "BIRC5", "PCNA"]
+
+[cancer_state.metadata]
+kind = "cancer_state"
+granularity = "state"
+category = "cell_cycle"
+scope = "tumor_context"
+applies_to = ["Tumor"]
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+
+[[cancer_state]]
+name = "Malignant EMT/plasticity state"
+color = "#b56576"
+markers = ["VIM", "FN1", "SNAI1", "SNAI2", "ZEB1", "ZEB2", "TWIST1", "CDH2"]
+negative_markers = ["PTPRC"]
+
+[cancer_state.metadata]
+kind = "cancer_state"
+granularity = "state"
+category = "plasticity"
+scope = "tumor_context"
+applies_to = ["Tumor", "Epithelial"]
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+
+[[cancer_state]]
+name = "Malignant stress/hypoxia state"
+color = "#800080"
+markers = ["VEGFA", "CA9", "NDRG1", "BNIP3", "SLC2A1", "LDHA", "PGK1"]
+
+[cancer_state.metadata]
+kind = "cancer_state"
+granularity = "state"
+category = "hypoxia"
+scope = "tumor_context"
+applies_to = ["Tumor"]
+evidence_tier = "seed"
+source_type = "pan_cancer_atlas"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+
+# reference_anchor
+
+[[reference_anchor]]
+name = "Diploid immune anchor"
+color = "#4e79a7"
+markers = ["PTPRC", "CD3D", "MS4A1", "LYZ", "NKG7"]
+negative_markers = ["EPCAM", "KRT8", "KRT18", "KRT19"]
+
+[reference_anchor.metadata]
+kind = "tumor_evidence"
+granularity = "reference_anchor"
+compartment = "immune"
+marker_role = "negative_control"
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_malignancy_interpretation = true
+category = "diploid_reference"
+
+[[reference_anchor]]
+name = "Diploid stromal anchor"
+color = "#f28e2b"
+markers = ["COL1A1", "DCN", "PECAM1", "VWF", "RGS5"]
+negative_markers = ["EPCAM", "KRT8", "KRT18", "KRT19"]
+
+[reference_anchor.metadata]
+kind = "tumor_evidence"
+granularity = "reference_anchor"
+compartment = "stromal"
+marker_role = "negative_control"
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_malignancy_interpretation = true
+category = "diploid_reference"

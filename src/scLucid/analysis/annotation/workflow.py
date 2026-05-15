@@ -255,8 +255,8 @@ def run_lineage_state_annotation(
     lineage_mgr = _resolve_annotation_manager(
         species=config.marker_species,
         tissue=config.marker_tissue,
-        states=config.marker_states,
         marker_config=config.lineage_marker_config,
+        view="lineage_annotation",
     )
     lineage_mgr.intersect_with(adata.raw if use_raw else adata)
 
@@ -291,6 +291,7 @@ def run_lineage_state_annotation(
             species=config.marker_species,
             tissue=config.marker_tissue,
             marker_config=config.subtype_marker_config,
+            view="subtype_annotation",
         )
         subtype_mgr.intersect_with(adata.raw if use_raw else adata)
         if config.run_scoring:

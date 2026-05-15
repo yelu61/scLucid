@@ -20,52 +20,54 @@
 # - use_for_global_annotation: true/false
 # - use_for_state_annotation: true/false
 # - use_for_malignancy_interpretation: true/false
+# - source: optional nested source fields for future review/atlas curation
+# - notes: free-text curation caveats; keep biological caveats here, not in code
 # =============================================================================
 
 [metadata]
-version = "0.1.0"
-last_updated = "2026-05-14"
+version = "0.3.0"
+last_updated = "2026-05-15"
 description = "Manifest and curation contract for scLucid marker resources"
 default_species = ["human", "mouse"]
 
 [[resources]]
-name = "marker_base_human"
+name = "marker_registry_human"
 species = "human"
-workflow = ["global_annotation", "doublet_lineage", "marker_evidence"]
+workflow = ["compartment_annotation", "lineage_annotation", "subtype_annotation", "state_annotation", "program_scoring", "artifact_qc", "doublet_lineage", "marker_evidence"]
 status = "active"
-description = "Core cross-tissue human lineage and subtype markers"
+description = "Unified human marker registry with explicit compartment, lineage, subtype, state, artifact, and functional_program sections"
 
 [[resources]]
-name = "marker_base_mouse"
+name = "marker_registry_mouse"
 species = "mouse"
-workflow = ["global_annotation", "doublet_lineage", "marker_evidence"]
+workflow = ["compartment_annotation", "lineage_annotation", "subtype_annotation", "state_annotation", "program_scoring", "artifact_qc", "doublet_lineage", "marker_evidence"]
 status = "active"
-description = "Core cross-tissue mouse lineage and subtype markers"
+description = "Unified mouse marker registry with explicit compartment, lineage, subtype, state, artifact, and functional_program sections"
 
 [[resources]]
-name = "marker_cell_state_human"
+name = "marker_tissue_human"
 species = "human"
-workflow = ["state_annotation", "program_scoring", "qc_artifact"]
+workflow = ["tissue_specific_annotation", "subtype_annotation", "marker_evidence"]
 status = "active"
-description = "Human cell state and artifact/QC programs"
+description = "Human tissue-specific normal parenchymal and tissue-context marker entries"
 
 [[resources]]
-name = "marker_cell_state_mouse"
-species = "mouse"
-workflow = ["state_annotation", "program_scoring", "qc_artifact"]
-status = "scaffold"
-description = "Mouse cell state and artifact/QC programs"
-
-[[resources]]
-name = "marker_tissue_specific_human"
+name = "marker_tumor_human"
 species = "human"
-workflow = ["tissue_specific_annotation"]
+workflow = ["tumor_type_hint", "tumor_context", "malignancy_review", "cnv_assisted_annotation", "tumor_interpretation"]
 status = "active"
-description = "Human tissue-specific normal epithelial/parenchymal markers"
+description = "Human tumor marker resource: epithelial support, malignancy programs, tumor type hints, and cancer states"
 
 [[resources]]
-name = "marker_cancer_human"
+name = "genesets_cancer_signatures"
 species = "human"
-workflow = ["tumor_type_hint", "tumor_context", "malignancy_review", "cnv_assisted_annotation"]
+workflow = ["program_scoring", "tumor_interpretation", "therapy_response", "llm_annotation_summary"]
 status = "active"
-description = "Cancer-type markers plus pan-cancer atlas and malignancy/CNV evidence scaffold"
+description = "Cancer signature gene sets for module scoring; intentionally overlaps marker_tumor_human at the gene level but is not an annotation marker registry"
+
+[[resources]]
+name = "genesets_cancer_hallmarks"
+species = "human"
+workflow = ["program_scoring", "pathway_enrichment", "tumor_interpretation", "llm_annotation_summary"]
+status = "active"
+description = "Cancer hallmark gene sets for scoring/enrichment; kept separate from concise marker TOML resources"
