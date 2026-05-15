@@ -38,8 +38,6 @@ Marker Management
 
 .. autofunction:: scLucid.utils.load_gene_sets
 
-.. autofunction:: scLucid.utils._get_cancer_markers
-
 Storage Management
 ------------------
 
