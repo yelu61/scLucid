@@ -90,6 +90,7 @@ Use the current framework before creating anything new:
 - Workflow stage contracts live in `src/scLucid/utils/contracts.py`.
 - Storage helpers live in `src/scLucid/utils/storage.py`.
 - Validation helpers live in `src/scLucid/utils/validation.py`.
+- Marker resources are centrally managed through `src/scLucid/utils/manager.py` and `src/scLucid/resources/`.
 - Public workflow entrypoints already exist:
   - `run_standard_qc`
   - `run_preprocessing`
@@ -99,6 +100,54 @@ Use the current framework before creating anything new:
 - Workflow steps support `steps`, `skip_steps`, progress display, error recovery, and partial result recovery.
 
 Prefer extending existing files and subpackages over adding parallel versions. Do not create `*_v2.py` modules unless explicitly requested.
+
+## 4A. Marker Resource and Manager Rules
+
+All marker-dependent functions should use the unified `Manager` plus packaged
+resources. Do not introduce parallel hard-coded marker dictionaries unless they
+are a tiny backward-compatible fallback for optional-resource failure.
+
+Canonical marker resources:
+
+- `marker_registry_human.toml` and `marker_registry_mouse.toml`: normal cell
+  identity, state, artifact, and functional-program marker registries.
+- `marker_tissue_human.toml`: tissue-specific normal parenchymal and local
+  subtype markers.
+- `marker_tumor_human.toml`: tumor epithelial support, malignancy programs,
+  tumor type hints, cancer states, and diploid reference anchors.
+- `genesets_cancer_signatures.json`, `genesets_cancer_hallmarks.json`, GMT
+  files, and other `genesets_*` resources: broad scoring/enrichment gene sets,
+  not concise annotation marker registries.
+
+Use `get_marker_manager()` views to keep biological evidence layers separate:
+
+- `compartment_annotation`: broad compartments only.
+- `lineage_annotation`: compartments plus broad lineages.
+- `subtype_annotation`: subtype and tissue-context annotation.
+- `state_annotation`: cell states and cancer states.
+- `artifact_annotation` / `qc_artifact`: ribosomal, mitochondrial, hemoglobin,
+  stress, ambient RNA, and other QC/artifact signatures.
+- `program_scoring`: functional programs and gene-set managers.
+- `tumor_interpretation`: tumor-context evidence, cancer hints, malignant
+  programs, cancer states, and reference anchors.
+
+Design rules:
+
+- Do not mix state/program/artifact signatures into global cell identity
+  annotation by default.
+- Use `lineage_annotation` for first-pass global labels, then
+  `subtype_annotation` for finer labels, and `state_annotation` /
+  `program_scoring` for biological interpretation.
+- Treat artifact markers as annotation warnings, not cell identity labels.
+- Do not infer malignancy from epithelial markers alone. Malignancy requires
+  tumor context, CNV evidence, malignant reference support, tumor programs, or
+  multiple consistent evidence streams.
+- Keep TOML marker entries concise and interpretable. Put broad pathway modules
+  and large signatures in gene-set JSON/GMT resources.
+- When curating new markers from reviews or pan-cancer atlases, follow
+  `docs/MARKER_RESOURCE_CURATION.md` and include metadata such as `kind`,
+  `granularity`, `scope`, `applies_to`, `evidence_tier`, `source_type`, and
+  `review_status`.
 
 ## 5. Non-negotiable Design Principles
 
@@ -257,9 +306,19 @@ Development rules:
 
 - Prefer `AnnotationConfig` and `run_annotation` rather than inventing a separate annotation entrypoint.
 - Support marker-based, reference-based, scoring-based, and hybrid annotation.
+- Resolve built-in markers through `get_marker_manager()` views instead of
+  loading marker files directly inside annotation code.
+- Run lineage/subtype/state/program evidence as separate branches so the final
+  annotation can report where each label came from.
+- Use CellTypist, marker-manager evidence, data-driven cluster summaries, and
+  functional program scores as complementary evidence streams rather than
+  mutually exclusive annotation modes.
 - Make cluster-level and cell-level outputs distinguishable.
 - Preserve uncertainty. Do not force ambiguous clusters into over-specific labels.
 - Detect marker conflicts and lineage mixing.
+- Explicitly surface artifact evidence such as ribosomal-high, mitochondrial-high,
+  hemoglobin-high, ambient-RNA-like, or dissociation-stress signatures before
+  accepting an ambiguous lineage call.
 - Store annotation evidence in `adata.uns["sclucid"]["analysis"]` or a dedicated annotation namespace.
 - For tumor immune annotation, design state vocabularies that can transfer across cancer types.
 
