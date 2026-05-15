@@ -56,8 +56,8 @@ class ClusteringConfig(SclucidBaseConfig):
 管理器类应以 `Manager` 结尾：
 
 ```python
-class MarkerManager:
-    """Marker 基因管理器"""
+class ResourceManager:
+    """资源管理器"""
     pass
 
 class CacheManager:

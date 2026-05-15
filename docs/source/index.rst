@@ -27,6 +27,7 @@ If you are new to scLucid, start with:
    usage_layers
    data_contracts
    best_practices
+   marker_resources
    workflow_hardening
    qc_preprocess_maturity
    validation_scaffold

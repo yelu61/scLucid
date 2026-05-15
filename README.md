@@ -34,7 +34,7 @@ acceptance tests for biological plausibility and usability.
 
 * **🧪 End-to-End Workflows**: High-level functions like `run_standard_qc` and `run_preprocessing` to go from raw data to a clustered UMAP with just a few lines of code.
 * **🧠 Intelligent QC**: Advanced doublet detection using a combination of `scrublet` and a novel, marker co-expression heuristic.
-* **🧬 Biology-Aware Analysis**: A powerful `MarkerManager` system that integrates expert-curated gene sets for annotation, QC, and clustering evaluation.
+* **🧬 Biology-Aware Analysis**: A unified `Manager`/resource system routes curated markers and gene sets into compartment, lineage, subtype, state, artifact, program-scoring, and tumor-interpretation views.
 * **🔬 Multi-Evidence Annotation**: A complete suite of tools to annotate cell types using automated methods (`CellTypist`), gene scoring, and evidence-gathering functions (`characterize_clusters`).
 * **🔧 Advanced Tools Module**: Seamlessly integrated wrappers for specialized analyses, including:
     * RNA Velocity (`scVelo`)
