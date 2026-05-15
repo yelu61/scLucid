@@ -49,11 +49,16 @@ _CELL_DEF_KEYS = {
 }
 
 _MARKER_VIEWS = {
+    "artifact_annotation",
+    "artifact_qc",
+    "compartment_annotation",
     "global_annotation",
+    "lineage_annotation",
+    "qc_artifact",
     "state_annotation",
+    "subtype_annotation",
     "program_scoring",
     "tumor_interpretation",
-    "qc_artifact",
 }
 
 
@@ -65,7 +70,7 @@ def _get_marker_path(name_or_path: str) -> Path:
     the package, then checks if it's a valid path to a local file.
 
     Args:
-        name_or_path: Either a marker name (e.g., "base_human") or a path to a marker file
+        name_or_path: Either a marker name (e.g., "registry_human") or a path to a marker file
 
     Returns:
         Path object pointing to the marker file
@@ -73,9 +78,22 @@ def _get_marker_path(name_or_path: str) -> Path:
     Raises:
         FileNotFoundError: If the marker file cannot be found
     """
+    # Honor explicit local paths before importing package resources. This keeps
+    # custom marker files usable even when optional package dependencies are not
+    # importable in a lightweight environment.
+    path = Path(name_or_path)
+    if path.is_file():
+        log.debug(f"Found local file: {path}")
+        return path
+
     # Try first with .toml extension
     full_resource_name = f"marker_{name_or_path}.toml"
     log.debug(f"Looking for built-in resource: {full_resource_name}")
+
+    dev_resource_path = Path(__file__).parent.parent / "resources" / full_resource_name
+    if dev_resource_path.is_file():
+        log.debug(f"Found development resource: {dev_resource_path}")
+        return dev_resource_path
 
     try:
         resource_path = resources.files("scLucid").joinpath(f"resources/{full_resource_name}")
@@ -89,6 +107,11 @@ def _get_marker_path(name_or_path: str) -> Path:
     full_resource_name = f"marker_{name_or_path}.json"
     log.debug(f"Looking for built-in resource: {full_resource_name}")
 
+    dev_resource_path = Path(__file__).parent.parent / "resources" / full_resource_name
+    if dev_resource_path.is_file():
+        log.debug(f"Found development resource: {dev_resource_path}")
+        return dev_resource_path
+
     try:
         resource_path = resources.files("scLucid").joinpath(f"resources/{full_resource_name}")
         if resource_path.is_file():
@@ -96,12 +119,6 @@ def _get_marker_path(name_or_path: str) -> Path:
             return resource_path
     except (ModuleNotFoundError, FileNotFoundError):
         log.debug(f"Built-in resource not found: {full_resource_name}")
-
-    # Try as a direct path
-    path = Path(name_or_path)
-    if path.is_file():
-        log.debug(f"Found local file: {path}")
-        return path
 
     # Try adding extensions if no extension is present
     if "." not in name_or_path:
@@ -357,6 +374,56 @@ class Manager:
                 metadata[key] = value
         return metadata
 
+    @staticmethod
+    def _infer_child_metadata(
+        parent_metadata: Dict[str, object],
+        child_metadata: Dict[str, object],
+    ) -> Dict[str, object]:
+        """Infer missing routing metadata for nested marker definitions."""
+        metadata = dict(parent_metadata)
+        metadata.update(child_metadata)
+        for non_inherited_key in {"doublet_lineage", "alias_of"}:
+            if non_inherited_key in parent_metadata and non_inherited_key not in child_metadata:
+                metadata.pop(non_inherited_key, None)
+
+        parent_kind = str(parent_metadata.get("kind", "")).lower()
+        parent_granularity = str(parent_metadata.get("granularity", "")).lower()
+        kind = str(metadata.get("kind", "")).lower()
+
+        if not kind:
+            if parent_kind in {"cell_type", "cell_type_collection"}:
+                metadata["kind"] = "cell_type"
+            elif parent_kind in {"state", "state_collection"}:
+                metadata["kind"] = "state"
+            elif parent_kind in {"artifact", "artifact_collection"}:
+                metadata["kind"] = "artifact"
+            elif parent_kind in {"functional_program", "program_collection"}:
+                metadata["kind"] = "functional_program"
+            elif parent_kind in {"cancer_context", "tumor_evidence", "tumor_collection"}:
+                metadata["kind"] = parent_kind
+
+        if "granularity" not in child_metadata:
+            if metadata.get("kind") == "cell_type":
+                parent_compartment = str(parent_metadata.get("compartment", "")).lower()
+                if child_metadata.get("doublet_lineage") is True:
+                    metadata["granularity"] = "lineage"
+                elif parent_granularity == "compartment" and parent_compartment == "epithelial":
+                    metadata["granularity"] = "subtype"
+                elif parent_granularity == "compartment":
+                    metadata["granularity"] = "lineage"
+                elif parent_granularity == "lineage":
+                    metadata["granularity"] = "subtype"
+                else:
+                    metadata["granularity"] = "subtype"
+            elif metadata.get("kind") == "state":
+                metadata["granularity"] = "state"
+            elif metadata.get("kind") == "artifact":
+                metadata["granularity"] = "artifact"
+            elif metadata.get("kind") == "functional_program":
+                metadata["granularity"] = "program"
+
+        return metadata
+
     def _parse_level(self, level_data: dict, parent_obj: Optional[CellType] = None) -> None:
         """
         Recursively parses a level of the marker hierarchy.
@@ -407,7 +474,11 @@ class Manager:
                         self._process_marker_list(cell_def.get("negative_markers", []))
                     )
 
-                    cell_obj.metadata.update(self._extract_cell_metadata(cell_def))
+                    inherited_metadata = self._infer_child_metadata(
+                        dict(parent_obj.metadata) if parent_obj else {},
+                        self._extract_cell_metadata(cell_def),
+                    )
+                    cell_obj.metadata.update(inherited_metadata)
 
                     log.debug(f"Updated existing cell type: {cell_name}")
 
@@ -418,6 +489,11 @@ class Manager:
                         cell_def.get("negative_markers", [])
                     )
 
+                    inherited_metadata = self._infer_child_metadata(
+                        dict(parent_obj.metadata) if parent_obj else {},
+                        self._extract_cell_metadata(cell_def),
+                    )
+
                     cell_obj = CellType(
                         name=cell_name,
                         color=cell_def.get("color"),
@@ -425,7 +501,7 @@ class Manager:
                         level="minor" if parent_obj else "major",
                         negative_markers=negative_markers,
                         parent=parent_obj,
-                        metadata=self._extract_cell_metadata(cell_def),
+                        metadata=inherited_metadata,
                     )
                     self.CELLS[cell_name] = cell_obj
                     log.debug(f"Created new cell type: {cell_name} with {len(markers)} markers")
@@ -920,10 +996,14 @@ class Manager:
         Return a marker-manager view for a specific workflow use case.
 
         Supported views are:
+        - ``compartment_annotation``: broad compartment labels only
+        - ``lineage_annotation``: compartment and lineage labels
+        - ``subtype_annotation``: cell-type subtypes, including tissue-specific cells
         - ``global_annotation``: lineage/subtype labels, excluding state/program/tumor evidence
-        - ``state_annotation`` / ``program_scoring``: state and functional programs
+        - ``state_annotation``: lineage-aware cell and cancer states
+        - ``program_scoring``: reusable functional programs and gene-set managers
         - ``tumor_interpretation``: cancer and malignancy-interpretation evidence
-        - ``qc_artifact``: QC/artifact signatures
+        - ``qc_artifact`` / ``artifact_annotation``: QC/artifact signatures
         """
         if view not in _MARKER_VIEWS:
             raise ValueError(f"Unknown marker manager view '{view}'. Available: {sorted(_MARKER_VIEWS)}")
@@ -931,39 +1011,73 @@ class Manager:
         selected: List[str] = []
         for name, cell in self.CELLS.items():
             kind = str(cell.metadata.get("kind", "")).lower()
+            granularity = str(cell.metadata.get("granularity", "")).lower()
             category = str(cell.metadata.get("category", "")).lower()
 
             if view == "global_annotation":
                 include_global = cell.metadata.get("use_for_global_annotation", True)
-                if include_global is False:
+                if kind == "tissue_context" and cell.level == "minor" and cell.markers:
+                    selected.append(name)
                     continue
                 if kind in {
                     "state",
                     "functional_program",
                     "artifact",
                     "tumor_evidence",
+                    "cancer_context",
+                    "cancer_state",
+                    "tissue_context",
+                    "program_collection",
+                    "state_collection",
+                    "artifact_collection",
                     "cancer_hallmark",
                     "geneset",
                 }:
                     continue
+                if include_global is False:
+                    continue
                 selected.append(name)
-            elif view in {"state_annotation", "program_scoring"}:
-                if (
-                    kind in {"state", "functional_program"}
-                    or cell.metadata.get("use_for_state_annotation") is True
-                ):
+            elif view == "compartment_annotation":
+                if kind == "cell_type" and granularity == "compartment":
+                    selected.append(name)
+            elif view == "lineage_annotation":
+                if kind == "cell_type" and granularity in {"compartment", "lineage"}:
+                    selected.append(name)
+            elif view == "subtype_annotation":
+                if kind == "tissue_context" and cell.level == "minor" and cell.markers:
+                    selected.append(name)
+                elif kind == "cell_type" and granularity in {"subtype", "tissue_subtype"}:
+                    selected.append(name)
+            elif view == "state_annotation":
+                if kind in {"state", "cancer_state"}:
+                    selected.append(name)
+            elif view == "program_scoring":
+                if kind in {"functional_program", "geneset", "cancer_hallmark"}:
                     selected.append(name)
             elif view == "tumor_interpretation":
+                if kind.endswith("_collection"):
+                    continue
                 if (
-                    kind in {"tumor_evidence", "cancer", "cancer_hallmark", "functional_program"}
+                    kind
+                    in {
+                        "tumor_evidence",
+                        "cancer",
+                        "cancer_context",
+                        "cancer_state",
+                        "cancer_hallmark",
+                        "functional_program",
+                    }
                     or cell.metadata.get("use_for_malignancy_interpretation") is True
                 ):
                     selected.append(name)
-            elif view == "qc_artifact":
-                if kind == "artifact" or category in {"artifact_qc", "quality", "qc"}:
+            elif view in {"qc_artifact", "artifact_qc", "artifact_annotation"}:
+                if kind == "artifact" or (
+                    category in {"artifact_qc", "quality", "qc"}
+                    and not kind.endswith("_collection")
+                ):
                     selected.append(name)
 
-        return self.select_cells(selected, include_children=True)
+        return self.select_cells(selected, include_children=False)
 
 
 # =============================================================================
@@ -984,18 +1098,60 @@ def _extract_genesets(data: dict) -> Dict[str, List[str]]:
     return genesets
 
 
+def _extract_functional_programs_from_registry(data: dict) -> Dict[str, List[str]]:
+    """Extract functional programs from a unified marker registry TOML tree."""
+    genesets: Dict[str, List[str]] = {}
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in {"metadata", "_metadata"}:
+                    continue
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                if not isinstance(item, dict):
+                    continue
+                metadata = item.get("metadata", {}) or {}
+                if metadata.get("kind") == "functional_program":
+                    name = str(item.get("name", ""))
+                    genes = [g for g in item.get("markers", []) if isinstance(g, str)]
+                    if name and genes:
+                        genesets[name] = genes
+                _walk(item.get("minor", []))
+
+    _walk(data)
+    return genesets
+
+
 def load_gene_sets(
     species: str = "human",
     name: str = "functional_signatures",
 ) -> Dict[str, List[str]]:
     """Load a built-in gene-set resource as a simple ``{signature: genes}`` mapping."""
     species = species.lower()
+    if name == "functional_signatures":
+        registry_path = _get_marker_path(f"registry_{species}")
+        registry_data = _load_marker_file(registry_path)
+        genesets = _extract_functional_programs_from_registry(registry_data)
+        if genesets:
+            return genesets
+
     file_patterns = [
         f"marker_{name}.json",
         f"genesets_{name}.json",
         f"{name}_genes.json",
         f"{name}.json",
     ]
+
+    for pattern in file_patterns:
+        dev_resource_path = Path(__file__).parent.parent / "resources" / pattern
+        if dev_resource_path.is_file():
+            with open(dev_resource_path, encoding="utf-8") as f:
+                data = json.load(f)
+            if species in data:
+                return _extract_genesets(data[species])
+            return _extract_genesets(data)
 
     for pattern in file_patterns:
         try:
@@ -1007,7 +1163,7 @@ def load_gene_sets(
             if species in data:
                 return _extract_genesets(data[species])
             return _extract_genesets(data)
-        except (ModuleNotFoundError, FileNotFoundError):
+        except (ImportError, ModuleNotFoundError, FileNotFoundError):
             continue
 
     raise FileNotFoundError(f"Gene-set resource '{name}' not found in resources")
@@ -1023,22 +1179,8 @@ def load_gene_set_manager(
 ) -> Manager:
     """Load a gene-set JSON resource into the unified marker ``Manager``."""
     species = species.lower()
-    data = None
     categories: Dict[str, str] = {}
-    if name == "functional_signatures":
-        try:
-            data = _load_marker_file(_get_marker_path(name))
-        except FileNotFoundError:
-            data = None
-
-    if data is not None and species in data:
-        species_data = data[species]
-        for cat_name, sig_names in species_data.get("_categories", {}).items():
-            for sig_name in sig_names:
-                categories[str(sig_name)] = str(cat_name)
-        genesets = _extract_genesets(species_data)
-    else:
-        genesets = load_gene_sets(species=species, name=name)
+    genesets = load_gene_sets(species=species, name=name)
 
     mgr = Manager.__new__(Manager)
     mgr.CELLS = {}
@@ -1085,11 +1227,7 @@ def _get_cancer_markers(species: str = "human") -> Dict[str, Dict[str, List[str]
         Dictionary mapping cancer types to marker information
     """
     try:
-        resource_path = resources.files("scLucid").joinpath(
-            f"resources/marker_cancer_{species}.toml"
-        )
-        with open(resource_path, "rb") as f:
-            data = tomllib.load(f)
+        data = _load_marker_file(_get_marker_path(f"tumor_{species}"))
 
         cancer_markers = {}
         for category, definitions in data.items():
@@ -1132,16 +1270,17 @@ def get_marker_manager(
     Factory function to build a Manager by combining base, tissue, state, and cancer markers.
 
     This function creates a comprehensive marker manager by layering tissue-specific,
-    cell state-specific, and cancer-specific markers on top of the base markers for a species.
+        state/program markers, tissue markers, and tumor-context markers on top of the
+        unified registry for a species.
 
     Args:
         species: The species ('human', 'mouse', etc.)
-        tissue: The tissue name, corresponding to a top-level key in the tissue-specific file
-        states: A list of cell states, corresponding to keys in the cell-state file
-        cancer_type: Cancer type name, corresponding to a top-level key in the cancer marker file
+        tissue: The tissue name, corresponding to a top-level key in marker_tissue_*.
+        states: A list of cell states or programs available in marker_registry_*.
+        cancer_type: Cancer type name, corresponding to a top-level key in marker_tumor_*.
         case_sensitive: Whether gene names should be case-sensitive
         view: Optional workflow-specific view to return
-        include_functional: Merge marker_functional_signatures.json as functional programs
+        include_functional: Include functional programs from marker_registry_*.
         gene_sets: Additional genesets_* JSON resources to merge as marker entries
 
     Returns:
@@ -1161,15 +1300,14 @@ def get_marker_manager(
     )
 
     try:
-        # Load base markers for the species
-        mgr = Manager(f"base_{species}", case_sensitive=case_sensitive)
-        log.info(f"Loaded base markers for {species}")
+        mgr = Manager(f"registry_{species}", case_sensitive=case_sensitive)
+        log.info(f"Loaded unified marker registry for {species}")
 
         # Add tissue-specific markers if specified
         if tissue:
             try:
                 mgr_tissue = Manager(
-                    f"tissue_specific_{species}",
+                    f"tissue_{species}",
                     root_key=tissue,
                     case_sensitive=case_sensitive,
                 )
@@ -1181,7 +1319,7 @@ def get_marker_manager(
         # Add cell state markers if specified
         if states:
             try:
-                mgr_states_all = Manager(f"cell_state_{species}", case_sensitive=case_sensitive)
+                mgr_states_all = Manager(f"registry_{species}", case_sensitive=case_sensitive)
                 found_states = [
                     state_name for state_name in states if state_name in mgr_states_all.CELLS
                 ]
@@ -1190,7 +1328,7 @@ def get_marker_manager(
                 ]
 
                 for state_name in missing_states:
-                    log.warning(f"State '{state_name}' not found in cell state file")
+                    log.warning(f"State/program '{state_name}' not found in marker registry")
 
                 if found_states:
                     temp_mgr = mgr_states_all.select_cells(found_states, include_children=True)
@@ -1204,24 +1342,67 @@ def get_marker_manager(
             except FileNotFoundError as e:
                 log.warning(f"Could not load cell state markers: {str(e)}")
 
-        # Add cancer-specific markers if specified
-        if cancer_type:
+        # Add tumor-context markers when a cancer type or tumor interpretation
+        # view is requested. Cancer-type hints are selected by entry name instead
+        # of root key so marker_tumor_* can keep stable semantic sections such as
+        # epithelial_support, malignancy_program, and tumor_type_hint.
+        if cancer_type or view == "tumor_interpretation":
             try:
-                mgr_cancer = Manager(
-                    f"cancer_{species}",
-                    root_key=cancer_type,
-                    case_sensitive=case_sensitive,
-                )
-                mgr.merge_from(mgr_cancer)
-                log.info(f"Merged cancer markers for '{cancer_type}'")
-            except (FileNotFoundError, KeyError) as e:
+                mgr_cancer_all = Manager(f"tumor_{species}", case_sensitive=case_sensitive)
+                if cancer_type:
+                    selected_names = []
+                    selected_names.extend(
+                        name
+                        for name, cell in mgr_cancer_all.CELLS.items()
+                        if cell.metadata.get("granularity")
+                        in {
+                            "epithelial_support",
+                            "reference_anchor",
+                            "program",
+                            "state",
+                            "evidence",
+                        }
+                    )
+                    if cancer_type in mgr_cancer_all.CELLS:
+                        selected_names.append(cancer_type)
+                    else:
+                        matched = [
+                            name
+                            for name in mgr_cancer_all.CELLS
+                            if name.lower() == cancer_type.lower()
+                        ]
+                        selected_names.extend(matched)
+                    if not any(name.lower() == cancer_type.lower() for name in selected_names):
+                        log.warning(f"Cancer type '{cancer_type}' not found in tumor marker resource")
+                    if selected_names:
+                        mgr.merge_from(
+                            mgr_cancer_all.select_cells(
+                                list(dict.fromkeys(selected_names)),
+                                include_children=True,
+                            )
+                        )
+                        log.info(f"Merged tumor markers for '{cancer_type}'")
+                else:
+                    mgr.merge_from(mgr_cancer_all)
+                    log.info("Merged all tumor interpretation markers")
+            except FileNotFoundError as e:
                 log.warning(f"Could not load cancer markers for '{cancer_type}': {str(e)}")
 
-        should_load_functional = include_functional or view in {
-            "state_annotation",
-            "program_scoring",
-            "tumor_interpretation",
-        }
+        registry_has_functional = any(
+            cell.metadata.get("kind") == "functional_program" for cell in mgr.CELLS.values()
+        )
+        should_load_functional = (
+            not registry_has_functional
+            and (
+                include_functional
+                or view
+                in {
+                    "state_annotation",
+                    "program_scoring",
+                    "tumor_interpretation",
+                }
+            )
+        )
         if should_load_functional:
             try:
                 mgr.merge_from(
@@ -1250,8 +1431,21 @@ def get_marker_manager(
             except FileNotFoundError as e:
                 log.warning(f"Could not load gene-set resource '{gene_set_name}': {str(e)}")
 
-        log.info(f"Manager built successfully with {len(mgr.CELLS)} cell types")
-        return mgr.get_view(view) if view else mgr
+        if view:
+            result = mgr.get_view(view)
+            if view == "state_annotation" and include_functional:
+                result.merge_from(mgr.get_view("program_scoring"))
+        else:
+            result = mgr.get_view("global_annotation")
+            if states:
+                selected_states = [state for state in states if state in mgr.CELLS]
+                if selected_states:
+                    result.merge_from(mgr.select_cells(selected_states, include_children=True))
+            if include_functional:
+                result.merge_from(mgr.get_view("program_scoring"))
+
+        log.info(f"Manager built successfully with {len(result.CELLS)} cell types")
+        return result
 
     except Exception as e:
         log.error(f"Error building marker manager: {str(e)}")

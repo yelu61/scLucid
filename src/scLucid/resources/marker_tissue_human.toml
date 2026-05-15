@@ -4,11 +4,18 @@
 # or tissue-specific subtypes of general cell types.
 # ===================================================================
 
+[metadata]
+version = "1.1"
+species = "human"
+description = "Human tissue-specific normal parenchymal and tissue-context marker entries."
+schema = "scLucid_marker_resource_v1"
+
 # --- Cornea (眼角膜) ---
 [["Cornea"]]
 name = "Cornea Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "cornea", compartment = "mixed", scope = "tissue_specific", applies_to = ["Cornea"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Corneal EpC", color = "#D8BFD8", markers = ["KRT12", "KRT3", "KRT15"] },
     { name = "Basal EpC", color = "", markers = ["KRT5", "KRT14", "ITGB4"] },
@@ -30,6 +37,7 @@ minor = [
 name = "Pancreas Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "pancreas", compartment = "mixed", scope = "tissue_specific", applies_to = ["Pancreas"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Endocrine cells", color = "", markers = ["CHGA", "CHGB", "INS", "GCG", "SST", "PPY"] },
     { name = "Acinar cells", color = "", markers = ["CLPS", "CPB1", "CPA1", "PRSS1", "CTRB1"] },
@@ -46,12 +54,13 @@ minor = [
 name = "Lung Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "lung", compartment = "mixed", scope = "tissue_specific", applies_to = ["Lung"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "AT1 cell", color = "#B0C4DE", markers = ["AGER", "PDPN", "CAV1"] },
     { name = "AT2 cell", color = "#ADD8E6", markers = ["SFTPC", "SFTPA1", "SFTPB", "NAPSA"] },
     { name = "Ciliated cell", color = "#20B2AA", markers = ["FOXJ1", "TPPP3", "DNAH5"] },
     { name = "Club cell", color = "#FFA07A", markers = ["SCGB1A1", "SCGB3A2"] },
-    { name = "Goblet cell", color = "#FFD700", markers = ["MUC5AC", "SPDEF", "TFF3"] },
+    { name = "Lung Goblet cell", color = "#FFD700", markers = ["MUC5AC", "SPDEF", "TFF3"] },
     { name = "Basal cell", color = "#A9A9A9", markers = ["KRT5", "TP63", "KRT14"] },
     # Renamed to be specific subtypes of base types
     { name = "Pulmonary EC", color = "#4682B4", markers = ["CCL21", "ACKR1", "PLVAP"] },
@@ -63,6 +72,7 @@ minor = [
 name = "Liver Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "liver", compartment = "mixed", scope = "tissue_specific", applies_to = ["Liver"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Hepatocyte", color = "#F4A460", markers = ["ALB", "APOB", "CYP3A4"] },
     { name = "Cholangiocyte", color = "#48D1CC", markers = ["KRT19", "SOX9", "CFTR"] },
@@ -76,6 +86,7 @@ minor = [
 name = "Kidney Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "kidney", compartment = "mixed", scope = "tissue_specific", applies_to = ["Kidney"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Proximal tubule cell", color = "#C1FFC1", markers = ["SLC5A2", "LRP2", "CUBN", "AQP1"] },
     { name = "Distal tubule cell", color = "#87CEFA", markers = ["SLC12A3", "PVALB", "SLC4A1"] },
@@ -90,6 +101,7 @@ minor = [
 name = "Brain Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "brain", compartment = "mixed", scope = "tissue_specific", applies_to = ["Brain"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Excitatory neuron", color = "#DC143C", markers = ["SLC17A7", "SLC17A6", "SATB2"] },
     { name = "Inhibitory neuron", color = "#8B0000", markers = ["GAD1", "GAD2", "SLC32A1"] },
@@ -108,6 +120,7 @@ minor = [
 name = "Heart Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "heart", compartment = "mixed", scope = "tissue_specific", applies_to = ["Heart"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Cardiomyocyte", color = "#DC143C", markers = ["TNNT2", "MYH6", "ACTC1", "MYL7"] },
     { name = "Cardiac Fibroblast", color = "#8B4513", markers = ["DCN", "LUM", "COL1A2", "POSTN"] },
@@ -121,9 +134,10 @@ minor = [
 name = "Intestine Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "intestine", compartment = "mixed", scope = "tissue_specific", applies_to = ["Intestine"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Enterocyte", color = "#9ACD32", markers = ["ALPI", "APOA1", "FABP2"] },
-    { name = "Goblet cell", color = "#ADD8E6", markers = ["MUC2", "SPDEF", "TFF3"] },
+    { name = "Intestinal Goblet cell", color = "#ADD8E6", markers = ["MUC2", "SPDEF", "TFF3"] },
     { name = "Paneth cell", color = "#FFA07A", markers = ["LYZ", "DEFA5", "DEFA6"] },
     { name = "Enteroendocrine cell", color = "#FFD700", markers = ["CHGA", "CHGB", "TPH1"] },
     { name = "Tuft cell", color = "#8A2BE2", markers = ["POU2F3", "TRPM5", "DCLK1"] },
@@ -137,6 +151,7 @@ minor = [
 name = "Skin Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "skin", compartment = "mixed", scope = "tissue_specific", applies_to = ["Skin"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Epidermal Keratinocyte", color = "#F5DEB3", markers = ["KRT1", "KRT10", "KRT14"] },
     { name = "Basal Keratinocyte", color = "#FFE4B5", markers = ["KRT5", "KRT14", "TP63"] },
@@ -153,6 +168,7 @@ minor = [
 name = "Bone Tissue"
 color = "#C0C0C0"
 markers = []
+metadata = { kind = "tissue_context", granularity = "tissue", tissue = "bone", compartment = "mixed", scope = "tissue_specific", applies_to = ["Bone"], evidence_tier = "seed", source_type = "expert_seed", review_status = "needs_review", use_for_global_annotation = false, use_for_state_annotation = false, use_for_malignancy_interpretation = false }
 minor = [
     { name = "Osteoblast", color = "#B0C4DE", markers = ["BGLAP", "ALPL", "COL1A1", "RUNX2"] },
     { name = "Osteocyte", color = "#ADD8E6", markers = ["DMP1", "SOST", "MEPE", "PHEX"] },

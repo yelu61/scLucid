@@ -1,0 +1,1546 @@
+# ============================================================================
+# scLucid Mouse Marker Registry v2
+# Generated from curated marker resources; edit by schema sections.
+# ============================================================================
+
+[metadata]
+version = "2.0"
+species = "mouse"
+description = "Unified mouse marker registry for global annotation and program scoring."
+schema = "scLucid_marker_registry_v2"
+sections = ["compartment", "lineage", "subtype", "state", "artifact", "functional_program"]
+resource_type = "marker_registry"
+curation_status = "seed_registry"
+
+# compartment
+
+[[compartment]]
+name = "Immune"
+color = "#5353cc"
+markers = ["Ptprc"]
+negative_markers = ["Epcam", "Krt8", "Cdh1"]
+
+[compartment.metadata]
+kind = "cell_type"
+granularity = "compartment"
+compartment = "immune"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "curated_review"
+source_type = "expert_seed"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "mouse"
+
+[[compartment.minor]]
+name = "Lymphoid"
+color = "#1f77b4"
+markers = ["Cd3d", "Ms4a1", "Ncr1"]
+negative_markers = ["Lyz2", "Cd68"]
+
+[[compartment.minor.minor]]
+name = "T cells"
+color = "#1ba169"
+markers = ["Cd3d", "Cd3e", "Cd3g", "Trac", "Cd2", "Cd4", "Cd8a", "Il7r", "Tcf7", "Sell"]
+
+[[compartment.minor.minor.minor]]
+name = "CD4+ T"
+color = "#2ca02c"
+markers = ["Cd4", "Il7r", "Ccr7"]
+
+[[compartment.minor.minor.minor]]
+name = "CD8+ T"
+color = "#ff7f0e"
+markers = ["Cd8a", "Cd8b1"]
+
+[[compartment.minor.minor.minor]]
+name = "Treg"
+color = "#3b845e"
+markers = ["Foxp3", "Il2ra", "Ctla4"]
+
+[[compartment.minor.minor.minor]]
+name = "Exhausted T"
+color = "#cc5500"
+markers = ["Pdcd1", "Lag3", "Havcr2", "Tox"]
+
+[[compartment.minor.minor.minor]]
+name = "Memory T"
+color = "#ff9900"
+markers = ["Sell", "Cd44", "Il7r", "Ccr7"]
+
+[compartment.minor.minor.metadata]
+doublet_lineage = true
+
+[[compartment.minor.minor]]
+name = "B cells"
+color = "#7ccbc5"
+markers = ["Cd19", "Ms4a1", "Cd79a", "Cd79b", "Bank1", "Pax5", "Ighm", "Ighd"]
+
+[[compartment.minor.minor.minor]]
+name = "Plasma"
+color = "#27a0a8"
+markers = ["Jchain", "Xbp1", "Sdc1", "Prdm1"]
+
+[[compartment.minor.minor.minor]]
+name = "Germinal center B"
+color = "#005160"
+markers = ["Mki67", "Mef2b", "Cxcr4"]
+
+[compartment.minor.minor.metadata]
+doublet_lineage = true
+
+[[compartment.minor.minor]]
+name = "NK cells"
+color = "#014431"
+markers = ["Ncr1", "Klrb1c", "Nkg7", "Gzma", "Gzmb", "Prf1", "Fcgr3", "Klra4"]
+
+[compartment.minor.minor.metadata]
+doublet_lineage = true
+
+[[compartment.minor]]
+name = "Myeloid"
+color = "#d62728"
+markers = ["Lyz2", "Cd68", "Itgam", "Csf1r", "Spi1"]
+
+[[compartment.minor.minor]]
+name = "Monocytes"
+color = "#1151b4"
+markers = ["Ly6c2", "Ccr2", "Itgam", "Csf1r"]
+
+[[compartment.minor.minor]]
+name = "Macrophages"
+color = "#e377c2"
+markers = ["Cd68", "Adgre1", "Cd163", "Csf1r", "Mrc1"]
+
+[[compartment.minor.minor]]
+name = "Dendritic cells"
+color = "#8c564b"
+markers = ["Clec9a", "Xcr1", "Cd1c", "Fcer1a", "Itgax"]
+
+[[compartment.minor.minor]]
+name = "Neutrophils"
+color = "#a3e3ed"
+markers = ["S100a8", "S100a9", "Ly6g", "Mpo"]
+
+[[compartment.minor.minor]]
+name = "Eosinophils"
+color = "#ff99cc"
+markers = ["Siglecf", "Ccr3", "Prg2"]
+
+[[compartment.minor.minor]]
+name = "Basophils"
+color = "#cc99ff"
+markers = ["Mcpt8", "Il4", "Cma1"]
+
+[[compartment.minor.minor]]
+name = "Mast cells"
+color = "#1E90FF"
+markers = ["Kit", "Cpa3", "Tpsb2", "Mcpt4", "Ms4a2", "Hdc"]
+
+[compartment.minor.minor.metadata]
+doublet_lineage = true
+
+[compartment.minor.metadata]
+doublet_lineage = true
+
+[[compartment]]
+name = "Stromal"
+color = "#ffbb78"
+markers = ["Dcn", "Col1a1", "Pecam1", "Pdgfra", "Acta2"]
+negative_markers = ["Ptprc", "Epcam", "Krt8", "Krt18", "Krt19"]
+
+[compartment.metadata]
+kind = "cell_type"
+granularity = "compartment"
+compartment = "stromal"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "curated_review"
+source_type = "expert_seed"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "mouse"
+
+[[compartment.minor]]
+name = "Endothelial"
+color = "#fecb51"
+markers = ["Pecam1", "Cdh5", "Vwf", "Eng", "Cldn5", "Sele", "Icam1", "Ackr1"]
+
+[compartment.minor.metadata]
+doublet_lineage = true
+
+[[compartment.minor]]
+name = "Fibroblasts"
+color = "#FF8C00"
+markers = ["Dcn", "Col1a1", "Col3a1", "Pdgfra", "Lum", "Fn1", "Thy1", "Vim"]
+
+[compartment.minor.metadata]
+doublet_lineage = true
+
+[[compartment.minor]]
+name = "Smooth muscle"
+color = "#FFA07A"
+markers = ["Acta2", "Myh11", "Tagln", "Cnn1", "Tpm2", "Myl9", "Des"]
+
+[compartment.minor.metadata]
+doublet_lineage = true
+
+[[compartment.minor]]
+name = "Pericytes"
+color = "#b86d29"
+markers = ["Rgs5", "Pdgfrb", "Kcnj8", "Notch3", "Cspg4", "Mcam", "Abcc9"]
+
+[compartment.minor.metadata]
+doublet_lineage = true
+
+[[compartment]]
+name = "Epithelial"
+color = "#f19cbb"
+markers = ["Epcam", "Krt8", "Krt18", "Krt19", "Cdh1", "Cldn4", "Ocln", "Dsp"]
+negative_markers = ["Ptprc", "Pecam1"]
+
+[compartment.metadata]
+kind = "cell_type"
+granularity = "compartment"
+compartment = "epithelial"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "curated_review"
+source_type = "expert_seed"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = true
+doublet_lineage = true
+species = "mouse"
+
+[[compartment]]
+name = "Neural"
+color = "#6fa8dc"
+markers = ["Rbfox3", "Gfap", "Plp1", "Cx3cr1"]
+negative_markers = ["Ptprc", "Epcam", "Pecam1", "Col1a1"]
+
+[compartment.metadata]
+kind = "cell_type"
+granularity = "compartment"
+compartment = "neural"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "curated_review"
+source_type = "expert_seed"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+doublet_lineage = true
+species = "mouse"
+
+[[compartment.minor]]
+name = "Neurons"
+color = "#3d85c6"
+markers = ["Rbfox3", "Snap25", "Syt1", "Map2"]
+
+[[compartment.minor]]
+name = "Astrocytes"
+color = "#93c47d"
+markers = ["Gfap", "Aldh1l1", "Aqp4", "S100b"]
+
+[[compartment.minor]]
+name = "Oligodendrocytes"
+color = "#45818e"
+markers = ["Plp1", "Mog", "Mbp", "Cnp"]
+
+[[compartment.minor]]
+name = "Oligodendrocyte Precursors (OPC)"
+color = "#6aa84f"
+markers = ["Pdgfra", "Cspg4"]
+
+[[compartment.minor]]
+name = "Microglia"
+color = "#e69138"
+markers = ["Cx3cr1", "P2ry12", "Tmem119"]
+
+[[compartment.minor]]
+name = "Neural Stem Cells"
+color = "#a64d79"
+markers = ["Sox2", "Nes", "Prom1"]
+
+# lineage
+
+[[lineage]]
+name = "Specialized"
+color = "#999999"
+markers = []
+
+[lineage.metadata]
+kind = "cell_type"
+granularity = "lineage"
+compartment = "mixed"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "needs_review"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "mouse"
+
+[[lineage.minor]]
+name = "Hepatocytes"
+color = "#b45f06"
+markers = ["Alb", "Ttr", "Cyp2e1"]
+
+[[lineage.minor]]
+name = "Cardiomyocytes"
+color = "#cc0000"
+markers = ["Tnnt2", "Myh6", "Actc1"]
+
+[[lineage.minor]]
+name = "Adipocytes"
+color = "#f1c232"
+markers = ["Adipoq", "Pparg", "Plin1", "Fabp4"]
+
+[[lineage.minor]]
+name = "Erythrocytes"
+color = "#990000"
+markers = ["Hbb-bt", "Hba-a1", "Alas2"]
+
+# subtype
+
+[[subtype]]
+name = "Global subtype markers"
+color = "#bdbdbd"
+markers = []
+minor = []
+
+[subtype.metadata]
+kind = "cell_type_collection"
+granularity = "subtype_collection"
+species = "mouse"
+scope = "collection"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+description = "Reserved for globally reusable subtype entries that should not live under a single lineage hierarchy."
+
+# state
+
+[[state]]
+name = "Cell Cycle and Growth States"
+color = "#b04a4a"
+markers = []
+
+[state.metadata]
+kind = "state_collection"
+granularity = "state_collection"
+compartment = "mixed"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = true
+species = "mouse"
+
+[[state.minor]]
+name = "Cycling"
+color = "#a32121"
+markers = ["Mki67", "Top2a", "Pcna", "Ccnb1", "Ccnb2"]
+
+[state.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "cell_cycle"
+scope = "all"
+applies_to = ["all"]
+alias_of = "Proliferating"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = true
+species = "mouse"
+use_for_global_annotation = false
+
+[[state.minor]]
+name = "Progenitor-like"
+color = "#00CED1"
+markers = ["Sox2", "Nes", "Prom1", "Pax6", "Ascl1"]
+
+[state.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "growth_potential"
+scope = "lineage_restricted"
+applies_to = ["Stem Cell", "Neural", "Epithelial"]
+alias_of = "Progenitor"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = true
+species = "mouse"
+use_for_global_annotation = false
+
+[[state]]
+name = "Immune Functional States"
+color = "#f0ad4e"
+markers = []
+
+[state.metadata]
+kind = "state_collection"
+granularity = "state_collection"
+compartment = "immune"
+scope = "lineage_restricted"
+applies_to = ["Immune"]
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = true
+species = "mouse"
+
+[[state.minor]]
+name = "Immune activation"
+color = "#FF8C00"
+markers = ["Cd69", "Il2ra", "Fos", "Junb", "Cd38", "Cd44"]
+
+[state.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "immune_activation"
+scope = "lineage_restricted"
+applies_to = ["T cells", "CD4+ T", "CD8+ T", "NK cells", "B cells"]
+alias_of = "Activation"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = true
+species = "mouse"
+use_for_global_annotation = false
+
+[[state.minor]]
+name = "Inflammatory response"
+color = "#B22222"
+markers = ["Il1b", "Tnf", "Nfkb1", "Nfkbia", "Cxcl2", "Ptgs2", "Icam1"]
+
+[state.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "immune_activation"
+scope = "lineage_restricted"
+applies_to = ["Myeloid", "Monocytes", "Macrophages", "Dendritic cells"]
+alias_of = "Inflammation"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = true
+species = "mouse"
+use_for_global_annotation = false
+
+[[state.minor]]
+name = "T cell exhaustion-like"
+color = "#A9A9A9"
+markers = ["Pdcd1", "Lag3", "Havcr2", "Tigit", "Ctla4", "Entpd1", "Tox", "Cd244a"]
+
+[state.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "immune_dysfunction"
+scope = "lineage_restricted"
+applies_to = ["T cells", "CD8+ T", "CD4+ T"]
+alias_of = "Exhaustion"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = true
+species = "mouse"
+use_for_global_annotation = false
+
+[[state]]
+name = "Metabolic and Plasticity States"
+color = "#6c8ebf"
+markers = []
+
+[state.metadata]
+kind = "state_collection"
+granularity = "state_collection"
+compartment = "mixed"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = true
+species = "mouse"
+
+[[state.minor]]
+name = "Metabolic activation"
+color = "#4682B4"
+markers = ["Ldha", "Slc2a1", "Eno1", "Pkm", "Pgk1", "Gapdh"]
+
+[state.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "metabolism"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = true
+species = "mouse"
+use_for_global_annotation = false
+
+[[state.minor]]
+name = "EMT-like"
+color = "#FFD700"
+markers = ["Vim", "Snai1", "Snai2", "Zeb1", "Zeb2", "Cdh2", "Fn1", "Twist1"]
+
+[state.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "plasticity"
+scope = "lineage_restricted"
+applies_to = ["Epithelial", "Tumor", "Stromal"]
+alias_of = "EMT"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = true
+species = "mouse"
+use_for_global_annotation = false
+
+# artifact
+
+[[artifact]]
+name = "Artifact markers"
+color = "#c0c0c0"
+markers = []
+
+[artifact.metadata]
+kind = "artifact_collection"
+granularity = "artifact_collection"
+species = "mouse"
+scope = "collection"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+category = "artifact_qc"
+
+[[artifact.minor]]
+name = "Stress-high"
+color = "#FF69B4"
+markers = ["Hspa1a", "Hspb1", "Hspa6", "Hsp90aa1", "Atf3", "Ddit3", "Fos", "Jun"]
+
+[artifact.minor.metadata]
+kind = "artifact"
+granularity = "artifact"
+category = "artifact_qc"
+scope = "all"
+applies_to = ["all"]
+alias_of = "Stress"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = false
+species = "mouse"
+use_for_global_annotation = false
+use_for_malignancy_interpretation = false
+
+[[artifact.minor]]
+name = "Oxidative stress"
+color = "#FF4500"
+markers = ["Nfe2l2", "Hmox1", "Nqo1", "Sod1", "Sod2", "Gpx1", "Cat", "Txn"]
+
+[artifact.minor.metadata]
+kind = "artifact"
+granularity = "artifact"
+category = "artifact_qc"
+scope = "all"
+applies_to = ["all"]
+alias_of = "Oxidative Stress"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = false
+species = "mouse"
+use_for_global_annotation = false
+use_for_malignancy_interpretation = false
+
+[[artifact.minor]]
+name = "Hypoxia response"
+color = "#800080"
+markers = ["Vegfa", "Adm", "Ndrg1", "Bnip3", "Car9", "Slc2a1", "Pgk1"]
+
+[artifact.minor.metadata]
+kind = "artifact"
+granularity = "artifact"
+category = "artifact_qc"
+scope = "all"
+applies_to = ["all"]
+alias_of = "Hypoxia"
+evidence_tier = "seed"
+source_type = "ortholog_seed"
+review_status = "needs_review"
+use_for_state_annotation = false
+species = "mouse"
+use_for_global_annotation = false
+use_for_malignancy_interpretation = false
+
+[[artifact.minor]]
+name = "Ribosomal-high"
+color = "#9e9e9e"
+markers = ["Rplp0", "Rpl3", "Rpl4", "Rpl5", "Rpl6", "Rpl7", "Rpl7a", "Rpl8", "Rpl10", "Rpl11", "Rpl13", "Rpl13a", "Rpl18", "Rpl19", "Rpl21", "Rpl22", "Rpl23", "Rpl23a", "Rpl26", "Rpl27", "Rpl28", "Rpl29", "Rpl30", "Rpl31", "Rpl32", "Rpl34", "Rpl35", "Rpl36", "Rps3", "Rps4x", "Rps5", "Rps6", "Rps7", "Rps8", "Rps9", "Rps10", "Rps11", "Rps12", "Rps13", "Rps14", "Rps15", "Rps16", "Rps18", "Rps19", "Rps20", "Rps23", "Rps24", "Rps27", "Rps27a", "Rps28"]
+
+[artifact.minor.metadata]
+description = "High ribosomal gene fraction; often low-complexity, stressed, or technically biased clusters."
+kind = "artifact"
+granularity = "artifact"
+species = "mouse"
+category = "artifact_qc"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+
+[[artifact.minor]]
+name = "Mitochondrial-high"
+color = "#8d8d8d"
+markers = ["mt-Co1", "mt-Co2", "mt-Co3", "mt-Cyb", "mt-Nd1", "mt-Nd2", "mt-Nd3", "mt-Nd4", "mt-Nd4l", "mt-Nd5", "mt-Atp6", "mt-Atp8"]
+
+[artifact.minor.metadata]
+description = "High mitochondrial transcript fraction; evaluate as quality/stress signal before annotation."
+kind = "artifact"
+granularity = "artifact"
+species = "mouse"
+category = "artifact_qc"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+
+[[artifact.minor]]
+name = "Hemoglobin-high"
+color = "#b22222"
+markers = ["Hba-a1", "Hba-a2", "Hbb-bs", "Hbb-bt", "Hbb-y"]
+
+[artifact.minor.metadata]
+description = "Erythroid/ambient hemoglobin signal; useful for RBC contamination or erythroid clusters."
+kind = "artifact"
+granularity = "artifact"
+species = "mouse"
+category = "artifact_qc"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+
+[[artifact.minor]]
+name = "Dissociation stress"
+color = "#ff7f7f"
+markers = ["Fos", "Jun", "Junb", "Jund", "Egr1", "Ier2", "Ier3", "Atf3", "Hspa1a", "Hspa1b", "Dnajb1"]
+
+[artifact.minor.metadata]
+description = "Immediate early gene/dissociation stress program."
+kind = "artifact"
+granularity = "artifact"
+species = "mouse"
+category = "artifact_qc"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "expert_seed"
+review_status = "scaffold"
+use_for_global_annotation = false
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+
+# functional_program
+
+[[functional_program]]
+name = "Functional programs"
+color = "#708090"
+markers = []
+
+[functional_program.metadata]
+kind = "program_collection"
+granularity = "program_collection"
+species = "mouse"
+compartment = "mixed"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+
+[[functional_program.minor]]
+name = "Cytotoxicity"
+color = ""
+markers = ["Prf1", "Ifng", "Gnly", "Nkg7", "Gzmb", "Gzma", "Gzmh", "Klrk1", "Klrb1", "Klrd1", "Ctsw", "Cst7", "Ccl3", "Ccl4", "Tnfsf10", "Faslg", "Gzmk", "Gzmm", "Klrf1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "immune_function"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Exhausted"
+color = ""
+markers = ["Pdcd1", "Ctla4", "Lag3", "Havcr2", "Cd244", "Cd160", "Tigit", "Entpd1", "Tox", "Nr4a1", "Nr4a2", "Nr4a3", "Eomes"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "immune_function"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Pro_inflammatory"
+color = ""
+markers = ["Il1b", "Il18", "Il23a", "Tnf", "Ccl2", "Cxcl1", "Cxcl2", "Cxcl9", "Cxcl10", "Cxcl11", "Ccl5", "Ccl7", "Ccl8", "Il1a", "Ccl12", "Il6", "Il1r1", "Irf5", "Cd40", "Ido1", "Kynu", "Ccr7", "Nlrp3", "S100a8", "S100a9", "Ptgs2", "Il12b"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "immune_function"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Anti_inflammatory"
+color = ""
+markers = ["Il1rn", "Il10", "Il4", "Il11", "Il13", "Tgfb1", "Tnfrsf1a", "Tnfrsf1b", "Il1r2", "Il18bp", "Cd247", "Socs3"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "immune_function"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Immune_regulatory"
+color = ""
+markers = ["C5", "Tgfbr1", "C5ar1", "Tgfbr2", "Cxcl12", "Cxcr4", "Cxcl13", "Cxcr5", "C7", "Cfb", "Cfh", "Cfi", "Bcam", "F11r", "Irf5", "Ccl2", "Il6", "Cxcl1", "Cxcl2", "Cxcl3", "Il10", "Tgfb1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "immune_function"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Antigen_presenting"
+color = ""
+markers = ["Cd74", "H2-Aa", "H2-Eb1", "H2-Ab1", "Cd83", "Cd80", "Cd86", "Cd40", "Ciita", "B2m", "Tap1", "Tap2", "H2-K1", "H2-D1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "immune_function"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "M1"
+color = ""
+markers = ["Nos2", "Il23a", "Tnf", "Cxcl9", "Cxcl10", "Cxcl11", "Il1b", "Il1a", "Il6", "Irf5", "Ido1", "Kynu", "Ccr7", "Cd86", "Stat1", "Socs1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "macrophage_polarization"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "M2"
+color = ""
+markers = ["Arg1", "Cd163", "Mrc1", "Il4r", "Ccl4", "Ccl12", "Ccl17", "Ccl22", "Lyve1", "Vegfa", "Vegfb", "Vegfc", "Vegfd", "Egf", "Jag2", "Ctsa", "Ctsb", "Ctsc", "Ctsd", "Tgfb1", "Tgfb2", "Tgfb3", "Mmp14", "Mmp19", "Mmp9", "Clec7a", "Wnt7b", "Faslg", "Tnfsf12", "Tnfsf8", "Cd276", "Vtcn1", "Msr1", "Fn1", "Irf4", "Pparg", "Mrc2"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "macrophage_polarization"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Angiogenesis"
+color = ""
+markers = ["Kdr", "Flt1", "Pecam1", "Ccl2", "Cd44", "Cdh1", "Edn1", "Ezh2", "Fgfr1", "Fyn", "Hey1", "Itgav", "Jag2", "Mmp9", "Notch1", "Pdgfa", "Ptk2", "Spp1", "Tnfaip6", "Vav2", "Vcan", "Vegfa", "Angpt1", "Angpt2", "Tek"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "tissue_remodeling"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Phagocytosis"
+color = ""
+markers = ["Cd68", "Sirpa", "Ccnd2", "Mrc1", "Mertk", "C1qb", "C1qc", "Csf3", "Vcan", "Msr1", "Aif1", "Itgam", "Fcgr3", "Fcgr2b"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "macrophage_polarization"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "ECM"
+color = ""
+markers = ["Acta2", "Tagln", "Bgn", "Col8a1", "Col15a1", "Igfbp7", "Tpm1", "Tpm2", "Col10a1", "Postn", "Myl9", "Col13a1", "Col14a1", "Myh11", "Mylk", "Actg2", "Fn1", "Lum", "Dcn", "Sparc", "Vcan", "Col5a1", "Col6a3", "Pdgfa", "Mmp2", "Col1a2", "Col1a1", "Col3a1", "Lox"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "tissue_remodeling"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Proliferation"
+color = ""
+markers = ["Mki67", "Pcna", "Top2a", "Cdk1", "Ccnb1", "Ccna2", "Aurka", "Bub1", "Mcm2", "Mcm4"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "tissue_remodeling"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Interferon_Response"
+color = ""
+markers = ["Isg15", "Ifi44", "Mx1", "Stat1", "Oas1a", "Ifit1", "Ifit2", "Ifit3", "Oas2", "Oasl1", "Irf7", "Rsad2"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "stress_response"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Hypoxia"
+color = ""
+markers = ["Hif1a", "Vegfa", "Slc2a1", "Ca9", "Ldha", "Pgk1", "Eno1", "Bnip3"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "stress_response"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Glycolysis"
+color = ""
+markers = ["Hk2", "Pkm", "Ldha", "Eno1", "Gapdh", "Aldoa", "Pfkp", "Pgk1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "metabolism"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Oxidative_Phosphorylation"
+color = ""
+markers = ["Atp5a1", "Cox5a", "Ndufb8", "Sdhb", "Uqcrc1", "Ndufa9", "Cox4i1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "metabolism"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Immune_Checkpoint"
+color = ""
+markers = ["Pdcd1", "Cd274", "Pdcd1lg2", "Ctla4", "Lag3", "Havcr2", "Tigit", "Cd160", "Cd244", "Btla", "Vsir", "Siglec7", "Siglec9", "Lgals9", "Tnfrsf14", "Cd276", "Vtcn1", "Icos", "Tnfrsf9", "Tnfrsf4"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "signaling"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "T_cell_activation"
+color = ""
+markers = ["Cd3d", "Cd3e", "Cd3g", "Cd247", "Cd28", "Icos", "Cd69", "Zap70", "Lat", "Trat1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "t_cell_states"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "T_cell_memory"
+color = ""
+markers = ["Ccr7", "Sell", "Il7r", "Tcf7", "Lef1", "Klf2", "Cd27"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "t_cell_states"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Treg program"
+color = ""
+markers = ["Foxp3", "Il2ra", "Ctla4", "Tnfrsf18", "Ikzf2", "Entpd1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "t_cell_states"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+alias_of = "Treg"
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Th1"
+color = ""
+markers = ["Tbx21", "Ifng", "Il12rb2", "Cxcr3", "Stat4"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "t_cell_states"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Th2"
+color = ""
+markers = ["Gata3", "Il4", "Il5", "Il13", "Ccr4"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "t_cell_states"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Th17"
+color = ""
+markers = ["Rorc", "Il17a", "Il17f", "Il23r", "Ccr6", "Il21"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "t_cell_states"
+scope = "lineage_restricted"
+applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "NK_receptors"
+color = ""
+markers = ["Klrd1", "Klrk1", "Klrc1", "Klrc2", "Klrc3", "Klrc4", "Klrb1", "Klrf1", "Ncr1", "Ncr3"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "B_cell_activation"
+color = ""
+markers = ["Ms4a1", "Cd79a", "Cd79b", "Cd19", "Cd22", "Cd40", "Bank1", "Blnk", "Cr2"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Plasmablast_Plasma"
+color = ""
+markers = ["Sdc1", "Prdm1", "Xbp1", "Irf4", "Jchain", "Mzb1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Dendritic_cell"
+color = ""
+markers = ["Itgax", "Cd1c", "Clec10a", "Siglech", "Gzmb", "Irf8", "Ccr7"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "lineage_restricted"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Neutrophil"
+color = ""
+markers = ["S100a8", "S100a9", "Fcgr3", "Cxcr2", "Mpo", "Elane", "Prtn3", "Lcn2"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "lineage_restricted"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Monocyte_Macrophage"
+color = ""
+markers = ["Lyz2", "Lyz1", "S100a8", "S100a9", "Fcgr3", "Ctss", "Lst1", "Tyrobp", "Itgam"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "lineage_restricted"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Epithelial program"
+color = ""
+markers = ["Epcam", "Krt8", "Krt18", "Krt19", "Krt14", "Krt5"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "lineage_restricted"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+alias_of = "Epithelial"
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Endothelial program"
+color = ""
+markers = ["Pecam1", "Vwf", "Kdr", "Flt1", "Eng"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "lineage_restricted"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+alias_of = "Endothelial"
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Fibroblast"
+color = ""
+markers = ["Pdgfra", "Col1a1", "Col1a2", "Dcn", "Lum", "Fbln1", "Col3a1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_type_markers"
+scope = "lineage_restricted"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "EMT"
+color = ""
+markers = ["Vim", "Fn1", "Col1a1", "Col1a2", "Itga5", "Itgb1", "Snai1", "Snai2", "Zeb1", "Twist1", "Cdh2"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "tissue_remodeling"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Apoptosis"
+color = ""
+markers = ["Bax", "Bcl2", "Bcl2l1", "Casp3", "Casp8", "Fas", "Fadd", "Bid"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_fate"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "DNA_Repair"
+color = ""
+markers = ["Brca1", "Brca2", "Rad51", "Atm", "Atr", "Chek1", "Chek2", "Mlh1", "Msh2", "Msh6"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "cell_fate"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "mTOR_Signaling"
+color = ""
+markers = ["Mtor", "Rptor", "Rictor", "Akt1", "Akt2", "Rps6kb1", "Eif4ebp1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "metabolism"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Lipid_Metabolism"
+color = ""
+markers = ["Pparg", "Srebf1", "Fasn", "Acaca", "Acly", "Cpt1a", "Scd1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "metabolism"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Complement"
+color = ""
+markers = ["C1qa", "C1qb", "C1qc", "C2", "C3", "C4b", "Cfb", "Cfh", "Cfi", "C5", "C7", "C9"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "signaling"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Chemokine_Receptors"
+color = ""
+markers = ["Ccr1", "Ccr2", "Ccr5", "Ccr7", "Cxcr3", "Cxcr4", "Cxcr5", "Cx3cr1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "signaling"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Autophagy"
+color = ""
+markers = ["Becn1", "Atg5", "Atg7", "Map1lc3b", "Sqstm1", "Ulk1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "stress_response"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "Ferroptosis"
+color = ""
+markers = ["Gpx4", "Slc7a11", "Acsl4", "Tfrc", "Ncoa4", "Fth1", "Hmox1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "stress_response"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
+
+[[functional_program.minor]]
+name = "ROS_Stress"
+color = ""
+markers = ["Hmox1", "Nfe2l2", "Sod2", "Cat", "Txn1", "Gclc", "Gclm", "Nqo1"]
+
+[functional_program.minor.metadata]
+kind = "functional_program"
+granularity = "program"
+category = "stress_response"
+scope = "all"
+applies_to = ["all"]
+marker_role = "program"
+evidence_tier = "seed"
+source_type = "curated_geneset"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "mouse"
