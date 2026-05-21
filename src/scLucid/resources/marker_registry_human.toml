@@ -43,6 +43,7 @@ markers = ["CD3D", "MS4A1", "NCAM1", "CD3E", "CD3G"]
 name = "T cells"
 color = "#1ba169"
 markers = ["CD3D", "CD3E", "CD3G", "TRAC", "CD2", "CD4", "CD8A", "IL7R", "TCF7", "LEF1", "SELL", "CD27"]
+negative_markers = ["MS4A1", "CD79A", "CD79B", "LYZ", "EPCAM", "PECAM1", "COL1A1"]
 
 [[compartment.minor.minor.minor]]
 name = "CD4+ T"
@@ -141,6 +142,7 @@ doublet_lineage = true
 name = "B cells"
 color = "#7ccbc5"
 markers = ["MS4A1", "CD19", "CD79A", "CD79B", "BANK1", "PAX5", "IGHM", "IGHD", "CD22"]
+negative_markers = ["CD3D", "CD3E", "TRAC", "NKG7", "LYZ", "EPCAM", "PECAM1"]
 
 [[compartment.minor.minor.minor]]
 name = "Naive B"
@@ -174,6 +176,7 @@ doublet_lineage = true
 name = "NK cells"
 color = "#014431"
 markers = ["NCAM1", "NKG7", "KLRF1", "KLRD1", "GNLY", "FCGR3A", "GZMB", "PRF1", "CD244"]
+negative_markers = ["CD3D", "CD3E", "TRAC", "MS4A1", "CD79A", "LYZ", "EPCAM", "PECAM1"]
 
 [[compartment.minor.minor.minor]]
 name = "CD56+CD16- NK"
@@ -202,6 +205,7 @@ markers = ["LYZ", "CD68", "ITGAM", "VCAN"]
 name = "Monocytes"
 color = "#1151b4"
 markers = ["FCN1", "S100A8", "S100A9", "CD14", "VCAN", "LYZ", "S100A12", "CD36"]
+negative_markers = ["CD3D", "CD3E", "MS4A1", "NKG7", "EPCAM", "PECAM1", "COL1A1"]
 
 [[compartment.minor.minor.minor]]
 name = "CD14+ Mono"
@@ -225,6 +229,7 @@ doublet_lineage = true
 name = "Macrophages"
 color = "#e377c2"
 markers = ["CD68", "CD163", "APOE", "C1QA", "C1QB", "MSR1", "MRC1", "CD14", "CSF1R"]
+negative_markers = ["CD3D", "CD3E", "MS4A1", "NKG7", "EPCAM", "PECAM1", "COL1A1"]
 
 [[compartment.minor.minor.minor]]
 name = "Reg TAM"
@@ -336,6 +341,7 @@ species = "human"
 name = "Endothelial cells"
 color = "#fecb51"
 markers = ["PECAM1", "VWF", "CDH5", "RAMP2", "ENG", "CLDN5", "SELE", "ICAM1", "ACKR1"]
+negative_markers = ["PTPRC", "EPCAM", "KRT8", "KRT18", "KRT19", "COL1A1", "DCN"]
 
 [[compartment.minor.minor]]
 name = "Arterial EC"
@@ -374,6 +380,7 @@ doublet_lineage = true
 name = "Fibroblasts"
 color = "#FF8C00"
 markers = ["FN1", "COL1A1", "COL3A1", "COL1A2", "DCN", "LUM", "PDGFRA", "FAP", "THY1", "VIM"]
+negative_markers = ["PTPRC", "EPCAM", "KRT8", "KRT18", "KRT19", "PECAM1", "VWF"]
 
 [[compartment.minor.minor]]
 name = "iCAF"
@@ -1949,3 +1956,402 @@ use_for_global_annotation = false
 use_for_state_annotation = true
 use_for_malignancy_interpretation = true
 species = "human"
+
+# ============================================================================
+# Myeloid lineage entries curated from pan-cancer atlases
+# Sources: SRC0001 (Cheng et al. 2021, Cell), SRC0002 (Li et al. 2024, Nat Commun)
+# ============================================================================
+
+[[lineage]]
+name = "Monocytes"
+color = "#8B4513"
+markers = ["CD14", "FCGR3A", "FCN1", "S100A8", "S100A9"]
+negative_markers = ["CD3D", "MS4A1", "CD68", "CD163"]
+
+[lineage.metadata]
+kind = "cell_type"
+granularity = "lineage"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001"]
+notes = "Pan-cancer myeloid atlas (Cheng 2021 Cell). CD14+ classical and CD16+ (FCGR3A+) non-classical monocytes."
+
+[[lineage]]
+name = "Macrophages"
+color = "#D2691E"
+markers = ["CD68", "CD163", "MRC1", "LYZ", "CSF1R"]
+negative_markers = ["CD3D", "MS4A1", "CD14", "FCN1"]
+
+[lineage.metadata]
+kind = "cell_type"
+granularity = "lineage"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001"]
+notes = "Pan-cancer tumor-associated macrophages (TAMs). Diverse subsets across cancer types with context-dependent phenotypes."
+
+[[lineage]]
+name = "Conventional DCs"
+color = "#9932CC"
+markers = ["HLA-DRA", "ITGAX", "CD11C"]
+negative_markers = ["CD3D", "MS4A1", "CD14", "LYZ"]
+
+[lineage.metadata]
+kind = "cell_type"
+granularity = "lineage"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001"]
+notes = "Conventional dendritic cells (cDCs), excluding pDCs. Present across all 15 cancer types in Cheng 2021 atlas."
+
+[[lineage]]
+name = "Mast cells"
+color = "#FF69B4"
+markers = ["KIT", "TPSAB1", "TPSB2", "MS4A2", "CPA3", "FCER1A"]
+negative_markers = ["CD3D", "MS4A1", "CD14", "CD68"]
+
+[lineage.metadata]
+kind = "cell_type"
+granularity = "lineage"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001"]
+notes = "Tumor-infiltrating mast cells. TNF+ subset shows anti-tumor function in NPC; pro-tumorigenic in most other cancers."
+
+[[subtype]]
+name = "SPP1+ TAM"
+color = "#CD853F"
+markers = ["SPP1", "APOE", "TREM2", "APOC1", "GPNMB", "CCL18"]
+negative_markers = ["C1QC", "C1QA", "SELENOP"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["BRCA", "PAAD", "LUNG", "CRC", "UCEC", "NPC", "OV", "THCA"]
+evidence_tier = "consensus"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001", "SRC0002"]
+notes = "Pro-angiogenic TAM subset. Core markers (both sources): APOE, APOC1, TREM2. Extended markers (Cheng 2021): SPP1, GPNMB, CCL18. Also referred to as Macro_FOLR2-APOE+ in Li 2024. Associated with poor prognosis."
+
+[[subtype]]
+name = "C1QC+ TAM"
+color = "#D2B48C"
+markers = ["C1QC", "C1QA", "C1QB", "SELENOP"]
+negative_markers = ["SPP1", "APOE"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["BRCA", "PAAD", "LUNG", "CRC", "UCEC", "NPC", "OV", "THCA"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001"]
+notes = "Phagocytic TAM subset with higher phagocytosis scores. Tissue-resident characteristics (Cheng 2021)."
+
+[[subtype]]
+name = "LYVE1+ RTM"
+color = "#DEB887"
+markers = ["LYVE1", "FOLR2", "SELENOP", "MRC1"]
+negative_markers = ["FCN1", "S100A8", "S100A9"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tissue_specific"
+applies_to = ["all"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001"]
+notes = "LYVE1+ resident tissue macrophages with tissue-resident characteristics. Weak connectivity with CD14+ monocytes (Cheng 2021)."
+
+[[subtype]]
+name = "cDC1"
+color = "#BA55D3"
+markers = ["CLEC9A", "XCR1", "CADM1", "IRF8", "BATF3"]
+negative_markers = ["CD1C", "CD1A", "SIRPA", "FCER1A"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "consensus"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001", "SRC0002"]
+notes = "Cross-presenting cDC1 subset. Also identified as cDC_CLEC9A in Li 2024. Expresses IL12B upon maturation. Present across 15 cancer types."
+
+[[subtype]]
+name = "cDC2"
+color = "#9370DB"
+markers = ["CD1C", "CD1A", "SIRPA", "FCER1A", "CLEC10A"]
+negative_markers = ["CLEC9A", "XCR1", "LILRA4"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0001"]
+notes = "cDC2 subset with heterogeneous sub-populations: CXCR4+, CD1A+/CD207+ (Langerhans-like), IL1B+, FCN1+, CXCL9+/IDO1+ (Cheng 2021)."
+
+[[subtype]]
+name = "LAMP3+ cDC"
+color = "#DDA0DD"
+markers = ["LAMP3", "CCR7", "CCL19", "CCL22", "IDO1"]
+negative_markers = ["CD14", "FCN1"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["all"]
+evidence_tier = "consensus"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+source_ids = ["SRC0001", "SRC0002"]
+notes = "Mature cDC subset (mregDC-like) widely present across 15 cancer types. Also identified as cDC_LAMP3 in Li 2024. Higher in tumor vs adjacent tissue. Has migratory capacity and can interact with T cells via PD-L1."
+
+[[subtype]]
+name = "Plasmacytoid DC"
+color = "#E6E6FA"
+markers = ["LILRA4", "GZMB", "IL3RA", "CLEC4C", "IRF7"]
+negative_markers = ["CD1C", "CLEC9A", "CD14"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "all"
+applies_to = ["all"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0002"]
+notes = "Plasmacytoid DCs (pDCs) identified across 8 cancer types (Li 2024 Nat Commun). Key IFN producers."
+
+# ============================================================================
+# Li 2024-specific myeloid subtypes (ICB response context)
+# Source: SRC0002 (Li et al. 2024, Nat Commun)
+# ============================================================================
+
+[[subtype]]
+name = "Macro_NLRP3"
+color = "#BC8F8F"
+markers = ["NLRP3", "VCAN", "CXCL2"]
+negative_markers = ["FOLR2", "APOE", "ISG15"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["BCC", "ccRCC", "CRC", "Melanoma"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0002"]
+notes = "NLRP3+ inflammatory macrophage subset enriched in ICB non-responders (Li 2024). Associated with pro-inflammatory mTORC1 signaling."
+
+[[subtype]]
+name = "Macro_ISG15"
+color = "#F4A460"
+markers = ["ISG15", "CXCL9", "CXCL11", "IFI27"]
+negative_markers = ["FOLR2", "APOE", "NLRP3"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["BCC", "ccRCC", "CRC", "HNSCC", "Melanoma"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0002"]
+notes = "ISG15+ interferon-response macrophage subset. Associated with cytokine receptor binding and ICB response in some cancer types (Li 2024). Note: overlaps with ISG15+ TAM in Cheng 2021 but defined by Li using CXCL9/CXCL11 co-expression."
+
+[[subtype]]
+name = "Macro_FOLR2_plus_APOE_plus"
+color = "#DAA520"
+markers = ["FOLR2", "APOE", "C1QC", "C1QA", "GPNMB", "CCL18"]
+negative_markers = ["SPP1", "ISG15", "NLRP3"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["BCC", "ccRCC", "CRC", "HNSCC", "Melanoma"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0002"]
+notes = "FOLR2+APOE+ macrophage subset from Li 2024. Enriched for M1 markers, high PD-L1 (CD274) and CTLA4 expression. More abundant in ICB responders. Overlaps with C1QC+ TAM (Cheng 2021) at C1QC/C1QA but distinct in FOLR2/APOE co-expression."
+
+[[subtype]]
+name = "Macro_LYVE1"
+color = "#D2B48C"
+markers = ["LYVE1", "PLTP", "SLC40A1"]
+negative_markers = ["APOE", "C1QC", "ISG15"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tissue_specific"
+applies_to = ["HCC", "iCCA", "BRCA"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0002"]
+notes = "LYVE1+ macrophage subset from Li 2024. Predominant in HCC and iCCA. Enriched for M2 markers. Note: may overlap with LYVE1+ RTM (Cheng 2021) but defined without FOLR2 requirement."
+
+[[subtype]]
+name = "Mono_INHBA"
+color = "#808000"
+markers = ["INHBA", "IL1R", "CCL2", "OLR1"]
+negative_markers = ["CD14", "FCN1", "CD68"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["BCC", "ccRCC", "CRC", "HNSCC", "Melanoma"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0002"]
+notes = "INHBA+ monocyte subset from Li 2024. Associated with inflammatory signaling. Increased in ICB non-responders."
+
+[[state]]
+name = "Macrophage IFN_response"
+color = "#FFD700"
+markers = ["ISG15", "IFI27", "CXCL9", "CXCL10", "CXCL11"]
+
+[state.metadata]
+kind = "state"
+granularity = "state"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "tumor_context"
+applies_to = ["Macrophage"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0002"]
+notes = "Interferon-response state in macrophages (Li 2024). Shared by Macro_ISG15, Macro_IFI27, and Macro_APOC1+IFI27+ subsets. Associated with ICB response in some cancer types."

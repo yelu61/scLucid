@@ -58,8 +58,10 @@ _export(
         "summarize_annotation_evidence",
         "standardize_cluster_marker_table",
         "run_marker_annotation_evidence",
+        "run_annotation_evidence",
         "build_llm_annotation_bundle",
         "merge_annotation_evidence",
+        "build_annotation_consensus",
         "apply_final_annotation",
         "run_lineage_state_annotation",
         "filter_marker_table_for_annotation",
@@ -70,6 +72,18 @@ _export(
         "run_annotation",
     ],
 )
+_export(
+    "trace",
+    [
+        "ANALYSIS_REQUIRED_REVIEW_SECTIONS",
+        "enrich_analysis_review_summary",
+        "get_analysis_module_contract",
+        "summarize_analysis_review_summary",
+        "validate_analysis_module_completeness",
+        "validate_analysis_review_summary",
+    ],
+)
+_export("malignancy", ["run_malignancy_interpretation"])
 
 # Prefer the reorganized DE package, but keep a legacy fallback.
 _de_names = [

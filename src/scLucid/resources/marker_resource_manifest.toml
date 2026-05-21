@@ -25,8 +25,8 @@
 # =============================================================================
 
 [metadata]
-version = "0.3.0"
-last_updated = "2026-05-15"
+version = "0.4.0"
+last_updated = "2026-05-20"
 description = "Manifest and curation contract for scLucid marker resources"
 default_species = ["human", "mouse"]
 
@@ -50,6 +50,8 @@ species = "human"
 workflow = ["tissue_specific_annotation", "subtype_annotation", "marker_evidence"]
 status = "active"
 description = "Human tissue-specific normal parenchymal and tissue-context marker entries"
+schema = "scLucid_marker_tissue_resource_v2"
+routing_note = "Top-level tissue entries are context anchors; child entries are routed by Manager as cell_type/tissue_subtype."
 
 [[resources]]
 name = "marker_tumor_human"
@@ -57,6 +59,8 @@ species = "human"
 workflow = ["tumor_type_hint", "tumor_context", "malignancy_review", "cnv_assisted_annotation", "tumor_interpretation"]
 status = "active"
 description = "Human tumor marker resource: epithelial support, malignancy programs, tumor type hints, and cancer states"
+schema = "scLucid_marker_tumor_resource_v2"
+routing_note = "Tumor entries are excluded from global annotation and consumed as tumor interpretation evidence."
 
 [[resources]]
 name = "genesets_cancer_signatures"

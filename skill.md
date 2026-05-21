@@ -43,16 +43,69 @@ The current advanced notebook sequence is:
 - `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb`
 - `examples/03_advanced_notebooks/Step1B-Preprocessing_Audit.ipynb`
 - `examples/03_advanced_notebooks/Step2-Annotation_and_Malignancy.ipynb`
+- `scripts/run_analysis_acceptance.py`
 - `examples/03_advanced_notebooks/Step3-Standard_Downstream.ipynb`
 - `examples/03_advanced_notebooks/Step4-Signature_and_Target_Analysis.ipynb`
 
 The current development status is:
 
 1. QC and preprocess are candidate benchmark modules. They should keep complete module contracts, layer contracts, step evidence, review summaries, and lightweight validation scaffold outputs.
-2. Analysis is the active next benchmark target. Improve clustering resolution evidence, annotation evidence, malignancy/CNV-assisted interpretation, and `adata.uns["sclucid"]["analysis"]["review_summary"]`.
+2. Analysis is the active second benchmark module. Preserve and harden the evidence-first path: clustering resolution evidence, marker/CellTypist/LLM annotation evidence, consensus labels, malignancy/CNV-assisted interpretation, and `adata.uns["sclucid"]["analysis"]["review_summary"]`.
 3. Tumor, tools, plotting, and report modules should consume stable QC/preprocess/analysis outputs before receiving large new features.
 
 These modules are the foundation for downstream tumor, spatial, therapy, and report features. Improve them first before expanding advanced modules.
+
+## 2A. Current Project Maturity Assessment
+
+Treat scLucid as a late prototype / early hardening scientific workflow system,
+not as a finished benchmarked package.
+
+Current strengths:
+
+- The project has a coherent product thesis: evidence-driven, tumor-aware,
+  Python-native single-cell analysis that wraps mature methods while encoding
+  real exploratory analysis experience.
+- QC and preprocessing are the most mature modules. They have stage contracts,
+  review summaries, evidence bundles, maturity checks, and validation scaffolds.
+- Analysis now has a first complete maturity loop: clustering resolution
+  evidence, marker discovery, marker-manager/CellTypist/LLM evidence,
+  consensus labels, optional malignancy interpretation, and analysis
+  review-summary enrichment.
+- Marker resources are moving toward the correct center of gravity:
+  `Manager` plus packaged resources, routed through explicit views rather than
+  hard-coded marker dictionaries.
+- The package already serves multiple user layers: workflow entrypoints for
+  basic users, composable APIs for notebook users, and advanced notebooks for
+  expert review.
+- Tumor-specific ambitions are visible across resources, CNV/malignancy modules,
+  TME utilities, and tumor workflow scaffolds.
+
+Current gaps:
+
+- Analysis is not yet as mature as QC/preprocess. Its default path must become
+  more conservative, auditable, marker-manager-driven, and real-data validated.
+- Tumor malignancy interpretation has an initial post-annotation bridge in
+  analysis, but heavy tumor algorithms and tumor-stage review summaries still
+  need tighter integration and real-data validation.
+- Marker resources still need curation metadata, source provenance, negative
+  markers, mouse tissue/tumor parity, and atlas-derived review.
+- External tool wrappers need stronger dependency boundaries, parity notes, and
+  realistic fallback behavior.
+- Plotting has useful foundations but still needs top-journal figure templates,
+  multi-panel report patterns, and visual regression checks.
+- Claims must remain calibrated. The package can claim traceability and workflow
+  maturity where implemented; it cannot yet claim broad scientific superiority
+  over Scanpy/Seurat/scran/CellTypist/inferCNV/CopyKAT without formal
+  comparative validation.
+
+Near-term product goal:
+
+- Make analysis the second benchmark-grade module after QC/preprocess by
+  hardening its newly connected evidence loop on real data.
+- Then make the tumor module consume stable annotation, CNV, marker, and
+  review-summary contracts without duplicating analysis-stage logic.
+- Use PBMC, PDAC, a second tumor dataset, and active project notebooks as
+  acceptance gates before expanding the feature surface.
 
 ## 3. Development Philosophy
 
@@ -120,6 +173,10 @@ Use the current framework before creating anything new:
 - Review summaries should use `normalize_review_summary` and `validate_review_summary_schema`.
 - Workflow steps support `steps`, `skip_steps`, progress display, error recovery, and partial result recovery.
 - Golden path validation outputs should use `validation/qc_preprocess_validation.json` and `validation/qc_preprocess_validation_table.csv` unless there is a clear reason to add a new convention.
+- Analysis acceptance outputs should use `validation/analysis_acceptance.json`
+  plus reviewable sidecar artifacts under `analysis/`:
+  `annotation_review_table.csv`, `llm_annotation_bundle.json`, and optional
+  `malignancy_interpretation_table.csv`.
 
 Prefer extending existing files and subpackages over adding parallel versions. Do not create `*_v2.py` modules unless explicitly requested.
 
@@ -134,9 +191,12 @@ Canonical marker resources:
 - `marker_registry_human.toml` and `marker_registry_mouse.toml`: normal cell
   identity, state, artifact, and functional-program marker registries.
 - `marker_tissue_human.toml`: tissue-specific normal parenchymal and local
-  subtype markers.
+  subtype markers. This resource uses `scLucid_marker_tissue_resource_v2`;
+  top-level tissue entries are context anchors and child entries should route
+  through Manager as `cell_type` / `tissue_subtype`.
 - `marker_tumor_human.toml`: tumor epithelial support, malignancy programs,
-  tumor type hints, cancer states, and diploid reference anchors.
+  tumor type hints, cancer states, and diploid reference anchors. Tumor entries
+  are interpretation evidence, not ordinary global cell-type labels.
 - `genesets_cancer_signatures.json`, `genesets_cancer_hallmarks.json`, GMT
   files, and other `genesets_*` resources: broad scoring/enrichment gene sets,
   not concise annotation marker registries.
@@ -164,12 +224,26 @@ Design rules:
 - Do not infer malignancy from epithelial markers alone. Malignancy requires
   tumor context, CNV evidence, malignant reference support, tumor programs, or
   multiple consistent evidence streams.
+- Use negative markers as first-class conflict evidence in annotation review
+  tables. Major lineages should include systematic exclusions for common
+  confusions such as T/B/NK/myeloid/epithelial/endothelial/fibroblast overlap.
 - Keep TOML marker entries concise and interpretable. Put broad pathway modules
   and large signatures in gene-set JSON/GMT resources.
 - When curating new markers from reviews or pan-cancer atlases, follow
   `docs/MARKER_RESOURCE_CURATION.md` and include metadata such as `kind`,
   `granularity`, `scope`, `applies_to`, `evidence_tier`, `source_type`, and
   `review_status`.
+
+Recent resource direction:
+
+- Human and mouse registries include stronger negative markers for major
+  lineages.
+- Tissue children should route to `subtype_annotation`, not stay as generic
+  tissue context.
+- Tumor children under tumor type hints should route as `cancer_subtype` and
+  remain excluded from global annotation.
+- Analysis marker evidence should default to `get_marker_manager()` views when
+  users do not provide a custom marker file.
 
 ## 4B. API Layers, Maturity Status, and Validation Boundary
 
@@ -417,6 +491,9 @@ Tumor-specific analysis should solve problems generic scRNA packages do not hand
 Development rules:
 
 - Tumor modules should consume QC/preprocess/analysis outputs rather than duplicating them.
+- Analysis may include lightweight tumor-aware interpretation bridges only when
+  they consume tumor-module algorithms or precomputed tumor evidence and expose a
+  review contract for downstream tumor workflows.
 - Malignancy calls must expose evidence: CNV signal, epithelial markers, tumor program score, reference normal cells, uncertainty.
 - Batch correction must be conservative in tumor contexts. Do not erase real inter-patient, regional, tumor-normal, or therapy-related variation.
 - Therapy or clinical association functions must clearly distinguish exploratory association from causal inference.
@@ -534,6 +611,60 @@ Current useful datasets:
 - PBMC3K for normal baseline behavior.
 - Lin2020 PDAC for tumor-aware QC, preprocessing, annotation, and malignancy/CNV workflow fit.
 - Schlesinger2020 PDAC as a second tumor dataset candidate for generalization checks.
+
+## 14A. Current Roadmap Snapshot
+
+Use this snapshot when resuming work from memory:
+
+**Phase 1: Analysis Benchmark Module**
+
+- Default analysis route should mature toward:
+  `clustering_review -> clustering -> markers -> annotation_evidence ->
+  annotation_consensus -> optional_malignancy_interpretation ->
+  analysis_review_summary`.
+- `scripts/run_analysis_acceptance.py` is the scriptable Step2 acceptance runner
+  and should stay synchronized with
+  `examples/03_advanced_notebooks/Step2-Annotation_and_Malignancy.ipynb`.
+- First-pass global annotation should stay conservative at lineage / major cell
+  type level.
+- Subtype and state labels should usually be generated after subset extraction
+  and reclustering, or by explicit advanced options.
+- LLM output is evidence and rationale, not final truth.
+- All marker-dependent annotation evidence should use `Manager` resources and
+  `get_marker_manager()` views by default.
+
+**Phase 2: Tumor Interpretation**
+
+- Treat `analysis.run_malignancy_interpretation` as a bridge/contract layer,
+  not a second tumor module.
+- Use tumor-module functions for CNV inference and malignancy scoring when the
+  bridge needs computed evidence.
+- Use CNV, epithelial/tumor context, tumor programs, reference anchors,
+  cancer-type hints, and manual evidence.
+- Do not let tumor markers contaminate global annotation.
+- Store analysis-stage bridge summaries under
+  `adata.uns["sclucid"]["analysis"]["malignancy"]`; store full tumor workflow
+  outputs under `adata.uns["sclucid"]["tumor"]`.
+
+**Phase 3: Resource Curation**
+
+- Continue curation of marker metadata and negative markers.
+- Add mouse tissue/tumor parity once human resources stabilize.
+- Keep broad signatures in JSON/GMT gene-set resources.
+
+**Phase 4: Real-Data Validation**
+
+- PBMC baseline.
+- PDAC tumor workflow.
+- Second tumor dataset.
+- Active project notebook acceptance.
+- Standard workflow comparison only after analysis and tumor contracts are stable.
+
+**Phase 5: Output Polish**
+
+- Advanced notebooks should become publication-quality workflow narratives.
+- Audit reports should include analysis and tumor interpretation maturity.
+- Plotting should support reusable top-journal figure templates.
 
 ## 15. Documentation Rules
 

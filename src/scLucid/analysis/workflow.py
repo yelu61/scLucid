@@ -25,23 +25,30 @@ from ..utils import (
     WorkflowCheckpoint,
     WorkflowError,
     export_review_summary,
+    get_marker_manager,
     get_progress_bar,
     normalize_review_summary,
     validate_review_summary_schema,
 )
-from .annotation import run_annotation
+from .annotation import build_annotation_consensus, run_annotation, run_annotation_evidence
 from .clustering import cluster_cells, run_clustering_review
-from .config import AnalysisWorkflowConfig
+from .config import AnalysisWorkflowConfig, AnnotationConfig
 from .differential_expression import characterize_clusters, find_markers
+from .malignancy import run_malignancy_interpretation
 from .scoring import score_by_gene_sets
+from .trace import enrich_analysis_review_summary, validate_analysis_review_summary
 
 log = logging.getLogger(__name__)
 
 # Define workflow steps for flexible execution
 ANALYSIS_WORKFLOW_STEPS = [
+    "clustering_review",
     "clustering",
     "markers",
     "annotation",
+    "annotation_evidence",
+    "annotation_consensus",
+    "malignancy_interpretation",
     "characterization",
 ]
 
@@ -76,12 +83,20 @@ def _resolve_analysis_steps(
     else:
         # Use config flags to determine default steps
         resolved = []
+        if config is not None and getattr(config, "run_clustering_review", False):
+            resolved.append("clustering_review")
         if config is None or config.clustering is not None:
             resolved.append("clustering")
         if config is None or getattr(config, "find_markers", True):
             resolved.append("markers")
         if config is None or config.annotation is not None:
             resolved.append("annotation")
+            if getattr(config, "run_annotation_evidence", True):
+                resolved.append("annotation_evidence")
+                if getattr(config, "final_annotation_strategy", "consensus") == "consensus":
+                    resolved.append("annotation_consensus")
+        if config is not None and getattr(config, "run_malignancy_interpretation", False):
+            resolved.append("malignancy_interpretation")
         if config is None or getattr(config, "characterize", True):
             resolved.append("characterization")
 
@@ -237,6 +252,8 @@ def run_standard_analysis(
     # Track execution
     current_step = None
     successful_steps: List[str] = []
+    markers_df: Optional[pd.DataFrame] = None
+    annotation_review_table: Optional[pd.DataFrame] = None
 
     # Determine cluster key from config or existing analysis state. Downstream
     # marker/characterization steps require this key if clustering is skipped.
@@ -269,8 +286,42 @@ def run_standard_analysis(
         for step_name in step_iterator:
             current_step = step_name
 
+            # Step 0: Clustering resolution evidence
+            if step_name == "clustering_review":
+                log.info("Step: Clustering resolution evidence")
+                review_df = run_clustering_review(
+                    adata,
+                    resolutions=getattr(config, "candidate_resolutions", None),
+                    method=cluster_config.method
+                    if cluster_config.method in {"leiden", "louvain"}
+                    else "leiden",
+                    use_rep=cluster_config.use_rep,
+                    random_state=cluster_config.random_state,
+                    de_method=config.de.method if config.de else "wilcoxon",
+                )
+                clustering_ns = (
+                    adata.uns.get("sclucid", {}).get("analysis", {}).get("clustering", {})
+                )
+                review_summary = clustering_ns.get("clustering_review_summary", {})
+                recommended = review_summary.get("recommended_resolution")
+                if (
+                    getattr(config, "use_recommended_resolution", True)
+                    and recommended is not None
+                    and cluster_config.method in {"leiden", "louvain"}
+                ):
+                    cluster_config = cluster_config.model_copy(
+                        update={"resolution": float(recommended)}
+                    )
+                    config.clustering = cluster_config
+                    log.info(
+                        "  Using recommended first-pass resolution: "
+                        f"{cluster_config.resolution:g}"
+                    )
+                log.info(f"  Reviewed {len(review_df)} clustering resolution candidate(s)")
+                successful_steps.append(step_name)
+
             # Step 1: Clustering
-            if step_name == "clustering":
+            elif step_name == "clustering":
                 log.info("Step: Clustering")
                 adata = cluster_cells(adata, cluster_config)
                 log.info(f"  Clustering complete: {adata.obs[cluster_key].nunique()} clusters")
@@ -290,14 +341,13 @@ def run_standard_analysis(
                     groupby=active_cluster_key,
                     method=config.marker_method if hasattr(config, "marker_method") else "wilcoxon",
                 )
-                markers = find_markers(adata, marker_config)
-                log.info(f"  Found markers for {len(markers)} clusters")
+                markers_df = find_markers(adata, marker_config)
+                log.info(f"  Found {len(markers_df)} marker rows")
                 successful_steps.append(step_name)
 
             # Step 3: Annotation
             elif step_name == "annotation":
                 log.info("Step: Cell type annotation")
-                from .config import AnnotationConfig
 
                 if isinstance(config.annotation, AnnotationConfig):
                     adata = run_annotation(adata, config=config.annotation)
@@ -311,7 +361,158 @@ def run_standard_analysis(
                 log.info(f"  Annotated {n_annotated}/{len(adata)} cells")
                 successful_steps.append(step_name)
 
-            # Step 4: Characterization
+            # Step 4: Annotation evidence table
+            elif step_name == "annotation_evidence":
+                log.info("Step: Annotation evidence")
+                _require_cluster_key(step_name)
+                active_cluster_key = (
+                    cluster_key if cluster_key in adata.obs.columns else _default_groupby_key(adata)
+                )
+                annotation_config = (
+                    config.annotation
+                    if isinstance(config.annotation, AnnotationConfig)
+                    else AnnotationConfig(**config.annotation)
+                    if isinstance(config.annotation, dict)
+                    else AnnotationConfig()
+                )
+                marker_config_path = (
+                    annotation_config.lineage_marker_config
+                    or annotation_config.subtype_marker_config
+                    or annotation_config.state_marker_config
+                )
+                marker_manager = None
+                if marker_config_path:
+                    marker_manager = marker_config_path
+                elif "marker_manager" in tuple(getattr(config, "annotation_methods", ()) or ()):
+                    marker_manager = get_marker_manager(
+                        species=annotation_config.marker_species,
+                        tissue=annotation_config.marker_tissue,
+                        view="lineage_annotation",
+                    )
+                reference_key = (
+                    annotation_config.key_added
+                    if annotation_config.key_added in adata.obs.columns
+                    else None
+                )
+                active_annotation_methods = tuple(
+                    getattr(config, "annotation_methods", ()) or ()
+                )
+                if reference_key is None and "celltypist" in active_annotation_methods:
+                    for candidate in (
+                        "celltypist_majority_voting",
+                        "celltypist_predicted_labels",
+                    ):
+                        if candidate in adata.obs.columns:
+                            reference_key = candidate
+                            break
+                confidence_key = (
+                    f"{reference_key}_confidence"
+                    if reference_key and f"{reference_key}_confidence" in adata.obs.columns
+                    else None
+                )
+                if reference_key == "celltypist_predicted_labels":
+                    confidence_key = (
+                        "celltypist_conf_score"
+                        if "celltypist_conf_score" in adata.obs.columns
+                        else confidence_key
+                    )
+                llm_annotations = getattr(config, "llm_annotations", None)
+                if isinstance(llm_annotations, list):
+                    llm_annotations = pd.DataFrame(llm_annotations)
+                annotation_review_table = run_annotation_evidence(
+                    adata,
+                    active_cluster_key,
+                    markers_df=markers_df,
+                    methods=active_annotation_methods,
+                    marker_config=marker_manager,
+                    reference_key=reference_key,
+                    reference_confidence_key=confidence_key,
+                    llm_annotations=llm_annotations,
+                )
+                log.info(
+                    "  Built annotation evidence table with "
+                    f"{annotation_review_table.shape[0]} cluster rows"
+                )
+                successful_steps.append(step_name)
+
+            # Step 5: Annotation consensus application
+            elif step_name == "annotation_consensus":
+                log.info("Step: Annotation consensus")
+                _require_cluster_key(step_name)
+                active_cluster_key = (
+                    cluster_key if cluster_key in adata.obs.columns else _default_groupby_key(adata)
+                )
+                annotation_config = (
+                    config.annotation
+                    if isinstance(config.annotation, AnnotationConfig)
+                    else AnnotationConfig(**config.annotation)
+                    if isinstance(config.annotation, dict)
+                    else AnnotationConfig()
+                )
+                if annotation_review_table is None:
+                    annotation_review_table = (
+                        adata.uns.get("sclucid", {})
+                        .get("analysis", {})
+                        .get("annotation", {})
+                        .get("annotation_review_table")
+                    )
+                build_annotation_consensus(
+                    adata,
+                    active_cluster_key,
+                    annotation_review_table,
+                    key_added=annotation_config.key_added,
+                    lineage_key=annotation_config.lineage_key,
+                )
+                log.info(f"  Applied consensus labels to obs['{annotation_config.key_added}']")
+                successful_steps.append(step_name)
+
+            # Step 6: Malignancy interpretation
+            elif step_name == "malignancy_interpretation":
+                log.info("Step: Malignancy interpretation")
+                active_cluster_key = (
+                    cluster_key if cluster_key in adata.obs.columns else _default_groupby_key(adata)
+                )
+                annotation_config = (
+                    config.annotation
+                    if isinstance(config.annotation, AnnotationConfig)
+                    else AnnotationConfig(**config.annotation)
+                    if isinstance(config.annotation, dict)
+                    else AnnotationConfig()
+                )
+                if annotation_config.key_added not in adata.obs.columns:
+                    raise ValueError(
+                        "Step 'malignancy_interpretation' requires final annotation "
+                        f"obs['{annotation_config.key_added}']. Include annotation_consensus "
+                        "or set annotation.key_added to an existing column."
+                    )
+                malignancy_table = run_malignancy_interpretation(
+                    adata,
+                    annotation_key=annotation_config.key_added,
+                    cluster_key=active_cluster_key
+                    if active_cluster_key in adata.obs.columns
+                    else None,
+                    species=annotation_config.marker_species,
+                    cancer_type=getattr(config, "malignancy_cancer_type", None),
+                    run_cnv=getattr(config, "run_cnv_for_malignancy", False),
+                    cnv_score_key=getattr(config, "malignancy_cnv_score_key", None),
+                    reference_labels=getattr(config, "malignancy_reference_labels", None),
+                    run_malignancy_score=getattr(config, "run_malignancy_score", True),
+                    key_added=getattr(config, "malignancy_key_added", "malignancy_call"),
+                    score_key=getattr(
+                        config,
+                        "malignancy_score_key",
+                        "malignancy_interpretation_score",
+                    ),
+                    threshold=getattr(config, "malignancy_threshold", 0.55),
+                    suspect_threshold=getattr(config, "malignancy_suspect_threshold", 0.35),
+                )
+                log.info(
+                    "  Built malignancy interpretation table with "
+                    f"{malignancy_table.shape[0]} group rows"
+                )
+                successful_steps.append(step_name)
+
+            # Step 7: Characterization
             elif step_name == "characterization":
                 log.info("Step: Cluster characterization")
                 try:
@@ -371,15 +572,28 @@ def run_standard_analysis(
     adata.uns["sclucid"]["analysis"][UnsKeys.STEPS_EXECUTED] = successful_steps
 
     # Build and store review summary
-    review_summary = normalize_review_summary(
+    enriched_summary = enrich_analysis_review_summary(
         _build_analysis_review_summary(adata, config, successful_steps, cluster_key),
+        adata=adata,
+        config=config,
+        successful_steps=successful_steps,
+        cluster_key=cluster_key,
+    )
+    review_summary = normalize_review_summary(
+        enriched_summary,
         module="analysis",
         workflow_name="standard",
         adata=adata,
         steps_executed=successful_steps,
         config=config.to_dict(),
+        warnings=(
+            enriched_summary.get("analysis_readiness", {}).get("review_reasons", [])
+            if isinstance(enriched_summary.get("analysis_readiness"), dict)
+            else []
+        ),
     )
     validate_review_summary_schema(review_summary, module="analysis", raise_on_error=True)
+    validate_analysis_review_summary(review_summary, raise_on_error=True)
     adata.uns["sclucid"]["analysis"][UnsKeys.REVIEW_SUMMARY] = review_summary
 
     # Export review summary to file if save_dir is configured

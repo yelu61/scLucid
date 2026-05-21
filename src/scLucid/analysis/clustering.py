@@ -309,6 +309,8 @@ def run_clustering_review(
     recommended_resolution = None
     recommended_key = None
     rationale = ""
+    alternative_resolutions: List[Dict[str, Any]] = []
+    review_required_clusters: List[Dict[str, Any]] = []
     if not review_df.empty:
         ranked = review_df.sort_values(
             ["interpretability_score", "marker_quality_score", "n_small_clusters"],
@@ -323,6 +325,27 @@ def run_clustering_review(
             f"marker quality {best['marker_quality_score']:.2f}, "
             f"small-cluster fraction {best['small_cluster_fraction']:.2f}."
         )
+        alternative_resolutions = (
+            ranked.head(3)[["resolution", "cluster_key", "n_clusters", "interpretability_score", "warnings"]]
+            .to_dict(orient="records")
+        )
+    if not cluster_review_df.empty:
+        flagged = cluster_review_df[
+            (cluster_review_df["n_informative_top_markers"] < int(min_informative_markers))
+            | (cluster_review_df["noise_marker_fraction"].fillna(0) > 0.4)
+            | (cluster_review_df["n_cells"] < int(min_cluster_cells))
+        ].copy()
+        review_required_clusters = flagged[
+            [
+                "resolution",
+                "cluster_key",
+                "cluster",
+                "n_cells",
+                "n_informative_top_markers",
+                "noise_marker_fraction",
+                "top_markers",
+            ]
+        ].to_dict(orient="records")
 
     clustering_ns = (
         adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("clustering", {})
@@ -338,6 +361,9 @@ def run_clustering_review(
             "recommended_resolution": recommended_resolution,
             "recommended_cluster_key": recommended_key,
             "rationale": rationale,
+            "recommendation_mode": "first_pass_annotation_evidence",
+            "alternative_resolutions": alternative_resolutions,
+            "review_required_clusters": review_required_clusters,
             "n_cells": int(adata.n_obs),
             "n_genes": int(adata.n_vars),
         }

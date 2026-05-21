@@ -1,0 +1,1173 @@
+# ============================================================================
+# scLucid Marker Resource References
+# Centralized bibliography for all curated marker entries
+# Entries are referenced by source_ids (string list) in individual marker TOML files
+# ============================================================================
+
+[metadata]
+version = "1.0"
+last_updated = "2026-05-20"
+total_references = 127
+
+[[references]]
+source_id = "SRC0001"
+zotero_item_id = "13"
+title = "A pan-cancer single-cell transcriptional atlas of tumor infiltrating myeloid cells"
+year = "2021"
+doi = "10.1016/j.cell.2021.01.010"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867421000106"
+
+[[references]]
+source_id = "SRC0002"
+zotero_item_id = "15"
+title = "A single-cell pan-cancer analysis to show the variability of tumor-infiltrating myeloid cells in immune checkpoint blockade"
+year = "2024"
+doi = "10.1038/s41467-024-50478-8"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-024-50478-8"
+
+[[references]]
+source_id = "SRC0003"
+zotero_item_id = "22"
+title = "Using a pan-cancer atlas to investigate tumour associated macrophages as regulators of immunotherapy response"
+year = "2024"
+doi = "10.1038/s41467-024-49885-8"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-024-49885-8"
+
+[[references]]
+source_id = "SRC0004"
+zotero_item_id = "62"
+title = "Pan-cancer spatially resolved single-cell analysis reveals the crosstalk between cancer-associated fibroblasts and tumor microenvironment"
+year = "2023"
+doi = "10.1186/s12943-023-01876-x"
+journal = "Molecular Cancer"
+url = "https://molecular-cancer.biomedcentral.com/articles/10.1186/s12943-023-01876-x"
+
+[[references]]
+source_id = "SRC0005"
+zotero_item_id = "65"
+title = "Pan-cancer single-cell analysis reveals the heterogeneity and plasticity of cancer-associated fibroblasts in the tumor microenvironment"
+year = "2022"
+doi = "10.1038/s41467-022-34395-2"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-022-34395-2"
+
+[[references]]
+source_id = "SRC0006"
+zotero_item_id = "75"
+title = "Spatiotemporal analyses of the pan-cancer single-cell landscape reveal widespread profibrotic ecotypes associated with tumor immunity"
+year = "2025"
+doi = "10.1038/s43018-025-01039-5"
+pmid = "40854985"
+pmcid = "PMC12643937"
+journal = "Nature Cancer"
+
+[[references]]
+source_id = "SRC0007"
+zotero_item_id = "110"
+title = "Pan-cancer single-cell landscape of tumor-infiltrating T cells"
+year = "2021"
+doi = "10.1126/science.abe6474"
+journal = "Science"
+url = "https://www.science.org/doi/10.1126/science.abe6474"
+
+[[references]]
+source_id = "SRC0008"
+zotero_item_id = "112"
+title = "Pan-cancer single-cell dissection reveals phenotypically distinct B cell subtypes"
+year = "2024"
+doi = "10.1016/j.cell.2024.06.038"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867424007128"
+
+[[references]]
+source_id = "SRC0009"
+zotero_item_id = "114"
+title = "A blueprint for tumor-infiltrating B cells across human cancers"
+year = "2024"
+doi = "10.1126/science.adj4857"
+journal = "Science"
+url = "https://www.science.org/doi/10.1126/science.adj4857"
+
+[[references]]
+source_id = "SRC0010"
+zotero_item_id = "120"
+title = "Pan-cancer T cell atlas links a cellular stress response state to immunotherapy resistance"
+year = "2023"
+doi = "10.1038/s41591-023-02371-y"
+journal = "Nature Medicine"
+url = "https://www.nature.com/articles/s41591-023-02371-y"
+
+[[references]]
+source_id = "SRC0011"
+zotero_item_id = "125"
+title = "Pan-cancer mapping of single CD8+ T cell profiles reveals a TCF1:CXCR6 axis regulating CD28 co-stimulation and anti-tumor immunity"
+year = "2024"
+doi = "10.1016/j.xcrm.2024.101640"
+pmid = "38959885"
+pmcid = "PMC11293343"
+journal = "Cell Reports. Medicine"
+
+[[references]]
+source_id = "SRC0012"
+zotero_item_id = "136"
+title = "A pan-cancer single-cell panorama of human natural killer cells"
+year = "2023"
+doi = "10.1016/j.cell.2023.07.034"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867423008498"
+
+[[references]]
+source_id = "SRC0013"
+zotero_item_id = "142"
+title = "Pan-cancer profiling of tumor-infiltrating natural killer cells through transcriptional reference mapping"
+year = "2024"
+doi = "10.1038/s41590-024-01884-z"
+journal = "Nature Immunology"
+url = "https://www.nature.com/articles/s41590-024-01884-z"
+
+[[references]]
+source_id = "SRC0014"
+zotero_item_id = "157"
+title = "Integration of pan-cancer single-cell and spatial transcriptomics reveals stromal cell features and therapeutic targets in tumor microenvironment"
+year = "2024"
+doi = "10.1158/0008-5472.CAN-23-1418"
+pmid = "38225927"
+journal = "Cancer Research"
+
+[[references]]
+source_id = "SRC0015"
+zotero_item_id = "165"
+title = "Pan-cancer integrative analyses dissect the remodeling of endothelial cells in human cancers"
+year = "2024"
+doi = "10.1093/nsr/nwae231"
+pmid = "39345334"
+pmcid = "PMC11429526"
+journal = "National Science Review"
+
+[[references]]
+source_id = "SRC0016"
+zotero_item_id = "332"
+title = "Hallmarks of transcriptional intratumour heterogeneity across a thousand tumours"
+year = "2023"
+doi = "10.1038/s41586-023-06130-4"
+journal = "Nature"
+url = "https://www.nature.com/articles/s41586-023-06130-4"
+
+[[references]]
+source_id = "SRC0017"
+zotero_item_id = "342"
+title = "Construction of a human cell landscape at single-cell level"
+year = "2020"
+doi = "10.1038/s41586-020-2157-4"
+journal = "Nature"
+url = "https://www.nature.com/articles/s41586-020-2157-4"
+
+[[references]]
+source_id = "SRC0018"
+zotero_item_id = "362"
+title = "A deep learning system accurately classifies primary and metastatic cancers using passenger mutation patterns"
+year = "2020"
+doi = "10.1038/s41467-019-13825-8"
+pmid = "32024849"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-019-13825-8"
+
+[[references]]
+source_id = "SRC0019"
+zotero_item_id = "371"
+title = "Pathway and network analysis of more than 2500 whole cancer genomes"
+year = "2020"
+doi = "10.1038/s41467-020-14367-0"
+pmid = "32024854"
+journal = "Nature Communications"
+url = "https://pubmed.ncbi.nlm.nih.gov/32024854/ https://www.nature.com/articles/s41467-020-14367-0"
+
+[[references]]
+source_id = "SRC0020"
+zotero_item_id = "386"
+title = "Genomic basis for RNA alterations in cancer"
+year = "2020"
+doi = "10.1038/s41586-020-1970-0"
+pmid = "32025019"
+journal = "Nature"
+url = "https://www-nature-com-443.webvpn.las.ac.cn/articles/s41586-020-1970-0"
+
+[[references]]
+source_id = "SRC0021"
+zotero_item_id = "391"
+title = "Pan-cancer analysis of whole genomes"
+year = "2020"
+doi = "10.1038/s41586-020-1969-6"
+pmid = "32025007"
+journal = "Nature"
+url = "http://www.nature.com/articles/s41586-020-1969-6 https://pubmed.ncbi.nlm.nih.gov/32025007/"
+
+[[references]]
+source_id = "SRC0022"
+zotero_item_id = "397"
+title = "Comprehensive characterization of cancer driver genes and mutations"
+year = "2018"
+doi = "10.1016/j.cell.2018.02.060"
+pmid = "29625053"
+journal = "Cell"
+url = "https://pubmed.ncbi.nlm.nih.gov/29625053/"
+
+[[references]]
+source_id = "SRC0023"
+zotero_item_id = "653"
+title = "EMTome: a resource for pan-cancer analysis of epithelial-mesenchymal transition genes and signatures"
+year = "2021"
+doi = "10.1038/s41416-020-01178-9"
+pmid = "33299129"
+journal = "British Journal of Cancer"
+url = "https://pubmed.ncbi.nlm.nih.gov/33299129/"
+
+[[references]]
+source_id = "SRC0024"
+zotero_item_id = "897"
+title = "Systematic dissection of tumor-normal single-cell ecosystems across a thousand tumors of 30 cancer types"
+year = "2024"
+doi = "10.1038/s41467-024-48310-4"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-024-48310-4"
+
+[[references]]
+source_id = "SRC0025"
+zotero_item_id = "940"
+title = "The immune landscape of cancer"
+year = "2018"
+doi = "10.1016/j.immuni.2018.03.023"
+journal = "Immunity"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S1074761318301213"
+
+[[references]]
+source_id = "SRC0026"
+zotero_item_id = "943"
+title = "Pan-cancer analysis identifies telomerase-associated signatures and cancer subtypes"
+year = "2019"
+doi = "10.1186/s12943-019-1035-x"
+journal = "Molecular Cancer"
+url = "https://molecular-cancer.biomedcentral.com/articles/10.1186/s12943-019-1035-x"
+
+[[references]]
+source_id = "SRC0027"
+zotero_item_id = "1274"
+title = "Conserved pan-cancer microenvironment subtypes predict response to immunotherapy"
+year = "2021"
+doi = "10.1016/j.ccell.2021.04.014"
+journal = "Cancer Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S1535610821002221"
+
+[[references]]
+source_id = "SRC0028"
+zotero_item_id = "1401"
+title = "Tumor immune dysfunction and exclusion subtypes in bladder cancer and pan-cancer: a novel molecular subtyping strategy and immunotherapeutic prediction model"
+year = "2024"
+doi = "10.1186/s12967-024-05186-8"
+journal = "Journal of Translational Medicine"
+url = "https://translational-medicine.biomedcentral.com/articles/10.1186/s12967-024-05186-8"
+
+[[references]]
+source_id = "SRC0029"
+zotero_item_id = "1447"
+title = "Pan-cancer human brain metastases atlas at single-cell resolution"
+year = "2025"
+doi = "10.1016/j.ccell.2025.03.025"
+journal = "Cancer Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S1535610825001266"
+
+[[references]]
+source_id = "SRC0030"
+zotero_item_id = "1863"
+title = "Pan-cancer analysis implicates novel insights of lactate metabolism into immunotherapy response prediction and survival prognostication"
+year = "2024"
+doi = "10.1186/s13046-024-03042-7"
+journal = "Journal of Experimental & Clinical Cancer Research"
+url = "https://jeccr.biomedcentral.com/articles/10.1186/s13046-024-03042-7"
+
+[[references]]
+source_id = "SRC0031"
+zotero_item_id = "2069"
+title = "Pan-cancer analysis reveals multifaceted roles of nonmyelinating Schwann cells in gastrointestinal cancers"
+year = "2025"
+doi = "10.1016/j.canlet.2025.217850"
+journal = "Cancer Letters"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0304383525004173"
+
+[[references]]
+source_id = "SRC0032"
+zotero_item_id = "2145"
+title = "Development of a hypoxia-responsive macrophage prognostic model using single-cell and bulk RNA sequencing in pancreatic cancer"
+year = "2025"
+doi = "10.1371/journal.pone.0322618"
+journal = "PLOS One"
+url = "https://dx.plos.org/10.1371/journal.pone.0322618"
+
+[[references]]
+source_id = "SRC0033"
+zotero_item_id = "2979"
+title = "Single-Cell Analysis of the Pan-Cancer Immune Microenvironment and scTIME Portal"
+year = "2021"
+doi = "10.1158/2326-6066.CIR-20-1026"
+journal = "Cancer Immunology Research"
+url = "https://aacrjournals.org/cancerimmunolres/article/9/8/939/666519/Single-Cell-Analysis-of-the-Pan-Cancer-Immune"
+
+[[references]]
+source_id = "SRC0034"
+zotero_item_id = "3100"
+title = "Germline genetic contribution to the immune landscape of cancer"
+year = "2021"
+doi = "10.1016/j.immuni.2021.01.011"
+journal = "Immunity"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S1074761321000340"
+
+[[references]]
+source_id = "SRC0035"
+zotero_item_id = "3104"
+title = "Systematic pan-cancer analysis of mutation–treatment interactions using large real-world clinicogenomics data"
+year = "2022"
+doi = "10.1038/s41591-022-01873-5"
+journal = "Nature Medicine"
+url = "https://www.nature.com/articles/s41591-022-01873-5"
+
+[[references]]
+source_id = "SRC0036"
+zotero_item_id = "3333"
+title = "Pan-cancer proteogenomics characterization of tumor immunity"
+year = "2024"
+doi = "10.1016/j.cell.2024.01.027"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867424000643"
+
+[[references]]
+source_id = "SRC0037"
+zotero_item_id = "3373"
+title = "Integrated analysis of single-cell and bulk RNA sequencing data reveals a pan-cancer stemness signature predicting immunotherapy response"
+year = "2022"
+doi = "10.1186/s13073-022-01050-w"
+journal = "Genome Medicine"
+url = "https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-022-01050-w"
+
+[[references]]
+source_id = "SRC0038"
+zotero_item_id = "3467"
+title = "Pan-cancer landscape of tumour endothelial cells pinpoints insulin receptor as a novel antiangiogenic target and predicts immunotherapy response"
+year = "2023"
+doi = "10.1002/ctm2.1501"
+journal = "Clinical and Translational Medicine"
+url = "https://onlinelibrary.wiley.com/doi/10.1002/ctm2.1501"
+
+[[references]]
+source_id = "SRC0039"
+zotero_item_id = "3470"
+title = "Pan-cancer single-cell RNA-seq identifies recurring programs of cellular heterogeneity"
+year = "2020"
+doi = "10.1038/s41588-020-00726-6"
+journal = "Nature Genetics"
+url = "https://www.nature.com/articles/s41588-020-00726-6"
+
+[[references]]
+source_id = "SRC0040"
+zotero_item_id = "18"
+title = "Single-cell resolution characterization of myeloid-derived cell states with implication in cancer outcome"
+year = "2024"
+doi = "10.1038/s41467-024-49916-4"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-024-49916-4"
+
+[[references]]
+source_id = "SRC0041"
+zotero_item_id = "25"
+title = "An immune cell atlas reveals the dynamics of human macrophage specification during prenatal development"
+year = "2023"
+doi = "10.1016/j.cell.2023.08.019"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S009286742300908X"
+
+[[references]]
+source_id = "SRC0042"
+zotero_item_id = "51"
+title = "Cross-tissue human fibroblast atlas reveals myofibroblast subtypes with distinct roles in immune modulation"
+year = "2024"
+doi = "10.1016/j.ccell.2024.08.020"
+pmid = "39303725"
+journal = "Cancer Cell"
+
+[[references]]
+source_id = "SRC0043"
+zotero_item_id = "57"
+title = "Fibroblast atlas: shared and specific cell types across tissues"
+year = "2025"
+doi = "10.1126/sciadv.ado0173"
+journal = "Science Advances"
+url = "https://www.science.org/doi/10.1126/sciadv.ado0173"
+
+[[references]]
+source_id = "SRC0044"
+zotero_item_id = "59"
+title = "Single-cell atlases: shared and tissue-specific cell types across human organs"
+year = "2022"
+doi = "10.1038/s41576-022-00449-w"
+journal = "Nature Reviews Genetics"
+url = "https://www.nature.com/articles/s41576-022-00449-w"
+
+[[references]]
+source_id = "SRC0045"
+zotero_item_id = "71"
+title = "POSTN+ cancer-associated fibroblasts determine the efficacy of immunotherapy in hepatocellular carcinoma"
+year = "2024"
+doi = "10.1136/jitc-2023-008721"
+pmid = "10.1136/jitc-2023-008721"
+journal = "Journal for ImmunoTherapy of Cancer"
+url = "https://jitc.bmj.com/content/12/7/e008721"
+
+[[references]]
+source_id = "SRC0046"
+zotero_item_id = "81"
+title = "Single-cell resolution spatial analysis of antigen-presenting cancer-associated fibroblast niches"
+year = "2025"
+doi = "10.1016/j.ccell.2025.09.001"
+pmid = "41005303"
+pmcid = "PMC12479095"
+journal = "Cancer Cell"
+
+[[references]]
+source_id = "SRC0047"
+zotero_item_id = "116"
+title = "Impact of the human cell atlas on medicine"
+year = "2022"
+doi = "10.1038/s41591-022-02104-7"
+journal = "Nature Medicine"
+url = "https://www.nature.com/articles/s41591-022-02104-7"
+
+[[references]]
+source_id = "SRC0048"
+zotero_item_id = "122"
+title = "Cross-tissue immune cell analysis reveals tissue-specific features in humans"
+year = "2022"
+doi = "10.1126/science.abl5197"
+journal = "Science"
+url = "https://www.science.org/doi/10.1126/science.abl5197"
+
+[[references]]
+source_id = "SRC0049"
+zotero_item_id = "130"
+title = "Integrative mapping of human CD8+ T cells in inflammation and cancer"
+year = "2025"
+doi = "10.1038/s41592-024-02530-0"
+pmid = "39614111"
+journal = "Nature Methods"
+
+[[references]]
+source_id = "SRC0050"
+zotero_item_id = "133"
+title = "A pan-cancer single-cell RNA-seq atlas of intratumoral B cells"
+year = "2024"
+doi = "10.1016/j.ccell.2024.09.011"
+pmid = "39406187"
+journal = "Cancer Cell"
+
+[[references]]
+source_id = "SRC0051"
+zotero_item_id = "160"
+title = "Tumour vasculature at single-cell resolution"
+year = "2024"
+doi = "10.1038/s41586-024-07698-1"
+pmid = "38987599"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0052"
+zotero_item_id = "163"
+title = "An organotypic atlas of human vascular cells"
+year = "2024"
+doi = "10.1038/s41591-024-03376-x"
+pmid = "39566559"
+pmcid = "PMC11645277"
+journal = "Nature Medicine"
+
+[[references]]
+source_id = "SRC0053"
+zotero_item_id = "170"
+title = "Single-cell atlas of the human brain vasculature across development, adulthood and disease"
+year = "2024"
+doi = "10.1038/s41586-024-07493-y"
+pmid = "38987604"
+pmcid = "PMC11324530"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0054"
+zotero_item_id = "185"
+title = "An atlas of epithelial cell states and plasticity in lung adenocarcinoma"
+year = "2024"
+doi = "10.1038/s41586-024-07113-9"
+journal = "Nature"
+url = "https://www.nature.com/articles/s41586-024-07113-9"
+
+[[references]]
+source_id = "SRC0055"
+zotero_item_id = "191"
+title = "Challenges and opportunities to computationally deconvolve heterogeneous tissue with varying cell sizes using single-cell RNA-sequencing datasets"
+year = "2023"
+doi = "10.1186/s13059-023-03123-4"
+pmid = "38098055"
+journal = "Genome Biology"
+
+[[references]]
+source_id = "SRC0056"
+zotero_item_id = "355"
+title = "High-resolution single-cell atlas reveals diversity and plasticity of tissue-resident neutrophils in non-small cell lung cancer"
+year = "2022"
+doi = "10.1016/j.ccell.2022.10.008"
+journal = "Cancer Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S1535610822004998"
+
+[[references]]
+source_id = "SRC0057"
+zotero_item_id = "365"
+title = "Oncogenic signaling pathways in the cancer genome atlas"
+year = "2018"
+doi = "10.1016/j.cell.2018.03.035"
+pmid = "29625050"
+journal = "Cell"
+
+[[references]]
+source_id = "SRC0058"
+zotero_item_id = "368"
+title = "Cell-of-origin patterns dominate the molecular classification of 10,000 tumors from 33 types of cancer"
+year = "2018"
+doi = "10.1016/j.cell.2018.03.022"
+pmid = "29625048"
+journal = "Cell"
+
+[[references]]
+source_id = "SRC0059"
+zotero_item_id = "374"
+title = "The repertoire of mutational signatures in human cancer"
+year = "2020"
+doi = "10.1038/s41586-020-1943-3"
+pmid = "32025018"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0060"
+zotero_item_id = "377"
+title = "Perspective on oncogenic processes at the end of the beginning of cancer genomics"
+year = "2018"
+doi = "10.1016/j.cell.2018.03.033"
+pmid = "29625049"
+journal = "Cell"
+
+[[references]]
+source_id = "SRC0061"
+zotero_item_id = "380"
+title = "The evolutionary history of 2,658 cancers"
+year = "2020"
+doi = "10.1038/s41586-019-1907-7"
+pmid = "32025013"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0062"
+zotero_item_id = "383"
+title = "Analyses of non-coding somatic drivers in 2,658 cancer whole genomes"
+year = "2020"
+doi = "10.1038/s41586-020-1965-x"
+pmid = "32025015"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0063"
+zotero_item_id = "394"
+title = "Patterns of somatic structural variation in human cancer genomes"
+year = "2020"
+doi = "10.1038/s41586-019-1913-9"
+pmid = "32025012"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0064"
+zotero_item_id = "450"
+title = "Human pancreatic cancer single cell atlas reveals association of CXCL10+ fibroblasts and basal subtype tumor cells"
+year = "2024"
+doi = "10.1158/1078-0432.CCR-24-2183"
+pmid = "39636224"
+journal = "Clinical Cancer Research"
+url = "http://www.ncbi.nlm.nih.gov/pubmed/39636224"
+
+[[references]]
+source_id = "SRC0065"
+zotero_item_id = "481"
+title = "Coordinated single-cell tumor microenvironment dynamics reinforce pancreatic cancer subtype"
+year = "2023"
+doi = "10.1038/s41467-023-40895-6"
+pmid = "37633924"
+journal = "Nature Communications"
+url = "http://www.ncbi.nlm.nih.gov/pubmed/37633924"
+
+[[references]]
+source_id = "SRC0066"
+zotero_item_id = "491"
+title = "Establishment of a reference single-cell RNA sequencing dataset for human pancreatic adenocarcinoma"
+year = "2022"
+doi = "10.1016/j.isci.2022.104659"
+journal = "iScience"
+
+[[references]]
+source_id = "SRC0067"
+zotero_item_id = "514"
+title = "Single-nucleus and In situ RNA–sequencing reveal cell topographies in the human pancreas"
+year = "2021"
+doi = "10.1053/j.gastro.2020.11.010"
+pmid = "33212097"
+journal = "Gastroenterology"
+url = "https://pubmed.ncbi.nlm.nih.gov/33212097/"
+
+[[references]]
+source_id = "SRC0068"
+zotero_item_id = "517"
+title = "Microenvironment drives cell state, plasticity, and drug response in pancreatic cancer"
+year = "2021"
+doi = "10.1016/j.cell.2021.11.017"
+pmid = "34890551"
+journal = "Cell"
+url = "https://pubmed.ncbi.nlm.nih.gov/34890551/"
+
+[[references]]
+source_id = "SRC0069"
+zotero_item_id = "526"
+title = "Single-cell RNA transcriptome reveals the intra-tumoral heterogeneity and regulators underlying tumor progression in metastatic pancreatic ductal adenocarcinoma"
+year = "2021"
+doi = "10.1038/s41420-021-00663-1"
+journal = "Cell Death Discovery"
+
+[[references]]
+source_id = "SRC0070"
+zotero_item_id = "561"
+title = "Single-cell RNA-seq highlights intra-tumoral heterogeneity and malignant progression in pancreatic ductal adenocarcinoma"
+year = "2019"
+doi = "10.1038/s41422-019-0195-y"
+pmid = "31273297"
+journal = "Cell Research"
+url = "https://pubmed.ncbi.nlm.nih.gov/31273297/"
+
+[[references]]
+source_id = "SRC0071"
+zotero_item_id = "577"
+title = "A single-cell transcriptome atlas of the human pancreas"
+year = "2016"
+doi = "10.1016/j.cels.2016.09.002"
+pmid = "27693023"
+journal = "Cell Systems"
+url = "https://pubmed.ncbi.nlm.nih.gov/27693023/"
+
+[[references]]
+source_id = "SRC0072"
+zotero_item_id = "650"
+title = "Sequencing of 53,831 diverse genomes from the NHLBI TOPMed program"
+year = "2021"
+doi = "10.1038/s41586-021-03205-y"
+pmid = "33568819"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0073"
+zotero_item_id = "665"
+title = "SCDb: an integrated database of stomach cancer"
+year = "2020"
+doi = "10.1186/s12885-020-06869-3"
+pmid = "32487193"
+journal = "BMC Cancer"
+
+[[references]]
+source_id = "SRC0074"
+zotero_item_id = "705"
+title = "An integrated TCGA pan-cancer clinical data resource to drive high-quality survival outcome analytics"
+year = "2018"
+doi = "10.1016/j.cell.2018.02.052"
+pmid = "29625055"
+journal = "Cell"
+
+[[references]]
+source_id = "SRC0075"
+zotero_item_id = "711"
+title = "An atlas of genetic associations in UK biobank"
+year = "2018"
+doi = "10.1038/s41588-018-0248-z"
+pmid = "30349118"
+journal = "Nature Genetics"
+url = "http://www.ncbi.nlm.nih.gov/pubmed/30349118"
+
+[[references]]
+source_id = "SRC0076"
+zotero_item_id = "717"
+title = "Genetic effects on gene expression across human tissues"
+year = "2017"
+doi = "10.1038/nature24277"
+pmid = "29022597"
+journal = "Nature"
+
+[[references]]
+source_id = "SRC0077"
+zotero_item_id = "730"
+title = "The Genotype-Tissue Expression (GTEx) Project"
+year = "2015"
+doi = "10.1089/bio.2015.29031.hmm"
+pmid = "26484569"
+journal = "Biopreservation and Biobanking"
+url = "https://journals.sagepub.com/doi/10.1089/bio.2015.29031.hmm"
+
+[[references]]
+source_id = "SRC0078"
+zotero_item_id = "880"
+title = "Altered gene expression along the glycolysis–cholesterol synthesis axis is associated with outcome in pancreatic cancer"
+year = "2020"
+doi = "10.1158/1078-0432.CCR-19-1543"
+journal = "Clinical Cancer Research"
+url = "https://aacrjournals.org/clincancerres/article/26/1/135/82653/Altered-Gene-Expression-along-the-Glycolysis"
+
+[[references]]
+source_id = "SRC0079"
+zotero_item_id = "892"
+title = "A comprehensive single-cell breast tumor atlas defines epithelial and immune heterogeneity and interactions predicting anti-PD-1 therapy response"
+year = "2024"
+doi = "10.1016/j.xcrm.2024.101511"
+pmid = "38614094"
+pmcid = "PMC11148512"
+journal = "Cell Reports. Medicine"
+
+[[references]]
+source_id = "SRC0080"
+zotero_item_id = "955"
+title = "Refining colorectal cancer classification and clinical stratification through a single-cell atlas"
+year = "2022"
+doi = "10.1186/s13059-022-02677-z"
+journal = "Genome Biology"
+url = "https://genomebiology.biomedcentral.com/articles/10.1186/s13059-022-02677-z"
+
+[[references]]
+source_id = "SRC0081"
+zotero_item_id = "1016"
+title = "Benchmarking cross-species single-cell RNA-seq data integration methods: towards a cell type tree of life"
+year = "2025"
+doi = "10.1093/nar/gkae1316"
+journal = "Nucleic Acids Research"
+url = "https://academic.oup.com/nar/article/doi/10.1093/nar/gkae1316/7945393"
+
+[[references]]
+source_id = "SRC0082"
+zotero_item_id = "1019"
+title = "Benchmarking atlas-level data integration in single-cell genomics"
+year = "2022"
+doi = "10.1038/s41592-021-01336-8"
+journal = "Nature Methods"
+url = "https://www.nature.com/articles/s41592-021-01336-8"
+
+[[references]]
+source_id = "SRC0083"
+zotero_item_id = "1031"
+title = "Mapping cell types across human tissues"
+year = "2022"
+doi = "10.1126/science.abq2116"
+journal = "Science"
+url = "https://www.science.org/doi/10.1126/science.abq2116"
+
+[[references]]
+source_id = "SRC0084"
+zotero_item_id = "1044"
+title = "Atlas of clinically distinct cell states and ecosystems across human solid tumors"
+year = "2021"
+doi = "10.1016/j.cell.2021.09.014"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867421010618"
+
+[[references]]
+source_id = "SRC0085"
+zotero_item_id = "1047"
+title = "A single-cell and spatially resolved atlas of human breast cancers"
+year = "2021"
+doi = "10.1038/s41588-021-00911-1"
+journal = "Nature Genetics"
+url = "https://www.nature.com/articles/s41588-021-00911-1"
+
+[[references]]
+source_id = "SRC0086"
+zotero_item_id = "1050"
+title = "A single-cell atlas of chromatin accessibility in the human genome"
+year = "2021"
+doi = "10.1016/j.cell.2021.10.024"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867421012794"
+
+[[references]]
+source_id = "SRC0087"
+zotero_item_id = "1054"
+title = "A single–cell type transcriptomics map of human tissues"
+year = "2021"
+doi = "10.1126/sciadv.abh2169"
+journal = "Science Advances"
+
+[[references]]
+source_id = "SRC0088"
+zotero_item_id = "1056"
+title = "A roadmap for the human developmental cell atlas"
+year = "2021"
+doi = "10.1038/s41586-021-03620-1"
+journal = "Nature"
+url = "https://www.nature.com/articles/s41586-021-03620-1"
+
+[[references]]
+source_id = "SRC0089"
+zotero_item_id = "1065"
+title = "The tabula sapiens: a multiple-organ, single-cell transcriptomic atlas of humans"
+year = "2022"
+doi = "10.1126/science.abl4896"
+journal = "Science"
+url = "https://www.science.org/doi/10.1126/science.abl4896"
+
+[[references]]
+source_id = "SRC0090"
+zotero_item_id = "1068"
+title = "Mapping the developing human immune system across organs"
+year = "2022"
+doi = "10.1126/science.abo0510"
+journal = "Science"
+url = "https://www.science.org/doi/10.1126/science.abo0510"
+
+[[references]]
+source_id = "SRC0091"
+zotero_item_id = "1070"
+title = "Single-nucleus cross-tissue molecular reference maps toward understanding disease gene function"
+year = "2022"
+doi = "10.1126/science.abl4290"
+journal = "Science"
+url = "https://www.science.org/doi/10.1126/science.abl4290"
+
+[[references]]
+source_id = "SRC0092"
+zotero_item_id = "1077"
+title = "Precise identification of cell states altered in disease using healthy single-cell references"
+year = "2023"
+doi = "10.1038/s41588-023-01523-7"
+journal = "Nature Genetics"
+url = "https://www.nature.com/articles/s41588-023-01523-7"
+
+[[references]]
+source_id = "SRC0093"
+zotero_item_id = "1116"
+title = "Single-cell and spatial dissection of precancerous lesions underlying the initiation process of oral squamous cell carcinoma"
+year = "2023"
+doi = "10.1038/s41421-023-00532-4"
+journal = "Cell Discovery"
+url = "https://www.nature.com/articles/s41421-023-00532-4"
+
+[[references]]
+source_id = "SRC0094"
+zotero_item_id = "1212"
+title = "The next horizon in precision oncology: proteogenomics to inform cancer diagnosis and treatment"
+year = "2021"
+doi = "10.1016/j.cell.2021.02.055"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867421002853"
+
+[[references]]
+source_id = "SRC0095"
+zotero_item_id = "1380"
+title = "A single-cell atlas reveals immune heterogeneity in anti-PD-1-treated non-small cell lung cancer"
+year = "2025"
+doi = "10.1016/j.cell.2025.03.018"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867425002910"
+
+[[references]]
+source_id = "SRC0096"
+zotero_item_id = "1385"
+title = "Quantitative characterization of cell niches in spatially resolved omics data"
+year = "2025"
+doi = "10.1038/s41588-025-02120-6"
+journal = "Nature Genetics"
+url = "https://www.nature.com/articles/s41588-025-02120-6"
+
+[[references]]
+source_id = "SRC0097"
+zotero_item_id = "1399"
+title = "Single-Cell View of Tumor Microenvironment Gradients in Pleural Mesothelioma"
+year = "2024"
+doi = "10.1158/2159-8290.CD-23-0017"
+journal = "Cancer Discovery"
+url = "https://aacrjournals.org/cancerdiscovery/article/14/11/2262/749213/Single-Cell-View-of-Tumor-Microenvironment"
+
+[[references]]
+source_id = "SRC0098"
+zotero_item_id = "1419"
+title = "DeSide: A unified deep learning approach for cellular deconvolution of tumor microenvironment"
+year = "2024"
+doi = "10.1073/pnas.2407096121"
+journal = "Proceedings of the National Academy of Sciences"
+url = "https://pnas.org/doi/10.1073/pnas.2407096121"
+
+[[references]]
+source_id = "SRC0099"
+zotero_item_id = "1449"
+title = "A single-cell atlas of Schwannoma across genetic backgrounds and anatomic locations"
+year = "2025"
+doi = "10.1186/s13073-025-01462-4"
+journal = "Genome Medicine"
+url = "https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-025-01462-4"
+
+[[references]]
+source_id = "SRC0100"
+zotero_item_id = "1451"
+title = "An automatic annotation tool and reference database for T cell subtypes and states at single-cell resolution"
+year = "2025"
+doi = "10.1016/j.scib.2025.02.043"
+journal = "Science Bulletin"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S2095927325002889"
+
+[[references]]
+source_id = "SRC0101"
+zotero_item_id = "1464"
+title = "Single-cell and spatial transcriptomics reveals the key role of MCAM+ tip-like endothelial cells in osteosarcoma metastasis"
+year = "2025"
+doi = "10.1038/s41698-025-00896-8"
+journal = "npj Precision Oncology"
+url = "https://www.nature.com/articles/s41698-025-00896-8"
+
+[[references]]
+source_id = "SRC0102"
+zotero_item_id = "1549"
+title = "TAK1 Promotes an Immunosuppressive Tumor Microenvironment through Cancer-Associated Fibroblast Phenotypic Conversion in Pancreatic Ductal Adenocarcinoma"
+year = "2024"
+doi = "10.1158/1078-0432.CCR-24-1004"
+journal = "Clinical Cancer Research"
+url = "https://aacrjournals.org/clincancerres/article/30/22/5138/749577/TAK1-Promotes-an-Immunosuppressive-Tumor"
+
+[[references]]
+source_id = "SRC0103"
+zotero_item_id = "1611"
+title = "Single cell atlas reveals multilayered metabolic heterogeneity across tumour types"
+year = "2024"
+doi = "10.1016/j.ebiom.2024.105389"
+journal = "eBioMedicine"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S2352396424004250"
+
+[[references]]
+source_id = "SRC0104"
+zotero_item_id = "1960"
+title = "High-resolution transcriptome atlas of bladder cancer highlights the functional myeloid subsets in modulating immune microenvironment"
+year = "2025"
+doi = "10.1016/j.ebiom.2025.105801"
+journal = "eBioMedicine"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S2352396425002452"
+
+[[references]]
+source_id = "SRC0105"
+zotero_item_id = "2059"
+title = "Dynamic evolution of venetoclax resistance in acute myeloid leukemia unveiled by longitudinal single-cell RNA-seq"
+year = "2025"
+doi = "10.1016/j.canlet.2025.217853"
+journal = "Cancer Letters"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0304383525004203"
+
+[[references]]
+source_id = "SRC0106"
+zotero_item_id = "2139"
+title = "Spatial single-cell proteomics landscape decodes the tumor microenvironmental ecosystem of intrahepatic cholangiocarcinoma"
+year = "2026"
+doi = "10.1097/HEP.0000000000001283"
+journal = "Hepatology"
+url = "https://journals.lww.com/10.1097/HEP.0000000000001283"
+
+[[references]]
+source_id = "SRC0107"
+zotero_item_id = "2146"
+title = "The Curated Cancer Cell Atlas provides a comprehensive characterization of tumors at single-cell resolution"
+year = "2025"
+doi = "10.1038/s43018-025-00957-8"
+journal = "Nature Cancer"
+url = "https://www.nature.com/articles/s43018-025-00957-8"
+
+[[references]]
+source_id = "SRC0108"
+zotero_item_id = "2159"
+title = "The target atlas for antibody-drug conjugates across solid cancers"
+year = "2024"
+doi = "10.1038/s41417-023-00701-3"
+journal = "Cancer Gene Therapy"
+url = "https://www.nature.com/articles/s41417-023-00701-3"
+
+[[references]]
+source_id = "SRC0109"
+zotero_item_id = "2256"
+title = "Clinically impactful metabolic subtypes of pancreatic ductal adenocarcinoma (PDAC)"
+year = "2023"
+doi = "10.3389/fgene.2023.1282824"
+journal = "Frontiers in Genetics"
+url = "https://www.frontiersin.org/articles/10.3389/fgene.2023.1282824/full"
+
+[[references]]
+source_id = "SRC0110"
+zotero_item_id = "2310"
+title = "Generation of a Biliary Tract Cancer Cell Line Atlas Identifies Molecular Subtypes and Therapeutic Targets"
+year = "2025"
+doi = "10.1158/2159-8290.CD-24-1383"
+journal = "Cancer Discovery"
+url = "https://aacrjournals.org/cancerdiscovery/article/15/9/1858/764365/Generation-of-a-Biliary-Tract-Cancer-Cell-Line"
+
+[[references]]
+source_id = "SRC0111"
+zotero_item_id = "2411"
+title = "Spatiotemporal single-cell analysis elucidates the cellular and molecular dynamics of human cornea aging"
+year = "2025"
+doi = "10.1186/s13073-025-01475-z"
+journal = "Genome Medicine"
+url = "https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-025-01475-z"
+
+[[references]]
+source_id = "SRC0112"
+zotero_item_id = "2627"
+title = "Allelic effects on KLHL17 expression underlie a pancreatic cancer genome-wide association signal at chr1p36.33"
+year = "2025"
+doi = "10.1038/s41467-025-59109-2"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-025-59109-2"
+
+[[references]]
+source_id = "SRC0113"
+zotero_item_id = "2695"
+title = "Spatially resolved atlas of breast cancer uncovers intercellular machinery of venular niche governing lymphocyte extravasation"
+year = "2025"
+doi = "10.1038/s41467-025-58511-0"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-025-58511-0"
+
+[[references]]
+source_id = "SRC0114"
+zotero_item_id = "2953"
+title = "Programmed Cell Death Ligand-1 (PD-L1) and CD8 Expression Profiling Identify an Immunologic Subtype of Pancreatic Ductal Adenocarcinomas with Favorable Survival"
+year = "2019"
+doi = "10.1158/2326-6066.CIR-18-0822"
+journal = "Cancer Immunology Research"
+url = "https://aacrjournals.org/cancerimmunolres/article/7/6/886/469523/Programmed-Cell-Death-Ligand-1-PD-L1-and-CD8"
+
+[[references]]
+source_id = "SRC0115"
+zotero_item_id = "2980"
+title = "Contrastive learning enables rapid mapping to multimodal single-cell atlas of multimillion scale"
+year = "2022"
+doi = "10.1038/s42256-022-00518-z"
+journal = "Nature Machine Intelligence"
+url = "https://www.nature.com/articles/s42256-022-00518-z"
+
+[[references]]
+source_id = "SRC0116"
+zotero_item_id = "3066"
+title = "Integrative analysis of multi-omics data for identifying multi-markers for diagnosing pancreatic cancer"
+year = "2015"
+doi = "10.1186/1471-2164-16-S9-S4"
+journal = "BMC Genomics"
+url = "https://bmcgenomics.biomedcentral.com/articles/10.1186/1471-2164-16-S9-S4"
+
+[[references]]
+source_id = "SRC0117"
+zotero_item_id = "3078"
+title = "scMAGIC: accurately annotating single cells using two rounds of reference-based classification"
+year = "2022"
+doi = "10.1093/nar/gkab1275"
+journal = "Nucleic Acids Research"
+url = "https://academic.oup.com/nar/article/50/8/e43/6497710"
+
+[[references]]
+source_id = "SRC0118"
+zotero_item_id = "3081"
+title = "GEPIA2021: integrating multiple deconvolution-based analysis into GEPIA"
+year = "2021"
+doi = "10.1093/nar/gkab418"
+journal = "Nucleic Acids Research"
+url = "https://academic.oup.com/nar/article/49/W1/W242/6288438"
+
+[[references]]
+source_id = "SRC0119"
+zotero_item_id = "3085"
+title = "IBRAP: Integrated benchmarking single-cell RNA-sequencing analytical pipeline"
+year = "2023"
+doi = "10.1093/bib/bbad061"
+journal = "Briefings in Bioinformatics"
+url = "https://academic.oup.com/bib/article/doi/10.1093/bib/bbad061/7058851"
+
+[[references]]
+source_id = "SRC0120"
+zotero_item_id = "3191"
+title = "Developmental deconvolution for classification of cancer origin"
+year = "2022"
+doi = "10.1158/2159-8290.CD-21-1443"
+journal = "Cancer Discovery"
+url = "https://aacrjournals.org/cancerdiscovery/article/12/11/2566/709978/Developmental-Deconvolution-for-Classification-of"
+
+[[references]]
+source_id = "SRC0121"
+zotero_item_id = "3371"
+title = "Characterizing cancer metabolism from bulk and single-cell RNA-seq data using METAFlux"
+year = "2023"
+doi = "10.1038/s41467-023-40457-w"
+journal = "Nature Communications"
+url = "https://www.nature.com/articles/s41467-023-40457-w"
+
+[[references]]
+source_id = "SRC0122"
+zotero_item_id = "3424"
+title = "A single-cell atlas of human and mouse white adipose tissue"
+year = "2022"
+doi = "10.1038/s41586-022-04518-2"
+journal = "Nature"
+url = "https://www.nature.com/articles/s41586-022-04518-2"
+
+[[references]]
+source_id = "SRC0123"
+zotero_item_id = "3431"
+title = "CancerSEA: a cancer single-cell state atlas"
+year = "2019"
+doi = "10.1093/nar/gky939"
+journal = "Nucleic Acids Research"
+url = "https://academic.oup.com/nar/article/47/D1/D900/5133662"
+
+[[references]]
+source_id = "SRC0124"
+zotero_item_id = "3475"
+title = "The future of rapid and automated single-cell data analysis using reference mapping"
+year = "2024"
+doi = "10.1016/j.cell.2024.03.009"
+journal = "Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S0092867424003015"
+
+[[references]]
+source_id = "SRC0125"
+zotero_item_id = "3479"
+title = "Evolution of immune and stromal cell states and ecotypes during gastric adenocarcinoma progression"
+year = "2023"
+doi = "10.1016/j.ccell.2023.06.005"
+journal = "Cancer Cell"
+url = "https://linkinghub.elsevier.com/retrieve/pii/S1535610823002155"
+
+[[references]]
+source_id = "SRC0126"
+zotero_item_id = "3546"
+title = "An integrated cell atlas of the lung in health and disease"
+year = "2023"
+doi = "10.1038/s41591-023-02327-2"
+journal = "Nature Medicine"
+url = "https://www.nature.com/articles/s41591-023-02327-2"
+
+[[references]]
+source_id = "SRC0127"
+zotero_item_id = "3902"
+title = "A longitudinal single-cell atlas of anti-tumour necrosis factor treatment in inflammatory bowel disease"
+year = "2024"
+doi = "10.1038/s41590-024-01994-8"
+journal = "Nature Immunology"
+url = "https://www.nature.com/articles/s41590-024-01994-8"
+

@@ -24,11 +24,102 @@ scl.export_audit_report(adata, "report.html")
 
 ### Project Status
 
-scLucid is in active development. The core package already has stable workflow
-entrypoints, AnnData contracts, review summaries, and lightweight CI gates. The
-next development stage is real-data workflow hardening: running the same
-traceable path on PBMC and PDAC datasets, then using active research projects as
-acceptance tests for biological plausibility and usability.
+scLucid is in active development and is best described as an **evidence-driven
+single-cell workflow system in late prototype / early hardening stage**.
+
+The package has moved beyond a collection of wrappers. It already contains
+stable workflow entrypoints, AnnData contracts, review summaries, marker-resource
+routing, recommendation scaffolds, real-data golden-path scripts, and targeted
+tests for QC, preprocessing, analysis, tumor utilities, resources, and reporting.
+The strongest modules today are QC and preprocessing: both are close to
+benchmark-module maturity for auditability, reproducibility, and workflow fit.
+Analysis is the active module being raised to the same standard. It now has an
+evidence-first closed loop for clustering-resolution review, marker discovery,
+marker-manager/CellTypist/LLM annotation evidence, consensus labels, optional
+malignancy interpretation, and analysis review-summary maturity contracts.
+
+The current development boundary is important: scLucid can already provide a
+traceable, biologically informed workflow, but it should not yet claim broad
+scientific superiority over Scanpy, Seurat, scran, inferCNV, CopyKAT, CellTypist,
+or other mature tools. The next stage is real-data workflow hardening: run the
+same auditable path on PBMC, PDAC, and active tumor projects; compare outputs to
+standard workflows; and turn those results into documented acceptance criteria.
+
+### Current Maturity Assessment
+
+| Area | Current Level | What Works Now | Main Gaps |
+|------|---------------|----------------|-----------|
+| QC | Candidate benchmark module | Adaptive thresholds, tumor-aware warnings, doublet heuristics, review summaries, benchmark scaffolds | Broader real-data benchmarks and clearer user-facing threshold narratives |
+| Preprocessing | Candidate benchmark module | Layer contracts, normalization/HVG/PCA/neighbors/UMAP evidence, batch-correction cautions, maturity contract | Larger multi-sample validation, stronger batch-correction recommendation evidence |
+| Analysis | Second benchmark module in active hardening | `clustering_review -> markers -> annotation_evidence -> annotation_consensus -> malignancy_interpretation`, manager-routed marker resources, review-summary contract | Real-data acceptance runs, richer CellTypist/reference evidence, better human-facing review tables |
+| Marker Resources | Strong architectural direction | Unified `Manager`, human/mouse registry resources, tissue/tumor marker views, artifact/program/tumor routing, curation SOP | Source provenance at scale, mouse tissue/tumor parity, atlas-derived marker review |
+| Tumor Module | Feature-rich but needs integration hardening | CNV, malignancy scoring/classification, TME, therapy, heterogeneity, workflow scaffolds | Consume stable analysis outputs more tightly, store tumor-stage review summaries, validate on tumor datasets |
+| Plotting | Useful foundation | Publication-style themes and domain plots | Top-journal figure templates, richer multi-panel reports, visual regression checks |
+| Tools / R Parity | Broad wrapper coverage | Python-facing wrappers for mature ecosystem methods | Dependency isolation, parity matrices, realistic fallbacks, method-specific validation |
+| Documentation / Examples | Good skeleton | Three usage layers, advanced notebooks, golden-path scripts | Keep docs synchronized with maturity contracts and real-data acceptance results |
+
+### Development Roadmap
+
+The roadmap is intentionally staged so the package matures from traceable
+execution to evidence-backed biological usefulness.
+
+**Phase 1 — Finish Analysis As The Second Benchmark Module**
+
+- Harden the evidence-first `run_standard_analysis` path:
+  clustering-resolution evidence, marker discovery, marker-manager annotation
+  evidence, optional reference/CellTypist evidence, optional data-driven LLM
+  suggestion bundles, consensus labels, optional malignancy interpretation, and
+  review summary.
+- Keep first-pass annotation conservative: lineage / major cell type first;
+  subtype and state annotation should be driven by subset reclustering or explicit
+  user request.
+- Route all marker-dependent analysis through `get_marker_manager()` views:
+  `lineage_annotation`, `subtype_annotation`, `state_annotation`,
+  `artifact_annotation`, `program_scoring`, and `tumor_interpretation`.
+- Treat LLM output as annotation evidence, not ground truth.
+
+**Phase 2 — Tumor-Aware Interpretation Contract**
+
+- Keep `analysis.run_malignancy_interpretation` as a lightweight bridge that
+  consumes final annotation, tumor marker evidence, optional CNV scores, optional
+  malignancy signatures, and user-provided cancer context.
+- Keep heavy tumor-specific algorithms in `scLucid.tumor`: CNV inference,
+  malignancy scoring/classification, TME, therapy, heterogeneity, and ecosystem
+  workflows.
+- Separate normal epithelial annotation from malignant-cell interpretation.
+- Support multiple evidence backends: lightweight CNV score, inferCNV-style
+  output, CopyKAT-like calls, malignancy signatures, and manual evidence.
+- Store malignant/non-malignant/suspect/unresolved calls with confidence,
+  reasons, and review requirements.
+
+**Phase 3 — Resource Curation And Validation**
+
+- Continue upgrading marker resources from “readable” to “routable,
+  reviewable, source-aware”.
+- Add mouse tissue/tumor marker parity after the human route stabilizes.
+- Add resource validation tests for required metadata, marker symbol hygiene,
+  view routing, negative markers, artifact exclusion, and tumor evidence
+  isolation.
+- Curate immune and tumor-state markers from pan-cancer atlases while keeping
+  broad pathway signatures in gene-set JSON/GMT resources rather than concise
+  annotation TOML files.
+
+**Phase 4 — Real-Data Acceptance Gates**
+
+- Maintain PBMC as the normal baseline.
+- Maintain PDAC as the first tumor acceptance workflow.
+- Add at least one second tumor type and one active research project notebook.
+- Record acceptance criteria for cell retention, preprocessing readiness,
+  cluster interpretability, annotation confidence, marker consistency,
+  malignancy evidence, and report completeness.
+
+**Phase 5 — Publication Output And User Experience**
+
+- Convert advanced notebooks into polished, reproducible workflow narratives.
+- Expand audit reports to include analysis and tumor interpretation maturity.
+- Add top-journal figure templates and visual regression checks for important
+  plotting functions.
+- Keep beginner workflow, simple API, and advanced expert routes synchronized.
 
 ### Key Features
 
@@ -163,6 +254,7 @@ For detailed tutorials, how-to guides, and the full API reference:
 * **Core Data Contracts**: [docs/source/data_contracts.rst](docs/source/data_contracts.rst) - Stable AnnData and review-summary conventions shared across workflow stages
 * **Workflow Hardening Plan**: [docs/source/workflow_hardening.rst](docs/source/workflow_hardening.rst) - Real-data vertical-slice plan for PBMC, PDAC, and active project validation
 * **PBMC Golden Path**: [scripts/run_pbmc_golden_path.py](scripts/run_pbmc_golden_path.py) - Runnable real-data baseline that emits a manifest, final `.h5ad`, and inspection figures
+* **Analysis Acceptance Runner**: [scripts/run_analysis_acceptance.py](scripts/run_analysis_acceptance.py) - Runnable Step2 analysis hardening path for clustering review, annotation evidence, consensus labels, and optional malignancy interpretation
 
 For quick examples, see the `examples/` directory.
 

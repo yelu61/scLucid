@@ -5,10 +5,14 @@
 # ===================================================================
 
 [metadata]
-version = "1.1"
+version = "2.0"
 species = "human"
 description = "Human tissue-specific normal parenchymal and tissue-context marker entries."
-schema = "scLucid_marker_resource_v1"
+schema = "scLucid_marker_tissue_resource_v2"
+resource_type = "marker_tissue"
+sections = ["tissue_context"]
+curation_status = "seed_registry"
+child_metadata_policy = "tissue children inherit tissue context and are routed as cell_type/tissue_subtype by Manager"
 
 # --- Cornea (眼角膜) ---
 [["Cornea"]]

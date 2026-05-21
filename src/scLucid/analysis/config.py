@@ -341,6 +341,33 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
     scoring: Optional[ScoringConfig] = Field(default=None)
     proportion: Optional[ProportionConfig] = Field(default=None)
 
+    # Evidence-first analysis controls
+    run_clustering_review: bool = Field(default=False)
+    candidate_resolutions: Optional[List[float]] = Field(default=None)
+    use_recommended_resolution: bool = Field(default=True)
+    run_annotation_evidence: bool = Field(default=True)
+    annotation_methods: Tuple[str, ...] = Field(
+        default=("reference", "marker_manager", "data_driven")
+    )
+    final_annotation_strategy: Literal["consensus", "legacy"] = Field(default="consensus")
+    annotation_level: Literal["lineage", "cell_type", "subtype", "state"] = Field(
+        default="lineage"
+    )
+    llm_annotations: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = Field(default=None)
+    find_markers: bool = Field(default=True)
+    characterize: bool = Field(default=True)
+    marker_method: Literal["wilcoxon", "t-test", "logreg"] = Field(default="wilcoxon")
+    run_malignancy_interpretation: bool = Field(default=False)
+    run_cnv_for_malignancy: bool = Field(default=False)
+    run_malignancy_score: bool = Field(default=True)
+    malignancy_cancer_type: Optional[str] = Field(default=None)
+    malignancy_reference_labels: Optional[List[str]] = Field(default=None)
+    malignancy_cnv_score_key: Optional[str] = Field(default=None)
+    malignancy_key_added: str = Field(default="malignancy_call")
+    malignancy_score_key: str = Field(default="malignancy_interpretation_score")
+    malignancy_threshold: float = Field(default=0.55, ge=0, le=1)
+    malignancy_suspect_threshold: float = Field(default=0.35, ge=0, le=1)
+
     # Note: save_dir is inherited from SclucidBaseConfig
 
     @classmethod
