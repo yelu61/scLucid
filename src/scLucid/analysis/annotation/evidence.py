@@ -17,8 +17,10 @@ __all__ = [
     "ANALYSIS_REVIEW_SUMMARY_SCHEMA",
     "standardize_cluster_marker_table",
     "run_marker_annotation_evidence",
+    "run_annotation_evidence",
     "build_llm_annotation_bundle",
     "merge_annotation_evidence",
+    "build_annotation_consensus",
     "apply_final_annotation",
 ]
 
@@ -652,6 +654,145 @@ def merge_annotation_evidence(
         }
     )
     return final_df
+
+
+def run_annotation_evidence(
+    adata: AnnData,
+    cluster_key: str,
+    *,
+    markers_df: Optional[pd.DataFrame] = None,
+    methods: tuple[str, ...] = ("reference", "marker_manager", "data_driven"),
+    marker_config: Optional[Union[str, Manager]] = None,
+    reference_key: Optional[str] = None,
+    reference_confidence_key: Optional[str] = None,
+    llm_annotations: Optional[Union[pd.DataFrame, Dict[str, Any]]] = None,
+    llm_annotator: Optional[Any] = None,
+    enrichment_dict: Optional[Dict[str, pd.DataFrame]] = None,
+    sample_col: Optional[str] = None,
+    group_col: Optional[str] = None,
+    top_n_markers: int = 15,
+    key_added: str = "annotation_review_table",
+) -> pd.DataFrame:
+    """
+    Build cluster-level annotation evidence without treating any path as truth.
+
+    The workflow can combine reference labels already present in ``obs``,
+    marker-manager overlap evidence, and data-driven LLM suggestions. LLM use is
+    callback-based: pass either precomputed ``llm_annotations`` or a callable that
+    accepts one cluster payload and returns a dict with ``llm_label`` and optional
+    ``llm_confidence``.
+    """
+    if cluster_key not in adata.obs.columns:
+        raise KeyError(f"'{cluster_key}' not found in adata.obs.")
+
+    active_methods = set(methods or ())
+    marker_evidence = None
+    if "marker_manager" in active_methods and marker_config is not None:
+        marker_evidence = run_marker_annotation_evidence(
+            adata,
+            cluster_key,
+            marker_config,
+            markers_df=markers_df,
+            top_n_markers=max(top_n_markers, 20),
+        )
+
+    bundle = None
+    if "data_driven" in active_methods:
+        bundle = build_llm_annotation_bundle(
+            adata,
+            cluster_key,
+            markers_df=markers_df,
+            enrichment_dict=enrichment_dict,
+            marker_evidence=marker_evidence,
+            reference_key=reference_key,
+            top_n_markers=top_n_markers,
+            sample_col=sample_col,
+            group_col=group_col,
+        )
+        if llm_annotations is None and llm_annotator is not None:
+            llm_rows = []
+            for cluster, payload in bundle.get("clusters", {}).items():
+                result = llm_annotator({"cluster": cluster, **payload})
+                if result is None:
+                    continue
+                if not isinstance(result, dict):
+                    result = {"llm_label": str(result)}
+                row = {"cluster": str(cluster), **result}
+                if "label" in row and "llm_label" not in row:
+                    row["llm_label"] = row.pop("label")
+                if "confidence" in row and "llm_confidence" not in row:
+                    row["llm_confidence"] = row.pop("confidence")
+                llm_rows.append(row)
+            llm_annotations = pd.DataFrame(llm_rows)
+
+    review = merge_annotation_evidence(
+        adata,
+        cluster_key,
+        marker_evidence=marker_evidence,
+        reference_key=reference_key
+        if {"reference", "celltypist"} & active_methods
+        else None,
+        reference_confidence_key=reference_confidence_key,
+        llm_annotations=llm_annotations if "data_driven" in active_methods else None,
+        min_final_confidence=0.2,
+        key_added=key_added,
+    )
+    annotation_ns = (
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
+    )
+    annotation_ns[f"{key_added}_evidence_methods"] = sanitize_for_hdf5(sorted(active_methods))
+    return review
+
+
+def build_annotation_consensus(
+    adata: AnnData,
+    cluster_key: str,
+    annotation_review_table: Optional[pd.DataFrame] = None,
+    *,
+    key_added: str = "cell_type",
+    lineage_key: Optional[str] = "lineage",
+    label_col: str = "final_label",
+) -> pd.DataFrame:
+    """
+    Apply consensus annotation labels and return the review table.
+
+    This is a semantic wrapper around ``apply_final_annotation`` for the standard
+    analysis workflow. It keeps final labels cell-level while preserving the
+    cluster-level evidence table in ``uns``.
+    """
+    if annotation_review_table is None:
+        annotation_review_table = (
+            adata.uns.get("sclucid", {})
+            .get("analysis", {})
+            .get("annotation", {})
+            .get("annotation_review_table")
+        )
+    if not isinstance(annotation_review_table, pd.DataFrame):
+        raise ValueError("annotation_review_table must be provided or stored in adata.uns.")
+
+    apply_final_annotation(
+        adata,
+        cluster_key,
+        annotation_review_table,
+        label_col=label_col,
+        key_added=key_added,
+    )
+    if lineage_key and lineage_key not in adata.obs.columns:
+        adata.obs[lineage_key] = adata.obs[key_added].astype(str)
+
+    annotation_ns = (
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
+    )
+    annotation_ns["annotation_consensus_table"] = annotation_review_table
+    annotation_ns["annotation_consensus_params"] = sanitize_for_hdf5(
+        {
+            "cluster_key": cluster_key,
+            "key_added": key_added,
+            "lineage_key": lineage_key,
+            "label_col": label_col,
+        }
+    )
+    return annotation_review_table
 
 
 def apply_final_annotation(

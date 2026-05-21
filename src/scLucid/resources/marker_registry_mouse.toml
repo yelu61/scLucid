@@ -44,6 +44,7 @@ negative_markers = ["Lyz2", "Cd68"]
 name = "T cells"
 color = "#1ba169"
 markers = ["Cd3d", "Cd3e", "Cd3g", "Trac", "Cd2", "Cd4", "Cd8a", "Il7r", "Tcf7", "Sell"]
+negative_markers = ["Ms4a1", "Cd79a", "Cd79b", "Lyz2", "Epcam", "Pecam1", "Col1a1"]
 
 [[compartment.minor.minor.minor]]
 name = "CD4+ T"
@@ -77,6 +78,7 @@ doublet_lineage = true
 name = "B cells"
 color = "#7ccbc5"
 markers = ["Cd19", "Ms4a1", "Cd79a", "Cd79b", "Bank1", "Pax5", "Ighm", "Ighd"]
+negative_markers = ["Cd3d", "Cd3e", "Trac", "Nkg7", "Lyz2", "Epcam", "Pecam1"]
 
 [[compartment.minor.minor.minor]]
 name = "Plasma"
@@ -95,6 +97,7 @@ doublet_lineage = true
 name = "NK cells"
 color = "#014431"
 markers = ["Ncr1", "Klrb1c", "Nkg7", "Gzma", "Gzmb", "Prf1", "Fcgr3", "Klra4"]
+negative_markers = ["Cd3d", "Cd3e", "Trac", "Ms4a1", "Cd79a", "Lyz2", "Epcam", "Pecam1"]
 
 [compartment.minor.minor.metadata]
 doublet_lineage = true
@@ -108,11 +111,13 @@ markers = ["Lyz2", "Cd68", "Itgam", "Csf1r", "Spi1"]
 name = "Monocytes"
 color = "#1151b4"
 markers = ["Ly6c2", "Ccr2", "Itgam", "Csf1r"]
+negative_markers = ["Cd3d", "Cd3e", "Ms4a1", "Nkg7", "Epcam", "Pecam1", "Col1a1"]
 
 [[compartment.minor.minor]]
 name = "Macrophages"
 color = "#e377c2"
 markers = ["Cd68", "Adgre1", "Cd163", "Csf1r", "Mrc1"]
+negative_markers = ["Cd3d", "Cd3e", "Ms4a1", "Nkg7", "Epcam", "Pecam1", "Col1a1"]
 
 [[compartment.minor.minor]]
 name = "Dendritic cells"
@@ -169,6 +174,7 @@ species = "mouse"
 name = "Endothelial"
 color = "#fecb51"
 markers = ["Pecam1", "Cdh5", "Vwf", "Eng", "Cldn5", "Sele", "Icam1", "Ackr1"]
+negative_markers = ["Ptprc", "Epcam", "Krt8", "Krt18", "Krt19", "Col1a1", "Dcn"]
 
 [compartment.minor.metadata]
 doublet_lineage = true
@@ -177,6 +183,7 @@ doublet_lineage = true
 name = "Fibroblasts"
 color = "#FF8C00"
 markers = ["Dcn", "Col1a1", "Col3a1", "Pdgfra", "Lum", "Fn1", "Thy1", "Vim"]
+negative_markers = ["Ptprc", "Epcam", "Krt8", "Krt18", "Krt19", "Pecam1", "Vwf"]
 
 [compartment.minor.metadata]
 doublet_lineage = true
@@ -201,7 +208,7 @@ doublet_lineage = true
 name = "Epithelial"
 color = "#f19cbb"
 markers = ["Epcam", "Krt8", "Krt18", "Krt19", "Cdh1", "Cldn4", "Ocln", "Dsp"]
-negative_markers = ["Ptprc", "Pecam1"]
+negative_markers = ["Ptprc", "Pecam1", "Col1a1", "Dcn", "Vwf"]
 
 [compartment.metadata]
 kind = "cell_type"

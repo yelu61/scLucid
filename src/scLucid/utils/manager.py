@@ -348,6 +348,8 @@ class Manager:
                     raise KeyError(error_msg)
                 log.info(f"Loading only '{root_key}' from configuration")
                 data_to_parse = {root_key: data[root_key]}
+                if isinstance(data.get("metadata"), dict):
+                    data_to_parse["metadata"] = data["metadata"]
 
             self._parse_level(data_to_parse)
 
@@ -390,6 +392,34 @@ class Manager:
         parent_granularity = str(parent_metadata.get("granularity", "")).lower()
         kind = str(metadata.get("kind", "")).lower()
 
+        if parent_kind == "tissue_context" and parent_granularity == "tissue":
+            if "kind" not in child_metadata:
+                metadata["kind"] = "cell_type"
+            if "granularity" not in child_metadata:
+                metadata["granularity"] = "tissue_subtype"
+            metadata.setdefault("marker_role", "positive")
+            metadata["use_for_global_annotation"] = child_metadata.get(
+                "use_for_global_annotation", True
+            )
+            metadata.setdefault("use_for_state_annotation", False)
+            metadata.setdefault("use_for_malignancy_interpretation", False)
+            kind = str(metadata.get("kind", "")).lower()
+
+        if parent_kind == "cancer_context" and parent_granularity == "tumor_type_hint":
+            if "kind" not in child_metadata:
+                metadata["kind"] = "cancer_context"
+            if "granularity" not in child_metadata:
+                metadata["granularity"] = "cancer_subtype"
+            metadata.setdefault("marker_role", "evidence")
+            metadata["use_for_global_annotation"] = child_metadata.get(
+                "use_for_global_annotation", False
+            )
+            metadata.setdefault("use_for_state_annotation", False)
+            metadata["use_for_malignancy_interpretation"] = child_metadata.get(
+                "use_for_malignancy_interpretation", True
+            )
+            kind = str(metadata.get("kind", "")).lower()
+
         if not kind:
             if parent_kind in {"cell_type", "cell_type_collection"}:
                 metadata["kind"] = "cell_type"
@@ -402,7 +432,7 @@ class Manager:
             elif parent_kind in {"cancer_context", "tumor_evidence", "tumor_collection"}:
                 metadata["kind"] = parent_kind
 
-        if "granularity" not in child_metadata:
+        if "granularity" not in child_metadata and "granularity" not in metadata:
             if metadata.get("kind") == "cell_type":
                 parent_compartment = str(parent_metadata.get("compartment", "")).lower()
                 if child_metadata.get("doublet_lineage") is True:

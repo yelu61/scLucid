@@ -1,10 +1,12 @@
 """Tests for marker manager helpers and built-in resource composition."""
 
 import re
+from pathlib import Path
+
+import tomllib
 
 from scLucid.utils import Manager, get_marker_manager
 from scLucid.utils.manager import load_gene_set_manager, load_gene_sets
-
 
 MARKER_SYMBOL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -130,7 +132,10 @@ def test_refactored_marker_resource_metadata_contract():
     assert tissue.metadata["species"] == "human"
     assert tissue.CELLS["Pancreas Tissue"].metadata["kind"] == "tissue_context"
     assert tissue.CELLS["Pancreas Tissue"].metadata["use_for_global_annotation"] is False
-    assert tissue.CELLS["Acinar cells"].metadata["kind"] == "tissue_context"
+    assert tissue.metadata["schema"] == "scLucid_marker_tissue_resource_v2"
+    assert tissue.CELLS["Acinar cells"].metadata["kind"] == "cell_type"
+    assert tissue.CELLS["Acinar cells"].metadata["granularity"] == "tissue_subtype"
+    assert tissue.CELLS["Acinar cells"].metadata["use_for_global_annotation"] is True
 
     assert cancer.metadata["schema"] == "scLucid_marker_tumor_resource_v2"
     assert cancer.CELLS["Ovarian Cancer"].markers == [
@@ -151,15 +156,70 @@ def test_registry_views_separate_identity_state_artifact_and_tumor_layers():
     compartment = get_marker_manager(species="human", view="compartment_annotation")
     lineage = get_marker_manager(species="human", view="lineage_annotation")
     subtype = get_marker_manager(species="human", tissue="Lung", view="subtype_annotation")
-    state = get_marker_manager(species="human", view="state_annotation")
+    state_view = get_marker_manager(species="human", view="state_annotation")
     program = get_marker_manager(species="human", view="program_scoring")
     artifact = get_marker_manager(species="human", view="artifact_annotation")
 
     assert {"Immune", "Stromal", "Neural"}.issubset(compartment.CELLS)
     assert "Epithelial" in lineage.CELLS
     assert "Lung Goblet cell" in subtype.CELLS
+    assert "T cell exhaustion-like" in state_view.CELLS
     assert "Cytotoxicity" in program.CELLS
     assert "Treg program" in program.CELLS
     assert program.CELLS["Treg program"].metadata["alias_of"] == "Treg"
     assert "Stress-high" in artifact.CELLS
     assert "Ribosomal-high" in artifact.CELLS
+
+
+def test_marker_resources_expose_manager_routing_contract():
+    """Built-in marker resources should declare schemas that match manager routing."""
+    resources = Path(__file__).parents[2] / "src" / "scLucid" / "resources"
+    expected = {
+        "marker_registry_human.toml": "scLucid_marker_registry_v2",
+        "marker_registry_mouse.toml": "scLucid_marker_registry_v2",
+        "marker_tissue_human.toml": "scLucid_marker_tissue_resource_v2",
+        "marker_tumor_human.toml": "scLucid_marker_tumor_resource_v2",
+    }
+
+    for filename, schema in expected.items():
+        data = tomllib.loads((resources / filename).read_text())
+        metadata = data["metadata"]
+        assert metadata["schema"] == schema
+        assert metadata["species"] in {"human", "mouse"}
+        assert "resource_type" in metadata
+        assert "curation_status" in metadata
+
+
+def test_lineage_negative_markers_are_systematic():
+    """Major marker-manager lineages should include exclusion markers for conflicts."""
+    human = Manager("registry_human", case_sensitive=True)
+    mouse = Manager("registry_mouse", case_sensitive=True)
+
+    assert {"MS4A1", "LYZ", "EPCAM", "PECAM1"}.issubset(
+        set(human.CELLS["T cells"].negative_markers)
+    )
+    assert {"CD3D", "NKG7", "LYZ", "EPCAM"}.issubset(
+        set(human.CELLS["B cells"].negative_markers)
+    )
+    assert {"PTPRC", "EPCAM", "COL1A1"}.issubset(
+        set(human.CELLS["Endothelial cells"].negative_markers)
+    )
+    assert {"Ptprc", "Epcam", "Col1a1"}.issubset(
+        set(mouse.CELLS["Endothelial"].negative_markers)
+    )
+
+
+def test_tissue_and_tumor_children_route_to_specific_views():
+    """Manager inference should route resource children without hand-coded labels."""
+    subtype = get_marker_manager(species="human", tissue="Pancreas", view="subtype_annotation")
+    tumor = get_marker_manager(
+        species="human",
+        cancer_type="Lung Cancer",
+        view="tumor_interpretation",
+    )
+
+    assert "Acinar cells" in subtype.CELLS
+    assert subtype.CELLS["Acinar cells"].metadata["granularity"] == "tissue_subtype"
+    assert "LUSC" in tumor.CELLS
+    assert tumor.CELLS["LUSC"].metadata["granularity"] == "cancer_subtype"
+    assert tumor.CELLS["LUSC"].metadata["use_for_global_annotation"] is False

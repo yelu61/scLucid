@@ -26,9 +26,11 @@ For a publication-oriented package, notebooks should be used to show:
 - `Step1B-Preprocessing_Audit.ipynb` - benchmark-grade preprocessing audit
   notebook. It starts from `Step1-sce_cleaned.h5ad` and writes
   `data/processed/Step2-sce_preprocessed.h5ad`.
-- `Step2-Annotation_and_Malignancy.ipynb` - clustering, marker-based
-  annotation, malignancy review, and CNV-aware interpretation. It starts from
-  `Step2-sce_preprocessed.h5ad` and writes
+- `Step2-Annotation_and_Malignancy.ipynb` - evidence-first analysis acceptance
+  shell for clustering review, marker/CellTypist/LLM annotation evidence,
+  consensus labels, optional malignancy interpretation, and reviewable artifacts.
+  It starts from `Step2-sce_preprocessed.h5ad`, calls
+  `scripts/run_analysis_acceptance.py`, and writes
   `data/processed/Step3-sce_annotated.h5ad`.
 - `Step3-Standard_Downstream.ipynb` - standard downstream composition,
   proportion, differential expression, and enrichment analyses. It starts from
@@ -61,3 +63,5 @@ For a publication-oriented package, notebooks should be used to show:
 - use real or representative datasets, and make the expected inputs explicit near the top of each notebook
 - when a notebook bypasses one-call workflow functions, still write the same
   `adata.uns["sclucid"]` review contracts used by the package workflow layer
+- keep Step2 synchronized with `scripts/run_analysis_acceptance.py`; the notebook
+  should inspect acceptance artifacts rather than reimplement the workflow

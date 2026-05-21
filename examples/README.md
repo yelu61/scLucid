@@ -44,7 +44,7 @@ Use the split advanced sequence when presenting a real project-style analysis:
 |----------|---------------|
 | `Step1A-QC_Audit.ipynb` | QC benchmark path, threshold evidence, module maturity, and `Step1-sce_cleaned.h5ad` |
 | `Step1B-Preprocessing_Audit.ipynb` | QC handoff, layer audit, preprocessing parameter/layer evidence, and `Step2-sce_preprocessed.h5ad` |
-| `Step2-Annotation_and_Malignancy.ipynb` | Clustering, annotation, malignancy review, CNV-aware interpretation, and `Step3-sce_annotated.h5ad` |
+| `Step2-Annotation_and_Malignancy.ipynb` | Evidence-first analysis acceptance via `scripts/run_analysis_acceptance.py`: clustering review, annotation evidence, consensus labels, malignancy interpretation, and `Step3-sce_annotated.h5ad` |
 | `Step3-Standard_Downstream.ipynb` | Composition, proportion, differential expression, and enrichment |
 | `Step4-Signature_and_Target_Analysis.ipynb` | Project-specific signatures, focused cell states, and target-oriented exports |
 
