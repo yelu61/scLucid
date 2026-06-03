@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional, Union
 
-import logging
 import scanpy as sc
 from anndata import AnnData
 

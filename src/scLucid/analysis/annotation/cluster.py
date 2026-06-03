@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from importlib.metadata import version
 from typing import Literal, Optional, Union
 
-import logging
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
@@ -55,7 +55,7 @@ def annotate_clusters(
     # Ensure categorical
     if cluster_key not in adata.obs.columns:
         raise KeyError(f"'{cluster_key}' not found in adata.obs.")
-    if not pd.api.types.is_categorical_dtype(adata.obs[cluster_key]):
+    if not isinstance(adata.obs[cluster_key].dtype, pd.CategoricalDtype):
         adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
 
     # 1. Score-based
@@ -63,25 +63,37 @@ def annotate_clusters(
         score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
         if not score_cols:
             raise RuntimeError("No *_score columns found. Please run score_cell_types first.")
-        means = adata.obs.groupby(cluster_key)[score_cols].mean()
+        means = adata.obs.groupby(cluster_key, observed=False)[score_cols].mean()
         result = {}
         for cluster in means.index:
-            best = means.loc[cluster].idxmax()
-            best_score = float(means.loc[cluster, best])
+            cluster_means = means.loc[cluster]
+            # Guard against all-NaN for this cluster
+            if cluster_means.isna().all():
+                result[str(cluster)] = "Unknown"
+                continue
+            best = cluster_means.idxmax()
+            best_score = float(cluster_means[best])
             cell_type = best[:-6] if best.endswith("_score") else best
             result[str(cluster)] = cell_type if best_score >= min_score else "Unknown"
         return result
 
     # 2. Enrichment-based
     def annotate_by_enrichment():
+        rgg_key = f"rank_genes_{cluster_key}"
+        # Avoid overwriting existing rank_genes_groups results
+        base_rgg_key = rgg_key
+        counter = 1
+        while rgg_key in adata.uns:
+            rgg_key = f"{base_rgg_key}_{counter}"
+            counter += 1
         sc.tl.rank_genes_groups(
             adata,
             groupby=cluster_key,
             method="wilcoxon",
             use_raw=use_raw,
-            key_added=f"rank_genes_{cluster_key}",
+            key_added=rgg_key,
         )
-        markers_df = sc.get.rank_genes_groups_df(adata, group=None, key=f"rank_genes_{cluster_key}")
+        markers_df = sc.get.rank_genes_groups_df(adata, group=None, key=rgg_key)
         result = {}
         categories = list(adata.obs[cluster_key].cat.categories)
         for cluster in categories:
@@ -107,15 +119,21 @@ def annotate_clusters(
         score_cols = [col for col in adata.obs.columns if col.endswith("_score")]
         if not score_cols:
             raise RuntimeError("No *_score columns found. Please run score_cell_types first.")
-        means = adata.obs.groupby(cluster_key)[score_cols].mean()
+        means = adata.obs.groupby(cluster_key, observed=False)[score_cols].mean()
+        rgg_key = f"rank_genes_{cluster_key}"
+        base_rgg_key = rgg_key
+        counter = 1
+        while rgg_key in adata.uns:
+            rgg_key = f"{base_rgg_key}_{counter}"
+            counter += 1
         sc.tl.rank_genes_groups(
             adata,
             groupby=cluster_key,
             method="wilcoxon",
             use_raw=use_raw,
-            key_added=f"rank_genes_{cluster_key}",
+            key_added=rgg_key,
         )
-        markers_df = sc.get.rank_genes_groups_df(adata, group=None, key=f"rank_genes_{cluster_key}")
+        markers_df = sc.get.rank_genes_groups_df(adata, group=None, key=rgg_key)
         categories = list(adata.obs[cluster_key].cat.categories)
         result = {}
         for cluster in categories:

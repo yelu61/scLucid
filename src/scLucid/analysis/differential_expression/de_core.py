@@ -10,11 +10,16 @@ This module provides the main DE analysis functions:
 """
 
 import logging
-from typing import Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import version
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
+from scipy import sparse, stats
 
 from ...base_config import apply_config_overrides
 from ...utils.helpers import sanitize_for_hdf5
@@ -24,11 +29,12 @@ from ..config import (
     ConservedMarkersConfig,
     DifferentialConfig,
     FilterMarkersConfig,
+    PseudobulkDEConfig,
 )
 from .de_plots import plot_volcano
 from .de_utils import _safe_filename
-from .scanpy_compat import _to_frac, standardize_pct_columns as _standardize_pct_columns
-from importlib.metadata import PackageNotFoundError, version
+from .scanpy_compat import _to_frac
+from .scanpy_compat import standardize_pct_columns as _standardize_pct_columns
 
 log = logging.getLogger(__name__)
 
@@ -609,6 +615,460 @@ def compare_conditions(
     )
 
     return results_df
+
+
+def _get_expression_matrix(adata: AnnData, layer: Optional[str], use_raw: bool):
+    """Return expression matrix and gene names for pseudobulk aggregation."""
+    if layer is not None:
+        if layer not in adata.layers:
+            raise KeyError(f"Layer '{layer}' not found in adata.layers")
+        return adata.layers[layer], pd.Index(adata.var_names)
+    if use_raw:
+        if adata.raw is None:
+            raise ValueError("use_raw=True but adata.raw is not available")
+        return adata.raw.X, pd.Index(adata.raw.var_names)
+    return adata.X, pd.Index(adata.var_names)
+
+
+def _aggregate_counts_by_sample(
+    adata: AnnData,
+    sample_col: str,
+    condition_key: str,
+    layer: Optional[str],
+    use_raw: bool,
+    min_cells_per_sample: int,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Aggregate cell-level counts to sample-level pseudobulk counts."""
+    if sample_col not in adata.obs:
+        raise KeyError(f"Column '{sample_col}' not found in adata.obs")
+    if condition_key not in adata.obs:
+        raise KeyError(f"Column '{condition_key}' not found in adata.obs")
+
+    X, var_names = _get_expression_matrix(adata, layer=layer, use_raw=use_raw)
+    sample_values = adata.obs[sample_col].astype(str)
+    samples = list(pd.unique(sample_values))
+    rows = []
+    meta_rows = []
+
+    for sample in samples:
+        mask = (sample_values == sample).to_numpy()
+        n_cells = int(mask.sum())
+        if n_cells < min_cells_per_sample:
+            continue
+        block = X[mask]
+        summed = np.asarray(block.sum(axis=0)).ravel() if sparse.issparse(block) else block.sum(axis=0)
+        rows.append(summed)
+        cond_values = adata.obs.loc[mask, condition_key].astype(str).unique()
+        if len(cond_values) != 1:
+            raise ValueError(
+                f"Sample '{sample}' has multiple conditions in '{condition_key}': {cond_values}"
+            )
+        meta_rows.append(
+            {
+                "sample": sample,
+                condition_key: cond_values[0],
+                "n_cells": n_cells,
+                "library_size": float(np.sum(summed)),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=var_names), pd.DataFrame()
+
+    counts = pd.DataFrame(rows, index=[row["sample"] for row in meta_rows], columns=var_names)
+    meta = pd.DataFrame(meta_rows).set_index("sample")
+    return counts, meta
+
+
+def _benjamini_hochberg(pvals: pd.Series, method: str = "fdr_bh") -> pd.Series:
+    """Adjust p-values with statsmodels when available, with a local BH fallback."""
+    pvals = pd.to_numeric(pvals, errors="coerce")
+    valid = pvals.notna()
+    adjusted = pd.Series(np.nan, index=pvals.index, dtype=float)
+    if valid.sum() == 0:
+        return adjusted
+
+    try:
+        from statsmodels.stats.multitest import multipletests
+
+        _, padj, _, _ = multipletests(pvals[valid].to_numpy(), method=method)
+    except Exception:
+        order = np.argsort(pvals[valid].to_numpy())
+        ranked = pvals[valid].to_numpy()[order]
+        n = len(ranked)
+        padj_ordered = np.minimum.accumulate((ranked * n / np.arange(1, n + 1))[::-1])[::-1]
+        padj = np.empty_like(padj_ordered)
+        padj[order] = np.clip(padj_ordered, 0, 1)
+    adjusted.loc[valid] = padj
+    return adjusted
+
+
+def _run_welch_logcpm_de(
+    counts: pd.DataFrame,
+    meta: pd.DataFrame,
+    condition_key: str,
+    condition1: str,
+    condition2: str,
+    min_counts: int,
+    pseudocount: float,
+    p_adjust_method: str,
+) -> pd.DataFrame:
+    """Run a conservative Python pseudobulk fallback on logCPM values."""
+    selected = meta[meta[condition_key].astype(str).isin([condition1, condition2])].copy()
+    if selected.empty:
+        return pd.DataFrame()
+
+    selected_counts = counts.loc[selected.index]
+    keep = selected_counts.sum(axis=0) >= min_counts
+    selected_counts = selected_counts.loc[:, keep]
+    if selected_counts.empty:
+        return pd.DataFrame()
+
+    lib_sizes = selected_counts.sum(axis=1)
+    zero_lib = lib_sizes == 0
+    if zero_lib.any():
+        log.warning(
+            f"{zero_lib.sum()} sample(s) have zero library size after filtering; "
+            "excluding them from CPM calculation."
+        )
+        selected_counts = selected_counts.loc[~zero_lib]
+        lib_sizes = lib_sizes.loc[~zero_lib]
+        selected = selected.loc[selected_counts.index]
+        if selected.empty:
+            return pd.DataFrame()
+    cpm = selected_counts.div(lib_sizes, axis=0) * 1e6
+    logcpm = np.log2(cpm + pseudocount)
+
+    group1 = logcpm.loc[selected[condition_key].astype(str) == condition1]
+    group2 = logcpm.loc[selected[condition_key].astype(str) == condition2]
+    n1, n2 = len(group1), len(group2)
+    if n1 == 0 or n2 == 0:
+        return pd.DataFrame()
+
+    records = []
+    for gene in logcpm.columns:
+        x1 = group1[gene].astype(float)
+        x2 = group2[gene].astype(float)
+        mean1 = float(x1.mean())
+        mean2 = float(x2.mean())
+        log2fc = mean2 - mean1
+        if n1 >= 2 and n2 >= 2:
+            stat, pval = stats.ttest_ind(x2, x1, equal_var=False, nan_policy="omit")
+            method = "welch_logcpm_n2" if min(n1, n2) == 2 else "welch_logcpm_n3plus"
+        else:
+            stat, pval = np.nan, np.nan
+            method = "insufficient_replicates"
+        records.append(
+            {
+                "names": gene,
+                "gene": gene,
+                "logfoldchanges": log2fc,
+                "log2fc": log2fc,
+                "scores": stat,
+                "statistic": stat,
+                "pvals": pval,
+                "pval": pval,
+                "mean_logcpm_condition1": mean1,
+                "mean_logcpm_condition2": mean2,
+                "base_mean": float(selected_counts[gene].mean()),
+                "condition1": condition1,
+                "condition2": condition2,
+                "contrast": f"{condition2}_vs_{condition1}",
+                "direction": f"{condition2} - {condition1}",
+                "n_samples_condition1": n1,
+                "n_samples_condition2": n2,
+                "method": method,
+            }
+        )
+
+    result = pd.DataFrame(records)
+    result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
+    result["padj"] = result["pvals_adj"]
+    return result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(drop=True)
+
+
+def _run_pydeseq2_de(
+    counts: pd.DataFrame,
+    meta: pd.DataFrame,
+    condition_key: str,
+    condition1: str,
+    condition2: str,
+    min_counts: int,
+    p_adjust_method: str,
+) -> pd.DataFrame:
+    """Run DESeq2 on pseudobulk counts via pydeseq2."""
+    try:
+        from pydeseq2.dds import DeseqDataSet
+        from pydeseq2.ds import DeseqStats
+    except ImportError as exc:
+        raise ImportError("pydeseq2 is not installed") from exc
+
+    selected = meta[meta[condition_key].astype(str).isin([condition1, condition2])].copy()
+    if selected.empty:
+        return pd.DataFrame()
+
+    selected_counts = counts.loc[selected.index].round().astype(int)
+    keep = selected_counts.sum(axis=0) >= min_counts
+    selected_counts = selected_counts.loc[:, keep]
+    if selected_counts.empty:
+        return pd.DataFrame()
+
+    design_col = "__condition"
+    selected = pd.DataFrame(index=selected.index)
+    selected[design_col] = pd.Categorical(
+        meta.loc[selected.index, condition_key].astype(str),
+        categories=[condition1, condition2],
+        ordered=False,
+    )
+
+    dds = DeseqDataSet(
+        counts=selected_counts,
+        metadata=selected,
+        design=f"~{design_col}",
+        quiet=True,
+        n_cpus=1,
+    )
+    dds.deseq2()
+    deseq_stats = DeseqStats(
+        dds,
+        contrast=[design_col, condition2, condition1],
+        quiet=True,
+        n_cpus=1,
+    )
+    deseq_stats.summary()
+    result = deseq_stats.results_df.copy()
+
+    rename_map = {
+        "log2FoldChange": "logfoldchanges",
+        "pvalue": "pvals",
+        "padj": "pvals_adj",
+        "stat": "scores",
+        "baseMean": "base_mean",
+    }
+    result = result.rename(columns=rename_map)
+    result["names"] = result.index.astype(str)
+    result["gene"] = result["names"]
+    if "logfoldchanges" in result:
+        result["log2fc"] = result["logfoldchanges"]
+    if "scores" in result:
+        result["statistic"] = result["scores"]
+    if "pvals" in result:
+        result["pval"] = result["pvals"]
+    if "pvals_adj" not in result and "pvals" in result:
+        result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
+    if "pvals_adj" in result:
+        result["padj"] = result["pvals_adj"]
+
+    n1 = int((selected[design_col].astype(str) == condition1).sum())
+    n2 = int((selected[design_col].astype(str) == condition2).sum())
+    result["condition1"] = condition1
+    result["condition2"] = condition2
+    result["contrast"] = f"{condition2}_vs_{condition1}"
+    result["direction"] = f"{condition2} - {condition1}"
+    result["n_samples_condition1"] = n1
+    result["n_samples_condition2"] = n2
+    result["method"] = "deseq2"
+
+    sort_cols = [col for col in ["pvals_adj", "pvals"] if col in result.columns]
+    if sort_cols:
+        result = result.sort_values(sort_cols, na_position="last")
+    return result.reset_index(drop=True)
+
+
+def run_pseudobulk_de(
+    adata: AnnData,
+    config: Optional[PseudobulkDEConfig] = None,
+    **kwargs,
+) -> pd.DataFrame:
+    """
+    Run sample-level pseudobulk DE for one or more condition contrasts.
+
+    This is the preferred path for condition-level DEG when biological sample
+    replicates are available. If a contrast has only one sample in either
+    condition and ``fallback_to_cell_level=True``, it falls back to the legacy
+    cell-level ``compare_conditions``/``compare_groups`` path and marks the
+    result as exploratory.
+    """
+    if config is None:
+        active_config = PseudobulkDEConfig(**kwargs)
+    else:
+        active_config = config.model_copy(update=kwargs)
+
+    groupby = active_config.groupby
+    if groupby is not None and groupby not in adata.obs:
+        raise KeyError(f"Column '{groupby}' not found in adata.obs")
+
+    if groupby is None:
+        group_names: List[Optional[str]] = [None]
+    elif active_config.group_names is not None:
+        group_names = list(active_config.group_names)
+    else:
+        group_names = list(pd.unique(adata.obs[groupby].astype(str)))
+
+    tasks: List[Tuple[Optional[str], str, str]] = [
+        (group_name, condition1, condition2)
+        for group_name in group_names
+        for condition1, condition2 in active_config.contrasts
+    ]
+
+    def _run_one(task: Tuple[Optional[str], str, str]) -> pd.DataFrame:
+        group_name, condition1, condition2 = task
+        if group_name is None:
+            adata_sub = adata
+            group_label = "all"
+        else:
+            adata_sub = adata[adata.obs[groupby].astype(str) == str(group_name)].copy()
+            group_label = str(group_name)
+
+        counts, meta = _aggregate_counts_by_sample(
+            adata_sub,
+            sample_col=active_config.sample_col,
+            condition_key=active_config.condition_key,
+            layer=active_config.layer,
+            use_raw=active_config.use_raw,
+            min_cells_per_sample=active_config.min_cells_per_sample,
+        )
+        if meta.empty:
+            return pd.DataFrame()
+
+        selected = meta[meta[active_config.condition_key].astype(str).isin([condition1, condition2])]
+        n1 = int((selected[active_config.condition_key].astype(str) == condition1).sum())
+        n2 = int((selected[active_config.condition_key].astype(str) == condition2).sum())
+
+        if min(n1, n2) < active_config.min_samples_per_condition:
+            log.warning(
+                f"Skipping {group_label} {condition2} vs {condition1}: "
+                f"replicates are {n1}/{n2}, below min_samples_per_condition"
+            )
+            return pd.DataFrame()
+
+        should_use_cell_fallback = active_config.method == "cell_level_fallback" or (
+            active_config.method == "auto" and min(n1, n2) < 2
+        )
+        should_try_deseq2 = active_config.method in {"auto", "deseq2"} and min(n1, n2) >= 2
+        should_use_welch = active_config.method in {"auto", "welch_logcpm"} and min(n1, n2) >= 2
+
+        if should_use_cell_fallback:
+            if not active_config.fallback_to_cell_level:
+                log.warning(
+                    f"Skipping {group_label} {condition2} vs {condition1}: "
+                    "cell-level fallback is disabled"
+                )
+                return pd.DataFrame()
+
+            if groupby is None:
+                fallback_config = CompareGroupsConfig(
+                    groupby=active_config.condition_key,
+                    group1=condition2,
+                    group2=condition1,
+                    min_log2fc=0.0,
+                    max_padj=1.0,
+                    n_top_genes=active_config.n_genes if hasattr(active_config, "n_genes") else 5000,
+                    layer=active_config.layer,
+                    use_raw=active_config.use_raw,
+                    plot=False,
+                )
+                result = compare_groups(adata_sub, fallback_config)
+            else:
+                fallback_config = CompareConditionsConfig(
+                    groupby=groupby,
+                    group_name=str(group_name),
+                    condition_key=active_config.condition_key,
+                    condition1=condition2,
+                    condition2=condition1,
+                    min_log2fc=0.0,
+                    max_padj=1.0,
+                    n_top_genes=5000,
+                    layer=active_config.layer,
+                    use_raw=active_config.use_raw,
+                    plot=False,
+                )
+                result = compare_conditions(adata, fallback_config)
+            result = result.copy()
+            result["method"] = "cell_level_fallback"
+            if min(n1, n2) < 2:
+                result["pseudobulk_warning"] = "Only one sample in at least one condition"
+            else:
+                result["pseudobulk_warning"] = "Cell-level fallback forced by method='cell_level_fallback'"
+        elif should_try_deseq2:
+            try:
+                result = _run_pydeseq2_de(
+                    counts,
+                    meta,
+                    condition_key=active_config.condition_key,
+                    condition1=condition1,
+                    condition2=condition2,
+                    min_counts=active_config.min_counts,
+                    p_adjust_method=active_config.p_adjust_method,
+                )
+            except Exception as exc:
+                if active_config.method == "deseq2":
+                    log.warning(
+                        f"Skipping {group_label} {condition2} vs {condition1}: "
+                        f"DESeq2 failed ({exc})"
+                    )
+                    return pd.DataFrame()
+                log.warning(
+                    f"DESeq2 failed for {group_label} {condition2} vs {condition1}; "
+                    f"falling back to Welch logCPM ({exc})"
+                )
+                result = _run_welch_logcpm_de(
+                    counts,
+                    meta,
+                    condition_key=active_config.condition_key,
+                    condition1=condition1,
+                    condition2=condition2,
+                    min_counts=active_config.min_counts,
+                    pseudocount=active_config.pseudocount,
+                    p_adjust_method=active_config.p_adjust_method,
+                )
+                if not result.empty:
+                    result["pseudobulk_warning"] = "DESeq2 failed; used Welch logCPM fallback"
+        elif should_use_welch:
+            result = _run_welch_logcpm_de(
+                counts,
+                meta,
+                condition_key=active_config.condition_key,
+                condition1=condition1,
+                condition2=condition2,
+                min_counts=active_config.min_counts,
+                pseudocount=active_config.pseudocount,
+                p_adjust_method=active_config.p_adjust_method,
+            )
+        else:
+            log.warning(
+                f"Skipping {group_label} {condition2} vs {condition1}: "
+                f"method='{active_config.method}' requires >=2 samples per condition"
+            )
+            return pd.DataFrame()
+
+        if result.empty:
+            return result
+        result["group"] = group_label
+        result["groupby"] = groupby or "all"
+        result["condition1"] = condition1
+        result["condition2"] = condition2
+        result["contrast"] = f"{condition2}_vs_{condition1}"
+        result["direction"] = f"{condition2} - {condition1}"
+        if "n_samples_condition1" not in result:
+            result["n_samples_condition1"] = n1
+        if "n_samples_condition2" not in result:
+            result["n_samples_condition2"] = n2
+        return result
+
+    if active_config.n_jobs > 1 and len(tasks) > 1:
+        with ThreadPoolExecutor(max_workers=active_config.n_jobs) as pool:
+            result_parts = list(pool.map(_run_one, tasks))
+    else:
+        result_parts = [_run_one(task) for task in tasks]
+
+    result_parts = [part for part in result_parts if part is not None and not part.empty]
+    results = pd.concat(result_parts, ignore_index=True) if result_parts else pd.DataFrame()
+
+    root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
+    root[active_config.key_added] = results
+    root[f"{active_config.key_added}_params"] = sanitize_for_hdf5(active_config.to_dict())
+    return results
 
 
 def get_conserved_markers(

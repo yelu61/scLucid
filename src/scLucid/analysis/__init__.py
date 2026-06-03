@@ -41,6 +41,7 @@ _export(
         "FilterMarkersConfig",
         "CompareGroupsConfig",
         "CompareConditionsConfig",
+        "PseudobulkDEConfig",
         "EnrichmentConfig",
         "ProportionConfig",
         "AnalysisWorkflowConfig",
@@ -76,6 +77,7 @@ _export(
     "trace",
     [
         "ANALYSIS_REQUIRED_REVIEW_SECTIONS",
+        "build_posthoc_qc_review_summary",
         "enrich_analysis_review_summary",
         "get_analysis_module_contract",
         "summarize_analysis_review_summary",
@@ -83,7 +85,18 @@ _export(
         "validate_analysis_review_summary",
     ],
 )
-_export("malignancy", ["run_malignancy_interpretation"])
+try:
+    from ..tumor.malignancy import (
+        run_malignancy_interpretation as _run_malignancy_interpretation,
+    )
+
+    run_malignancy_interpretation = _run_malignancy_interpretation
+    __all__.append("run_malignancy_interpretation")
+except Exception as exc:
+    warnings.warn(
+        f"Could not import tumor malignancy interpretation bridge: {exc}",
+        ImportWarning,
+    )
 
 # Prefer the reorganized DE package, but keep a legacy fallback.
 _de_names = [
@@ -91,6 +104,7 @@ _de_names = [
     "filter_markers",
     "compare_groups",
     "compare_conditions",
+    "run_pseudobulk_de",
     "get_conserved_markers",
     "run_enrichment",
     "export_enrichment_results",
@@ -159,6 +173,16 @@ _export(
         "plot_effect_size_volcano",
         "plot_proportion_timeseries",
         "plot_batch_effect",
+        "plot_composition",
+        "plot_diff_stats",
+        "plot_individual_boxplots",
+        "plot_proportion_shifts",
+        "plot_paired_proportion_shifts",
+        "plot_proportion_with_ci",
+        "plot_celltype_variability",
+        "plot_composition_transform_heatmap",
+        "plot_composition_pca",
+        "transform_composition",
     ],
     optional=True,
 )

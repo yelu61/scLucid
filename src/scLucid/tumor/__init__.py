@@ -26,6 +26,7 @@ __version__ = "0.1.0"
 __author__ = "scLucid"
 
 # CNV Analysis
+from .cnv import find_tumor, run_cnv_analysis
 from .cnv.clone_analysis import (
     CloneAnalyzer,
     calculate_clonal_diversity,
@@ -82,6 +83,7 @@ from .malignancy.classification import (
     classify_malignant_cells,
     score_malignancy_potential,
 )
+from .malignancy.interpretation import run_malignancy_interpretation
 
 # Malignancy Analysis
 from .malignancy.scoring import (
@@ -157,6 +159,8 @@ __all__ = [
     "extract_cnv_signatures",
     "assign_cnv_signature",
     "CNVSigExtractor",
+    "run_cnv_analysis",
+    "find_tumor",
     # Microenvironment
     "deconvolve_tme",
     "estimate_stromal_content",
@@ -173,6 +177,7 @@ __all__ = [
     "estimate_metastatic_potential",
     "classify_malignant_cells",
     "score_malignancy_potential",
+    "run_malignancy_interpretation",
     "calculate_stemness_score",
     "identify_cancer_stem_cells",
     "compare_stemness_between_groups",

@@ -31,10 +31,19 @@ from .plots import (
     plot_box_summary,
     plot_cell_counts,
     plot_celltype_correlation,
+    plot_celltype_variability,
+    plot_composition,
+    plot_composition_pca,
+    plot_composition_transform_heatmap,
+    plot_diff_stats,
     plot_effect_size_volcano,
+    plot_individual_boxplots,
+    plot_paired_proportion_shifts,
     plot_proportion_bar,
     plot_proportion_heatmap,
+    plot_proportion_shifts,
     plot_proportion_timeseries,
+    plot_proportion_with_ci,
 )
 from .stats import (
     compute_celltype_proportion,
@@ -153,7 +162,7 @@ def _auto_configure_analysis(adata: AnnData, config: ProportionConfig) -> Propor
         suggested_method = "anova"
     elif is_paired:
         suggested_method = "paired-wilcoxon" if min_reps >= 5 else "paired-t-test"
-    elif min_reps == 1 and config.test_method not in {"chi-square", "fisher", "kruskal"}:
+    elif min_reps == 1 and config.test_method not in {"chi-square", "kruskal"}:
         log.warning("Detected N=1 in at least one group. Forcing statistical test to 'chi-square'.")
         suggested_method = "chi-square"
     elif min_reps == 2:
@@ -278,7 +287,7 @@ def celltype_proportion_analysis(
 
         # Add effect sizes
         if config.test_method in ["t-test", "wilcoxon", "paired-t-test", "paired-wilcoxon"]:
-            from .proportion_stats import _add_effect_sizes
+            from .stats import _add_effect_sizes
 
             stat_df = _add_effect_sizes(stat_df, prop_df, sample_to_cond, method="cohens_d")
 
@@ -287,8 +296,22 @@ def celltype_proportion_analysis(
         log.info(f"Generating {len(config.plot_types)} plots...")
 
         # Prepare data
-        condition = adata.obs[config.condition_col] if config.condition_col else None
-        palette = config.palette if hasattr(config, "palette") else None
+        sample_meta_cols = [config.sample_col]
+        for col in [config.condition_col, config.pairing_col, config.batch_col, config.timepoint_col]:
+            if col and col in adata.obs and col not in sample_meta_cols:
+                sample_meta_cols.append(col)
+        sample_meta = (
+            adata.obs[sample_meta_cols]
+            .drop_duplicates(subset=[config.sample_col])
+            .set_index(config.sample_col)
+            .reindex(prop_df.index)
+        )
+        condition = sample_meta[config.condition_col] if config.condition_col else None
+        pair = sample_meta[config.pairing_col] if config.pairing_col else None
+        batch = sample_meta[config.batch_col] if config.batch_col else None
+        timepoints = sample_meta[config.timepoint_col] if config.timepoint_col else None
+        ct_palette = config.ct_palette
+        condition_palette = config.condition_palette
 
         for plot_type in config.plot_types:
             try:
@@ -298,20 +321,46 @@ def celltype_proportion_analysis(
                         celltype_col=config.celltype_col,
                         sample_col=config.sample_col,
                         group_col=condition.name if condition is not None else None,
-                        palette=palette,
+                        palette=ct_palette,
                         out_dir=out_dir,
                     )
 
                 elif plot_type == "bar":
                     sample_order = sorted(prop_df.index, key=_natural_sort_key)
                     plot_proportion_bar(
-                        prop_df, sample_order=sample_order, palette=palette, out_dir=out_dir
+                        prop_df, sample_order=sample_order, palette=ct_palette, out_dir=out_dir
                     )
+
+                elif plot_type in {"bar_composition", "composition"}:
+                    if condition is not None:
+                        plot_composition(prop_df, condition=condition, palette=ct_palette, out_dir=out_dir)
 
                 elif plot_type == "box":
                     if condition is not None:
                         plot_box_summary(
-                            prop_df, condition=condition, palette=palette, out_dir=out_dir
+                            prop_df,
+                            condition=condition,
+                            palette=condition_palette,
+                            out_dir=out_dir,
+                        )
+
+                elif plot_type in {"individual_box", "individual_boxplots"}:
+                    if condition is not None and not stat_df.empty:
+                        plot_individual_boxplots(
+                            prop_df,
+                            condition=condition,
+                            stat_df=stat_df,
+                            palette=condition_palette,
+                            out_dir=out_dir,
+                        )
+
+                elif plot_type in {"ci", "proportion_ci"}:
+                    if condition is not None:
+                        plot_proportion_with_ci(
+                            prop_df,
+                            condition=condition,
+                            palette=condition_palette,
+                            out_dir=out_dir,
                         )
 
                 elif plot_type == "heatmap":
@@ -323,6 +372,9 @@ def celltype_proportion_analysis(
                         out_dir=out_dir,
                     )
 
+                elif plot_type in {"clr_heatmap", "composition_heatmap"}:
+                    plot_composition_transform_heatmap(prop_df, transform="clr", out_dir=out_dir)
+
                 elif plot_type == "correlation":
                     plot_celltype_correlation(prop_df, out_dir=out_dir)
 
@@ -330,10 +382,53 @@ def celltype_proportion_analysis(
                     if not stat_df.empty:
                         plot_effect_size_volcano(stat_df, out_dir=out_dir)
 
-                elif plot_type == "timeseries":
-                    if config.timepoint_col and config.timepoint_col in adata.obs:
-                        timepoints = adata.obs[config.timepoint_col]
+                elif plot_type == "diff":
+                    if condition is not None and not stat_df.empty:
+                        plot_diff_stats(prop_df, stat_df, condition=condition, out_dir=out_dir)
 
+                elif plot_type == "shift":
+                    if condition is not None:
+                        conditions = condition.dropna().astype(str).unique()
+                        if len(conditions) == 2:
+                            shift_df = prop_df.copy()
+                            shift_df[condition.name or config.condition_col] = condition.astype(str)
+                            plot_proportion_shifts(
+                                shift_df,
+                                condition_col=condition.name or config.condition_col,
+                                condition1=conditions[0],
+                                condition2=conditions[1],
+                                palette=ct_palette,
+                                out_dir=out_dir,
+                            )
+
+                elif plot_type in {"paired_shift", "paired_shifts"}:
+                    if condition is not None and pair is not None:
+                        conditions = condition.dropna().astype(str).unique()
+                        if len(conditions) == 2:
+                            plot_paired_proportion_shifts(
+                                prop_df,
+                                condition=condition.astype(str),
+                                pair=pair.astype(str),
+                                condition1=conditions[0],
+                                condition2=conditions[1],
+                                palette=condition_palette,
+                                out_dir=out_dir,
+                            )
+
+                elif plot_type in {"composition_pca", "pca"}:
+                    if condition is not None:
+                        plot_composition_pca(
+                            prop_df,
+                            condition=condition,
+                            palette=condition_palette,
+                            out_dir=out_dir,
+                        )
+
+                elif plot_type == "variability":
+                    plot_celltype_variability(prop_df, out_dir=out_dir)
+
+                elif plot_type == "timeseries":
+                    if timepoints is not None:
                         # Plot top varying cell types
                         celltype_var = prop_df.var(axis=0)
                         top_celltypes = celltype_var.nlargest(3).index.tolist()
@@ -344,15 +439,14 @@ def celltype_proportion_analysis(
                                 timepoints=timepoints,
                                 celltype=celltype,
                                 group_col=condition,
-                                palette=palette,
+                                palette=condition_palette,
                                 out_dir=out_dir,
                             )
 
                 elif plot_type == "batch_pca":
-                    if config.batch_col and config.batch_col in adata.obs:
-                        batch = adata.obs[config.batch_col]
+                    if batch is not None:
                         plot_batch_effect(
-                            prop_df, batch=batch, method="pca", palette=palette, out_dir=out_dir
+                            prop_df, batch=batch, method="pca", palette=condition_palette, out_dir=out_dir
                         )
 
             except Exception as e:

@@ -8,15 +8,18 @@ single ground truth label.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 
-from ..utils import Manager, get_marker_manager, sanitize_for_hdf5
+from ...utils import Manager, get_marker_manager, sanitize_for_hdf5
 
 __all__ = ["run_malignancy_interpretation"]
+
+log = logging.getLogger(__name__)
 
 NORMAL_COMPARTMENT_TERMS = (
     "immune",
@@ -75,6 +78,10 @@ def run_malignancy_interpretation(
     ``run_cnv=True`` and no CNV score is present, scLucid's expression-based CNV
     estimator is executed and consumed as one evidence source.
     """
+    if not 0 <= suspect_threshold <= threshold <= 1:
+        raise ValueError(
+            "thresholds must satisfy 0 <= suspect_threshold <= threshold <= 1"
+        )
     if annotation_key not in adata.obs.columns:
         raise KeyError(f"'{annotation_key}' not found in adata.obs.")
     if cluster_key is not None and cluster_key not in adata.obs.columns:
@@ -168,6 +175,7 @@ def run_malignancy_interpretation(
         "review_required": bool((calls == "suspect_malignant").any() or (calls == "unresolved").any()),
         "evidence_sources": [name for name, _, _ in evidence_parts],
     }
+    interpretation_summary.update(_summarize_malignancy_purity(calls))
     analysis_ns = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {})
     malignancy_ns = analysis_ns.setdefault("malignancy", {})
     malignancy_ns["malignancy_interpretation_table"] = summary_df
@@ -203,7 +211,7 @@ def _resolve_or_run_cnv(
     if not run_cnv:
         return None
 
-    from ..tumor.cnv.infercnv import infer_cnv
+    from ..cnv.infercnv import infer_cnv
 
     ref_labels = list(reference_labels or _infer_reference_labels(adata.obs[annotation_key]))
     available_labels = set(adata.obs[annotation_key].astype(str))
@@ -232,10 +240,11 @@ def _resolve_or_run_malignancy_score(
     if not run_malignancy_score:
         return None
     try:
-        from ..tumor.malignancy.scoring import score_malignancy
+        from .scoring import score_malignancy
 
         score_malignancy(adata, key_added=malignancy_score_key, cancer_type=cancer_type)
-    except Exception:
+    except Exception as exc:
+        log.warning(f"Malignancy scoring failed; continuing without signature score: {exc}")
         return None
     return malignancy_score_key if malignancy_score_key in adata.obs.columns else None
 
@@ -302,6 +311,8 @@ def _normalize_series(values: pd.Series) -> pd.Series:
         return pd.Series(0.0, index=values.index)
     min_value = float(numeric.min())
     max_value = float(numeric.max())
+    if min_value >= 0.0 and max_value <= 1.0:
+        return numeric.clip(lower=0.0, upper=1.0).fillna(0.0)
     if np.isclose(max_value, min_value):
         return pd.Series(0.0, index=values.index)
     return ((numeric - min_value) / (max_value - min_value)).fillna(0.0)
@@ -384,3 +395,30 @@ def _build_malignancy_review_table(
             }
         )
     return pd.DataFrame(rows)
+
+
+def _summarize_malignancy_purity(calls: pd.Series, *, low_purity_threshold: float = 0.10) -> dict[str, object]:
+    total = int(calls.shape[0])
+    if total == 0:
+        malignant_fraction = 0.0
+        suspect_or_malignant_fraction = 0.0
+    else:
+        malignant_fraction = float((calls == "malignant").sum() / total)
+        suspect_or_malignant_fraction = float(
+            ((calls == "malignant") | (calls == "suspect_malignant")).sum() / total
+        )
+    low_purity = bool(total > 0 and suspect_or_malignant_fraction < low_purity_threshold)
+    return {
+        "n_cells_evaluated": total,
+        "malignant_fraction": malignant_fraction,
+        "suspect_or_malignant_fraction": suspect_or_malignant_fraction,
+        "tumor_purity_estimate": suspect_or_malignant_fraction,
+        "low_tumor_purity_threshold": float(low_purity_threshold),
+        "low_tumor_purity_warning": low_purity,
+        "purity_message": (
+            "Low malignant/suspect fraction; downstream tumor analysis may be dominated by "
+            "non-malignant compartments."
+            if low_purity
+            else "Malignant/suspect fraction is above the low-purity review threshold."
+        ),
+    }

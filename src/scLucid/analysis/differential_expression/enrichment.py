@@ -14,11 +14,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import gseapy as gp
+import matplotlib.pyplot as plt
 import pandas as pd
 from anndata import AnnData
 
 from ...utils.helpers import sanitize_for_hdf5
-from ..config import EnrichmentConfig
+from ..config import CompareConditionsConfig, EnrichmentConfig
+from .de_core import compare_conditions
+from .de_plots import plot_volcano
 from .de_utils import _safe_filename
 from .scanpy_compat import standardize_enrichment_cols
 
@@ -94,13 +97,21 @@ def run_enrichment(
         log.warning("Marker DataFrame is empty. Skipping enrichment analysis.")
         return {}
 
-    # Determine groups
-    if groupby and "group" in marker_df.columns:
-        group_order = list(pd.unique(marker_df["group"]))
+    # Determine DE result partitions. Pseudobulk DE can contain multiple
+    # contrasts per cell group, which must not be mixed for ORA/GSEA.
+    marker_df = marker_df.copy()
+    if "contrast" in marker_df.columns and "group" in marker_df.columns:
+        marker_df["enrichment_group"] = (
+            marker_df["group"].astype(str) + "|" + marker_df["contrast"].astype(str)
+        )
+        group_col = "enrichment_group"
+    elif groupby and "group" in marker_df.columns:
+        group_col = "group"
     else:
-        group_order = ["all"]
-        marker_df = marker_df.copy()
         marker_df["group"] = "all"
+        group_col = "group"
+
+    group_order = list(pd.unique(marker_df[group_col]))
 
     if config.verbose:
         log.info(
@@ -167,7 +178,7 @@ def run_enrichment(
 
     for cluster in group_order:
         cluster_results: Dict[str, pd.DataFrame] = {}
-        sub = marker_df[marker_df["group"] == cluster]
+        sub = marker_df[marker_df[group_col] == cluster]
 
         if sub.empty:
             log.warning(f"Skipping '{cluster}': no marker genes found in '{config.de_key}'")
@@ -215,9 +226,10 @@ def run_enrichment(
                         all_ora_results.append(res)
 
                     except Exception as e:
-                        log.error(
-                            f"ORA failed for cluster '{cluster}', " f"category '{category}': {e}"
-                        )
+                        err_msg = f"ORA failed for cluster '{cluster}', category '{category}': {e}"
+                        log.error(err_msg)
+                        if config.strict_mode:
+                            raise RuntimeError(err_msg) from e
 
                 if all_ora_results:
                     ora_df = pd.concat(all_ora_results, ignore_index=True)
@@ -253,8 +265,8 @@ def run_enrichment(
                             min_size=config.gsea_min_size,
                             max_size=config.gsea_max_size,
                             outdir=None,
-                            seed=42,
-                            processes=4,
+                            seed=config.gsea_seed,
+                            processes=config.gsea_processes,
                         )
 
                         res = gsea_res.res2d.copy()
@@ -262,13 +274,14 @@ def run_enrichment(
                         all_gsea_results.append(res)
 
                     except Exception as e:
-                        log.error(
-                            f"GSEA failed for cluster '{cluster}', " f"category '{category}': {e}"
-                        )
+                        err_msg = f"GSEA failed for cluster '{cluster}', category '{category}': {e}"
+                        log.error(err_msg)
+                        if getattr(config, "strict_mode", False):
+                            raise RuntimeError(err_msg) from e
 
                 if all_gsea_results:
                     gsea_df = pd.concat(all_gsea_results, ignore_index=True)
-                    gsea_df = _standardize_enrichment_cols(gsea_df)
+                    gsea_df = standardize_enrichment_cols(gsea_df)
 
                     if "pval_adj" in gsea_df.columns:
                         gsea_df = gsea_df[gsea_df["pval_adj"] < config.cutoff_pval]

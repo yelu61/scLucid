@@ -5,7 +5,12 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from scLucid.analysis import run_module_scoring_workflow
+from scLucid.analysis import (
+    calculate_signature_matrix,
+    plot_delta_heatmap,
+    plot_score_violin_with_stats,
+    run_module_scoring_workflow,
+)
 
 
 @pytest.fixture
@@ -74,3 +79,68 @@ def test_run_module_scoring_workflow_tracks_unscored_modules(scoring_adata):
     summary = results["module_summary"].set_index("module")
     assert bool(summary.loc["valid", "scored"]) is True
     assert bool(summary.loc["invalid", "scored"]) is False
+
+
+def test_calculate_signature_matrix_falls_back_when_raw_missing(scoring_adata):
+    scoring_adata.raw = None
+    matrix = calculate_signature_matrix(
+        scoring_adata,
+        {"T_core": ["CD3D", "CD3E"], "NK_core": ["NKG7", "GNLY"]},
+        groupby="celltype",
+        use_raw=True,
+        z_score=False,
+    )
+
+    assert set(matrix.index) == {"T_core", "NK_core"}
+    assert set(matrix.columns.astype(str)) == {"T", "NK"}
+
+
+def test_calculate_signature_matrix_constant_zscore_has_no_nan():
+    adata = AnnData(np.ones((4, 2), dtype=float))
+    adata.var_names = ["GeneA", "GeneB"]
+    adata.obs["celltype"] = pd.Categorical(["A", "A", "B", "B"])
+
+    matrix = calculate_signature_matrix(
+        adata,
+        {"constant": ["GeneA", "GeneB"]},
+        groupby="celltype",
+        use_raw=True,
+        z_score=True,
+    )
+
+    assert not matrix.isna().any().any()
+
+
+def test_plot_delta_heatmap_reports_no_common_groups(scoring_adata):
+    with pytest.raises(ValueError, match="No common"):
+        plot_delta_heatmap(
+            scoring_adata,
+            {"T_core": ["CD3D", "CD3E"]},
+            groupby="celltype",
+            compare_group="condition",
+            ref_group="ctrl",
+            target_group="tx",
+            use_raw=True,
+        )
+
+
+def test_plot_score_violin_with_stats_validates_input(scoring_adata):
+    scoring_adata.obs["toy_score"] = [1.0, 1.1, 2.0, 2.1]
+
+    with pytest.raises(KeyError, match="missing_score"):
+        plot_score_violin_with_stats(
+            scoring_adata,
+            score_key="missing_score",
+            groupby="condition",
+            group1="ctrl",
+            group2="tx",
+        )
+
+    with pytest.raises(ValueError, match="at least 2 observations"):
+        plot_score_violin_with_stats(
+            scoring_adata,
+            score_key="toy_score",
+            groupby="sample_id",
+            group1="S1",
+            group2="missing",
+        )

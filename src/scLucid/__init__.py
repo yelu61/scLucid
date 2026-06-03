@@ -114,6 +114,7 @@ from .utils.validation import (
 from .utils.audit_report import export_audit_report
 from .utils.helpers import read_10x
 from .utils.io import read_h5ad
+from .utils.result_cleanup import compact_sclucid_uns
 
 
 def _stage_kwargs(prefix: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -484,6 +485,7 @@ __all__ = [
     "characterize_clusters",
     "recommend_analysis_parameters",
     "export_audit_report",
+    "compact_sclucid_uns",
     "read_10x",
     "read_h5ad",
     "get_config",

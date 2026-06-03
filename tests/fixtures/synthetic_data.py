@@ -365,8 +365,10 @@ def generate_qc_test_data(n_cells: int = 500) -> AnnData:
     for idx in outlier_idx[n_outliers // 2 :]:
         mt_genes = adata.var_names[adata.var.get("mt", False)]
         if len(mt_genes) > 0:
-            adata[idx, mt_genes].X *= 10
-            adata[idx, mt_genes].layers["counts"] *= 10
+            row_idx = adata.obs_names.get_loc(idx)
+            mt_gene_idx = adata.var_names.get_indexer(mt_genes)
+            adata.X[row_idx, mt_gene_idx] *= 10
+            adata.layers["counts"][row_idx, mt_gene_idx] *= 10
 
     # Recalculate QC metrics
     X = adata.X

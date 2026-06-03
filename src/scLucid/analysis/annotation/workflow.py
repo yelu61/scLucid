@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-
 import logging
 from importlib.metadata import version
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -493,9 +492,9 @@ def evaluate_annotation(
         found_markers = sig_genes & expected_markers
         marker_coverage = len(found_markers) / len(expected_markers) if expected_markers else 0.0
 
-        all_other_markers = set(
+        all_other_markers = {
             m for t, c in mgr.CELLS.items() if t != assigned_type for m in c.markers
-        )
+        }
         specificity = (
             1.0 - (len(found_markers & all_other_markers) / len(found_markers))
             if found_markers

@@ -34,6 +34,12 @@ ANNOTATION_REVIEW_SCHEMA = [
     "marker_confidence",
     "llm_label",
     "llm_confidence",
+    "lineage_label",
+    "lineage_confidence",
+    "subtype_label",
+    "subtype_confidence",
+    "state_label",
+    "state_confidence",
     "final_label",
     "annotation_confidence",
     "decision",
@@ -226,7 +232,20 @@ def run_marker_annotation_evidence(
             overlap = len(matched)
             recall = overlap / max(1, len(marker_set))
             precision = overlap / max(1, len(cluster_gene_set))
+
+            # Negative marker conflict detection
+            negative_markers = [str(g) for g in getattr(cell, "negative_markers", [])]
+            negative_hits: List[str] = []
+            if negative_markers:
+                negative_set = {gene.upper() for gene in negative_markers}
+                negative_hits = [gene for gene in cluster_genes if gene.upper() in negative_set]
+
             confidence = 0.65 * recall + 0.35 * precision
+            # Penalize confidence if negative markers are hit
+            if negative_hits:
+                penalty = min(0.5, len(negative_hits) * 0.15)
+                confidence *= (1.0 - penalty)
+
             if overlap >= min_overlap:
                 scored_labels.append(
                     {
@@ -236,6 +255,8 @@ def run_marker_annotation_evidence(
                         "precision": float(precision),
                         "confidence": float(confidence),
                         "matched_markers": matched,
+                        "negative_markers_hit": negative_hits,
+                        "n_negative_hits": len(negative_hits),
                         "metadata": _resolve_marker_cell_metadata(cell),
                     }
                 )
@@ -256,6 +277,12 @@ def run_marker_annotation_evidence(
             confidence = float(winner["confidence"])
             matched_markers = ", ".join(winner["matched_markers"][:12])
 
+        negative_hit_str = (
+            ", ".join(winner["negative_markers_hit"][:8])
+            if winner and winner.get("negative_markers_hit")
+            else ""
+        )
+        n_negative_hits = int(winner["n_negative_hits"]) if winner else 0
         rows.append(
             {
                 "cluster": str(cluster),
@@ -266,6 +293,8 @@ def run_marker_annotation_evidence(
                 "marker_recall": float(winner["recall"]) if winner else 0.0,
                 "marker_precision": float(winner["precision"]) if winner else 0.0,
                 "matched_markers": matched_markers,
+                "negative_markers_hit": negative_hit_str,
+                "n_negative_hits": n_negative_hits,
                 "runner_up_marker_label": runner_up["label"] if runner_up else None,
                 "runner_up_marker_confidence": (
                     float(runner_up["confidence"]) if runner_up else np.nan
@@ -498,6 +527,10 @@ def merge_annotation_evidence(
     reference_confidence_key: Optional[str] = None,
     llm_annotations: Optional[Union[pd.DataFrame, Dict[str, Any]]] = None,
     review_table: Optional[pd.DataFrame] = None,
+    suspect_flags: Optional[pd.DataFrame] = None,
+    lineage_evidence: Optional[pd.DataFrame] = None,
+    subtype_evidence: Optional[pd.DataFrame] = None,
+    state_evidence: Optional[pd.DataFrame] = None,
     min_final_confidence: float = 0.2,
     prefer_llm_when_confident: bool = True,
     key_added: str = "annotation_review_table",
@@ -542,6 +575,28 @@ def merge_annotation_evidence(
     else:
         merged["top_markers"] = ""
         merged["top_terms"] = ""
+
+    # Merge suspect cluster flags if available
+    if suspect_flags is not None and not suspect_flags.empty and "cluster" in suspect_flags.columns:
+        flag_cols = [c for c in ["cluster", "suspect_flag", "suspect_reasons"] if c in suspect_flags.columns]
+        merged = merged.merge(suspect_flags[flag_cols], on="cluster", how="left")
+    else:
+        merged["suspect_flag"] = "clean"
+        merged["suspect_reasons"] = ""
+
+    # Merge hierarchical annotation evidence (lineage / subtype / state)
+    for evidence_df, label_col, conf_col in [
+        (lineage_evidence, "lineage_label", "lineage_confidence"),
+        (subtype_evidence, "subtype_label", "subtype_confidence"),
+        (state_evidence, "state_label", "state_confidence"),
+    ]:
+        if evidence_df is not None and not evidence_df.empty and "cluster" in evidence_df.columns:
+            sub = evidence_df[["cluster", "marker_label", "marker_confidence"]].copy()
+            sub = sub.rename(columns={"marker_label": label_col, "marker_confidence": conf_col})
+            merged = merged.merge(sub, on="cluster", how="left")
+        else:
+            merged[label_col] = "Unknown"
+            merged[conf_col] = np.nan
 
     for col in ["reference_label", "marker_label", "llm_label"]:
         if col not in merged.columns:
@@ -609,6 +664,19 @@ def merge_annotation_evidence(
                 )[0]
                 decision = f"{source}_best_available"
 
+        # Apply suspect-flag penalties before threshold check
+        suspect_flag = str(row.get("suspect_flag", "clean"))
+        suspect_penalties = {
+            "doublet_suspect": 0.3,
+            "stress_high": 0.6,
+            "ribosomal_dominant": 0.6,
+            "low_information": 0.7,
+            "mt_high": 0.8,
+        }
+        if suspect_flag in suspect_penalties:
+            confidence *= suspect_penalties[suspect_flag]
+            decision = f"{decision}_with_{suspect_flag}"
+
         if confidence < min_final_confidence:
             final_label = "Unknown"
             decision = "below_confidence_threshold"
@@ -618,15 +686,26 @@ def merge_annotation_evidence(
             warnings.append("evidence_conflict")
         if row.get("marker_label") == "Unknown" and row.get("reference_label") == "Unknown":
             warnings.append("weak_marker_reference_evidence")
-        needs_review = bool(conflicts or final_label == "Unknown" or confidence < 0.5)
+        if suspect_flag != "clean":
+            warnings.append(suspect_flag)
+        needs_review = bool(
+            conflicts or final_label == "Unknown" or confidence < 0.5 or suspect_flag != "clean"
+        )
         final_rows.append(
             {
                 "final_label": final_label,
+                "lineage_label": str(row.get("lineage_label", "Unknown")),
+                "lineage_confidence": float(row.get("lineage_confidence", 0.0)) if pd.notna(row.get("lineage_confidence")) else 0.0,
+                "subtype_label": str(row.get("subtype_label", "Unknown")),
+                "subtype_confidence": float(row.get("subtype_confidence", 0.0)) if pd.notna(row.get("subtype_confidence")) else 0.0,
+                "state_label": str(row.get("state_label", "Unknown")),
+                "state_confidence": float(row.get("state_confidence", 0.0)) if pd.notna(row.get("state_confidence")) else 0.0,
                 "annotation_confidence": float(confidence),
                 "decision": decision,
                 "conflicts": ",".join(conflicts),
                 "warnings": ",".join(warnings),
                 "needs_review": needs_review,
+                "suspect_flag": suspect_flag,
             }
         )
 
@@ -653,6 +732,36 @@ def merge_annotation_evidence(
             "prefer_llm_when_confident": bool(prefer_llm_when_confident),
         }
     )
+
+    # P3: Post-hoc doublet evidence backflow to QC namespace
+    posthoc_rows = []
+    for _, row in final_df.iterrows():
+        warnings_str = str(row.get("warnings", ""))
+        suspect = str(row.get("suspect_flag", ""))
+        if "doublet_suspect" in warnings_str or "doublet_suspect" in suspect:
+            posthoc_rows.append(
+                {
+                    "cluster": str(row["cluster"]),
+                    "evidence_source": "annotation_suspect_flag",
+                    "details": f"suspect_flag={suspect}, warnings={warnings_str}",
+                    "recommendation": "inspect_doublet_fraction_in_qc",
+                }
+            )
+        n_neg = row.get("n_negative_hits")
+        if n_neg is not None and int(n_neg) > 0:
+            posthoc_rows.append(
+                {
+                    "cluster": str(row["cluster"]),
+                    "evidence_source": "negative_marker_conflict",
+                    "details": f"n_negative_hits={int(n_neg)}, hits={row.get('negative_markers_hit', '')}",
+                    "recommendation": "review_cluster_annotation_and_qc",
+                }
+            )
+    if posthoc_rows:
+        adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+            "posthoc_doublet_evidence"
+        ] = sanitize_for_hdf5(pd.DataFrame(posthoc_rows).to_dict(orient="records"))
+
     return final_df
 
 
@@ -671,6 +780,9 @@ def run_annotation_evidence(
     sample_col: Optional[str] = None,
     group_col: Optional[str] = None,
     top_n_markers: int = 15,
+    hierarchical: bool = False,
+    species: str = "human",
+    tissue: Optional[str] = None,
     key_added: str = "annotation_review_table",
 ) -> pd.DataFrame:
     """
@@ -681,20 +793,57 @@ def run_annotation_evidence(
     callback-based: pass either precomputed ``llm_annotations`` or a callable that
     accepts one cluster payload and returns a dict with ``llm_label`` and optional
     ``llm_confidence``.
+
+    When ``hierarchical=True`` and ``marker_config`` is None, the function uses
+    built-in marker manager views (``lineage_annotation``, ``subtype_annotation``,
+    ``state_annotation``) to produce layered evidence rather than a single label.
     """
     if cluster_key not in adata.obs.columns:
         raise KeyError(f"'{cluster_key}' not found in adata.obs.")
 
     active_methods = set(methods or ())
     marker_evidence = None
-    if "marker_manager" in active_methods and marker_config is not None:
-        marker_evidence = run_marker_annotation_evidence(
-            adata,
-            cluster_key,
-            marker_config,
-            markers_df=markers_df,
-            top_n_markers=max(top_n_markers, 20),
-        )
+    lineage_evidence = None
+    subtype_evidence = None
+    state_evidence = None
+
+    if "marker_manager" in active_methods:
+        if hierarchical and marker_config is None:
+            lineage_mgr = get_marker_manager(species=species, tissue=tissue, view="lineage_annotation")
+            lineage_evidence = run_marker_annotation_evidence(
+                adata,
+                cluster_key,
+                lineage_mgr,
+                markers_df=markers_df,
+                top_n_markers=max(top_n_markers, 20),
+                key_added="lineage_annotation_evidence",
+            )
+            subtype_mgr = get_marker_manager(species=species, tissue=tissue, view="subtype_annotation")
+            subtype_evidence = run_marker_annotation_evidence(
+                adata,
+                cluster_key,
+                subtype_mgr,
+                markers_df=markers_df,
+                top_n_markers=max(top_n_markers, 20),
+                key_added="subtype_annotation_evidence",
+            )
+            state_mgr = get_marker_manager(species=species, tissue=tissue, view="state_annotation")
+            state_evidence = run_marker_annotation_evidence(
+                adata,
+                cluster_key,
+                state_mgr,
+                markers_df=markers_df,
+                top_n_markers=max(top_n_markers, 20),
+                key_added="state_annotation_evidence",
+            )
+        elif marker_config is not None:
+            marker_evidence = run_marker_annotation_evidence(
+                adata,
+                cluster_key,
+                marker_config,
+                markers_df=markers_df,
+                top_n_markers=max(top_n_markers, 20),
+            )
 
     bundle = None
     if "data_driven" in active_methods:
@@ -734,6 +883,9 @@ def run_annotation_evidence(
         else None,
         reference_confidence_key=reference_confidence_key,
         llm_annotations=llm_annotations if "data_driven" in active_methods else None,
+        lineage_evidence=lineage_evidence,
+        subtype_evidence=subtype_evidence,
+        state_evidence=state_evidence,
         min_final_confidence=0.2,
         key_added=key_added,
     )
@@ -777,8 +929,12 @@ def build_annotation_consensus(
         label_col=label_col,
         key_added=key_added,
     )
+    # Backward-compatible lineage alias: expose the caller's requested key even
+    # when apply_final_annotation produced the canonical ``{key_added}_lineage``.
+    lineage_obs_key = f"{key_added}_lineage"
     if lineage_key and lineage_key not in adata.obs.columns:
-        adata.obs[lineage_key] = adata.obs[key_added].astype(str)
+        source_key = lineage_obs_key if lineage_obs_key in adata.obs.columns else key_added
+        adata.obs[lineage_key] = adata.obs[source_key].astype(str)
 
     annotation_ns = (
         adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
@@ -841,6 +997,37 @@ def apply_final_annotation(
         )
 
     adata.obs["cell_compartment"] = _map_compartments(adata.obs[key_added])
+
+    # Write hierarchical labels if available in review table
+    def _review_column(name: str) -> pd.Series:
+        values = annotation_review_table.loc[:, name]
+        if isinstance(values, pd.DataFrame):
+            values = values.iloc[:, 0]
+        return values
+
+    for layer_col, layer_conf_col in [
+        ("lineage_label", "lineage_confidence"),
+        ("subtype_label", "subtype_confidence"),
+        ("state_label", "state_confidence"),
+    ]:
+        if layer_col in annotation_review_table.columns:
+            layer_map = pd.Series(
+                _review_column(layer_col).astype(str).to_numpy(),
+                index=annotation_review_table["cluster"],
+            ).to_dict()
+            layer_obs_key = f"{key_added}_{layer_col.replace('_label', '')}"
+            adata.obs[layer_obs_key] = pd.Categorical(
+                cluster_series.map(layer_map).fillna("Unknown")
+            )
+            if layer_conf_col in annotation_review_table.columns:
+                conf_map = pd.Series(
+                    _review_column(layer_conf_col).to_numpy(),
+                    index=annotation_review_table["cluster"],
+                ).to_dict()
+                adata.obs[f"{layer_obs_key}_confidence"] = pd.to_numeric(
+                    cluster_series.map(conf_map), errors="coerce"
+                )
+
     annotation_ns = (
         adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )

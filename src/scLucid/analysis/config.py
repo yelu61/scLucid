@@ -166,6 +166,36 @@ class CompareConditionsConfig(ComparisonConfig):
     n_top_genes: int = Field(default=50, ge=1)
 
 
+class PseudobulkDEConfig(SclucidBaseConfig):
+    """Configuration for sample-level pseudobulk differential expression."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    sample_col: str = Field(description="Column containing biological sample identifiers")
+    condition_key: str = Field(description="Column containing condition labels")
+    contrasts: List[Tuple[str, str]] = Field(
+        description="List of (condition1, condition2) contrasts; log2FC is condition2 - condition1"
+    )
+    groupby: Optional[str] = Field(
+        default=None,
+        description="Optional cell group column; run each contrast within each selected group",
+    )
+    group_names: Optional[List[str]] = Field(default=None)
+    layer: Optional[str] = Field(default=None, description="Layer containing raw counts")
+    use_raw: bool = Field(default=False)
+    min_cells_per_sample: int = Field(default=5, ge=1)
+    min_counts: int = Field(default=10, ge=0)
+    min_samples_per_condition: int = Field(default=1, ge=1)
+    pseudocount: float = Field(default=0.5, gt=0)
+    method: Literal["auto", "deseq2", "welch_logcpm", "cell_level_fallback"] = Field(
+        default="auto"
+    )
+    fallback_to_cell_level: bool = Field(default=True)
+    p_adjust_method: Literal["fdr_bh", "bonferroni"] = Field(default="fdr_bh")
+    key_added: str = Field(default="pseudobulk_de")
+    n_jobs: int = Field(default=1, ge=1)
+
+
 class ConservedMarkersConfig(ComparisonConfig):
     """Configuration for conserved marker gene discovery."""
 
@@ -208,6 +238,11 @@ class EnrichmentConfig(SclucidBaseConfig):
     gsea_permutations: int = Field(default=1000, ge=100)
     gsea_min_size: int = Field(default=15, ge=1)
     gsea_max_size: int = Field(default=500, ge=1)
+    gsea_seed: int = Field(default=42, description="Random seed for GSEA permutations")
+    gsea_processes: int = Field(default=4, ge=1, description="Number of processes for GSEA")
+    strict_mode: bool = Field(
+        default=False, description="If True, raise on enrichment failures instead of skipping"
+    )
     prefer_score_for_enrichment: bool = Field(default=True)
 
 
@@ -277,7 +312,6 @@ class ProportionConfig(SclucidBaseConfig):
         "anova",
         "kruskal",
         "chi-square",
-        "fisher",
         "paired-t-test",
         "paired-wilcoxon",
     ] = Field(default="deseq2")

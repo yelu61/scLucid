@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from typing import Dict, Union
-
 import logging
+from collections import Counter
+from typing import Dict, Optional, Union
+
+import numpy as np
 import pandas as pd
 from anndata import AnnData
 

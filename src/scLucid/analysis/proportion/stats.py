@@ -55,8 +55,16 @@ def compute_celltype_proportion(
     count_df = df.groupby([sample_col, celltype_col]).size().unstack(fill_value=0)
 
     if normalize:
-        # Calculate proportions
-        prop_df = count_df.div(count_df.sum(axis=1), axis=0)
+        # Calculate proportions; guard against zero-row sums
+        row_sums = count_df.sum(axis=1)
+        zero_sum_mask = row_sums == 0
+        if zero_sum_mask.any():
+            log.warning(
+                f"{zero_sum_mask.sum()} sample(s) have zero total cells; "
+                "proportions for these rows will be set to 0."
+            )
+            row_sums = row_sums.replace(0, np.nan)
+        prop_df = count_df.div(row_sums, axis=0).fillna(0.0)
         return prop_df
 
     return count_df
@@ -88,30 +96,76 @@ def _run_deseq2(
         DESeq2 results with p-values and log2 fold changes
     """
     try:
-        from pydeseq2 import DESeq2, Preprocessing
+        from pydeseq2.dds import DeseqDataSet
+        from pydeseq2.ds import DeseqStats
     except ImportError:
         log.warning("pydeseq2 not installed. Install with: pip install pydeseq2")
         return pd.DataFrame()
 
-    # Prepare data for DESeq2
-    # Transpose to have cell types as rows, samples as columns
-    counts = count_df.T
-    counts = counts.astype(int)
+    sample_to_cond = sample_to_cond.reindex(count_df.index).dropna().astype(str)
+    conditions = list(pd.unique(sample_to_cond))
+    if len(conditions) != 2:
+        log.warning("DESeq2 requires exactly 2 conditions. " f"Got {len(conditions)}.")
+        return pd.DataFrame()
 
-    # Create metadata DataFrame
-    metadata = pd.DataFrame({condition_col: sample_to_cond})
+    condition1, condition2 = conditions
+    counts = count_df.loc[sample_to_cond.index].round().astype(int)
+    counts = counts.loc[:, counts.sum(axis=0) >= 10]
+    if counts.empty:
+        log.warning("DESeq2 skipped because no cell types passed min count filtering.")
+        return pd.DataFrame()
 
-    # Filter low counts
-    counts_filtered = Preprocessing.filter_genes(counts, min_cells=1, min_counts=10)
+    design_col = "__condition"
+    metadata = pd.DataFrame(
+        {
+            design_col: pd.Categorical(
+                sample_to_cond,
+                categories=[condition1, condition2],
+                ordered=False,
+            )
+        },
+        index=sample_to_cond.index,
+    )
 
-    # Run DESeq2
-    dds = DESeq2(counts=counts_filtered, metadata=metadata, design_factors=[condition_col])
-    dds.run_deseq()
+    try:
+        dds = DeseqDataSet(
+            counts=counts,
+            metadata=metadata,
+            design=f"~{design_col}",
+            quiet=True,
+            n_cpus=1,
+        )
+        dds.deseq2()
+        deseq_stats = DeseqStats(
+            dds,
+            contrast=[design_col, condition2, condition1],
+            quiet=True,
+            n_cpus=1,
+        )
+        deseq_stats.summary()
+    except Exception as exc:
+        log.warning(f"DESeq2 failed: {exc}")
+        return pd.DataFrame()
 
-    # Get results
-    res = dds.results_df
-
-    return res
+    res = deseq_stats.results_df.copy()
+    res = res.rename(
+        columns={
+            "baseMean": "base_mean",
+            "log2FoldChange": "log2fc",
+            "stat": "statistic",
+            "pvalue": "pval",
+        }
+    )
+    res["cell_type"] = res.index.astype(str)
+    res["condition1"] = condition1
+    res["condition2"] = condition2
+    res["mean_diff"] = (
+        counts.loc[sample_to_cond == condition2].mean(axis=0)
+        - counts.loc[sample_to_cond == condition1].mean(axis=0)
+    ).reindex(res.index).to_numpy()
+    res["direction"] = f"{condition2} - {condition1}"
+    res["method"] = "deseq2"
+    return res.reset_index(drop=True)
 
 
 def _run_ttest(count_df: pd.DataFrame, sample_to_cond: pd.Series) -> pd.DataFrame:
@@ -130,24 +184,32 @@ def _run_ttest(count_df: pd.DataFrame, sample_to_cond: pd.Series) -> pd.DataFram
     pd.DataFrame
         Test results with p-values and statistics
     """
-    conditions = sample_to_cond.unique()
+    conditions = list(sample_to_cond.dropna().unique())
     if len(conditions) != 2:
         log.warning("t-test requires exactly 2 conditions. " f"Got {len(conditions)}.")
         return pd.DataFrame()
 
+    condition1, condition2 = conditions
     results = []
     for celltype in count_df.columns:
-        group1 = count_df.loc[sample_to_cond == conditions[0], celltype]
-        group2 = count_df.loc[sample_to_cond == conditions[1], celltype]
+        group1 = count_df.loc[sample_to_cond == condition1, celltype]
+        group2 = count_df.loc[sample_to_cond == condition2, celltype]
 
-        # Perform t-test
-        stat, pval = stats.ttest_ind(group1, group2, equal_var=False)
+        # Statistic and effect direction are condition2 - condition1.
+        stat, pval = stats.ttest_ind(group2, group1, equal_var=False)
 
-        # Calculate mean difference
-        mean_diff = group1.mean() - group2.mean()
+        mean_diff = group2.mean() - group1.mean()
 
         results.append(
-            {"cell_type": celltype, "statistic": stat, "pval": pval, "mean_diff": mean_diff}
+            {
+                "cell_type": celltype,
+                "condition1": condition1,
+                "condition2": condition2,
+                "statistic": stat,
+                "pval": pval,
+                "mean_diff": mean_diff,
+                "direction": f"{condition2} - {condition1}",
+            }
         )
 
     return pd.DataFrame(results)
@@ -169,24 +231,32 @@ def _run_wilcoxon(count_df: pd.DataFrame, sample_to_cond: pd.Series) -> pd.DataF
     pd.DataFrame
         Test results with p-values and statistics
     """
-    conditions = sample_to_cond.unique()
+    conditions = list(sample_to_cond.dropna().unique())
     if len(conditions) != 2:
         log.warning("Wilcoxon test requires exactly 2 conditions. " f"Got {len(conditions)}.")
         return pd.DataFrame()
 
+    condition1, condition2 = conditions
     results = []
     for celltype in count_df.columns:
-        group1 = count_df.loc[sample_to_cond == conditions[0], celltype]
-        group2 = count_df.loc[sample_to_cond == conditions[1], celltype]
+        group1 = count_df.loc[sample_to_cond == condition1, celltype]
+        group2 = count_df.loc[sample_to_cond == condition2, celltype]
 
         # Perform Wilcoxon rank-sum test
-        stat, pval = stats.mannwhitneyu(group1, group2, alternative="two-sided")
+        stat, pval = stats.mannwhitneyu(group2, group1, alternative="two-sided")
 
-        # Calculate mean difference
-        mean_diff = group1.mean() - group2.mean()
+        mean_diff = group2.mean() - group1.mean()
 
         results.append(
-            {"cell_type": celltype, "statistic": stat, "pval": pval, "mean_diff": mean_diff}
+            {
+                "cell_type": celltype,
+                "condition1": condition1,
+                "condition2": condition2,
+                "statistic": stat,
+                "pval": pval,
+                "mean_diff": mean_diff,
+                "direction": f"{condition2} - {condition1}",
+            }
         )
 
     return pd.DataFrame(results)
@@ -266,22 +336,45 @@ def _run_contingency_test(count_df: pd.DataFrame, sample_to_cond: pd.Series) -> 
     pd.DataFrame
         Test results with chi-square statistics and p-values
     """
-    conditions = sample_to_cond.unique()
+    conditions = list(sample_to_cond.dropna().unique())
+    if len(conditions) < 2:
+        log.warning("Chi-square test requires 2+ conditions. " f"Got {len(conditions)}.")
+        return pd.DataFrame()
+
+    observed = pd.DataFrame(index=conditions, columns=count_df.columns, dtype=float)
+    for cond in conditions:
+        cond_samples = sample_to_cond[sample_to_cond == cond].index
+        observed.loc[cond] = count_df.loc[cond_samples].sum(axis=0)
+
+    if observed.to_numpy().sum() == 0:
+        log.warning("Chi-square test skipped because the contingency table is empty.")
+        return pd.DataFrame()
+
+    stat, pval, dof, expected = stats.chi2_contingency(observed)
+    expected_df = pd.DataFrame(expected, index=observed.index, columns=observed.columns)
+    # Guard against zero expected values in residuals
+    with np.errstate(divide="ignore", invalid="ignore"):
+        residuals = (observed - expected_df) / np.sqrt(expected_df)
+        contributions = ((observed - expected_df) ** 2 / expected_df).sum(axis=0)
+    residuals = residuals.fillna(0.0).replace([np.inf, -np.inf], 0.0)
+    contributions = contributions.fillna(0.0).replace([np.inf, -np.inf], 0.0)
 
     results = []
-    for celltype in count_df.columns:
-        # Create contingency table
-        contingency = pd.DataFrame()
-
+    for celltype in observed.columns:
+        row = {
+            "cell_type": celltype,
+            "statistic": float(contributions[celltype]),
+            "pval": float(pval),
+            "overall_statistic": float(stat),
+            "overall_pval": float(pval),
+            "dof": int(dof),
+            "method_note": "Per-cell statistics are chi-square contributions; p-values are global.",
+        }
         for cond in conditions:
-            cond_samples = sample_to_cond[sample_to_cond == cond].index
-            counts = count_df.loc[cond_samples, celltype].sum()
-            contingency.loc[celltype, cond] = counts
-
-        # Perform chi-square test
-        stat, pval, dof, expected = stats.chi2_contingency(contingency)
-
-        results.append({"cell_type": celltype, "statistic": stat, "pval": pval, "dof": dof})
+            row[f"observed_{cond}"] = float(observed.loc[cond, celltype])
+            row[f"expected_{cond}"] = float(expected_df.loc[cond, celltype])
+            row[f"std_residual_{cond}"] = float(residuals.loc[cond, celltype])
+        results.append(row)
 
     return pd.DataFrame(results)
 
@@ -311,10 +404,11 @@ def _run_paired_test(
     pd.DataFrame
         Test results with p-values and statistics
     """
-    conditions = sorted(sample_to_cond.unique())
+    conditions = list(sample_to_cond.dropna().unique())
     if len(conditions) != 2:
         log.warning("Paired test requires exactly 2 conditions. " f"Got {len(conditions)}.")
         return pd.DataFrame()
+    condition1, condition2 = conditions
 
     results = []
 
@@ -327,11 +421,11 @@ def _run_paired_test(
             # Check if we have both conditions for this pair
             if len(pair_samples) == 2:
                 cond1_val = count_df.loc[
-                    pair_samples[sample_to_cond.loc[pair_samples] == conditions[0]], celltype
+                    pair_samples[sample_to_cond.loc[pair_samples] == condition1], celltype
                 ].values
 
                 cond2_val = count_df.loc[
-                    pair_samples[sample_to_cond.loc[pair_samples] == conditions[1]], celltype
+                    pair_samples[sample_to_cond.loc[pair_samples] == condition2], celltype
                 ].values
 
                 if len(cond1_val) > 0 and len(cond2_val) > 0:
@@ -347,19 +441,21 @@ def _run_paired_test(
 
         # Perform test
         if test_type == "wilcoxon":
-            stat, pval = stats.wilcoxon(group1, group2)
+            stat, pval = stats.wilcoxon(group2, group1)
         else:  # paired t-test
-            stat, pval = stats.ttest_rel(group1, group2)
+            stat, pval = stats.ttest_rel(group2, group1)
 
-        # Calculate mean difference
-        mean_diff = np.mean(group1 - group2)
+        mean_diff = np.mean(group2 - group1)
 
         results.append(
             {
                 "cell_type": celltype,
+                "condition1": condition1,
+                "condition2": condition2,
                 "statistic": stat,
                 "pval": pval,
                 "mean_diff": mean_diff,
+                "direction": f"{condition2} - {condition1}",
                 "n_pairs": len(pairs),
             }
         )
@@ -535,7 +631,10 @@ def _add_effect_sizes(
     pd.DataFrame
         Results DataFrame with effect size column added
     """
-    conditions = sorted(sample_to_cond.unique())
+    if {"condition1", "condition2"}.issubset(res_df.columns):
+        conditions = [res_df["condition1"].iloc[0], res_df["condition2"].iloc[0]]
+    else:
+        conditions = list(sample_to_cond.dropna().unique())
 
     if len(conditions) != 2:
         log.warning(
@@ -551,7 +650,7 @@ def _add_effect_sizes(
         group1 = count_df.loc[sample_to_cond == conditions[0], celltype]
         group2 = count_df.loc[sample_to_cond == conditions[1], celltype]
 
-        es = _calculate_effect_size(group1, group2, method)
+        es = _calculate_effect_size(group2, group1, method)
         effect_sizes.append(es)
 
     res_df[f"effect_size_{method}"] = effect_sizes

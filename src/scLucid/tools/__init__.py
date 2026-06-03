@@ -73,7 +73,6 @@ _export(
         "summarize_cellphonedb",
     ],
 )
-_export("infercnv", ["find_tumor", "run_cnv_analysis"])
 _export(
     "spatial",
     [

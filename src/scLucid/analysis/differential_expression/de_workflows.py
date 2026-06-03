@@ -198,7 +198,7 @@ def characterize_clusters(
     # Combine results
     clusters = (
         adata.obs[groupby].cat.categories
-        if pd.api.types.is_categorical_dtype(adata.obs[groupby])
+        if isinstance(adata.obs[groupby].dtype, pd.CategoricalDtype)
         else pd.unique(adata.obs[groupby])
     )
 

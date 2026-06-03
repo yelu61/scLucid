@@ -5,7 +5,7 @@ This module provides publication-quality plots:
 - visualize_markers: Multi-panel marker visualization
 - plot_volcano: Volcano plots for DE results
 - plot_multi_cluster_deg: Heatmap of DE genes across clusters
-""",
+"""
 
 import logging
 from typing import Dict, List, Literal, Optional, Tuple, Union
@@ -17,10 +17,23 @@ import scanpy as sc
 import seaborn as sns
 from adjustText import adjust_text
 from anndata import AnnData
+from matplotlib import get_backend
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 log = logging.getLogger(__name__)
+
+
+def _is_interactive_backend() -> bool:
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(fig: plt.Figure) -> None:
+    if _is_interactive_backend():
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 def visualize_markers(
@@ -196,7 +209,7 @@ def visualize_markers(
         log.info(f"Saved visualization to {save_path}")
         plt.close()
     else:
-        plt.show()
+        _show_or_close(plt.gcf())
 
 
 def plot_volcano(
@@ -378,7 +391,7 @@ def plot_volcano(
         log.info(f"Volcano plot saved: {savepath}")
         plt.close()
     else:
-        plt.show()
+        _show_or_close(fig)
 
 
 def plot_multi_cluster_deg(
@@ -710,7 +723,7 @@ def plot_multi_cluster_deg(
         log.info(f"Multi-cluster DEG plot saved: {out_path}")
         plt.close()
     else:
-        plt.show()
+        _show_or_close(fig)
 
 
 # ==================== Result Management ====================

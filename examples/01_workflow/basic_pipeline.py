@@ -11,7 +11,6 @@ import scanpy as sc
 
 import scLucid as scl
 
-
 DATA_PATH = Path("data/pbmc3k.h5ad")
 OUTPUT_DIR = Path("results/examples/workflow_basic")
 
@@ -50,6 +49,14 @@ def main() -> None:
     print(f"QC steps: {qc_summary['steps_executed']}")
     print(f"Preprocessing steps: {preprocess_summary['steps_executed']}")
     print(f"Analysis steps: {analysis_summary['steps_executed']}")
+    analysis_compact = scl.al.summarize_analysis_review_summary(analysis_summary)
+    print(f"Analysis readiness: {analysis_compact['readiness_status']}")
+    print(f"Post-hoc QC review required: {analysis_compact['posthoc_qc_review_required']}")
+    if analysis_compact.get("malignancy_enabled"):
+        print(
+            "Suspect/malignant fraction: "
+            f"{analysis_compact.get('suspect_or_malignant_fraction')}"
+        )
     print(f"Saved to: {OUTPUT_DIR}")
 
 

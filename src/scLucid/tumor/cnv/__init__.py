@@ -27,7 +27,17 @@ from .infercnv import (
     find_tumor_cells,
     identify_clones,
     infer_cnv,
+    plot_aneuploid_proportion,
+    plot_cnv_distribution,
+    plot_cnv_heatmap,
+    plot_per_chromosome_scores,
 )
+
+try:
+    from .infercnvpy import find_tumor, run_cnv_analysis
+except ImportError:
+    find_tumor = None
+    run_cnv_analysis = None
 
 __all__ = [
     "infer_cnv",
@@ -42,4 +52,11 @@ __all__ = [
     "extract_cnv_signatures",
     "assign_cnv_signature",
     "CNVSigExtractor",
+    "plot_cnv_distribution",
+    "plot_cnv_heatmap",
+    "plot_per_chromosome_scores",
+    "plot_aneuploid_proportion",
 ]
+
+if run_cnv_analysis is not None:
+    __all__.extend(["run_cnv_analysis", "find_tumor"])

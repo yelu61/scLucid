@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import scanpy as sc
 
 from scLucid.analysis import (
@@ -12,6 +13,7 @@ from scLucid.analysis import (
     AnnotationConfig,
     ClusteringConfig,
     build_annotation_consensus,
+    build_posthoc_qc_review_summary,
     get_analysis_module_contract,
     run_annotation_evidence,
     run_malignancy_interpretation,
@@ -161,7 +163,23 @@ def test_analysis_module_contract_is_public():
     assert "scLucid.analysis.run_standard_analysis" in contract["stable_entrypoints"]
     assert "clustering_evidence_summary" in contract["required_review_sections"]
     assert "annotation_consensus_summary" in contract["required_review_sections"]
+    assert "posthoc_qc_review_summary" in contract["required_review_sections"]
     assert "malignancy_interpretation_summary" in contract["required_review_sections"]
+
+
+def test_posthoc_qc_review_summary_flags_doublet_heavy_clusters():
+    adata = _make_preprocessed_adata(n_obs=30, n_vars=40)
+    adata.obs["leiden_clusters"] = ["0"] * 15 + ["1"] * 15
+    adata.obs["predicted_doublet"] = [True] * 12 + [False] * 18
+    adata.obs["pct_counts_mt"] = [4.0] * 15 + [25.0] * 15
+
+    summary = build_posthoc_qc_review_summary(adata, cluster_key="leiden_clusters")
+
+    assert summary["review_required"] is True
+    assert summary["n_doublet_heavy_clusters"] == 1
+    assert summary["doublet_heavy_clusters"] == ["0"]
+    assert summary["n_high_mitochondrial_clusters"] == 1
+    assert summary["high_mitochondrial_clusters"] == ["1"]
 
 
 def test_malignancy_interpretation_bridge_adds_reviewable_outputs():
@@ -204,3 +222,43 @@ def test_malignancy_interpretation_bridge_adds_reviewable_outputs():
     ]
     assert summary["available"] is True
     assert summary["n_malignant"] > 0
+    assert 0 < summary["tumor_purity_estimate"] <= 1
+    assert summary["low_tumor_purity_warning"] is False
+
+
+def test_malignancy_interpretation_preserves_unit_interval_external_scores():
+    import anndata
+
+    adata = anndata.AnnData(X=np.ones((6, 2), dtype=np.float32))
+    adata.var_names = ["GeneA", "GeneB"]
+    adata.obs_names = [f"cell_{i}" for i in range(adata.n_obs)]
+    adata.obs["cell_type_auto"] = ["Epithelial cells"] * adata.n_obs
+    adata.obs["external_malignancy_score"] = [1.0] * adata.n_obs
+
+    run_malignancy_interpretation(
+        adata,
+        annotation_key="cell_type_auto",
+        run_cnv=False,
+        run_malignancy_score=False,
+        cnv_score_key=None,
+        malignancy_score_key="external_malignancy_score",
+    )
+
+    assert (adata.obs["malignancy_interpretation_score"] > 0.5).all()
+    assert set(adata.obs["malignancy_call"].astype(str)) == {"malignant"}
+
+
+def test_malignancy_interpretation_validates_threshold_order():
+    import anndata
+
+    adata = anndata.AnnData(X=np.ones((2, 1), dtype=np.float32))
+    adata.var_names = ["GeneA"]
+    adata.obs["cell_type_auto"] = ["T cells", "T cells"]
+
+    with pytest.raises(ValueError, match="suspect_threshold"):
+        run_malignancy_interpretation(
+            adata,
+            annotation_key="cell_type_auto",
+            threshold=0.3,
+            suspect_threshold=0.5,
+        )

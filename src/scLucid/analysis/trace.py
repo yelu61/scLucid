@@ -20,6 +20,7 @@ ANALYSIS_REQUIRED_REVIEW_SECTIONS = {
     "clustering_evidence_summary",
     "annotation_evidence_summary",
     "annotation_consensus_summary",
+    "posthoc_qc_review_summary",
     "malignancy_interpretation_summary",
     "analysis_readiness",
     "review_action_items",
@@ -32,7 +33,7 @@ ANALYSIS_STABLE_ENTRYPOINTS = (
     "scLucid.analysis.run_clustering_review",
     "scLucid.analysis.run_annotation_evidence",
     "scLucid.analysis.build_annotation_consensus",
-    "scLucid.analysis.run_malignancy_interpretation",
+    "scLucid.tumor.malignancy.run_malignancy_interpretation",
     "scLucid.analysis.cluster_cells",
     "scLucid.analysis.find_markers",
     "scLucid.analysis.run_annotation",
@@ -61,6 +62,7 @@ def enrich_analysis_review_summary(
     clustering = build_clustering_evidence_summary(adata, cluster_key)
     annotation = build_annotation_evidence_summary(adata, config=config)
     consensus = build_annotation_consensus_summary(adata, config=config)
+    posthoc_qc = build_posthoc_qc_review_summary(adata, cluster_key=cluster_key)
     malignancy = build_malignancy_interpretation_summary(adata, config=config)
     readiness = build_analysis_readiness_assessment(
         adata=adata,
@@ -70,6 +72,7 @@ def enrich_analysis_review_summary(
         clustering_summary=clustering,
         annotation_summary=annotation,
         consensus_summary=consensus,
+        posthoc_qc_summary=posthoc_qc,
         malignancy_summary=malignancy,
     )
     actions = build_analysis_review_action_items(
@@ -77,6 +80,7 @@ def enrich_analysis_review_summary(
         clustering_summary=clustering,
         annotation_summary=annotation,
         consensus_summary=consensus,
+        posthoc_qc_summary=posthoc_qc,
         malignancy_summary=malignancy,
     )
 
@@ -85,6 +89,7 @@ def enrich_analysis_review_summary(
     summary["clustering_evidence_summary"] = clustering
     summary["annotation_evidence_summary"] = annotation
     summary["annotation_consensus_summary"] = consensus
+    summary["posthoc_qc_review_summary"] = posthoc_qc
     summary["malignancy_interpretation_summary"] = malignancy
     summary["analysis_readiness"] = readiness
     summary["review_action_items"] = actions
@@ -106,6 +111,7 @@ def get_analysis_module_contract() -> dict[str, Any]:
         "clustering_evidence_key": "clustering_evidence_summary",
         "annotation_evidence_key": "annotation_evidence_summary",
         "annotation_consensus_key": "annotation_consensus_summary",
+        "posthoc_qc_review_key": "posthoc_qc_review_summary",
         "malignancy_interpretation_key": "malignancy_interpretation_summary",
         "preprocess_input_key": "preprocess_input_context",
     }
@@ -247,6 +253,112 @@ def build_annotation_consensus_summary(adata: AnnData, *, config: Any) -> dict[s
     )
 
 
+def build_posthoc_qc_review_summary(
+    adata: AnnData,
+    *,
+    cluster_key: str,
+    doublet_flag_cols: tuple[str, ...] = (
+        "predicted_doublet",
+        "scrublet_predicted",
+        "doubletdetection_predicted",
+        "heuristic_predicted",
+    ),
+    doublet_fraction_threshold: float = 0.50,
+    mt_col: str = "pct_counts_mt",
+    mt_mean_threshold: float = 20.0,
+    stress_score_cols: tuple[str, ...] = ("stress_score", "dissociation_stress_score"),
+    stress_score_threshold: float = 0.50,
+) -> dict[str, Any]:
+    """Summarize analysis-time QC risks without automatically filtering cells."""
+    if cluster_key not in adata.obs:
+        return _json_safe(
+            {
+                "available": False,
+                "cluster_key": cluster_key,
+                "review_required": False,
+                "message": f"Cluster key '{cluster_key}' is missing; post-hoc QC review skipped.",
+            }
+        )
+
+    present_doublet_cols = tuple(col for col in doublet_flag_cols if col in adata.obs)
+    present_stress_cols = tuple(col for col in stress_score_cols if col in adata.obs)
+    has_mt = mt_col in adata.obs
+    cluster_series = adata.obs[cluster_key].astype(str)
+    rows: list[dict[str, Any]] = []
+
+    for cluster, obs in adata.obs.groupby(cluster_series, observed=False):
+        row: dict[str, Any] = {
+            "cluster": str(cluster),
+            "n_cells": int(obs.shape[0]),
+            "reasons": [],
+        }
+        if present_doublet_cols:
+            doublet_mask = obs.loc[:, list(present_doublet_cols)].fillna(False).astype(bool).any(axis=1)
+            row["doublet_fraction"] = float(doublet_mask.mean())
+            if row["doublet_fraction"] >= doublet_fraction_threshold:
+                row["reasons"].append("doublet_heavy_cluster")
+        else:
+            row["doublet_fraction"] = None
+
+        if has_mt:
+            mt_values = pd.to_numeric(obs[mt_col], errors="coerce")
+            row["mean_pct_counts_mt"] = float(mt_values.mean()) if mt_values.notna().any() else None
+            if row["mean_pct_counts_mt"] is not None and row["mean_pct_counts_mt"] >= mt_mean_threshold:
+                row["reasons"].append("high_mitochondrial_cluster")
+        else:
+            row["mean_pct_counts_mt"] = None
+
+        if present_stress_cols:
+            stress_values = obs.loc[:, list(present_stress_cols)].apply(
+                pd.to_numeric, errors="coerce"
+            )
+            row["mean_stress_score"] = (
+                float(stress_values.max(axis=1).mean())
+                if stress_values.notna().any(axis=None)
+                else None
+            )
+            if row["mean_stress_score"] is not None and row["mean_stress_score"] >= stress_score_threshold:
+                row["reasons"].append("stress_high_cluster")
+        else:
+            row["mean_stress_score"] = None
+
+        row["review_required"] = bool(row["reasons"])
+        rows.append(row)
+
+    doublet_heavy = [row["cluster"] for row in rows if "doublet_heavy_cluster" in row["reasons"]]
+    high_mt = [row["cluster"] for row in rows if "high_mitochondrial_cluster" in row["reasons"]]
+    stress_high = [row["cluster"] for row in rows if "stress_high_cluster" in row["reasons"]]
+    review_required = bool(doublet_heavy or high_mt or stress_high)
+
+    return _json_safe(
+        {
+            "available": True,
+            "cluster_key": cluster_key,
+            "n_clusters_reviewed": len(rows),
+            "doublet_columns_used": list(present_doublet_cols),
+            "stress_score_columns_used": list(present_stress_cols),
+            "mt_column_used": mt_col if has_mt else None,
+            "doublet_fraction_threshold": float(doublet_fraction_threshold),
+            "mt_mean_threshold": float(mt_mean_threshold),
+            "stress_score_threshold": float(stress_score_threshold),
+            "n_doublet_heavy_clusters": len(doublet_heavy),
+            "n_high_mitochondrial_clusters": len(high_mt),
+            "n_stress_high_clusters": len(stress_high),
+            "doublet_heavy_clusters": doublet_heavy,
+            "high_mitochondrial_clusters": high_mt,
+            "stress_high_clusters": stress_high,
+            "review_required": review_required,
+            "table": rows,
+            "message": (
+                "Post-hoc QC review found clusters that should be inspected before final "
+                "annotation or filtering."
+                if review_required
+                else "No cluster-level doublet, mitochondrial, or stress flags exceeded review thresholds."
+            ),
+        }
+    )
+
+
 def build_malignancy_interpretation_summary(adata: AnnData, *, config: Any) -> dict[str, Any]:
     """Summarize optional malignancy interpretation evidence."""
     malignancy_ns = adata.uns.get("sclucid", {}).get("analysis", {}).get("malignancy", {})
@@ -269,6 +381,10 @@ def build_malignancy_interpretation_summary(adata: AnnData, *, config: Any) -> d
         }
     if call_key in adata.obs:
         calls = adata.obs[call_key].astype(str)
+        n_cells = int(calls.shape[0])
+        suspect_or_malignant = int(
+            ((calls == "malignant") | (calls == "suspect_malignant")).sum()
+        )
         summary.update(
             {
                 "available": True,
@@ -276,7 +392,23 @@ def build_malignancy_interpretation_summary(adata: AnnData, *, config: Any) -> d
                 "n_suspect_malignant": int((calls == "suspect_malignant").sum()),
                 "n_non_malignant": int((calls == "non_malignant").sum()),
                 "n_unresolved": int((calls == "unresolved").sum()),
+                "n_cells_evaluated": n_cells,
+                "malignant_fraction": (
+                    float((calls == "malignant").sum() / n_cells) if n_cells else 0.0
+                ),
+                "suspect_or_malignant_fraction": (
+                    float(suspect_or_malignant / n_cells) if n_cells else 0.0
+                ),
+                "tumor_purity_estimate": (
+                    float(suspect_or_malignant / n_cells) if n_cells else 0.0
+                ),
+                "low_tumor_purity_threshold": float(
+                    summary.get("low_tumor_purity_threshold", 0.10)
+                ),
             }
+        )
+        summary["low_tumor_purity_warning"] = bool(
+            summary["suspect_or_malignant_fraction"] < summary["low_tumor_purity_threshold"]
         )
     if score_key in adata.obs:
         scores = pd.to_numeric(adata.obs[score_key], errors="coerce")
@@ -294,6 +426,7 @@ def build_analysis_readiness_assessment(
     clustering_summary: Mapping[str, Any],
     annotation_summary: Mapping[str, Any],
     consensus_summary: Mapping[str, Any],
+    posthoc_qc_summary: Mapping[str, Any],
     malignancy_summary: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Assess whether analysis outputs are ready for downstream interpretation."""
@@ -316,6 +449,9 @@ def build_analysis_readiness_assessment(
     if "annotation" in successful_steps and not consensus_summary.get("final_obs_present"):
         reasons.append("annotation_consensus_not_applied")
         score -= 0.15
+    if posthoc_qc_summary.get("review_required"):
+        reasons.append("posthoc_qc_review_required")
+        score -= 0.05
     if "malignancy_interpretation" in successful_steps:
         if not malignancy_summary.get("available"):
             reasons.append("malignancy_interpretation_missing")
@@ -349,6 +485,7 @@ def build_analysis_review_action_items(
     clustering_summary: Mapping[str, Any],
     annotation_summary: Mapping[str, Any],
     consensus_summary: Mapping[str, Any],
+    posthoc_qc_summary: Mapping[str, Any],
     malignancy_summary: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     """Create human-review action items from analysis evidence."""
@@ -394,6 +531,21 @@ def build_analysis_review_action_items(
                 evidence_keys=["annotation_consensus_summary"],
             )
         )
+    if posthoc_qc_summary.get("review_required"):
+        actions.append(
+            ReviewAction(
+                priority="review",
+                action=(
+                    "Inspect doublet-heavy, high-mitochondrial, or stress-high clusters before "
+                    "final annotation or downstream tumor interpretation."
+                ),
+                rationale=(
+                    "Analysis-time QC review found cluster-level technical-risk patterns; "
+                    "these should usually trigger manual review, not automatic deletion."
+                ),
+                evidence_keys=["posthoc_qc_review_summary"],
+            )
+        )
     if malignancy_summary.get("enabled") and malignancy_summary.get("review_required"):
         actions.append(
             ReviewAction(
@@ -422,6 +574,9 @@ def build_analysis_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, Any]
         summary.get("malignancy_interpretation_summary", {})
         if isinstance(summary, Mapping)
         else {}
+    )
+    posthoc_qc = (
+        summary.get("posthoc_qc_review_summary", {}) if isinstance(summary, Mapping) else {}
     )
 
     evidence_chain = [
@@ -459,6 +614,17 @@ def build_analysis_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, Any]
                 "downstream tumor analysis."
             ),
             related_keys=["malignancy_interpretation_summary"],
+        ),
+        EvidenceItem(
+            source="output_health",
+            name="posthoc_qc_review",
+            value=posthoc_qc,
+            confidence=None,
+            rationale=(
+                "Cluster-level doublet, mitochondrial, and stress patterns are reviewed after "
+                "analysis to avoid over-filtering biologically plausible tumor states."
+            ),
+            related_keys=["posthoc_qc_review_summary"],
         ),
     ]
     bundle = EvidenceBundle(
@@ -538,6 +704,9 @@ def summarize_analysis_review_summary(summary: Mapping[str, Any]) -> dict[str, A
         if isinstance(payload, Mapping)
         else {}
     )
+    posthoc_qc = (
+        payload.get("posthoc_qc_review_summary", {}) if isinstance(payload, Mapping) else {}
+    )
     return _json_safe(
         {
             "module": "analysis",
@@ -553,9 +722,14 @@ def summarize_analysis_review_summary(summary: Mapping[str, Any]) -> dict[str, A
             "final_key": consensus.get("final_key"),
             "n_final_labels": consensus.get("n_final_labels"),
             "mean_confidence": consensus.get("mean_confidence"),
+            "posthoc_qc_review_required": posthoc_qc.get("review_required"),
+            "n_doublet_heavy_clusters": posthoc_qc.get("n_doublet_heavy_clusters"),
+            "n_high_mitochondrial_clusters": posthoc_qc.get("n_high_mitochondrial_clusters"),
+            "n_stress_high_clusters": posthoc_qc.get("n_stress_high_clusters"),
             "malignancy_enabled": malignancy.get("enabled"),
             "n_malignant": malignancy.get("n_malignant"),
             "n_suspect_malignant": malignancy.get("n_suspect_malignant"),
+            "suspect_or_malignant_fraction": malignancy.get("suspect_or_malignant_fraction"),
         }
     )
 
@@ -655,6 +829,7 @@ __all__ = [
     "ANALYSIS_TRACE_SCHEMA_VERSION",
     "build_analysis_module_maturity_assessment",
     "build_malignancy_interpretation_summary",
+    "build_posthoc_qc_review_summary",
     "enrich_analysis_review_summary",
     "get_analysis_module_contract",
     "summarize_analysis_review_summary",

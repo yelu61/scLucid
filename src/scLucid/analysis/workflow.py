@@ -19,6 +19,7 @@ import pandas as pd
 from anndata import AnnData
 
 from ..base_config import apply_config_overrides
+from ..tumor.malignancy import run_malignancy_interpretation
 from ..utils import (
     PartialResultManager,
     UnsKeys,
@@ -34,7 +35,6 @@ from .annotation import build_annotation_consensus, run_annotation, run_annotati
 from .clustering import cluster_cells, run_clustering_review
 from .config import AnalysisWorkflowConfig, AnnotationConfig
 from .differential_expression import characterize_clusters, find_markers
-from .malignancy import run_malignancy_interpretation
 from .scoring import score_by_gene_sets
 from .trace import enrich_analysis_review_summary, validate_analysis_review_summary
 

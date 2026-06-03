@@ -19,11 +19,8 @@ Usage:
 """
 
 from .config import MethodSelectionConfig, ProportionConfig
-from .pseudobulk import (
-    celltype_proportion_analysis,
-    compute_celltype_proportion,
-    run_statistical_test,
-)
+from .pseudobulk import celltype_proportion_analysis
+from .stats import compute_celltype_proportion, run_statistical_test
 
 # Alias for backward compatibility
 pb_analysis = celltype_proportion_analysis
@@ -34,12 +31,22 @@ from .plots import (
     plot_cell_counts,
     plot_celltype_alluvial,
     plot_celltype_correlation,
+    plot_celltype_variability,
+    plot_composition,
+    plot_composition_pca,
+    plot_composition_transform_heatmap,
+    plot_diff_stats,
     plot_effect_size_volcano,
     plot_grouped_celltype_counts,
     plot_grouped_proportion_bar,
+    plot_individual_boxplots,
+    plot_paired_proportion_shifts,
     plot_proportion_bar,
     plot_proportion_heatmap,
+    plot_proportion_shifts,
     plot_proportion_timeseries,
+    plot_proportion_with_ci,
+    transform_composition,
 )
 from .stats import export_analysis_data
 from .workflow import (
@@ -90,4 +97,14 @@ __all__ = [
     "plot_effect_size_volcano",
     "plot_proportion_timeseries",
     "plot_batch_effect",
+    "plot_composition",
+    "plot_diff_stats",
+    "plot_individual_boxplots",
+    "plot_proportion_shifts",
+    "plot_paired_proportion_shifts",
+    "plot_proportion_with_ci",
+    "plot_celltype_variability",
+    "plot_composition_transform_heatmap",
+    "plot_composition_pca",
+    "transform_composition",
 ]

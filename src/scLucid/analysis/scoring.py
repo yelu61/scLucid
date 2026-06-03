@@ -12,7 +12,7 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 from anndata import AnnData
-from scipy.stats import mannwhitneyu, ttest_ind, zscore
+from scipy.stats import mannwhitneyu, ttest_ind
 
 from ..utils import sanitize_for_hdf5
 from ..utils.manager import Manager
@@ -108,6 +108,37 @@ def _validate_score_column(
             )
 
     return True
+
+
+def _effective_use_raw(adata: AnnData, use_raw: bool) -> bool:
+    """Use raw only when requested and available."""
+    if use_raw and adata.raw is None:
+        log.warning("use_raw=True but adata.raw is not set; using adata.X instead.")
+        return False
+    return use_raw
+
+
+def _assign_mean_gene_score(
+    adata: AnnData,
+    genes: List[str],
+    score_name: str,
+    *,
+    use_raw: bool,
+) -> None:
+    """Fallback score: mean expression of available genes."""
+    source = adata.raw if use_raw and adata.raw is not None else adata
+    X = source[:, genes].X
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+    adata.obs[score_name] = np.asarray(X).mean(axis=1)
+
+
+def _safe_abs_max(values: np.ndarray) -> float:
+    """Return a positive symmetric scale for heatmaps."""
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0 or np.isnan(arr).all():
+        return 1e-6
+    return max(float(np.nanmax(np.abs(arr))), 1e-6)
 
 
 # ===================== Core Scoring Functions =====================
@@ -225,9 +256,35 @@ def score_by_gene_sets(
             )
             per_set_stats[set_name]["scored"] = 1
             scored_count += 1
+        except KeyboardInterrupt:
+            raise
+        except RecursionError:
+            log.error(
+                f"RecursionError while scoring '{set_name}': this likely indicates a bug in the gene set or scanpy."
+            )
+            raise
         except Exception as e:
-            log.warning(f"Failed to score set '{set_name}': {e}")
-            skipped_sets.append(set_name)
+            # Distinguish expected failures (too few control genes, etc.)
+            # from unexpected ones. Unexpected errors should propagate.
+            err_str = str(e).lower()
+            expected_msgs = [
+                "not enough",
+                "too few",
+                "control genes",
+                "all genes",
+                "at least",
+                "insufficient",
+            ]
+            is_expected = any(msg in err_str for msg in expected_msgs)
+            if is_expected:
+                log.warning(f"Expected failure scoring '{set_name}': {e}")
+                skipped_sets.append(set_name)
+            else:
+                log.error(f"Unexpected failure scoring '{set_name}': {e}")
+                raise RuntimeError(
+                    f"Failed to score gene set '{set_name}'. "
+                    f"This may be a bug or incompatibility. Error: {e}"
+                ) from e
 
     ns["gene_set_scoring"] = sanitize_for_hdf5(
         {
@@ -413,6 +470,9 @@ def calculate_signature_matrix(
         Matrix of signature scores (signatures × groups)
     """
     gene_sets = _coerce_gene_sets(gene_sets)
+    use_raw = _effective_use_raw(adata, use_raw)
+    if groupby not in adata.obs.columns:
+        raise KeyError(f"'{groupby}' not found in adata.obs")
     source_var_names = (
         adata.raw.var_names if (use_raw and adata.raw is not None) else adata.var_names
     )
@@ -429,23 +489,35 @@ def calculate_signature_matrix(
         adata_ = adata[adata.obs[groupby].isin(subset_cells)].copy()
     else:
         adata_ = adata.copy()
+    if adata_.n_obs == 0:
+        raise ValueError("No cells available after subsetting")
 
     # Calculate scores
     for sig, genes in valid_sets.items():
-        sc.tl.score_genes(
-            adata_,
-            gene_list=genes,
-            score_name=sig,
-            ctrl_size=min(len(genes), ctrl_size),
-            use_raw=use_raw,
-        )
+        try:
+            sc.tl.score_genes(
+                adata_,
+                gene_list=genes,
+                score_name=sig,
+                ctrl_size=min(len(genes), ctrl_size),
+                use_raw=use_raw,
+            )
+        except RuntimeError as exc:
+            if "No control genes found" not in str(exc):
+                raise
+            log.warning(
+                f"Scanpy control-gene scoring failed for '{sig}'; using mean expression fallback."
+            )
+            _assign_mean_gene_score(adata_, genes, sig, use_raw=use_raw)
 
     # Aggregate by group
-    df = adata_.obs.groupby(groupby)[list(valid_sets.keys())].mean().T
+    df = adata_.obs.groupby(groupby, observed=False)[list(valid_sets.keys())].mean().T
 
     # Apply z-score normalization if requested
     if z_score:
-        df = df.apply(zscore, axis=1)
+        row_mean = df.mean(axis=1)
+        row_std = df.std(axis=1, ddof=0).replace(0, np.nan)
+        df = df.sub(row_mean, axis=0).div(row_std, axis=0).fillna(0.0)
 
     return df
 
@@ -577,6 +649,10 @@ def plot_delta_heatmap(
         (matplotlib axes, delta DataFrame)
     """
     gene_sets = _coerce_gene_sets(gene_sets)
+    use_raw = _effective_use_raw(adata, use_raw)
+    missing_cols = [col for col in [groupby, compare_group] if col not in adata.obs.columns]
+    if missing_cols:
+        raise KeyError(f"Columns not found in adata.obs: {missing_cols}")
 
     source_var_names = (
         adata.raw.var_names if (use_raw and adata.raw is not None) else adata.var_names
@@ -616,13 +692,21 @@ def plot_delta_heatmap(
     obs_data = adata.obs[[groupby, compare_group] + valid_sigs].copy()
 
     # Calculate means for each group
-    mean_ref = obs_data[obs_data[compare_group] == ref_group].groupby(groupby)[valid_sigs].mean()
+    mean_ref = (
+        obs_data[obs_data[compare_group] == ref_group]
+        .groupby(groupby, observed=True)[valid_sigs]
+        .mean()
+    )
     mean_target = (
-        obs_data[obs_data[compare_group] == target_group].groupby(groupby)[valid_sigs].mean()
+        obs_data[obs_data[compare_group] == target_group]
+        .groupby(groupby, observed=True)[valid_sigs]
+        .mean()
     )
 
     # Align subclusters
     common_subclusters = mean_ref.index.intersection(mean_target.index)
+    if len(common_subclusters) == 0:
+        raise ValueError(f"No common '{groupby}' values for {target_group} vs {ref_group}")
     mean_ref = mean_ref.loc[common_subclusters]
     mean_target = mean_target.loc[common_subclusters]
 
@@ -631,7 +715,7 @@ def plot_delta_heatmap(
 
     # Plot
     plt.figure(figsize=figsize)
-    max_val = np.max(np.abs(delta_df.values))
+    max_val = _safe_abs_max(delta_df.values)
 
     ax = sns.heatmap(
         delta_df,
@@ -709,6 +793,9 @@ def batch_plot_delta_heatmap(
     ... )
     """
     gene_sets = _coerce_gene_sets(gene_sets)
+    missing_cols = [col for col in [groupby, compare_group] if col not in adata.obs.columns]
+    if missing_cols:
+        raise KeyError(f"Columns not found in adata.obs: {missing_cols}")
 
     n_pairs = len(condition_pairs)
     nrows = (n_pairs + ncols - 1) // ncols
@@ -724,6 +811,7 @@ def batch_plot_delta_heatmap(
     results = []
 
     # Pre-calculate all delta matrices (避免重复计算)
+    use_raw = _effective_use_raw(adata, use_raw)
     source_var_names = (
         adata.raw.var_names if (use_raw and adata.raw is not None) else adata.var_names
     )
@@ -755,9 +843,15 @@ def batch_plot_delta_heatmap(
         ax = axes[row, col]
 
         # Calculate delta for this pair
-        mean_ref = obs_data[obs_data[compare_group] == ref].groupby(groupby)[valid_sigs].mean()
+        mean_ref = (
+            obs_data[obs_data[compare_group] == ref]
+            .groupby(groupby, observed=True)[valid_sigs]
+            .mean()
+        )
         mean_target = (
-            obs_data[obs_data[compare_group] == target].groupby(groupby)[valid_sigs].mean()
+            obs_data[obs_data[compare_group] == target]
+            .groupby(groupby, observed=True)[valid_sigs]
+            .mean()
         )
 
         common_groups = mean_ref.index.intersection(mean_target.index)
@@ -779,7 +873,7 @@ def batch_plot_delta_heatmap(
         delta_df = mean_target - mean_ref
 
         # Plot on subplot
-        max_val = np.max(np.abs(delta_df.values))
+        max_val = _safe_abs_max(delta_df.values)
 
         sns.heatmap(
             delta_df,
@@ -896,6 +990,13 @@ def plot_score_violin_with_stats(
         (matplotlib axes, statistics dict)
     """
     # Subset data if requested
+    required_cols = [score_key, groupby]
+    if subset_key:
+        required_cols.append(subset_key)
+    missing_cols = [col for col in required_cols if col not in adata.obs.columns]
+    if missing_cols:
+        raise KeyError(f"Columns not found in adata.obs: {missing_cols}")
+
     plot_df = adata.obs.copy()
     if subset_key and subset_value:
         plot_df = plot_df[plot_df[subset_key] == subset_value]
@@ -909,6 +1010,11 @@ def plot_score_violin_with_stats(
     # Extract group data
     group1_data = plot_df[plot_df[groupby] == group1][score_key].dropna()
     group2_data = plot_df[plot_df[groupby] == group2][score_key].dropna()
+    if len(group1_data) < 2 or len(group2_data) < 2:
+        raise ValueError(
+            f"Need at least 2 observations per group; got {group1}={len(group1_data)}, "
+            f"{group2}={len(group2_data)}"
+        )
 
     # Perform statistical test
     if test == "wilcoxon":
@@ -979,7 +1085,7 @@ def plot_score_violin_with_stats(
     # Add statistical annotation
     y_max = plot_df[score_key].max()
     y_min = plot_df[score_key].min()
-    y_range = y_max - y_min
+    y_range = max(float(y_max - y_min), 1e-6)
 
     # Draw significance line
     line_height = y_max + 0.05 * y_range

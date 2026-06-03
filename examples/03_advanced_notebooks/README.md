@@ -29,6 +29,9 @@ For a publication-oriented package, notebooks should be used to show:
 - `Step2-Annotation_and_Malignancy.ipynb` - evidence-first analysis acceptance
   shell for clustering review, marker/CellTypist/LLM annotation evidence,
   consensus labels, optional malignancy interpretation, and reviewable artifacts.
+  The analysis review summary should include post-hoc QC review flags for
+  doublet-heavy, high-mitochondrial, or stress-high clusters, plus optional
+  malignant/suspect fraction estimates when malignancy interpretation is run.
   It starts from `Step2-sce_preprocessed.h5ad`, calls
   `scripts/run_analysis_acceptance.py`, and writes
   `data/processed/Step3-sce_annotated.h5ad`.
@@ -66,6 +69,8 @@ other R bridge workflows.
 Tumor purity, malignancy evidence, CNV interpretation, stress-state biology,
 and doublet-heavy cluster interpretation belong in Step2 and the analysis/tumor
 modules, where they can be reviewed with annotation and biological context.
+Step2 should treat these signals as review evidence first; automatic deletion
+belongs only after project-specific manual confirmation.
 
 ## Recommended Maintenance Rules
 

@@ -13,6 +13,7 @@ from .classification import (
     classify_malignant_cells,
     score_malignancy_potential,
 )
+from .interpretation import run_malignancy_interpretation
 from .scoring import (
     MalignancyScorer,
     calculate_proliferation_index,
@@ -34,6 +35,7 @@ __all__ = [
     "classify_malignant_cells",
     "score_malignancy_potential",
     "MalignancyClassifier",
+    "run_malignancy_interpretation",
     "calculate_stemness_score",
     "identify_cancer_stem_cells",
     "compare_stemness_between_groups",

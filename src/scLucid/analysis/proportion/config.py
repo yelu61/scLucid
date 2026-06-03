@@ -28,7 +28,6 @@ class ProportionConfig(SclucidBaseConfig):
         "anova",
         "kruskal",
         "chi-square",
-        "fisher",
         "paired-t-test",
         "paired-wilcoxon",
     ] = Field(default="wilcoxon")

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional, Union
 
-import logging
 import pandas as pd
 from anndata import AnnData
 

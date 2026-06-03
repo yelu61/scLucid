@@ -142,7 +142,7 @@ def run_clustering_review(
         else:
             raise ValueError("method must be 'leiden' or 'louvain'.")
 
-        if not pd.api.types.is_categorical_dtype(adata.obs[cluster_key]):
+        if not isinstance(adata.obs[cluster_key].dtype, pd.CategoricalDtype):
             adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
 
         cluster_series = adata.obs[cluster_key].astype(str)
@@ -461,7 +461,7 @@ def cluster_cells(
         ) from e
 
     # Ensure categorical type
-    if not pd.api.types.is_categorical_dtype(adata.obs[key_added]):
+    if not isinstance(adata.obs[key_added].dtype, pd.CategoricalDtype):
         adata.obs[key_added] = adata.obs[key_added].astype("category")
 
     n_clusters = int(adata.obs[key_added].nunique())
@@ -543,7 +543,7 @@ def merge_clusters(
     if cluster_key not in adata.obs:
         raise ValueError(f"cluster_key '{cluster_key}' not found in adata.obs")
 
-    if not pd.api.types.is_categorical_dtype(adata.obs[cluster_key]):
+    if not isinstance(adata.obs[cluster_key].dtype, pd.CategoricalDtype):
         adata.obs[cluster_key] = adata.obs[cluster_key].astype("category")
     original_clusters = list(adata.obs[cluster_key].cat.categories)
     n_original = len(original_clusters)
@@ -571,7 +571,7 @@ def merge_clusters(
                 )
             else:
                 top_markers = {}
-                for g, df in markers.groupby("group"):
+                for g, df in markers.groupby("group", observed=False):
                     df2 = df.copy()
                     if "pvals_adj" in df2.columns and "logfoldchanges" in df2.columns:
                         df2 = df2.query("pvals_adj < 0.05 & logfoldchanges > 0.5")

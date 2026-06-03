@@ -127,6 +127,7 @@ from .profiling import (
 # Import result cleanup utilities
 from .result_cleanup import (
     clear_sclucid_results,
+    compact_sclucid_uns,
     list_sclucid_modules,
 )
 
@@ -269,6 +270,7 @@ __all__ = [
     "model_to_dict",
     # Result cleanup
     "clear_sclucid_results",
+    "compact_sclucid_uns",
     "list_sclucid_modules",
     # Workflow utilities
     "get_progress_bar",
