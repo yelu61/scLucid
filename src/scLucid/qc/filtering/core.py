@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from matplotlib import get_backend
 from scipy import stats
 
 from ..adaptive_threshold import compute_mad_bounds
@@ -28,6 +29,11 @@ __all__ = [
     "mark_low_quality_cells_adaptive",
     "filter_cells",
 ]
+
+
+def _is_interactive_backend() -> bool:
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
 
 
 class AdaptiveThresholdCalculator:
@@ -175,12 +181,43 @@ class AdaptiveThresholdCalculator:
 
         elif method == "hierarchical":
             # Hierarchical: adjust batch-specific thresholds toward global mean
-            # This is like empirical Bayes shrinkage
+            # using empirical-Bayes shrinkage estimated from the data.
 
             # Global statistics
             global_values = self.adata.obs[metric].dropna()
             global_mean = global_values.mean()
             global_std = global_values.std()
+
+            # --- Empirical Bayes: estimate between- vs within-batch variance ---
+            batch_stats = []
+            for batch in batches:
+                batch_mask = self.adata.obs[self.batch_key] == batch
+                batch_values = self.adata.obs.loc[batch_mask, metric].dropna()
+                if len(batch_values) > 1:
+                    batch_stats.append(
+                        {
+                            "mean": batch_values.mean(),
+                            "var": batch_values.var(ddof=1),
+                            "n": len(batch_values),
+                        }
+                    )
+
+            # Between-batch variance (tau^2)
+            if len(batch_stats) > 1:
+                batch_means = np.array([b["mean"] for b in batch_stats])
+                tau_sq = float(np.var(batch_means, ddof=1))
+            else:
+                tau_sq = 0.0
+
+            # Pooled within-batch variance (sigma^2)
+            if batch_stats:
+                pooled_var = np.average(
+                    [b["var"] for b in batch_stats],
+                    weights=[b["n"] - 1 for b in batch_stats],
+                )
+                sigma_sq = float(pooled_var) if pooled_var > 0 else global_std**2
+            else:
+                sigma_sq = global_std**2 if global_std > 0 else 1.0
 
             for batch in batches:
                 batch_mask = self.adata.obs[self.batch_key] == batch
@@ -189,8 +226,13 @@ class AdaptiveThresholdCalculator:
                 batch_std = batch_values.std()
                 n_batch = len(batch_values)
 
-                # Shrinkage factor (more shrinkage for small batches)
-                shrinkage = 1 / (1 + n_batch / 100)
+                # Empirical Bayes shrinkage:
+                #   lambda = sigma^2 / (sigma^2 + n_batch * tau^2)
+                # Small batch / similar batches  -> lambda -> 1 (shrink heavily)
+                # Large batch / different batches -> lambda -> 0 (keep batch estimate)
+                denom = sigma_sq + n_batch * tau_sq
+                shrinkage = sigma_sq / denom if denom > 0 else 0.5
+                shrinkage = float(np.clip(shrinkage, 0.05, 0.95))
 
                 # Shrunken estimates
                 adjusted_mean = (1 - shrinkage) * batch_mean + shrinkage * global_mean
@@ -325,7 +367,7 @@ def _safe_threshold_check(
 def _identify_outliers_subset(
     obs_subset: pd.DataFrame,
     metrics: List[Tuple[str, str, Optional[float]]],
-    nmads: float = 5.0,
+    nmads: float = 4.0,
     group_name: str = "global",
 ) -> pd.Series:
     """
@@ -535,7 +577,7 @@ def _plot_qc_outliers(
             plt.savefig(filepath, dpi=300, facecolor="white", bbox_inches="tight")
             log.info(f"Saved QC outlier plot to {filepath}")
 
-        if show:
+        if show and _is_interactive_backend():
             plt.show()
         else:
             plt.close(fig)
@@ -615,7 +657,7 @@ def identify_outliers(
     adata: AnnData,
     metrics: List[Tuple[str, str, Optional[float]]],
     sample_key: Optional[str] = None,
-    nmads: float = 5.0,
+    nmads: float = 4.0,
 ) -> pd.Series:
     """
     Identify outliers based on metrics using median absolute deviation (MAD) or fixed thresholds.
@@ -733,55 +775,64 @@ def mark_low_quality_cell(
 
     # === THRESHOLD CHECKS ===
 
-    # Gene count thresholds
-    if sample_thresholds and "n_genes_by_counts" in next(iter(sample_thresholds.values()), {}):
-        outlier_min_genes = pd.Series(False, index=adata.obs_names)
-        for sample, idx in sample_indices.items():
-            st = sample_thresholds.get(sample, {}).get("n_genes_by_counts", {})
-            th = st.get("lower")
-            if th is not None:
-                outlier_min_genes.loc[idx] = adata.obs.loc[idx, "n_genes_by_counts"] < th
-        adata.obs["outlier_min_genes"] = outlier_min_genes
-    else:
-        adata.obs["outlier_min_genes"] = _safe_threshold_check(
-            adata.obs["n_genes_by_counts"], thresholds.min_genes, "<", "min_genes"
+    # --- Helper to resolve per-sample thresholds with both lower/upper support ---
+    def _resolve_sample_threshold(
+        metric_name: str,
+        global_lower_val: Optional[float],
+        global_upper_val: Optional[float],
+    ) -> Tuple[pd.Series, pd.Series]:
+        """Return (lower_outliers, upper_outliers) for a metric."""
+        lower_out = pd.Series(False, index=adata.obs_names)
+        upper_out = pd.Series(False, index=adata.obs_names)
+        has_sample_th = (
+            sample_thresholds is not None
+            and metric_name in next(iter(sample_thresholds.values()), {})
         )
+        if has_sample_th:
+            for sample, idx in sample_indices.items():
+                st = sample_thresholds.get(sample, {}).get(metric_name, {})
+                th_low = st.get("lower")
+                th_up = st.get("upper")
+                if th_low is not None:
+                    lower_out.loc[idx] = adata.obs.loc[idx, metric_name] < th_low
+                if th_up is not None:
+                    upper_out.loc[idx] = adata.obs.loc[idx, metric_name] > th_up
+        else:
+            if global_lower_val is not None:
+                lower_out = _safe_threshold_check(
+                    adata.obs[metric_name], global_lower_val, "<", f"{metric_name}_lower"
+                )
+            if global_upper_val is not None:
+                upper_out = _safe_threshold_check(
+                    adata.obs[metric_name], global_upper_val, ">", f"{metric_name}_upper"
+                )
+        return lower_out, upper_out
 
-    adata.obs["outlier_max_genes"] = _safe_threshold_check(
-        adata.obs["n_genes_by_counts"], thresholds.max_genes, ">", "max_genes"
+    # Gene count thresholds
+    outlier_min_genes, outlier_max_genes = _resolve_sample_threshold(
+        "n_genes_by_counts",
+        thresholds.min_genes,
+        thresholds.max_genes,
     )
+    adata.obs["outlier_min_genes"] = outlier_min_genes
+    adata.obs["outlier_max_genes"] = outlier_max_genes
 
     # Total count thresholds
-    if sample_thresholds and "total_counts" in next(iter(sample_thresholds.values()), {}):
-        outlier_min_counts = pd.Series(False, index=adata.obs_names)
-        for sample, idx in sample_indices.items():
-            st = sample_thresholds.get(sample, {}).get("total_counts", {})
-            th = st.get("lower")
-            if th is not None:
-                outlier_min_counts.loc[idx] = adata.obs.loc[idx, "total_counts"] < th
-        adata.obs["outlier_min_counts"] = outlier_min_counts
-    else:
-        adata.obs["outlier_min_counts"] = _safe_threshold_check(
-            adata.obs["total_counts"], thresholds.min_counts, "<", "min_counts"
-        )
-
-    adata.obs["outlier_max_counts"] = _safe_threshold_check(
-        adata.obs["total_counts"], thresholds.max_counts, ">", "max_counts"
+    outlier_min_counts, outlier_max_counts = _resolve_sample_threshold(
+        "total_counts",
+        thresholds.min_counts,
+        thresholds.max_counts,
     )
+    adata.obs["outlier_min_counts"] = outlier_min_counts
+    adata.obs["outlier_max_counts"] = outlier_max_counts
 
     # Mitochondrial percentage threshold
-    if sample_thresholds and "pct_counts_mt" in next(iter(sample_thresholds.values()), {}):
-        outlier_mt = pd.Series(False, index=adata.obs_names)
-        for sample, idx in sample_indices.items():
-            st = sample_thresholds.get(sample, {}).get("pct_counts_mt", {})
-            th = st.get("upper")
-            if th is not None:
-                outlier_mt.loc[idx] = adata.obs.loc[idx, "pct_counts_mt"] > th
-        adata.obs["outlier_mt"] = outlier_mt
-    else:
-        adata.obs["outlier_mt"] = _safe_threshold_check(
-            adata.obs["pct_counts_mt"], thresholds.pc_mt, ">", "mitochondrial_percentage"
-        )
+    outlier_mt_lower, outlier_mt = _resolve_sample_threshold(
+        "pct_counts_mt",
+        None,  # no lower bound for MT%
+        thresholds.pc_mt,
+    )
+    adata.obs["outlier_mt"] = outlier_mt | outlier_mt_lower
 
     # Hemoglobin percentage threshold (if available)
     if "pct_counts_hb" in adata.obs.columns:
@@ -960,7 +1011,7 @@ def mark_low_quality_cells_adaptive(
                 # Upper threshold for percentage metrics
                 batch_outliers = values > batch_thresholds["upper"]
 
-            outlier_mask[batch_mask] = batch_outliers
+            outlier_mask.loc[batch_mask] = batch_outliers.astype(bool).to_numpy()
 
         adata.obs[f"outlier_{metric}_adaptive"] = outlier_mask
 
@@ -1102,13 +1153,21 @@ def filter_cells(
 
     elif cfg.combination_logic == "custom":
         # Use custom expression
+        if not cfg.custom_logic_expr:
+            raise ValueError("custom_logic_expr must be provided when combination_logic='custom'")
         try:
             # Create a namespace with all criteria for evaluation
             namespace = {col: criteria_masks[col] for col in valid_criteria}
-            combined_removal_mask = eval(cfg.custom_logic_expr, {"__builtins__": {}}, namespace)
+            combined_removal_mask = pd.eval(
+                cfg.custom_logic_expr,
+                local_dict=namespace,
+                engine="python",
+                parser="pandas",
+            )
 
             if not isinstance(combined_removal_mask, pd.Series):
                 combined_removal_mask = pd.Series(combined_removal_mask, index=adata.obs_names)
+            combined_removal_mask = combined_removal_mask.reindex(adata.obs_names).fillna(False).astype(bool)
 
         except Exception as e:
             log.error(f"Error evaluating custom logic expression: {e}")
@@ -1180,25 +1239,10 @@ def filter_cells(
         "removed_cells": removed_count,
         "removed_fraction": removed_count / initial_cells if initial_cells > 0 else 0,
         "criteria_used": valid_criteria,
-        "combination_logic": config.combination_logic,
+        "combination_logic": cfg.combination_logic,
         "criteria_counts": criteria_counts,
-        "config": config.to_dict() if config else {"criteria": criteria},
+        "config": cfg.to_dict(),
     }
-
-    # Decide where to save the results. If this is a copy, save to the new object.
-    target_adata = adata
-    if copy:
-        # If we return a copy, the stats should be in the new object's .uns
-        # The filtering logic already returns a copy, so we just add the .uns dict to it.
-        adata_filtered = adata[keep_mask, :].copy()
-        target_adata = adata_filtered
-
-    if "sclucid" not in target_adata.uns:
-        target_adata.uns["sclucid"] = {}
-    if "qc" not in target_adata.uns["sclucid"]:
-        target_adata.uns["sclucid"]["qc"] = {}
-
-    target_adata.uns["sclucid"]["qc"]["filtering_results"] = stats
 
     # Perform filtering
     if copy:
@@ -1211,5 +1255,3 @@ def filter_cells(
         adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["filtering_results"] = stats
         adata._inplace_subset_obs(keep_mask)
         return None
-
-

@@ -18,6 +18,11 @@ should satisfy five standards:
 - real-data golden-path validation on PBMC and tumor datasets
 - clear docs and examples that match the maintained code path
 
+The maintained code path is a light-dependency default with optional
+enhancements. Defaults should not require R, scVI-tools, Scanorama,
+DoubletDetection, or other heavy extras. Those methods remain supported as
+explicit opt-in extensions when the dataset and environment justify them.
+
 QC As The First Benchmark Module
 --------------------------------
 
@@ -37,10 +42,20 @@ Required QC outputs:
 - ``adata.uns["sclucid"]["qc"]["review_summary"]``
 - optional report sidecars under the configured ``save_dir``
 
+QC entries that can usually be compacted after review sidecars are exported:
+
+- detailed benchmark payloads duplicated inside ``review_summary``
+- doublet diagnostic parameter/evidence payloads when exported tables exist
+- raw recommendation objects when applied/original configs and review summaries
+  are retained
+
 QC hardening tasks:
 
 - keep ``run_standard_qc`` as the canonical workflow entrypoint
 - keep ``recommend_intelligent_qc`` executable as a standalone simple API tool
+- keep ScDblFinder and ambient RNA correction outside the default QC/preprocess
+  path; removed wrappers should not reappear unless there is a clear
+  dependency and maintenance plan
 - make user overrides explicit in the review summary
 - test tumor-aware behavior on PDAC data where high mitochondrial content may
   be a warning rather than an automatic removal criterion
@@ -66,12 +81,33 @@ Required preprocessing outputs:
 - ``adata.uns["sclucid"]["preprocess"]["workflow_config"]``
 - ``adata.uns["sclucid"]["preprocess"]["review_summary"]``
 
+Preprocessing entries that can usually be compacted after the handoff to
+analysis:
+
+- normalization/HVG/scaling/integration diagnostic dictionaries once their
+  summaries are in ``review_summary``
+- large integration evaluation payloads and temporary intelligent-preprocess
+  recommendation details after sidecar export
+- redundant layer statistics when counts, normalized layer, PCA, neighbors, and
+  review summary are retained
+
+Analysis entries that can usually be compacted before long-term storage:
+
+- full DE, enrichment, proportion, and annotation-review tables after exporting
+  them to sidecar files
+- intermediate clustering-resolution grids after the chosen cluster labels and
+  review summary are retained
+
 Preprocessing hardening tasks:
 
 - keep ``run_preprocessing`` as the canonical workflow entrypoint
 - make layer transitions explicit in the review summary
 - make HVG selection evidence inspectable
+- keep regression and batch correction opt-in by default, and document when to
+  enable them
 - document when to skip regression or HVG subsetting
+- keep ``scanpy.external.pp.scran_normalize`` as the only supported optional
+  scran path; avoid custom rpy2/Bioconductor execution branches
 - warn when tumor data are batch-corrected in a way that may remove malignant,
   clone, patient, or microenvironment signal
 - test small datasets where PCA components and neighbors must be clipped safely

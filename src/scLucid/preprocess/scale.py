@@ -89,12 +89,10 @@ def _robust_scale_sparse(
 
     # Scale: (X - median) / MAD
     X_scaled = X_csc.copy()
-
-    # Subtract median (broadcast-safe for sparse)
-    for i in range(n_genes):
-        col = X_scaled.getcol(i)
-        col.data = (col.data - medians[i]) / mads[i]
-        X_scaled[:, i] = col
+    if X_scaled.nnz:
+        counts_per_gene = np.diff(X_scaled.indptr)
+        gene_indices = np.repeat(np.arange(n_genes), counts_per_gene)
+        X_scaled.data = (X_scaled.data - medians[gene_indices]) / mads[gene_indices]
 
     # Clip values if max_value specified
     if max_value is not None:

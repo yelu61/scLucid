@@ -19,6 +19,7 @@ from scLucid.qc.doublet import (
     predict_doublets,
     DoubletEvidenceProfiler,
 )
+from scLucid.qc.doublet.ensemble import _merge_doublet_predictions
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +95,13 @@ class TestRunHeuristic:
 class TestPredictDoublets:
     """Tests for the main predict_doublets entry point."""
 
+    def test_doubletdetection_default_p_thresh_is_moderate(self):
+        cfg = DoubletConfig()
+        assert cfg.dd_p_thresh == 1e-4
+
+        custom = DoubletConfig(dd_p_thresh=0.01)
+        assert custom.dd_p_thresh == 0.01
+
     def test_heuristic_only(self, minimal_adata):
         """predict_doublets with heuristic only should populate required columns."""
         adata = minimal_adata.copy()
@@ -144,6 +152,21 @@ class TestPredictDoublets:
 
         out = predict_doublets(adata, config=None, sample_key="sampleID")
         assert "predicted_doublet" in out.obs.columns
+
+    def test_merge_doublet_predictions_all_zero_scores_is_stable(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["algorithm_score"] = 0.0
+        adata.obs["heuristic_score"] = 0.0
+
+        merged = _merge_doublet_predictions(
+            adata,
+            algorithm_score_col="algorithm_score",
+            heuristic_score_col="heuristic_score",
+            expected_rate=0.1,
+        )
+
+        assert merged.notna().all()
+        assert not merged.any()
 
 
 # ---------------------------------------------------------------------------

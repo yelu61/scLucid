@@ -236,13 +236,13 @@ def test_run_intelligent_preprocessing_stores_trace(monkeypatch, minimal_adata):
 
 
 @pytest.mark.unit
-def test_workflow_config_default_sets_all_run_flags_true():
+def test_workflow_config_default_keeps_optional_enhancements_off():
     config = WorkflowConfig.default()
-    assert config.run_regression is True
+    assert config.run_regression is False
     assert config.run_scaling is True
     assert config.run_pca is True
     assert config.run_neighbors is True
-    assert config.run_integration is True
+    assert config.run_integration is False
 
 
 @pytest.mark.unit

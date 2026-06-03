@@ -66,6 +66,32 @@ class TestQualityAwareNormalize:
         )
         assert "quality_normalized" in result.layers
 
+    def test_quality_aware_normalize_sparse_input_stays_sparse(self):
+        """Sparse input should not be densified during quality-aware normalization."""
+        from scLucid.preprocess import quality_aware_normalize
+
+        adata = _make_adata_with_qc(n_cells=80, n_genes=40)
+        counts = scipy.sparse.csr_matrix(adata.layers["counts"])
+        adata.X = counts.copy()
+        adata.layers["counts"] = counts.copy()
+
+        result = quality_aware_normalize(
+            adata,
+            quality_metrics=["pct_counts_mt", "doublet_score"],
+            input_layer="counts",
+            output_layer="quality_normalized",
+            target_sum=1e4,
+            log_transform=True,
+        )
+
+        normalized = result.layers["quality_normalized"]
+        assert scipy.sparse.isspmatrix_csr(normalized)
+        assert normalized.shape == (80, 40)
+        assert np.isfinite(normalized.data).all()
+        assert "quality_score" in result.obs
+        assert "quality_bin" in result.obs
+        assert "quality_weight" in result.obs
+
     def test_quality_aware_normalize_missing_metric(self):
         """Missing quality metric raises ValueError."""
         from scLucid.preprocess import quality_aware_normalize
@@ -277,3 +303,16 @@ class TestQualityAwareNormalize:
             n_bins=1,
         )
         assert "quality_normalized" in result.layers
+
+    def test_adaptive_normalize_rejects_removed_sctransform_method(self):
+        """The R-oriented SCTransform label is intentionally not an adaptive method."""
+        from scLucid.preprocess.adaptive_normalize import (
+            AdaptiveNormalizationConfig,
+            adaptive_normalize,
+        )
+
+        adata = _make_adata_with_qc(n_cells=20)
+        config = AdaptiveNormalizationConfig(method="sctransform", plot=False)
+
+        with pytest.raises(ValueError, match="Unknown method"):
+            adaptive_normalize(adata, config=config)

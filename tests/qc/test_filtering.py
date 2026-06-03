@@ -1,8 +1,10 @@
 """Tests for QC filtering functions."""
 
+from anndata import AnnData
 import pandas as pd
 import pytest
 
+from scLucid.qc.config import FilterConfig
 from scLucid.qc.filtering import (
     filter_cells,
     generate_qc_report,
@@ -128,9 +130,57 @@ class TestFilterCells:
         result = filter_cells(qc_test_adata, copy=True)
         assert result is None or isinstance(result, qc_test_adata.__class__)
 
+    def test_filter_with_copy_copies_once_and_stores_stats(self, qc_test_adata, monkeypatch):
+        adata = qc_test_adata.copy()
+        adata.obs["outlier_for_copy_test"] = [i % 3 == 0 for i in range(adata.n_obs)]
+        config = FilterConfig(
+            criteria_to_filter=["outlier_for_copy_test"],
+            combination_logic="any",
+        )
+
+        copy_calls = 0
+        original_copy = AnnData.copy
+
+        def counting_copy(self, filename=None):
+            nonlocal copy_calls
+            copy_calls += 1
+            return original_copy(self, filename=filename)
+
+        monkeypatch.setattr(AnnData, "copy", counting_copy)
+
+        result = filter_cells(adata, config=config, copy=True)
+
+        assert copy_calls == 1
+        assert result.n_obs < adata.n_obs
+        assert adata.n_obs == qc_test_adata.n_obs
+        assert "filtering_results" in result.uns["sclucid"]["qc"]
+
     def test_filter_empty_config(self, qc_test_adata):
         result = filter_cells(qc_test_adata.copy(), copy=True)
         assert result is not None or result is None  # Accept either behavior
+
+    def test_custom_logic_uses_criteria_namespace(self, qc_test_adata):
+        adata = qc_test_adata.copy()
+        reps = (adata.n_obs // 4) + 1
+        adata.obs["outlier_a"] = ([True, True, False, False] * reps)[: adata.n_obs]
+        adata.obs["outlier_b"] = ([True, False, True, False] * reps)[: adata.n_obs]
+        config = FilterConfig(
+            criteria_to_filter=["outlier_a", "outlier_b"],
+            combination_logic="custom",
+            custom_logic_expr="outlier_a & outlier_b",
+        )
+
+        result = filter_cells(adata, config=config, copy=True)
+
+        assert result.n_obs == adata.n_obs - int((adata.obs["outlier_a"] & adata.obs["outlier_b"]).sum())
+
+    def test_custom_logic_requires_expression(self, qc_test_adata):
+        with pytest.raises(ValueError, match="custom_logic_expr"):
+            FilterConfig(
+                criteria_to_filter=["outlier_a"],
+                combination_logic="custom",
+                custom_logic_expr=None,
+            )
 
 
 class TestGenerateQCReport:

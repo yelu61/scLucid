@@ -5,9 +5,11 @@ Tests the standardized storage API for adata.uns['sclucid'].
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 from anndata import AnnData
 
+from scLucid.utils.result_cleanup import compact_sclucid_uns
 from scLucid.utils.storage import (
     STORAGE_ROOT,
     VALID_MODULES,
@@ -201,6 +203,72 @@ class TestClearStorage:
 
         assert "qc" not in empty_adata.uns[STORAGE_ROOT]
         assert "qc" in result["modules_cleared"]
+
+
+class TestCompactSclucidUns:
+    """Test stage-wise compacting of sclucid uns payloads."""
+
+    def test_compact_preserves_review_material_and_removes_heavy_keys(self, empty_adata):
+        empty_adata.uns[STORAGE_ROOT] = {
+            "qc": {
+                "review_summary": {"module": "qc"},
+                "workflow_config": {"sample_key": "sampleID"},
+                "benchmark_summary": pd.DataFrame({"x": range(10)}),
+                "doublet_params": {"large": np.ones((5, 5))},
+            },
+            "preprocess": {
+                "review_summary": {"module": "preprocess"},
+                "hvg": {"n_hvg": 2000},
+                "normalization": {"input_stats": {"mean": 1.0}},
+            },
+            "analysis": {
+                "review_summary": {"module": "analysis"},
+                "de": {"markers": pd.DataFrame({"gene": ["A", "B"]})},
+            },
+        }
+
+        result = compact_sclucid_uns(empty_adata)
+
+        assert result["dry_run"] is False
+        assert "qc.benchmark_summary" in result["removed"]
+        assert "preprocess.hvg" in result["removed"]
+        assert "analysis.de" in result["removed"]
+        assert empty_adata.uns[STORAGE_ROOT]["qc"] == {
+            "review_summary": {"module": "qc"},
+            "workflow_config": {"sample_key": "sampleID"},
+        }
+        assert empty_adata.uns[STORAGE_ROOT]["preprocess"] == {
+            "review_summary": {"module": "preprocess"}
+        }
+        assert empty_adata.uns[STORAGE_ROOT]["analysis"] == {
+            "review_summary": {"module": "analysis"}
+        }
+
+    def test_compact_dry_run_does_not_modify(self, empty_adata):
+        empty_adata.uns[STORAGE_ROOT] = {
+            "qc": {
+                "review_summary": {"module": "qc"},
+                "benchmark_summary": {"large": list(range(5))},
+            }
+        }
+
+        result = compact_sclucid_uns(empty_adata, dry_run=True)
+
+        assert result["dry_run"] is True
+        assert "qc.benchmark_summary" in result["removed"]
+        assert "benchmark_summary" in empty_adata.uns[STORAGE_ROOT]["qc"]
+
+    def test_compact_keep_keys_allows_extra_payloads(self, empty_adata):
+        empty_adata.uns[STORAGE_ROOT] = {
+            "preprocess": {
+                "review_summary": {"module": "preprocess"},
+                "hvg": {"n_hvg": 2000},
+            }
+        }
+
+        compact_sclucid_uns(empty_adata, modules=["preprocess"], keep_keys=["hvg"])
+
+        assert "hvg" in empty_adata.uns[STORAGE_ROOT]["preprocess"]
 
     def test_clear_dry_run(self, empty_adata):
         """Test clear with dry_run."""

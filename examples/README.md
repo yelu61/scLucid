@@ -17,6 +17,10 @@ For **beginners and standard projects**. Load data, configure, run.
 **When to use**: You have a standard dataset and want results fast.
 **API**: `scl.run_pipeline()`, `scl.run_standard_qc()`, `scl.run_preprocessing()`
 
+The workflow examples use the maintained light-dependency QC/preprocess path.
+R bridges, ScDblFinder wrappers, and project-level ambient RNA correction are
+not part of these defaults.
+
 ## 02_simple_api/ — Composable Steps
 
 For **analysts who need control**. Inspect, tweak, or replace individual stages.
@@ -33,6 +37,11 @@ For **analysts who need control**. Inspect, tweak, or replace individual stages.
 
 **When to use**: You want to understand what each step does and adjust parameters.
 **API**: `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, `scl.pl.plot_embedding()`, etc.
+
+Use these scripts to inspect review summaries before moving into analysis.
+Optional enhancements such as scran, Harmony, scVI/scANVI, BBKNN, SOLO, or
+DoubletDetection should be enabled only when their dependencies and biological
+rationale are explicit.
 
 ## 03_advanced_notebooks/ — Full Transparency
 
@@ -51,6 +60,10 @@ Use the split advanced sequence when presenting a real project-style analysis:
 The legacy unsplit `Step1-QC_and_Preprocessing.ipynb` and
 `Step2-Celltype_annotation.ipynb` are retained as project references, but the
 split sequence is the recommended product-facing demonstration.
+
+QC and preprocessing are now considered the stable handoff layers. New tumor
+specific work should live in `Step2-Annotation_and_Malignancy.ipynb` and the
+tumor/analysis modules rather than expanding Step1 with heavy correction tools.
 
 **When to use**: You are doing research where every threshold, diagnostic, and override must remain visible and reviewable.
 **Format**: Jupyter notebooks with step-by-step parameter blocks, decision-support tools, and audit trails.

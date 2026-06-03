@@ -166,16 +166,17 @@ class AdaptiveThresholdLearner:
         """
         Learn threshold using Gaussian Mixture Model.
 
-        Assumes data comes from mixture of quality and low-quality distributions.
+        Uses the Bayes-optimal decision boundary (posterior-probability crossing
+        point) between the relevant components instead of an unweighted mean of
+        means.  This is stable even when the component variances differ.
         """
-        # Reshape for sklearn
         X = values.reshape(-1, 1)
 
-        # Fit GMM
         gmm = GaussianMixture(
             n_components=n_components,
             random_state=self.random_state,
-            max_iter=100,
+            max_iter=200,
+            n_init=3,
         )
 
         try:
@@ -184,35 +185,66 @@ class AdaptiveThresholdLearner:
             log.debug(f"GMM fitting failed: {e}, falling back to percentile")
             return self._learn_threshold_percentile(values, direction)
 
-        # Get means and sort
         means = gmm.means_.flatten()
         sorted_idx = np.argsort(means)
 
-        # For upper threshold (filter high values like MT%)
-        # Use the boundary between the two components
+        # Dense grid over the data range for finding posterior crossings
+        x_min, x_max = float(values.min()), float(values.max())
+        pad = 0.1 * (x_max - x_min) if x_max > x_min else 1.0
+        x_grid = np.linspace(x_min - pad, x_max + pad, 2000).reshape(-1, 1)
+
+        try:
+            proba = gmm.predict_proba(x_grid)
+        except Exception as e:
+            log.debug(f"GMM predict_proba failed: {e}, falling back to percentile")
+            return self._learn_threshold_percentile(values, direction)
+
+        # Find posterior-probability crossing points between adjacent sorted components
+        crossings = []
+        for i in range(n_components - 1):
+            j = sorted_idx[i]
+            k = sorted_idx[i + 1]
+            diff = proba[:, j] - proba[:, k]
+            # Look for sign changes (crossings)
+            sign_changes = np.where(np.diff(np.sign(diff)))[0]
+            for sc in sign_changes:
+                # Linear interpolation for the exact crossing x
+                x0, x1 = x_grid[sc, 0], x_grid[sc + 1, 0]
+                d0, d1 = diff[sc], diff[sc + 1]
+                if d1 != d0:
+                    crossing_x = x0 - d0 * (x1 - x0) / (d1 - d0)
+                    crossings.append((crossing_x, j, k))
+
+        if not crossings:
+            # No clear crossing found – fall back to the midpoint between the
+            # two most relevant component means.
+            log.debug("No posterior crossing found; falling back to mean-of-means")
+            if direction == "upper":
+                rel = sorted_idx[-2:]
+            else:
+                rel = sorted_idx[:2]
+            threshold = float(np.mean(means[rel]))
+            self._fitted_models["gmm"] = gmm
+            return threshold
+
+        # Select the boundary relevant to the requested direction
         if direction == "upper":
-            # Threshold between distributions
-            if n_components == 2:
-                # Use weighted average of means as threshold
-                weights = gmm.weights_.flatten()
-                threshold = np.sum(means * weights)
-            else:
-                # Use mean of two largest components
-                top_two = sorted_idx[-2:]
-                threshold = np.mean(means[top_two])
+            # We want the boundary involving the largest-mean component
+            target_comp = sorted_idx[-1]
+            relevant = [c for c in crossings if target_comp in (c[1], c[2])]
+            if not relevant:
+                relevant = crossings
+            threshold = float(max(c[0] for c in relevant))
         else:
-            # For lower threshold (filter low values like gene counts)
-            if n_components == 2:
-                threshold = np.mean(means)
-            else:
-                # Use mean of two smallest components
-                bottom_two = sorted_idx[:2]
-                threshold = np.mean(means[bottom_two])
+            # We want the boundary involving the smallest-mean component
+            target_comp = sorted_idx[0]
+            relevant = [c for c in crossings if target_comp in (c[1], c[2])]
+            if not relevant:
+                relevant = crossings
+            threshold = float(min(c[0] for c in relevant))
 
-        # Store model for potential use
         self._fitted_models["gmm"] = gmm
-
-        return float(threshold)
+        return threshold
 
     def _learn_threshold_mad(
         self,

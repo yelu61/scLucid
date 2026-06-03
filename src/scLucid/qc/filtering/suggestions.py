@@ -115,21 +115,29 @@ def suggest_qc_thresholds(
             metric_map[col] = f"pc_{col.split('pct_counts_in_')[-1]}"
 
         if method == "mad":
-            median_val = data.median()
-            mad_val = np.median(np.abs(data - median_val))
-            if mad_val == 0:
-                log.warning(
-                    f"MAD for metric '{metric}' is zero. MAD-based thresholds may be unreliable."
-                )
-                mad_val = 1e-5  # Small value to avoid division by zero
-
+            # Use canonical compute_mad_bounds for consistency with the rest of the QC module.
+            # This includes the 1.4826 scale factor and proper MAD=0 handling.
             for multiplier in mad_multipliers:
                 level_name = f"mad_x{multiplier}"
                 all_suggestions.setdefault(level_name, {})
 
-                upper_bound = median_val + multiplier * mad_val
+                lower_bound, upper_bound = compute_mad_bounds(
+                    data.values, nmads=multiplier, direction="both"
+                )
+
+                # When MAD is zero, compute_mad_bounds returns bounds == median.
+                # Fall back to percentile-based bounds for more robust thresholds.
+                if lower_bound == upper_bound:
+                    log.warning(
+                        f"MAD for metric '{metric}' is zero at MAD x{multiplier}. "
+                        f"Falling back to percentile-based bounds."
+                    )
+                    lower_pct, upper_pct = data.quantile([0.05, 0.95])
+                    lower_bound = float(lower_pct)
+                    upper_bound = float(upper_pct)
+
                 if is_count_metric:
-                    lower_bound = max(0, median_val - multiplier * mad_val)
+                    lower_bound = max(0.0, lower_bound)
                     min_key, max_key = metric_map[metric]
                     all_suggestions[level_name][min_key] = int(lower_bound)
                     all_suggestions[level_name][max_key] = int(upper_bound)

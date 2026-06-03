@@ -552,30 +552,45 @@ class IntelligentQCRecommender:
         n_cells = len(n_genes)
 
         # Data-size-aware GMM settings
-        if n_cells < 500:
-            log.warning(
-                f"Low cell count ({n_cells} < 500). "
-                "Skipping GMM; using robust percentile method for min_genes."
-            )
-            return self._recommend_min_genes_percentile(n_genes, cfg, strategy)
-
-        if n_cells < 2000:
-            log.info(f"Moderate cell count ({n_cells}). Limiting GMM to 2 components.")
-
-        # Fit GMM
         from sklearn.mixture import GaussianMixture
 
-        # Determine number of components based on strategy
-        if strategy == StrategyType.TUMOR_AWARE:
-            n_components = cfg.gmm_n_components_tumor
-        else:
-            n_components = cfg.gmm_n_components_standard
+        # --- Auto-select n_components via BIC when data supports it ---
+        max_components = min(5, max(2, n_cells // 100))
+        if n_cells < 500:
+            log.info(
+                f"Low cell count ({n_cells} < 500). Using conservative GMM parameters."
+            )
+            max_components = 2
 
-        # Cap components for small datasets
-        if n_cells < 2000:
-            n_components = min(n_components, 2)
+        best_n = 2
+        best_bic = np.inf
+        for k in range(1, max_components + 1):
+            gmm_k = GaussianMixture(
+                n_components=k,
+                random_state=cfg.random_state,
+                covariance_type="diag" if n_cells < 2000 else "full",
+                reg_covar=1e-3 if n_cells < 500 else 1e-6,
+                max_iter=200,
+            )
+            try:
+                gmm_k.fit(n_genes.reshape(-1, 1))
+                bic_k = gmm_k.bic(n_genes.reshape(-1, 1))
+                if bic_k < best_bic:
+                    best_bic = bic_k
+                    best_n = k
+            except Exception:
+                continue
 
-        gmm = GaussianMixture(n_components=n_components, random_state=42)
+        n_components = best_n
+        log.info(f"Selected GMM with {n_components} component(s) (BIC-driven).")
+
+        gmm = GaussianMixture(
+            n_components=n_components,
+            random_state=cfg.random_state,
+            covariance_type="diag" if n_cells < 2000 else "full",
+            reg_covar=1e-3 if n_cells < 500 else 1e-6,
+            max_iter=200,
+        )
         gmm.fit(n_genes.reshape(-1, 1))
 
         # Find the main population (largest component)
@@ -583,7 +598,9 @@ class IntelligentQCRecommender:
 
         # Get threshold at 95th percentile of main component
         main_mean = gmm.means_[main_component, 0]
-        main_std = np.sqrt(gmm.covariances_[main_component, 0, 0])
+        # Handle both "diag" (2-D) and "full" (3-D) covariance shapes
+        cov = gmm.covariances_[main_component]
+        main_std = float(np.sqrt(cov.item()) if cov.ndim == 0 else np.sqrt(cov[0, 0] if cov.ndim == 2 else cov[0]))
 
         # Adjust for strategy using configured percentiles
         if strategy == StrategyType.CONSERVATIVE:
@@ -601,11 +618,12 @@ class IntelligentQCRecommender:
         threshold = main_mean + z_score * main_std
         threshold = max(cfg.min_genes_absolute, int(threshold))
 
-        # Bootstrap for confidence interval
+        # Bootstrap for confidence interval (data-adaptive count)
+        n_bootstrap = max(50, min(1000, n_cells // 10))
         boot_thresholds = []
 
         rng = np.random.default_rng(cfg.random_state)
-        for _ in range(cfg.n_bootstrap):
+        for _ in range(n_bootstrap):
             boot_sample = rng.choice(n_genes, size=len(n_genes), replace=True)
             boot_threshold = np.percentile(boot_sample, percentile_value)
             boot_thresholds.append(boot_threshold)
@@ -614,14 +632,26 @@ class IntelligentQCRecommender:
         ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
         threshold = int(np.clip(threshold, ci_lower, ci_upper))
 
-        # Confidence based on fit quality (using configured parameters)
+        # Confidence based on delta-BIC vs. a single-Gaussian null model.
+        # delta_BIC = BIC(null) - BIC(best); larger -> stronger evidence for mixture.
         bic = gmm.bic(n_genes.reshape(-1, 1))
-        confidence = min(1.0, max(0.5, 1.0 - (bic - cfg.bic_reference) / cfg.bic_scale))
+        try:
+            null_gmm = GaussianMixture(
+                n_components=1, random_state=cfg.random_state, max_iter=200
+            )
+            null_gmm.fit(n_genes.reshape(-1, 1))
+            null_bic = null_gmm.bic(n_genes.reshape(-1, 1))
+            delta_bic = null_bic - bic
+            # Heuristic mapping: delta_BIC > 10 per cell gives near-1 confidence
+            confidence = min(1.0, max(0.5, 0.5 + delta_bic / (20.0 * n_cells)))
+        except Exception:
+            confidence = 0.7  # Neutral fallback
 
         # Evidence
         evidence = {
             "gmm_bic": float(bic),
             "n_components": n_components,
+            "n_bootstrap": n_bootstrap,
             "strategy": strategy.value,
             "method": "GMM + Bootstrap",
         }
@@ -658,11 +688,12 @@ class IntelligentQCRecommender:
         threshold = int(np.percentile(n_genes, pct))
         threshold = max(cfg.min_genes_absolute, threshold)
 
-        # Simple bootstrap CI
+        # Simple bootstrap CI (data-adaptive count)
+        n_bootstrap = max(50, min(1000, len(n_genes) // 10))
         rng = np.random.default_rng(cfg.random_state)
         boot = [
             np.percentile(rng.choice(n_genes, size=len(n_genes), replace=True), pct)
-            for _ in range(cfg.n_bootstrap)
+            for _ in range(n_bootstrap)
         ]
         ci_lower = int(np.percentile(boot, cfg.bootstrap_percentile_lower))
         ci_upper = int(np.percentile(boot, cfg.bootstrap_percentile_upper))

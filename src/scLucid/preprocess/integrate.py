@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
+from matplotlib import get_backend
 
 from .config import IntegrationConfig, apply_config_overrides
 
@@ -30,6 +31,18 @@ __all__ = [
 ]
 
 
+def _is_interactive_backend() -> bool:
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(fig: plt.Figure, *, show: bool = True) -> None:
+    if show and _is_interactive_backend():
+        plt.show()
+    else:
+        plt.close(fig)
+
+
 # ==============================================================================
 # Low-Level Integration Wrappers (private, not in __all__)
 # ==============================================================================
@@ -38,7 +51,7 @@ def _integrate_harmony(
     covariate_keys: Union[str, List[str]],
     basis: str = "X_pca",
     embedding_key: str = "X_harmony",
-    max_iter_harmony: int = 20,
+    max_iter_harmony: int = 50,
     theta: float = 2.0,
     lambda_val: float = 1.0,
     sigma: float = 0.1,
@@ -343,6 +356,138 @@ def _integrate_scvi(
     return adata
 
 
+def _integrate_scanvi(
+    adata: AnnData,
+    batch_key: str,
+    labels_key: str,
+    layer: Optional[str] = "counts",
+    n_layers: int = 2,
+    n_latent: int = 30,
+    batch_size: int = 2560,
+    max_epochs: int = 500,
+    early_stopping_patience: int = 20,
+    embedding_key: str = "X_scANVI",
+    gene_likelihood: str = "nb",
+    save_model: bool = False,
+    model_path: Optional[str] = None,
+    plan_kwargs: Optional[dict] = None,
+    copy: bool = False,
+    **kwargs,
+) -> AnnData:
+    """
+    Wrapper for scANVI (scVI with label supervision) integration.
+
+    scANVI leverages cell type labels to improve batch correction,
+    particularly useful when biological populations are confounded with batch.
+
+    Args:
+        adata: AnnData object.
+        batch_key: Column in adata.obs for batch labels.
+        labels_key: Column in adata.obs for cell type labels (required).
+        layer: Layer with raw counts.
+        n_layers: Number of hidden layers in VAE.
+        n_latent: Latent dimension.
+        batch_size: Training batch size.
+        max_epochs: Maximum training epochs.
+        early_stopping_patience: Early stopping patience.
+        embedding_key: Key for storing the embedding in adata.obsm.
+        gene_likelihood: Gene likelihood model.
+        save_model: Whether to save the trained model.
+        model_path: Path to save the model.
+        plan_kwargs: Additional training plan kwargs.
+        copy: Whether to copy adata.
+        **kwargs: Additional kwargs passed to scANVI.
+
+    Returns:
+        AnnData with scANVI embedding in adata.obsm[embedding_key].
+    """
+    try:
+        import scvi
+    except ImportError:
+        log.error("scvi-tools required: pip install scvi-tools")
+        raise ImportError("Please install scvi-tools")
+
+    if batch_key not in adata.obs:
+        raise ValueError(f"batch_key '{batch_key}' not in adata.obs")
+    if labels_key not in adata.obs:
+        raise ValueError(
+            f"labels_key '{labels_key}' not in adata.obs. "
+            f"scANVI requires cell type labels. Available columns: {list(adata.obs.columns)}"
+        )
+
+    n_batches = adata.obs[batch_key].nunique()
+    if n_batches < 2:
+        log.warning("scANVI is designed for >1 batch.")
+
+    if copy:
+        adata = adata.copy()
+
+    if layer is not None and layer not in adata.layers:
+        raise ValueError(f"Layer '{layer}' not in adata.layers")
+
+    # Ensure labels are categorical
+    if not hasattr(adata.obs[labels_key], "cat"):
+        adata.obs[labels_key] = adata.obs[labels_key].astype("category")
+
+    scvi.model.SCANVI.setup_anndata(
+        adata,
+        layer=layer,
+        batch_key=batch_key,
+        labels_key=labels_key,
+        unlabeled_category="Unknown",
+    )
+
+    plan_kwargs = plan_kwargs or {}
+    model = scvi.model.SCANVI(
+        adata,
+        n_layers=n_layers,
+        n_latent=n_latent,
+        gene_likelihood=gene_likelihood,
+    )
+
+    # Train with early stopping
+    model.train(
+        batch_size=batch_size,
+        max_epochs=max_epochs,
+        early_stopping=True,
+        early_stopping_patience=early_stopping_patience,
+        plan_kwargs=plan_kwargs,
+        **kwargs,
+    )
+
+    adata.obsm[embedding_key] = model.get_latent_representation()
+
+    if save_model:
+        if not model_path:
+            raise ValueError("model_path must be provided when save_model=True")
+        save_path = Path(model_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        model.save(str(save_path), overwrite=True)
+        log.info(f"scANVI model saved to: {save_path}")
+
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        "scanvi"
+    ] = {
+        "batch_key": batch_key,
+        "labels_key": labels_key,
+        "params": {
+            "n_layers": n_layers,
+            "n_latent": n_latent,
+            "batch_size": batch_size,
+            "max_epochs": max_epochs,
+            "early_stopping_patience": early_stopping_patience,
+            "gene_likelihood": gene_likelihood,
+            "layer": layer,
+        },
+        "output_dims": n_latent,
+        "model_saved": save_model,
+        "model_path": model_path if save_model else None,
+        "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    log.info(f"scANVI integration finished: {embedding_key} shape {adata.obsm[embedding_key].shape}")
+    return adata
+
+
 def _integrate_bbknn(
     adata: AnnData,
     batch_key: str,
@@ -477,9 +622,9 @@ def _compute_kbet_score(
     n_cells = X.shape[0]
 
     # Sample cells if dataset is large
+    rng = np.random.default_rng(42)
     if n_cells > n_sample_cells:
-        np.random.seed(42)
-        sample_idx = np.random.choice(n_cells, n_sample_cells, replace=False)
+        sample_idx = rng.choice(n_cells, n_sample_cells, replace=False)
         X_sample = X[sample_idx]
         batch_sample = batch_labels.iloc[sample_idx]
     else:
@@ -576,7 +721,7 @@ def batch_correction(
         active_config = apply_config_overrides(config, ignored_keys={"force"}, **kwargs)
 
     # --- 2. Extract parameters from the final config ---
-    method = active_config.method
+    method = active_config.method.lower() if isinstance(active_config.method, str) else active_config.method
     batch_key = active_config.batch_key
     use_rep = active_config.use_rep
     output_key = active_config.output_key or f"X_{method}"
@@ -599,7 +744,22 @@ def batch_correction(
 
     missing_keys = [key for key in keys_to_check if key not in adata.obs]
     if missing_keys:
-        raise ValueError(f"batch_key(s) {missing_keys} not found in adata.obs")
+        # If the default batch_key is missing, try common alternatives
+        if len(keys_to_check) == 1 and keys_to_check[0] == "sampleID":
+            for alt in ["sample", "Sample", "batch", "Batch"]:
+                if alt in adata.obs:
+                    log.warning(
+                        f"batch_key 'sampleID' not found. Using detected alternative: '{alt}'"
+                    )
+                    batch_key = alt
+                    keys_to_check = [alt]
+                    missing_keys = []
+                    break
+        if missing_keys:
+            raise ValueError(
+                f"batch_key(s) {missing_keys} not found in adata.obs. "
+                f"Available columns: {list(adata.obs.columns)}"
+            )
     # --- END OF ENHANCEMENT ---
 
     if output_key in adata.obsm and not force:
@@ -620,6 +780,8 @@ def batch_correction(
         method_kwargs = dict(active_config.harmony_params)
     elif method == "scvi":
         method_kwargs = dict(active_config.scvi_params)
+    elif method == "scanvi":
+        method_kwargs = dict(active_config.scanvi_params)
     elif method == "scanorama" and active_config.hvg_key:
         if active_config.hvg_key in adata.var:
             method_kwargs["hvg"] = adata.var_names[adata.var[active_config.hvg_key]].tolist()
@@ -649,6 +811,19 @@ def batch_correction(
         adata = _integrate_scanorama(adata, batch_key, embedding_key=output_key, **method_kwargs)
     elif method == "scvi":
         adata = _integrate_scvi(adata, batch_key, embedding_key=output_key, **method_kwargs)
+    elif method == "scanvi":
+        if not active_config.scanvi_labels_key:
+            raise ValueError(
+                "scANVI requires 'scanvi_labels_key' in IntegrationConfig. "
+                "Provide a key from adata.obs containing cell type labels."
+            )
+        adata = _integrate_scanvi(
+            adata,
+            batch_key=batch_key,
+            labels_key=active_config.scanvi_labels_key,
+            embedding_key=output_key,
+            **method_kwargs,
+        )
     elif method == "bbknn":
         adata = _integrate_bbknn(adata, batch_key, use_rep=use_rep, **method_kwargs)
     elif method == "combat":
@@ -656,7 +831,7 @@ def batch_correction(
     else:
         raise ValueError(
             f"Unknown integration method '{method}'. "
-            "Expected one of: harmony, scanorama, scvi, bbknn, combat."
+            "Expected one of: harmony, scanorama, scvi, scanvi, bbknn, combat."
         )
 
     # --- 6. Store metadata and plot after state ---
@@ -709,8 +884,7 @@ def batch_correction(
             plt.savefig(figure_path, dpi=300)
             log.info(f"Saved correction plot to: {figure_path}")
 
-        plt.show()
-        plt.close(fig)
+        _show_or_close(fig)
 
     return adata
 
@@ -773,11 +947,15 @@ def evaluate_integration(
     # 1. Silhouette score (measures batch mixing)
     if "silhouette" in methods:
         try:
+            # Data-adaptive sample size: at least 5k, up to 20k for large datasets,
+            # but never more than the full dataset.
+            sil_sample_size = min(adata.n_obs, max(5000, min(20000, adata.n_obs // 5)))
             batch_sil = skm.silhouette_score(
                 X,
                 adata.obs[batch_key],
                 metric=metric,
-                sample_size=min(5000, adata.n_obs),
+                sample_size=sil_sample_size,
+                random_state=42,
             )
             results["batch_silhouette"] = -batch_sil
             if label_key:
@@ -785,7 +963,8 @@ def evaluate_integration(
                     X,
                     adata.obs[label_key],
                     metric=metric,
-                    sample_size=min(5000, adata.n_obs),
+                    sample_size=sil_sample_size,
+                    random_state=42,
                 )
                 results["label_silhouette"] = label_sil
                 results["overall_silhouette"] = (results["batch_silhouette"] + label_sil) / 2
@@ -968,5 +1147,5 @@ def evaluate_integration(
                 plt.savefig(figure_path, dpi=300, bbox_inches="tight")
                 log.info(f"Saved evaluation plot to {figure_path}")
 
-            plt.show()
+            _show_or_close(fig)
     return results

@@ -15,6 +15,7 @@ import scanpy as sc
 import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
+from matplotlib import get_backend
 
 from .config import NormalizationConfig, apply_config_overrides
 from .utils import validate_matrix_input
@@ -26,12 +27,32 @@ __all__ = ["normalize_data", "plot_normalization_effect"]
 
 
 # --- Helper Functions ---
+def _is_interactive_backend() -> bool:
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(fig: plt.Figure) -> None:
+    if _is_interactive_backend():
+        plt.show()
+    else:
+        plt.close(fig)
+
+
 def _get_matrix_from_input_layer(adata: AnnData, input_layer: str):
-    """Resolve the configured input matrix or raise a precise error."""
+    """Resolve the configured input matrix with graceful fallback."""
     if input_layer == "X":
         return adata.X, "adata.X"
     if input_layer in adata.layers:
         return adata.layers[input_layer], f"adata.layers['{input_layer}']"
+
+    # Graceful fallback: if "counts" is missing, use adata.X (warn once)
+    if input_layer == "counts":
+        log.warning(
+            "Layer 'counts' not found. Falling back to adata.X for normalization. "
+            "Consider creating adata.layers['counts'] = adata.X.copy() for reproducibility."
+        )
+        return adata.X, "adata.X (fallback from missing counts layer)"
 
     available = list(adata.layers.keys())
     raise ValueError(
@@ -295,15 +316,22 @@ def normalize_data(
             sc.pp.normalize_total(temp_adata, inplace=True, **norm_kwargs)
         elif active_config.method == "scran":
             try:
-                import scanpy.external.pp as scepp
+                import scanpy.external as sce
             except ImportError:
                 raise RuntimeError(
-                    "[preprocess] scran normalization failed: scanpy[external] and rpy2 are required. "
-                    "Install with: pip install 'scanpy[external]' rpy2"
+                    "[preprocess] scran normalization failed: scanpy.external is unavailable. "
+                    "Install Scanpy external dependencies and a working scran/R environment to use method='scran'."
                 )
-            log.warning("Method 'scran' requires a correctly configured R environment.")
-            scepp.scran_normalize(temp_adata, inplace=True)
-            method_is_log_transformed = True  # scran yields log-normalized-like output
+            if not hasattr(sce, "pp") or not hasattr(sce.pp, "scran_normalize"):
+                raise RuntimeError(
+                    "[preprocess] scran normalization failed: scanpy.external.pp.scran_normalize "
+                    "is unavailable in this Scanpy installation."
+                )
+            log.warning(
+                "Method 'scran' uses scanpy.external.pp.scran_normalize and requires an optional R/scran environment."
+            )
+            sce.pp.scran_normalize(temp_adata, inplace=True)
+            method_is_log_transformed = True
         elif active_config.method == "pearson_residuals":
             log.info("Applying Pearson residuals normalization (experimental).")
             sc.experimental.pp.normalize_pearson_residuals(temp_adata, inplace=True)
@@ -315,7 +343,7 @@ def normalize_data(
             mean_logs = temp_adata.X.mean(axis=1)
             if scipy.sparse.issparse(temp_adata.X):
                 mean_logs = np.array(mean_logs).flatten()
-                temp_adata.X = temp_adata.X - mean_logs[:, None]
+                temp_adata.X = np.asarray(temp_adata.X.toarray() - mean_logs[:, None])
             else:
                 temp_adata.X = temp_adata.X - mean_logs[:, np.newaxis]
             method_is_log_transformed = True
@@ -366,7 +394,7 @@ def normalize_data(
                 log_transformed=final_log_transformed,
                 save_dir=save_dir,
             )
-            plt.show()
+            _show_or_close(fig)
         except Exception as e:
             log.warning(f"Failed to generate normalization plots: {e}")
 

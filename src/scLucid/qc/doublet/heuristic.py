@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +15,7 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 from anndata import AnnData
+from matplotlib import get_backend
 
 from ...utils import get_marker_manager
 from ..config import DoubletConfig, MarkerConfig
@@ -28,11 +29,72 @@ from .core import (
 
 log = logging.getLogger(__name__)
 
-def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
+
+def _is_interactive_backend() -> bool:
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(fig: plt.Figure, *, show: bool) -> None:
+    if show and _is_interactive_backend():
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def _extract_conflict_pairs(manager) -> list[tuple[str, str]]:
+    """Extract lineage pairs that should not co-express based on negative markers.
+
+    A conflict pair (A, B) means: lineage A's negative_markers overlap with
+    lineage B's positive markers. If a cell co-expresses both, it is more
+    suspicious than generic co-expression.
+    """
+    if manager is None or not hasattr(manager, "CELLS"):
+        return []
+
+    lineage_markers: dict[str, set[str]] = {}
+    lineage_negatives: dict[str, set[str]] = {}
+
+    for lineage, cell in manager.CELLS.items():
+        pos = {str(g).upper() for g in getattr(cell, "markers", [])}
+        neg = {str(g).upper() for g in getattr(cell, "negative_markers", [])}
+        if pos:
+            lineage_markers[lineage] = pos
+        if neg:
+            lineage_negatives[lineage] = neg
+
+    conflict_pairs = []
+    for lin_a, neg_markers in lineage_negatives.items():
+        for lin_b, pos_markers in lineage_markers.items():
+            if lin_a == lin_b:
+                continue
+            if pos_markers & neg_markers:
+                conflict_pairs.append((lin_a, lin_b))
+
+    return conflict_pairs
+
+
+def _run_heuristic(
+    adata: AnnData,
+    cfg: DoubletConfig,
+    *,
+    expected_rate: Optional[Union[float, Dict[str, float]]] = None,
+    sample_key: Optional[str] = None,
+) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
     """
     Runs the full heuristic doublet detection workflow, calculating scores instead of binary predictions.
     This enhanced version uses Scanpy's module scoring to quantify lineage expression and computes
     a confidence score based on co-expression strength and cell complexity (n_genes_by_counts).
+
+    Parameters
+    ----------
+    expected_rate : float or dict, optional
+        Expected doublet rate used to calibrate the score threshold. When a float,
+        ``quantile(1 - expected_rate)`` is used globally. When a dict mapping sample
+        names to rates, per-sample thresholds are computed.
+    sample_key : str, optional
+        Column in ``adata.obs`` that identifies samples. Required when ``expected_rate``
+        is a dict.
 
     Args:
         adata: AnnData object.
@@ -46,8 +108,23 @@ def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.Da
     """
     # --- 1. Load Marker Configurations ---
     marker_configs = cfg.marker_configs
+    manager = None
     if marker_configs is None:
         marker_configs = _create_doublet_marker_config_from_manager(adata, cfg)
+        # Also resolve manager for negative-marker conflict detection (P1)
+        try:
+            adata_for_intersection = (
+                adata.raw.to_adata() if cfg.default_use_raw and adata.raw else adata
+            )
+            case_sensitive = cfg.marker_species.lower() == "mouse"
+            manager = get_marker_manager(
+                species=cfg.marker_species,
+                tissue=cfg.marker_tissue,
+                case_sensitive=case_sensitive,
+            )
+            manager.intersect_with(adata_for_intersection)
+        except Exception:
+            manager = None
 
     if not marker_configs:
         log.warning("Heuristics enabled, but no marker configurations were found. Skipping.")
@@ -88,7 +165,12 @@ def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.Da
 
         score_name = f"{name}_score"
         # The control size should not exceed the number of available genes.
-        ctrl_size = min(50, source_adata.n_vars - len(valid_genes) - 1)
+        ctrl_size = max(10, min(50, source_adata.n_vars - len(valid_genes) - 1))
+        if ctrl_size < 20:
+            log.warning(
+                f"Lineage '{name}': small control gene pool (ctrl_size={ctrl_size}). "
+                "Consider verifying marker gene count or panel completeness."
+            )
 
         sc.tl.score_genes(
             source_adata,
@@ -110,7 +192,22 @@ def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.Da
         empty_df = pd.DataFrame(index=adata.obs_names)
         return empty_series.astype(bool), empty_df, empty_series
 
-    # --- 3. Compute Heuristic Confidence Score ---
+    # --- 3. Compute Conflict Penalty from Negative Markers (P1) ---
+    # Cells co-expressing lineages that are biologically incompatible
+    # (based on negative marker overlap) receive an extra penalty.
+    conflict_pairs = _extract_conflict_pairs(manager)
+    if conflict_pairs:
+        log.info(f"Found {len(conflict_pairs)} conflict pairs from negative markers.")
+    conflict_penalty = pd.Series(0.0, index=adata.obs_names)
+    score_th = cfg.heuristic_score_threshold
+    for lin_a, lin_b in conflict_pairs:
+        if lin_a in lineage_scores_df.columns and lin_b in lineage_scores_df.columns:
+            mask = (
+                (lineage_scores_df[lin_a] > score_th) & (lineage_scores_df[lin_b] > score_th)
+            )
+            conflict_penalty.loc[mask] += 0.5
+
+    # --- 4. Compute Heuristic Confidence Score ---
     # Get the top two lineage scores for each cell.
     top_two_scores = lineage_scores_df.apply(
         lambda s: s.nlargest(2).values, axis=1, result_type="expand"
@@ -121,8 +218,7 @@ def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.Da
     top_two_scores.columns = ["score1", "score2"]
 
     # A cell is a co-expression candidate if its top two scores are both significant.
-    # The threshold 0.1 is an empirical value, meaning scores are clearly positive.
-    significant_coexpression = (top_two_scores["score1"] > 0.1) & (top_two_scores["score2"] > 0.1)
+    significant_coexpression = (top_two_scores["score1"] > score_th) & (top_two_scores["score2"] > score_th)
 
     # Use log-transformed gene counts as a weight for cell complexity.
     # Doublets are expected to have more detected genes.
@@ -130,10 +226,12 @@ def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.Da
 
     # Calculate the final score: sum of top two scores, weighted by gene counts,
     # and only applied to cells showing significant co-expression.
+    # Conflict penalty boosts the score for biologically impossible co-expression.
     heuristic_confidence_score = (
         (top_two_scores["score1"] + top_two_scores["score2"])
         * gene_count_log
         * significant_coexpression
+        * (1.0 + conflict_penalty)
     )
 
     # Normalize the score to a [0, 1] range to make it comparable to Scrublet's score.
@@ -142,14 +240,45 @@ def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.Da
         heuristic_confidence_score /= max_score
 
     # --- 4. Generate a Binary Prediction based on the Score ---
-    # This provides a simple True/False output for summary statistics.
-    # A high quantile (e.g., 0.95) means only the top 5% of scored cells are flagged.
-    # This is an ad-hoc threshold; the continuous score is more informative.
-    score_threshold = heuristic_confidence_score[heuristic_confidence_score > 0].quantile(0.90)
-    if pd.isna(score_threshold):
-        score_threshold = 0
-
-    potential_doublets = heuristic_confidence_score > score_threshold
+    # Adaptive threshold: use expected_doublet_rate to set the quantile.
+    # If no rate is provided, fall back to the legacy 90% quantile.
+    if expected_rate is not None:
+        if isinstance(expected_rate, dict) and sample_key and sample_key in adata.obs.columns:
+            potential_doublets = pd.Series(False, index=adata.obs_names)
+            for sample, rate in expected_rate.items():
+                sample_mask = adata.obs[sample_key] == sample
+                sample_scores = heuristic_confidence_score[sample_mask]
+                positive = sample_scores[sample_scores > 0]
+                if not positive.empty:
+                    score_threshold = positive.quantile(1.0 - rate)
+                else:
+                    score_threshold = 0.0
+                potential_doublets.loc[sample_mask] = sample_scores > score_threshold
+                log.info(
+                    f"  Sample '{sample}': expected_rate={rate:.4f}, "
+                    f"threshold={score_threshold:.4f}, flagged={int(potential_doublets.loc[sample_mask].sum())}"
+                )
+        else:
+            rate = float(expected_rate)
+            positive = heuristic_confidence_score[heuristic_confidence_score > 0]
+            if not positive.empty:
+                score_threshold = positive.quantile(1.0 - rate)
+            else:
+                score_threshold = 0.0
+            potential_doublets = heuristic_confidence_score > score_threshold
+            log.info(
+                f"Adaptive threshold: expected_rate={rate:.4f}, "
+                f"threshold={score_threshold:.4f}, flagged={int(potential_doublets.sum())}"
+            )
+    else:
+        score_threshold = heuristic_confidence_score[heuristic_confidence_score > 0].quantile(0.90)
+        if pd.isna(score_threshold):
+            score_threshold = 0
+        potential_doublets = heuristic_confidence_score > score_threshold
+        log.info(
+            f"Legacy threshold (quantile=0.90): threshold={score_threshold:.4f}, "
+            f"flagged={int(potential_doublets.sum())}"
+        )
 
     # The ignore_coexpression_pairs logic can still be applied here if needed,
     # for example, to set scores of certain co-expressing cells to 0.
@@ -160,7 +289,7 @@ def _run_heuristic(adata: AnnData, cfg: DoubletConfig) -> Tuple[pd.Series, pd.Da
             # 检查谱系是否存在于lineage_scores_df中
             if lin1 in lineage_scores_df.columns and lin2 in lineage_scores_df.columns:
                 # 找到同时高表达 lin1 和 lin2 的细胞，将其 heuristic_score 强制置 0
-                mask = (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
+                mask = (lineage_scores_df[lin1] > score_th) & (lineage_scores_df[lin2] > score_th)
                 heuristic_confidence_score[mask] = 0.0
                 log.info(
                     f"Ignoring co-expression of {lin1} + {lin2} in {mask.sum()} cells (Allowlist)."
@@ -260,7 +389,7 @@ def _plot_doublet_summary(
         )
 
         summary_df = (
-            adata.obs.groupby(sample_key)["doublet_source"]
+            adata.obs.groupby(sample_key, observed=False)["doublet_source"]
             .value_counts(normalize=True, sort=False)
             .unstack(fill_value=0)
             * 100
@@ -294,9 +423,7 @@ def _plot_doublet_summary(
             bar_save_path = save_path / "doublet_summary_bar_plot.png"
             fig_bar.savefig(bar_save_path, dpi=300, bbox_inches="tight")
             log.info(f"Saved bar plot to {bar_save_path}")
-        if show:
-            plt.show()
-        plt.close(fig_bar)
+        _show_or_close(fig_bar, show=show)
 
     # --- 3. Panel 2: Enhanced Dual Scatter Plots ---
     if plot_scatter:
@@ -321,7 +448,9 @@ def _plot_doublet_summary(
             ax_scatter_algo.set_title("Algorithm Score vs. Gene Count", fontsize=12)
             ax_scatter_algo.set_xlabel("Number of Genes")
             ax_scatter_algo.set_ylabel("Algorithm Score")
-            ax_scatter_algo.legend().remove()
+            legend = ax_scatter_algo.get_legend()
+            if legend is not None:
+                legend.remove()
         else:
             ax_scatter_algo.text(
                 0.5, 0.5, "Algorithm score data unavailable.", ha="center", va="center"
@@ -354,9 +483,7 @@ def _plot_doublet_summary(
             scatter_save_path = save_path / "doublet_summary_scatter_plot.png"
             fig_scatter.savefig(scatter_save_path, dpi=300, bbox_inches="tight")
             log.info(f"Saved scatter plot to {scatter_save_path}")
-        if show:
-            plt.show()
-        plt.close(fig_scatter)
+        _show_or_close(fig_scatter, show=show)
 
     # --- 4. Panel 3: UpSet Plot ---
     if plot_upset:
@@ -392,9 +519,7 @@ def _plot_doublet_summary(
                             upset_save_path = save_path / "doublet_summary_upset_plot.png"
                             fig_upset.savefig(upset_save_path, dpi=300, bbox_inches="tight")
                             log.info(f"Saved UpSet plot to {upset_save_path}")
-                        if show:
-                            plt.show()
-                        plt.close(fig_upset)
+                        _show_or_close(fig_upset, show=show)
 
                     except Exception as e:
                         log.error(f"Failed to generate UpSet plot: {e}")

@@ -57,6 +57,33 @@ class TestBatchCorrection:
         assert integration_meta["workflow"]["method"] == "harmony"
         assert integration_meta["workflow"]["output_key"] == "X_harmony"
 
+    def test_harmony_low_level_default_max_iter_matches_config(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+        seen = {}
+
+        class FakeHarmony:
+            Z_corr = adata.obsm["X_pca"].T
+            objective_history = [2.0, 1.0]
+
+        def fake_run_harmony(**kwargs):
+            seen["max_iter_harmony"] = kwargs["max_iter_harmony"]
+            return FakeHarmony()
+
+        monkeypatch.setattr(integrate_module.hm, "run_harmony", fake_run_harmony)
+
+        integrate_module._integrate_harmony(
+            adata,
+            covariate_keys="batch",
+            basis="X_pca",
+            check_convergence=False,
+        )
+
+        assert seen["max_iter_harmony"] == 50
+
     def test_scanorama_integration_mock(self, monkeypatch, minimal_adata):
         import scLucid.preprocess.integrate as integrate_module
 
@@ -159,6 +186,40 @@ class TestBatchCorrection:
         assert "X_scvi" in result.obsm
         integration_meta = result.uns["sclucid"]["preprocess"]["integration"]
         assert integration_meta["workflow"]["method"] == "scvi"
+
+    def test_scanvi_method_is_case_normalized(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obs["cell_label"] = ["T"] * adata.n_obs
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+
+        def fake_scanvi(adata, batch_key, labels_key, embedding_key, **kwargs):
+            adata.obsm[embedding_key] = adata.obsm["X_pca"].copy()
+            adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
+                "integration", {}
+            )["scanvi"] = {"batch_key": batch_key, "labels_key": labels_key}
+            return adata
+
+        monkeypatch.setattr(integrate_module, "_integrate_scanvi", fake_scanvi)
+
+        result = batch_correction(
+            adata,
+            config=IntegrationConfig(
+                method="scANVI",
+                batch_key="batch",
+                scanvi_labels_key="cell_label",
+                use_rep="X_pca",
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+        )
+
+        assert "X_scanvi" in result.obsm
+        integration_meta = result.uns["sclucid"]["preprocess"]["integration"]
+        assert integration_meta["workflow"]["method"] == "scanvi"
 
     def test_bbknn_integration_mock(self, monkeypatch, minimal_adata):
         import scLucid.preprocess.integrate as integrate_module

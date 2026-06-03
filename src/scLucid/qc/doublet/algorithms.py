@@ -18,6 +18,17 @@ from ..config import DoubletConfig
 
 log = logging.getLogger(__name__)
 
+def _ensure_scrublet_compatibility():
+    """Local compatibility shim for Scrublet's ptp usage without mutating numpy."""
+    if not hasattr(np.ndarray, "ptp"):
+        # Scrublet internally calls arr.ptp() which was removed in NumPy 2.0.
+        # We set it only for the duration of the Scrublet call via a context-like
+        # pattern: set here, remove in a finally block inside _run_scrublet.
+        np.ndarray.ptp = np.ptp
+        return True
+    return False
+
+
 def _run_scrublet(
     adata_view: AnnData,
     sample_name: str,
@@ -27,8 +38,7 @@ def _run_scrublet(
     Run Scrublet algorithm for doublet detection on a single AnnData view.
     Returns (scores, predicted) arrays.
     """
-    if not hasattr(np.ndarray, "ptp"):
-        np.ndarray.ptp = np.ptp
+    _patched = _ensure_scrublet_compatibility()
 
     rate = config.expected_doublet_rate
     current_rate = rate.get(sample_name, 0.1) if isinstance(rate, dict) else rate
@@ -94,6 +104,8 @@ def _run_scrublet(
         log.error(f"Scrublet failed for sample {sample_name}: {e}")
         return None, None
     finally:
+        if _patched and hasattr(np.ndarray, "ptp"):
+            delattr(np.ndarray, "ptp")
         gc.collect()
 
 
@@ -146,7 +158,8 @@ def _run_solo(
         accelerator=accelerator,
         devices=devices,
         plan_kwargs={"lr": config.solo_learning_rate},
-        # Add a check to prevent excessive console output from the trainer
+        early_stopping=True,
+        early_stopping_patience=20,
         enable_progress_bar=False,
         logger=False,
     )
@@ -167,9 +180,29 @@ def _run_solo(
     predictions_series = solo_model.predict(soft=False)
     predicted = (predictions_series == "doublet").values
 
-    # The scores are now retrieved using .get_scores()
-    scores_df = solo_model.get_scores()
-    scores = scores_df["doublet_scores"].values
+    # The scores retrieval has changed across scvi-tools versions.
+    # Try the newer API first, then fall back to legacy APIs.
+    scores = None
+    try:
+        scores_df = solo_model.get_scores()
+        if isinstance(scores_df, pd.DataFrame) and "doublet_scores" in scores_df.columns:
+            scores = scores_df["doublet_scores"].values
+        elif isinstance(scores_df, pd.Series):
+            scores = scores_df.values
+    except AttributeError:
+        log.debug("solo_model.get_scores() not available, trying fallback APIs.")
+
+    if scores is None:
+        try:
+            # Fallback: predict(soft=True) returns probability-like scores
+            soft_predictions = solo_model.predict(soft=True)
+            if isinstance(soft_predictions, pd.Series):
+                scores = soft_predictions.values
+            else:
+                scores = np.asarray(soft_predictions)
+        except Exception as e:
+            log.warning(f"Could not retrieve Solo scores via fallback: {e}. Using binary predictions as scores.")
+            scores = predicted.astype(float)
 
     # #############################################
 
@@ -254,5 +287,3 @@ def _run_doubletdetection(
         return None, None
     finally:
         gc.collect()
-
-

@@ -7,6 +7,7 @@ gene-type exclusion, automatic reporting, and large data support.
 """
 
 import logging
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
@@ -18,6 +19,7 @@ import scipy
 import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
+from matplotlib import get_backend
 
 try:
     from matplotlib_venn import venn2, venn3
@@ -39,6 +41,20 @@ __all__ = [
 
 
 # --- Helper Functions ---#
+def _is_interactive_backend() -> bool:
+    """Return whether the active matplotlib backend can show figures interactively."""
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(fig: plt.Figure) -> None:
+    """Show figures only on interactive backends; otherwise close them quietly."""
+    if _is_interactive_backend():
+        plt.show()
+    else:
+        plt.close(fig)
+
+
 def _get_hvg_input_matrix(adata: AnnData, input_layer: str):
     """Resolve HVG input matrix from the requested layer."""
     if input_layer == "X":
@@ -95,6 +111,41 @@ def _diagnose_input_for_hvg(X, max_n=10000):
         n_cells=n_cells,
         n_genes=n_genes,
     )
+
+
+def _matrix_looks_like_counts(X) -> bool:
+    """Lightweight check for raw-count-like non-negative integer data."""
+    values = X.data if scipy.sparse.issparse(X) else np.asarray(X)
+    if values.size == 0:
+        return True
+    sample = values[: min(values.size, 10000)]
+    return bool(np.all(sample >= 0) and np.allclose(sample, np.round(sample)))
+
+
+def _resolve_hvg_flavor(flavor: str, input_layer: str, X) -> tuple[str, list[str]]:
+    """Resolve HVG flavor while keeping the default path dependency-light."""
+    notes: list[str] = []
+    if flavor != "auto":
+        return flavor, notes
+
+    if input_layer in {"counts", "raw_counts"} or _matrix_looks_like_counts(X):
+        if find_spec("skmisc") is not None:
+            notes.append(
+                "flavor='auto' resolved to 'seurat_v3' because the input looks like raw counts "
+                "and scikit-misc is available."
+            )
+            return "seurat_v3", notes
+        notes.append(
+            "flavor='auto' resolved to 'seurat' because scikit-misc is unavailable; "
+            "install scikit-misc to enable seurat_v3 HVG selection on raw counts."
+        )
+        return "seurat", notes
+
+    notes.append(
+        "flavor='auto' resolved to 'seurat' because the HVG input is log-normalized-like; "
+        "seurat_v3 expects raw counts."
+    )
+    return "seurat", notes
 
 
 def _exclude_genes(
@@ -454,11 +505,13 @@ def _identify_sample_specific_genes_parallel(
     temp_adata = adata
 
     try:
+        # Work on a copy to avoid modifying the original AnnData
+        temp_adata = adata.copy()
+
         # Switch to specified layer if needed
         if layer is not None:
             if layer not in temp_adata.layers:
                 raise KeyError(f"Layer '{layer}' not found")
-            original_X = temp_adata.X
             temp_adata.X = temp_adata.layers[layer]
 
         # Validate method
@@ -468,14 +521,12 @@ def _identify_sample_specific_genes_parallel(
             method = "t-test"
 
         # Perform differential expression
-        # Note: sc.tl.rank_genes_groups doesn't support n_jobs directly,
-        # but we can use parallel backend
         sc.tl.rank_genes_groups(
             temp_adata,
             groupby=sample_key,
             method=method,
             n_genes=n_genes_per_group,
-            pts=True,  # Calculate fraction of cells expressing
+            pts=True,
         )
 
         # Extract marker genes
@@ -483,7 +534,7 @@ def _identify_sample_specific_genes_parallel(
 
         # Get unique marker genes across all samples
         marker_genes = set(marker_genes_df.values.flatten())
-        marker_genes.discard(None)  # Remove any None values
+        marker_genes.discard(None)
         marker_genes = list(marker_genes)
 
         # Create boolean mask
@@ -496,7 +547,7 @@ def _identify_sample_specific_genes_parallel(
 
         # Log top markers per sample
         log.info("Top sample-specific genes per sample:")
-        for sample in temp_adata.obs[sample_key].unique()[:5]:  # Show first 5
+        for sample in temp_adata.obs[sample_key].unique()[:5]:
             top_genes = marker_genes_df[sample].head(3).tolist()
             log.info(f"  {sample}: {', '.join(top_genes)}")
 
@@ -506,15 +557,6 @@ def _identify_sample_specific_genes_parallel(
         log.error(f"Sample-specific gene identification failed: {e}")
         log.exception("Detailed error:")
         return np.zeros(adata.n_vars, dtype=bool)
-
-    finally:
-        # Restore original X
-        if original_X is not None:
-            temp_adata.X = original_X
-
-        # Clean up
-        if "rank_genes_groups" in temp_adata.uns:
-            del temp_adata.uns["rank_genes_groups"]
 
 
 def _gene_type_detection(
@@ -736,6 +778,41 @@ def _infer_species_from_gene_names(var_names: pd.Index) -> str:
         return "human"
 
 
+def adapt_n_top_genes(n_cells: int, method: str = "linear") -> int:
+    """Adapt n_top_genes based on dataset size.
+
+    For complex tissues like tumors with >20 cell types, the standard 2000
+    HVGs may be insufficient to capture rare populations. This function
+    scales HVG count with dataset size.
+
+    Parameters
+    ----------
+    n_cells : int
+        Number of cells in the dataset.
+    method : str
+        Scaling method: "linear" (default) or "log".
+
+    Returns
+    -------
+    int
+        Recommended number of HVGs.
+    """
+    if method == "linear":
+        if n_cells < 5000:
+            return 2000
+        elif n_cells < 20000:
+            return 3000
+        elif n_cells < 50000:
+            return 4000
+        else:
+            return 5000
+    elif method == "log":
+        import math
+        return min(8000, max(2000, int(1000 * math.log10(max(n_cells, 100)))))
+    else:
+        raise ValueError(f"Unknown method: {method}. Use 'linear' or 'log'.")
+
+
 def _write_hvg_report(
     report_path: Path,
     stats: dict,
@@ -796,10 +873,11 @@ def find_hvgs(
         active_config = config.model_copy()
 
     # Apply overrides from kwargs
+    ignored_override_keys = {"force"}
     for key, value in kwargs.items():
         if hasattr(active_config, key):
             setattr(active_config, key, value)
-        else:
+        elif key not in ignored_override_keys:
             log.warning(f"Ignoring unknown parameter: '{key}'")
 
     # Extract parameters from the final config for use in the function
@@ -810,20 +888,40 @@ def find_hvgs(
     plot = kwargs.get("plot", active_config.plot)
     save_dir = active_config.save_dir
     n_top_genes = active_config.n_top_genes
+    # Auto-adapt n_top_genes based on dataset size if enabled and user didn't
+    # explicitly override n_top_genes via kwargs or config constructor.
+    auto_n_top = getattr(active_config, "auto_n_top_genes", False)
+    user_explicit_n_top = kwargs.get("n_top_genes") is not None
+    if config is not None:
+        user_explicit_n_top = user_explicit_n_top or (
+            "n_top_genes" in getattr(config, "model_fields_set", set())
+        )
+    if auto_n_top and not user_explicit_n_top:
+        adaptive_method = getattr(active_config, "auto_n_top_genes_method", "log")
+        n_top_genes_adaptive = adapt_n_top_genes(adata.n_obs, method=adaptive_method)
+        if n_top_genes_adaptive != n_top_genes:
+            log.info(
+                f"[HVG] Auto-adapting n_top_genes: {n_top_genes} -> {n_top_genes_adaptive} "
+                f"(based on {adata.n_obs} cells, method='{adaptive_method}')"
+            )
+            n_top_genes = n_top_genes_adaptive
     method = active_config.method
     batch_key = active_config.batch_key
-    flavor = active_config.flavor
+    requested_flavor = active_config.flavor
     exclude_gene_types = active_config.exclude_gene_types
     span = active_config.span
-
-    output_key = (
-        f"highly_variable_{method}_{flavor}" if method == "scanpy" else f"highly_variable_{method}"
-    )
 
     log.info(f"[HVG] Diagnosing input data from layer '{input_layer}' ...")
     X = _get_hvg_input_matrix(adata, input_layer)
     _validate_hvg_input_matrix(X, input_layer, method)
     stats = _diagnose_input_for_hvg(X)
+    flavor, flavor_notes = _resolve_hvg_flavor(requested_flavor, input_layer, X)
+    for note in flavor_notes:
+        log.info(f"[HVG] {note}")
+
+    output_key = (
+        f"highly_variable_{method}_{flavor}" if method == "scanpy" else f"highly_variable_{method}"
+    )
 
     if output_key in adata.var and not force:
         n_existing = adata.var[output_key].sum()
@@ -1035,6 +1133,9 @@ def find_hvgs(
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg"] = {
         "output_key": output_key,
         "method": method,
+        "requested_flavor": requested_flavor,
+        "resolved_flavor": flavor,
+        "flavor_notes": flavor_notes,
         "input_layer": input_layer,
         "params": savable_params,
         "n_hvg": n_hvg,
@@ -1051,7 +1152,7 @@ def find_hvgs(
             output_key,
             save_path=plot_save_path,
         )
-        plt.show()
+        _show_or_close(plt.gcf())
 
     if report and save_dir:
         save_path = Path(save_dir)
@@ -1061,5 +1162,3 @@ def find_hvgs(
         log.info(f"[HVG] Report written to {report_path}")
 
     return adata
-
-

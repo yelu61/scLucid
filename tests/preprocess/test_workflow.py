@@ -370,23 +370,62 @@ class TestPreprocessingWorkflow:
 
         preprocess_meta = result.uns["sclucid"]["preprocess"]
         assert preprocess_meta["steps_executed"] == [
+            "gene_filtering",
             "normalization",
             "set_raw",
             "hvg_selection",
             "subset_hvg",
         ]
-        assert config.scaling.vars_to_regress == ["total_counts", "pct_counts_mt"]
+        assert config.scaling.vars_to_regress is None
         assert "regressed" not in result.layers
         assert "scaled" not in result.layers
         assert "X_pca" not in result.obsm
         assert "X_umap" not in result.obsm
         assert "regress_inline" not in preprocess_meta
 
+    def test_gene_filtering_removes_low_detection_genes_before_normalization(self, minimal_adata):
+        """Genes detected in too few cells should be removed before normalization/HVG."""
+        adata = minimal_adata.copy()
+        counts = adata.layers["counts"].copy()
+        X = counts.toarray() if hasattr(counts, "toarray") else np.asarray(counts)
+        X[:, -1] = 0
+        X[:2, -1] = 1
+        adata.X = X.copy()
+        adata.layers["counts"] = X.copy()
+        dropped_gene = adata.var_names[-1]
+
+        config = _workflow_config_for_tests()
+        config.run_pca = False
+        config.run_neighbors = False
+        config.min_cells_per_gene = 3
+
+        result = run_preprocessing(
+            adata,
+            config=config,
+            steps=["gene_filtering", "normalization"],
+            show_progress=False,
+        )
+
+        meta = result.uns["sclucid"]["preprocess"]["gene_filtering"]
+        assert dropped_gene not in result.var_names
+        assert meta["removed_genes"] >= 1
+        assert meta["min_cells_per_gene"] == 3
+
+    def test_auto_select_n_pcs_is_bounded_for_small_inputs(self):
+        """Auto PC selection should never exceed available components."""
+        from scLucid.preprocess.workflow import _select_n_pcs
+
+        assert _select_n_pcs(np.array([1.0]), method="elbow") == 1
+        assert _select_n_pcs(np.array([0.6, 0.4]), method="cumulative") == 2
+        assert _select_n_pcs(np.array([0.5, 0.3, 0.2]), method="cumulative") == 3
+
     def test_workflow_honors_custom_layer_names(self, minimal_adata):
         """Workflow should use top-level layer naming consistently across steps."""
         config = _workflow_config_for_tests()
         config.run_pca = False
         config.run_neighbors = False
+        config.run_regression = True
+        config.scaling.vars_to_regress = ["total_counts", "pct_counts_mt"]
         config.normalized_layer = "lognorm"
         config.regressed_layer = "resid"
         config.scaled_layer = "zscore"
@@ -414,6 +453,7 @@ class TestPreprocessingWithBatchEffects:
         pytest.importorskip("harmonypy")
 
         config = _workflow_config_for_tests()
+        config.run_integration = True
         config.integration.method = "harmony"
         config.integration.batch_key = "batch"
 
@@ -427,6 +467,7 @@ class TestPreprocessingWithBatchEffects:
         pytest.importorskip("scanorama")
 
         config = _workflow_config_for_tests()
+        config.run_integration = True
         config.integration.method = "scanorama"
         config.integration.batch_key = "batch"
 

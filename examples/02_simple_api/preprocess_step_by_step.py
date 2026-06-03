@@ -1,8 +1,13 @@
 """
 Preprocessing Pipeline Example
 
-Demonstrates normalization, HVG selection, scaling, PCA, and batch correction.
-Also shows the standard default path and intelligent preprocessing.
+Demonstrates the light-dependency default path: normalization, HVG selection,
+scaling, PCA, neighbors, and UMAP. Batch correction is shown as an explicit
+opt-in enhancement.
+
+Before running this script, QC should already have removed clear low-quality
+cells. Keep raw counts in ``layers["counts"]``; optional methods such as scran,
+Harmony, scVI/scANVI, and BBKNN are enhancements, not defaults.
 """
 
 import scanpy as sc
@@ -50,6 +55,10 @@ adata = sc.read_h5ad("results/qc_filtered.h5ad")
 # Option C: Manual step-by-step (shown below)
 # ---------------------------------------------------------------------------
 
+# Step 0: Gene filtering
+print("Filtering low-detection genes...")
+sc.pp.filter_genes(adata, min_cells=3)
+
 # Step 1: Normalization
 print("Normalizing data...")
 norm_config = NormalizationConfig(
@@ -63,8 +72,9 @@ print("Finding highly variable genes...")
 hvg_config = HVGConfig(
     method="scanpy",
     n_top_genes=2000,
-    flavor="seurat",
-    span=0.3
+    flavor="auto",
+    span=0.3,
+    exclude_gene_types=["mitochondrial", "ribosomal"],
 )
 adata = find_hvgs(
     adata,
@@ -96,8 +106,9 @@ print("Running PCA...")
 sc.tl.pca(adata, n_comps=50)
 sc.pl.pca_variance_ratio(adata, log=True, save="_preprocess.pdf")
 
-# Step 6: Batch correction (if needed)
-if "batch" in adata.obs.columns and adata.obs["batch"].nunique() > 1:
+# Step 6: Optional batch correction (enable only after diagnostics)
+RUN_BATCH_CORRECTION = False
+if RUN_BATCH_CORRECTION and "batch" in adata.obs.columns and adata.obs["batch"].nunique() > 1:
     print("Running batch correction...")
     integration_config = IntegrationConfig(
         method="harmony",
@@ -109,7 +120,14 @@ if "batch" in adata.obs.columns and adata.obs["batch"].nunique() > 1:
         save_dir="results/preprocess/integration"
     )
 else:
-    print("No batch correction needed (single sample)")
+    print("Skipping batch correction in the light default path")
+    if "batch" in adata.obs.columns and adata.obs["batch"].nunique() > 1:
+        medians = adata.obs.groupby("batch", observed=False)["total_counts"].median()
+        if len(medians) > 1 and medians.max() / max(medians.min(), 1) > 2:
+            print(
+                "Review note: sample-level sequencing depth differs by >2x; "
+                "inspect PCA/UMAP before enabling integration."
+            )
 
 # Step 7: Neighbors and UMAP
 print("Computing neighbors and UMAP...")

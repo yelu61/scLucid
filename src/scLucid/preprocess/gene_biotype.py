@@ -590,10 +590,10 @@ def annotate_gene_biotypes(
     category_recommendations = {
         cat: info["recommended_for_analysis"] for cat, info in BIOTYPE_CATEGORIES.items()
     }
-    adata.var["recommended_for_analysis"] = adata.var["biotype_category"].map(
-        category_recommendations
+    recommended = adata.var["biotype_category"].map(category_recommendations)
+    adata.var["recommended_for_analysis"] = recommended.where(recommended.notna(), False).astype(
+        bool
     )
-    adata.var["recommended_for_analysis"].fillna(False, inplace=True)
 
     # Log statistics
     biotype_counts = adata.var["biotype_category"].value_counts()

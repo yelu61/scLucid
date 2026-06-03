@@ -11,7 +11,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional
 
+import numpy as np
 import scanpy as sc
+import scipy.sparse
 from anndata import AnnData
 
 from ..utils import (
@@ -42,6 +44,7 @@ __all__ = [
 
 # Define workflow steps for flexible execution
 WORKFLOW_STEPS = [
+    "gene_filtering",
     "normalization",
     "set_raw",
     "regression",
@@ -237,8 +240,19 @@ def run_preprocessing(
         for step_name in step_iterator:
             current_step = step_name
 
-            # --- 1. Normalization ---
-            if step_name == "normalization":
+            # --- 1. Gene filtering ---
+            if step_name == "gene_filtering":
+                adata = _run_step(
+                    adata,
+                    "gene_filtering",
+                    custom_pre_step,
+                    custom_post_step,
+                    lambda a: _run_gene_filtering_step(a, active_config),
+                )
+                successful_steps.append(step_name)
+
+            # --- 2. Normalization ---
+            elif step_name == "normalization":
                 adata = _run_step(
                     adata,
                     "normalization",
@@ -476,6 +490,8 @@ def _resolve_steps(
         return WORKFLOW_STEPS
 
     disabled_steps = set()
+    if not config.run_gene_filtering:
+        disabled_steps.add("gene_filtering")
     if not config.run_regression:
         disabled_steps.add("regression")
     if not config.run_scaling:
@@ -500,6 +516,53 @@ def _prepare_workflow_config(config: Optional[WorkflowConfig]) -> WorkflowConfig
         }
     )
     return active_config
+
+
+def _run_gene_filtering_step(adata: AnnData, config: WorkflowConfig) -> AnnData:
+    """Filter genes detected in fewer than config.min_cells_per_gene cells."""
+    min_cells = min(int(config.min_cells_per_gene), max(int(adata.n_obs), 1))
+    source_name = config.counts_layer if config.counts_layer in adata.layers else "X"
+    X = adata.layers[config.counts_layer] if source_name != "X" else adata.X
+
+    if scipy.sparse.issparse(X):
+        detected_cells = np.diff(X.tocsc().indptr)
+    else:
+        detected_cells = np.asarray(X > 0).sum(axis=0)
+
+    detected_cells = np.asarray(detected_cells).ravel()
+    keep_mask = detected_cells >= min_cells
+    initial_genes = int(adata.n_vars)
+    kept_genes = int(keep_mask.sum())
+    removed_genes = initial_genes - kept_genes
+
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["gene_filtering"] = {
+        "source": source_name,
+        "min_cells_per_gene": min_cells,
+        "initial_genes": initial_genes,
+        "removed_genes": removed_genes,
+        "final_genes": kept_genes if kept_genes > 0 else initial_genes,
+        "skipped": kept_genes == 0,
+    }
+
+    if kept_genes == 0:
+        log.warning(
+            "Gene filtering would remove all genes with min_cells_per_gene=%s; skipping.",
+            min_cells,
+        )
+        return adata
+
+    if removed_genes > 0:
+        log.info(
+            "Gene filtering removed %s/%s genes expressed in fewer than %s cells.",
+            removed_genes,
+            initial_genes,
+            min_cells,
+        )
+        adata._inplace_subset_var(keep_mask)
+    else:
+        log.info("Gene filtering kept all %s genes.", initial_genes)
+
+    return adata
 
 
 def _run_step(
@@ -612,6 +675,90 @@ def _subset_to_hvgs(
     return adata
 
 
+def _select_n_pcs(
+    variance_ratio: np.ndarray,
+    method: str = "elbow",
+    cumulative_threshold: float = 0.9,
+) -> int:
+    """Automatically select number of PCs.
+
+    Parameters
+    ----------
+    variance_ratio : np.ndarray
+        PCA variance ratio array.
+    method : str
+        "elbow" (kneedle) or "cumulative".
+    cumulative_threshold : float
+        For cumulative method, fraction of variance to explain.
+
+    Returns
+    -------
+    int
+        Recommended number of PCs.
+    """
+    variance_ratio = np.asarray(variance_ratio, dtype=float)
+    n_pcs = len(variance_ratio)
+    if n_pcs == 0:
+        raise ValueError("variance_ratio must contain at least one component.")
+    if n_pcs < 3:
+        return n_pcs
+
+    def _bounded(value: int, floor: int = 10) -> int:
+        return min(max(floor, value), n_pcs)
+
+    if method == "cumulative":
+        cumsum = np.cumsum(variance_ratio)
+        hit = np.flatnonzero(cumsum >= cumulative_threshold)
+        n_selected = int(hit[0]) + 1 if len(hit) else n_pcs
+        return _bounded(n_selected)
+
+    elif method == "elbow":
+        # Guard: if variance ratio is effectively constant, kneedle is unreliable.
+        # Fall back to cumulative method in that case.
+        if np.std(variance_ratio) < 1e-6 or not np.all(np.isfinite(variance_ratio)):
+            log.warning(
+                "Variance ratio is constant or contains NaN/Inf. "
+                "Falling back to cumulative method for n_pcs selection."
+            )
+            cumsum = np.cumsum(variance_ratio)
+            hit = np.flatnonzero(cumsum >= cumulative_threshold)
+            n_selected = int(hit[0]) + 1 if len(hit) else n_pcs
+            return _bounded(n_selected)
+
+        # Kneedle algorithm on log-transformed variance ratio
+        x = np.arange(1, n_pcs + 1)
+        y = np.log(variance_ratio + 1e-10)
+
+        # Normalize to unit square
+        x_norm = (x - x.min()) / (x.max() - x.min())
+        y_norm = (y - y.min()) / (y.max() - y.min())
+
+        # Compute distances from the line connecting first and last points
+        line = y_norm[0] + (y_norm[-1] - y_norm[0]) * x_norm
+        distances = line - y_norm
+
+        # Find the knee (max distance)
+        # Exclude the first and last 5% to avoid edge effects
+        margin = max(1, int(0.05 * n_pcs))
+        if margin * 2 >= n_pcs:
+            return max(1, min(n_pcs, int(np.argmax(distances)) + 1))
+        # If all distances are very small, there's no clear elbow
+        if distances[margin:-margin].max() < 0.01:
+            log.warning(
+                "No clear elbow detected in variance ratio curve. "
+                "Falling back to cumulative method for n_pcs selection."
+            )
+            cumsum = np.cumsum(variance_ratio)
+            hit = np.flatnonzero(cumsum >= cumulative_threshold)
+            n_selected = int(hit[0]) + 1 if len(hit) else n_pcs
+            return _bounded(n_selected)
+        knee_idx = margin + int(np.argmax(distances[margin:-margin]))
+        return _bounded(knee_idx + 1, floor=15)
+
+    else:
+        raise ValueError(f"Unknown n_pcs selection method: {method}")
+
+
 def _run_pca(
     adata: AnnData,
     config: WorkflowConfig,
@@ -623,16 +770,35 @@ def _run_pca(
         [config.scaled_layer, config.regressed_layer, config.normalized_layer],
     )
     if pca_input_layer is not None:
+        log.info(
+            f"Setting adata.X to layer '{pca_input_layer}' for PCA. "
+            "The original expression matrix has been overwritten."
+        )
         adata.X = adata.layers[pca_input_layer].copy()
 
     max_valid_pcs = max(1, min(adata.n_obs, adata.n_vars) - 1)
-    n_comps = min(config.graph.n_pcs, max_valid_pcs)
-    if n_comps != config.graph.n_pcs:
-        log.info(
-            f"PCA requested {config.graph.n_pcs} components but data supports {n_comps}; clipping to valid range."
-        )
-    log.info(f"PCA (using {n_comps} components)")
-    sc.tl.pca(adata, n_comps=n_comps)
+
+    # Auto-select n_pcs if configured
+    n_comps = config.graph.n_pcs
+    auto_select = getattr(config, "auto_select_n_pcs", False)
+    if auto_select and hasattr(config, "n_pcs_selection_method"):
+        # Run PCA with max possible components first for auto-selection
+        temp_n_comps = min(100, max_valid_pcs)
+        log.info(f"Running PCA with {temp_n_comps} components for auto-selection...")
+        sc.tl.pca(adata, n_comps=temp_n_comps)
+        vr = adata.uns["pca"]["variance_ratio"]
+        n_comps = _select_n_pcs(vr, method=config.n_pcs_selection_method)
+        log.info(f"Auto-selected {n_comps} PCs ({config.n_pcs_selection_method} method)")
+        # Re-run with selected n_comps
+        sc.tl.pca(adata, n_comps=n_comps)
+    else:
+        n_comps = min(n_comps, max_valid_pcs)
+        if n_comps != config.graph.n_pcs:
+            log.info(
+                f"PCA requested {config.graph.n_pcs} components but data supports {n_comps}; clipping to valid range."
+            )
+        log.info(f"PCA (using {n_comps} components)")
+        sc.tl.pca(adata, n_comps=n_comps)
 
     if results_path:
         try:
@@ -709,6 +875,11 @@ def _build_preprocessing_review_summary(
         ]
         if layer in adata.layers
     ]
+
+    if "gene_filtering" in successful_steps:
+        summary["gene_filtering"] = (
+            adata.uns.get("sclucid", {}).get("preprocess", {}).get("gene_filtering", {})
+        )
 
     # Normalization
     if "normalization" in successful_steps:

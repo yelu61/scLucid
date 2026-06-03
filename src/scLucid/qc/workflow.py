@@ -1101,11 +1101,30 @@ def _run_qc_workflow(
 
     # Tumor-aware filtering adjustment
     if _is_tumor_aware(active_tissue_type):
+        # Relax MAD threshold for tumor data (cells more heterogeneous)
+        if config.marking_config.thresholds.nmads < 4.5:
+            config.marking_config.thresholds.nmads = 4.5
+            msg = "Tumor-aware QC: nmads relaxed to 4.5 for heterogeneous tumor populations."
+            warnings_list.append(msg)
+            log.info(msg)
+
         if "outlier_mt" in config.filter_config.criteria_to_filter:
             config.filter_config.criteria_to_filter = [
                 c for c in config.filter_config.criteria_to_filter if c != "outlier_mt"
             ]
             msg = "Tumor-aware QC: outlier_mt excluded from filtering criteria."
+            warnings_list.append(msg)
+            log.info(msg)
+
+    # Blood tissue: ensure hemoglobin outlier detection is active
+    if active_tissue_type and (
+        "blood" in active_tissue_type.lower()
+        or "pbmc" in active_tissue_type.lower()
+        or "bone marrow" in active_tissue_type.lower()
+    ):
+        if "outlier_hb" not in config.filter_config.criteria_to_filter:
+            config.filter_config.criteria_to_filter.append("outlier_hb")
+            msg = "Blood tissue detected: outlier_hb added to filtering criteria."
             warnings_list.append(msg)
             log.info(msg)
 

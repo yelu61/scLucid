@@ -48,9 +48,8 @@ class AdaptiveNormalizationConfig:
     # === Basic settings ===
     method: Literal[
         "quality_aware",  # Quality-stratified normalization
-        "scran_pool",  # scran with cell pooling
+        "deconvolution_pool",  # Python-only pooled size factor estimation
         "quantile_regression",  # Quantile regression normalization
-        "sctransform",  # Variance-stabilizing transformation
     ] = "quality_aware"
 
     input_layer: str = "counts"
@@ -63,9 +62,9 @@ class AdaptiveNormalizationConfig:
     n_quality_bins: int = 5  # Stratify cells into N quality bins
     use_quality_weights: bool = True  # Weight cells by quality in normalization
 
-    # === scran settings ===
-    scran_pool_size: int = 100  # Pool size for scran
-    scran_min_mean: float = 0.1  # Minimum mean expression for size factor calculation
+    # === pooled deconvolution settings ===
+    pool_size: int = 100
+    min_mean: float = 0.1
 
     # === Quantile regression settings ===
     quantile: float = 0.75  # Which quantile to use as reference
@@ -96,7 +95,7 @@ class AdaptiveNormalizationConfig:
 
 def estimate_cell_size_factors(
     adata: AnnData,
-    method: Literal["median_ratio", "scran", "deconvolution"] = "median_ratio",
+    method: Literal["median_ratio", "deconvolution"] = "median_ratio",
     layer: Optional[str] = None,
     min_mean: float = 0.1,
     pool_size: int = 100,
@@ -106,7 +105,7 @@ def estimate_cell_size_factors(
 
     This is more robust than simple total count normalization because:
     1. It uses only stably expressed genes (median-ratio method)
-    2. It pools similar cells (scran method)
+    2. It can pool similar cells with a Python-only deconvolution approximation
     3. It's robust to compositional effects
 
     Args:
@@ -114,7 +113,7 @@ def estimate_cell_size_factors(
         method: Size factor estimation method
         layer: Layer to use (if None, use adata.X)
         min_mean: Minimum mean expression for gene inclusion
-        pool_size: Pool size for scran method
+        pool_size: Pool size for deconvolution method
 
     Returns:
         Array of size factors (one per cell)
@@ -166,59 +165,6 @@ def estimate_cell_size_factors(
                 size_factors[i] = np.median(ratios)
             else:
                 size_factors[i] = 1.0
-
-    elif method == "scran":
-        # scran pooling-based deconvolution
-        log.info("Estimating size factors using scran method...")
-
-        try:
-            # Requires scran from Bioconductor via rpy2
-            import rpy2.robjects as ro
-            from rpy2.robjects import numpy2ri
-            from rpy2.robjects.packages import importr
-
-            numpy2ri.activate()
-
-            scran = importr("scran")
-
-            # Create pools of similar cells
-            # Here we use a simple k-means clustering
-            from sklearn.cluster import KMeans
-
-            # Use PCA for clustering (if available)
-            if "X_pca" in adata.obsm:
-                clustering_data = adata.obsm["X_pca"][:, :20]
-            else:
-                # Use top variable genes
-                gene_vars = np.var(X_dense, axis=0)
-                top_genes = np.argsort(-gene_vars)[:1000]
-                clustering_data = X_dense[:, top_genes]
-
-            n_pools = max(5, n_cells // pool_size)
-            kmeans = KMeans(n_clusters=n_pools, random_state=42)
-            clusters = kmeans.fit_predict(clustering_data)
-
-            # Convert to R format
-            counts_r = ro.r.matrix(X_dense.T, nrow=n_genes, ncol=n_cells)
-            clusters_r = ro.IntVector(clusters + 1)  # R uses 1-based indexing
-
-            # Compute size factors
-            size_factors_r = scran.computeSumFactors(
-                counts_r, clusters=clusters_r, min_mean=min_mean
-            )
-
-            size_factors = np.array(size_factors_r)
-
-            numpy2ri.deactivate()
-
-        except ImportError:
-            log.warning(
-                "scran method requires R with scran package installed. "
-                "Falling back to median-ratio method."
-            )
-            return estimate_cell_size_factors(
-                adata, method="median_ratio", layer=layer, min_mean=min_mean
-            )
 
     elif method == "deconvolution":
         # Simplified deconvolution without R dependency
@@ -325,8 +271,9 @@ def quality_aware_normalize(
     else:
         X = adata.X.copy()
 
-    if scipy.sparse.issparse(X):
-        X = X.toarray()
+    is_sparse = scipy.sparse.issparse(X)
+    if is_sparse:
+        X = X.tocsr(copy=True)
 
     # === 1. Compute composite quality score ===
     log.info(f"Computing composite quality score from: {', '.join(quality_metrics)}")
@@ -392,7 +339,7 @@ def quality_aware_normalize(
         log.info(f"  {bin_name}: {n_cells} cells")
 
     # === 3. Normalize within each bin ===
-    X_normalized = np.zeros_like(X)
+    row_scale = np.ones(adata.n_obs, dtype=np.float64)
 
     for bin_name in quality_bins.categories:
         bin_mask = quality_bins == bin_name
@@ -405,33 +352,38 @@ def quality_aware_normalize(
         X_bin = X[bin_indices, :]
 
         # Compute bin-specific size factors
-        total_counts_bin = X_bin.sum(axis=1)
+        total_counts_bin = np.asarray(X_bin.sum(axis=1)).ravel()
 
         if target_sum is None:
             # Use median of this bin
             target_bin = np.median(total_counts_bin)
         else:
             target_bin = target_sum
+        if target_bin <= 0:
+            target_bin = 1.0
 
         # Normalize
         size_factors_bin = total_counts_bin / target_bin
         size_factors_bin[size_factors_bin == 0] = 1
-
-        X_bin_normalized = X_bin / size_factors_bin[:, np.newaxis]
-
-        # Store
-        X_normalized[bin_indices, :] = X_bin_normalized
+        row_scale[bin_indices] = 1.0 / size_factors_bin
 
         log.info(f"  {bin_name}: target_sum={target_bin:.0f}")
 
+    if is_sparse:
+        X_normalized = X.copy()
+        X_normalized.data *= np.repeat(row_scale, np.diff(X_normalized.indptr))
+    else:
+        X_normalized = X * row_scale[:, np.newaxis]
+
     # === 4. Log transform ===
     if log_transform:
-        X_normalized = np.log1p(X_normalized)
+        if is_sparse:
+            X_normalized.data = np.log1p(X_normalized.data)
+            X_normalized.eliminate_zeros()
+        else:
+            X_normalized = np.log1p(X_normalized)
 
     # === 5. Store result ===
-    if scipy.sparse.issparse(adata.X):
-        X_normalized = scipy.sparse.csr_matrix(X_normalized)
-
     adata.layers[output_layer] = X_normalized
 
     # === 6. Compute quality weights ===
@@ -486,14 +438,14 @@ def adaptive_normalize(
             log_transform=config.log_transform,
         )
 
-    elif config.method == "scran_pool":
-        # Use scran-based size factors
+    elif config.method == "deconvolution_pool":
+        # Use Python-only pooled size factors
         size_factors = estimate_cell_size_factors(
             adata,
-            method="scran",
+            method="deconvolution",
             layer=config.input_layer,
-            pool_size=config.scran_pool_size,
-            min_mean=config.scran_min_mean,
+            pool_size=config.pool_size,
+            min_mean=config.min_mean,
         )
 
         # Apply size factors
@@ -502,19 +454,24 @@ def adaptive_normalize(
         else:
             X = adata.X.copy()
 
-        if scipy.sparse.issparse(X):
-            X = X.toarray()
-
-        X_normalized = X / size_factors[:, np.newaxis]
+        is_sparse_input = scipy.sparse.issparse(X)
+        if is_sparse_input:
+            X = X.tocsr()
+            row_scale = 1.0 / size_factors
+            X.data *= np.repeat(row_scale, np.diff(X.indptr))
+            X_normalized = X
+        else:
+            X_normalized = X / size_factors[:, np.newaxis]
 
         if config.log_transform:
-            X_normalized = np.log1p(X_normalized)
-
-        if scipy.sparse.issparse(adata.X):
-            X_normalized = scipy.sparse.csr_matrix(X_normalized)
+            if is_sparse_input:
+                X_normalized.data = np.log1p(X_normalized.data)
+                X_normalized.eliminate_zeros()
+            else:
+                X_normalized = np.log1p(X_normalized)
 
         adata.layers[config.output_layer] = X_normalized
-        adata.obs["scran_size_factors"] = size_factors
+        adata.obs["deconvolution_size_factors"] = size_factors
 
     elif config.method == "quantile_regression":
         # Quantile normalization
@@ -525,7 +482,16 @@ def adaptive_normalize(
         else:
             X = adata.X.copy()
 
-        if scipy.sparse.issparse(X):
+        is_sparse_input = scipy.sparse.issparse(X)
+        if is_sparse_input:
+            n_obs, n_vars = X.shape
+            est_dense_bytes = n_obs * n_vars * 8
+            if est_dense_bytes > 8e9:
+                log.warning(
+                    f"Quantile regression requires dense matrix conversion. "
+                    f"Estimated memory: {est_dense_bytes / 1e9:.1f} GB. "
+                    f"Consider using method='quality_aware' or subsampling."
+                )
             X = X.toarray()
 
         # Apply quantile transformation
@@ -535,29 +501,10 @@ def adaptive_normalize(
 
         X_normalized = qt.fit_transform(X)
 
-        if scipy.sparse.issparse(adata.X):
+        if is_sparse_input:
             X_normalized = scipy.sparse.csr_matrix(X_normalized)
 
         adata.layers[config.output_layer] = X_normalized
-
-    elif config.method == "sctransform":
-        # Variance-stabilizing transformation
-        log.info("Applying SCTransform-style normalization...")
-
-        try:
-            # Use Scanpy's implementation if available
-            sc.experimental.pp.normalize_pearson_residuals(adata, layer=config.input_layer)
-
-            # Rename to output layer
-            adata.layers[config.output_layer] = adata.X.copy()
-
-        except AttributeError:
-            log.error(
-                "SCTransform requires scanpy >= 1.8. " "Falling back to standard normalization."
-            )
-            sc.pp.normalize_total(adata, target_sum=config.target_sum or 1e4)
-            sc.pp.log1p(adata)
-            adata.layers[config.output_layer] = adata.X.copy()
 
     else:
         raise ValueError(f"Unknown method: {config.method}")
@@ -633,9 +580,9 @@ def _plot_normalization_diagnostics(
         ax.set_xlabel("Quality Bin")
 
     # 4. Size factors (if available)
-    if "scran_size_factors" in adata.obs:
+    if "deconvolution_size_factors" in adata.obs:
         ax = axes[1, 0]
-        sns.histplot(adata.obs["scran_size_factors"], bins=50, ax=ax, kde=True)
+        sns.histplot(adata.obs["deconvolution_size_factors"], bins=50, ax=ax, kde=True)
         ax.set_title("Size Factors Distribution")
         ax.axvline(1.0, color="red", linestyle="--", label="Median")
         ax.legend()

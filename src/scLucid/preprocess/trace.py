@@ -36,6 +36,7 @@ PREPROCESS_STABLE_ENTRYPOINTS = (
 )
 
 PREPROCESS_EXPECTED_OUTPUTS = (
+    'adata.uns["sclucid"]["preprocess"]["gene_filtering"]',
     "adata.layers['normalized']",
     "adata.var['highly_variable']",
     "adata.obsm['X_pca']",
@@ -186,6 +187,11 @@ def build_applied_parameter_summary(
                 "output_layer": config.normalized_layer,
                 "update_X": config.normalization.update_X,
             },
+            "gene_filtering": {
+                "executed": "gene_filtering" in successful_steps,
+                "min_cells_per_gene": getattr(config, "min_cells_per_gene", None),
+                "metadata": _preprocess_namespace(adata).get("gene_filtering", {}),
+            },
             "hvg_selection": {
                 "executed": "hvg_selection" in successful_steps,
                 "method": config.hvg.method,
@@ -240,6 +246,13 @@ def build_layer_transition_summary(
 ) -> dict[str, Any]:
     """Describe how expression data moved across layers and embeddings."""
     transitions = [
+        {
+            "step": "gene_filtering",
+            "executed": "gene_filtering" in successful_steps,
+            "input": f"layers['{config.counts_layer}'] or X",
+            "output": "var subset",
+            "output_present": "gene_filtering" in _preprocess_namespace(adata),
+        },
         {
             "step": "normalization",
             "executed": "normalization" in successful_steps,
@@ -306,6 +319,7 @@ def build_step_evidence_summary(
     hvg_meta = _preprocess_namespace(adata).get("hvg", {})
     integration = _preprocess_namespace(adata).get("integration", {}).get("workflow", {})
     hvg_key = hvg_meta.get("output_key", "highly_variable")
+    gene_filtering_meta = _preprocess_namespace(adata).get("gene_filtering", {})
     n_hvg = hvg_meta.get("n_hvg")
     if n_hvg is None and hvg_key in adata.var:
         n_hvg = int(adata.var[hvg_key].sum())
@@ -316,6 +330,37 @@ def build_step_evidence_summary(
             pca_variance_top3 = [round(float(value), 4) for value in list(variance_ratio)[:3]]
 
     steps = [
+        {
+            "step": "gene_filtering",
+            "status": _step_status(
+                "gene_filtering",
+                successful_steps,
+                output_present="gene_filtering" in _preprocess_namespace(adata),
+                skipped=not getattr(config, "run_gene_filtering", True),
+            ),
+            "input": {
+                "layer": gene_filtering_meta.get("source", config.counts_layer),
+                "layer_present": config.counts_layer in adata.layers,
+            },
+            "output": {
+                "n_genes_before": gene_filtering_meta.get("initial_genes"),
+                "n_genes_after": gene_filtering_meta.get("final_genes", int(adata.n_vars)),
+                "n_genes_removed": gene_filtering_meta.get("removed_genes"),
+                "skipped": gene_filtering_meta.get("skipped", False),
+            },
+            "parameters": {
+                "min_cells_per_gene": getattr(config, "min_cells_per_gene", None),
+            },
+            "audit_fields": [
+                "applied_parameter_summary.gene_filtering",
+                "layer_transition_summary.transitions.gene_filtering",
+            ],
+            "review_flags": _missing_output_flags(
+                "gene_filtering",
+                successful_steps,
+                {"uns['gene_filtering']": "gene_filtering" in _preprocess_namespace(adata)},
+            ),
+        },
         {
             "step": "normalization",
             "status": _step_status(
@@ -639,6 +684,23 @@ def build_hvg_selection_evidence_summary(
         elif selected_fraction is not None and selected_fraction < 0.02:
             status = "review_required"
             warnings.append("Very small HVG fraction selected; downstream PCA/clustering may be unstable.")
+    excluded_gene_types = hvg_meta.get("excluded_gene_types", {})
+    excluded_total = (
+        sum(int(v) for v in excluded_gene_types.values() if isinstance(v, (int, float)))
+        if isinstance(excluded_gene_types, Mapping)
+        else 0
+    )
+    pre_exclusion_total = (int(n_hvg) + excluded_total) if n_hvg is not None else None
+    excluded_fraction = (
+        float(excluded_total / pre_exclusion_total)
+        if pre_exclusion_total and pre_exclusion_total > 0
+        else None
+    )
+    if "hvg_selection" in successful_steps and excluded_fraction is not None and excluded_fraction > 0.3:
+        status = "review_required"
+        warnings.append(
+            "More than 30% of initially selected HVGs overlapped excluded technical gene types; inspect HVG/PCA diagnostics before analysis."
+        )
     return _json_safe(
         {
             "status": status,
@@ -652,7 +714,9 @@ def build_hvg_selection_evidence_summary(
             "n_input_genes": int(adata.n_vars),
             "selected_fraction": selected_fraction,
             "input_stats": hvg_meta.get("input_stats", {}),
-            "excluded_gene_types": hvg_meta.get("excluded_gene_types", {}),
+            "excluded_gene_types": excluded_gene_types,
+            "excluded_gene_type_total": excluded_total,
+            "excluded_gene_type_fraction": excluded_fraction,
             "warnings": warnings,
         }
     )
@@ -669,6 +733,8 @@ def build_downstream_analysis_recommendations(
     """Generate next-step recommendations after preprocessing."""
     blockers: list[str] = []
     recommendations: list[dict[str, Any]] = []
+    sample_depth = build_sample_depth_diagnostic(adata, config)
+    cell_cycle = build_cell_cycle_regression_diagnostic(adata, config)
     if "X_pca" not in adata.obsm:
         blockers.append("PCA embedding obsm['X_pca'] is missing.")
     if "normalization" in successful_steps and config.normalized_layer not in adata.layers:
@@ -710,11 +776,31 @@ def build_downstream_analysis_recommendations(
                 "rationale": "Tumor-aware preprocessing warnings were generated.",
             }
         )
+    if sample_depth.get("status") == "review_required":
+        recommendations.append(
+            {
+                "target": "sample_depth",
+                "priority": "review",
+                "recommendation": "Review sample-level sequencing depth differences before choosing integration/downsampling.",
+                "rationale": sample_depth.get("message", ""),
+            }
+        )
+    if cell_cycle.get("status") == "review_required":
+        recommendations.append(
+            {
+                "target": "cell_cycle_regression",
+                "priority": "review",
+                "recommendation": "Review whether cell-cycle regression is biologically appropriate before enabling it.",
+                "rationale": cell_cycle.get("message", ""),
+            }
+        )
     status = "blocked" if blockers else ("review_required" if any(r["priority"] == "review" for r in recommendations) else "ready")
     return {
         "ready_for_analysis": not blockers,
         "status": status,
         "blockers": blockers,
+        "sample_depth_diagnostic": sample_depth,
+        "cell_cycle_regression_diagnostic": cell_cycle,
         "recommendations": recommendations,
     }
 
@@ -729,6 +815,11 @@ def build_preprocess_readiness_assessment(
     """Assess whether preprocessing output is ready for analysis."""
     blockers = list(downstream_recommendations.get("blockers", []))
     review_reasons = list(hvg_summary.get("warnings", [])) + list(tumor_warnings.get("warnings", []))
+    review_reasons.extend(
+        str(item.get("rationale", ""))
+        for item in downstream_recommendations.get("recommendations", [])
+        if isinstance(item, Mapping) and item.get("priority") == "review" and item.get("rationale")
+    )
     if adata.n_obs == 0 or adata.n_vars == 0:
         blockers.append("Preprocessed AnnData is empty.")
     if blockers:
@@ -750,6 +841,75 @@ def build_preprocess_readiness_assessment(
             "has_pca": "X_pca" in adata.obsm,
             "has_umap": "X_umap" in adata.obsm,
         },
+    }
+
+
+def build_sample_depth_diagnostic(adata: AnnData, config: Any) -> dict[str, Any]:
+    """Flag large sample-level sequencing-depth differences for review."""
+    candidate_keys = []
+    batch_key = getattr(getattr(config, "integration", None), "batch_key", None)
+    hvg_sample_key = getattr(getattr(config, "hvg", None), "sample_key", None)
+    for key in (batch_key, hvg_sample_key, "sampleID", "sample", "batch"):
+        if isinstance(key, str) and key not in candidate_keys:
+            candidate_keys.append(key)
+    group_key = next((key for key in candidate_keys if key in adata.obs), None)
+    if group_key is None or "total_counts" not in adata.obs:
+        return {
+            "status": "not_available",
+            "group_key": group_key,
+            "message": "Sample-level depth diagnostic requires a group key and obs['total_counts'].",
+        }
+    medians = adata.obs.groupby(group_key, observed=False)["total_counts"].median().dropna()
+    if len(medians) < 2:
+        return {"status": "ok", "group_key": group_key, "n_groups": int(len(medians))}
+    min_median = float(medians.min())
+    max_median = float(medians.max())
+    ratio = max_median / max(min_median, 1.0)
+    status = "review_required" if ratio > 2.0 else "ok"
+    return _json_safe(
+        {
+            "status": status,
+            "group_key": group_key,
+            "n_groups": int(len(medians)),
+            "min_median_total_counts": min_median,
+            "max_median_total_counts": max_median,
+            "max_to_min_ratio": ratio,
+            "message": (
+                f"Median total_counts differs by {ratio:.2f}x across {group_key!r}; inspect PCA/UMAP and consider downsampling or integration settings."
+                if status == "review_required"
+                else "No large sample-level sequencing-depth disparity detected."
+            ),
+        }
+    )
+
+
+def build_cell_cycle_regression_diagnostic(adata: AnnData, config: Any) -> dict[str, Any]:
+    """Provide review guidance for cell-cycle regression without enabling it by default."""
+    has_scores = {"S_score", "G2M_score"}.issubset(set(adata.obs.columns)) or "phase" in adata.obs
+    vars_to_regress = set(getattr(getattr(config, "scaling", None), "vars_to_regress", []) or [])
+    regress_in_scale = bool(getattr(getattr(config, "scaling", None), "regress_in_scale", False))
+    configured = bool({"S_score", "G2M_score", "phase"} & vars_to_regress) or regress_in_scale
+    if not has_scores:
+        return {
+            "status": "not_available",
+            "scores_present": False,
+            "regression_configured": configured,
+            "message": "Cell-cycle scores were not detected.",
+        }
+    if configured:
+        return {
+            "status": "ok",
+            "scores_present": True,
+            "regression_configured": True,
+            "message": "Cell-cycle covariates are configured for regression; document biological rationale.",
+        }
+    return {
+        "status": "review_required",
+        "scores_present": True,
+        "regression_configured": False,
+        "message": (
+            "Cell-cycle scores are present but regression is disabled. This is the default; regress only for a homogeneous dataset where cell cycle is likely technical."
+        ),
     }
 
 

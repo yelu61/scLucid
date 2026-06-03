@@ -62,7 +62,22 @@ class HVGConfig(SclucidBaseConfig):
 
     method: Literal["scanpy", "custom", "triku"] = Field(default="scanpy")
     n_top_genes: int = Field(default=2000, ge=100, le=20000, description="Number of HVGs to select")
-    flavor: Literal["seurat", "seurat_v3", "cell_ranger"] = Field(default="seurat")
+    auto_n_top_genes: bool = Field(
+        default=True,
+        description="Automatically adapt n_top_genes based on dataset size.",
+    )
+    auto_n_top_genes_method: Literal["linear", "log"] = Field(
+        default="log",
+        description="Scaling method for auto n_top_genes: 'linear' (conservative) or 'log' (aggressive for large datasets).",
+    )
+    flavor: Literal["auto", "seurat", "seurat_v3", "cell_ranger"] = Field(
+        default="auto",
+        description=(
+            "HVG flavor. 'auto' uses dependency-light log-normalized HVG selection by "
+            "default and reserves seurat_v3 for raw-count inputs when its optional "
+            "dependency is available."
+        ),
+    )
     span: Optional[float] = Field(default=0.3)
     batch_key: Optional[str] = Field(default=None)
     sample_key: str = Field(default="sampleID")
@@ -98,9 +113,13 @@ class ScalingConfig(SclucidBaseConfig):
     model_config = ConfigDict(extra="ignore")
 
     vars_to_regress: Optional[List[str]] = Field(
-        default_factory=lambda: ["total_counts", "pct_counts_mt"]
+        default=None,
+        description=(
+            "Covariates to regress out. Keep None by default to avoid removing "
+            "biological gradients unless the user explicitly opts in."
+        ),
     )
-    regress_in_scale: bool = Field(default=True)
+    regress_in_scale: bool = Field(default=False)
     vars_to_regress_in_scale: Optional[List[str]] = Field(default=None)
     input_layer_for_regress: str = Field(default="normalized")
     scale_method: Literal["zscore", "robust", "minmax"] = Field(default="zscore")
@@ -112,21 +131,31 @@ class IntegrationConfig(SclucidBaseConfig):
 
     model_config = ConfigDict(extra="ignore")
 
-    method: Optional[Literal["harmony", "scanorama", "scvi", "bbknn", "combat"]] = Field(
-        default="harmony"
-    )
+    method: Optional[
+        Literal["harmony", "scanorama", "scvi", "scanvi", "scANVI", "bbknn", "combat"]
+    ] = Field(default="harmony")
     batch_key: Optional[Union[str, List[str]]] = Field(default="sampleID")
     use_rep: str = Field(default="X_pca")
     output_key: Optional[str] = Field(default=None)
     harmony_params: Dict[str, Any] = Field(
-        default_factory=lambda: {"max_iter_harmony": 20, "theta": 2.0}
+        default_factory=lambda: {"max_iter_harmony": 50, "theta": 2.0}
     )
     scvi_params: Dict[str, Any] = Field(default_factory=lambda: {"n_latent": 30, "max_epochs": 500})
+    scanvi_params: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "n_latent": 30,
+            "max_epochs": 500,
+            "early_stopping_patience": 20,
+        }
+    )
+    scanvi_labels_key: Optional[str] = Field(
+        default=None, description="Key in adata.obs for cell type labels (required for scANVI)"
+    )
     hvg_key: Optional[str] = Field(default=None, description="For Scanorama")
     method_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional kwargs passed directly to the underlying integration method. "
-        "These override any values in harmony_params / scvi_params.",
+        "These override any values in harmony_params / scvi_params / scanvi_params.",
     )
 
 
@@ -179,12 +208,33 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
     integration: IntegrationConfig = Field(default_factory=IntegrationConfig)
     graph: GraphConfig = Field(default_factory=GraphConfig)
 
+    # PCA auto-selection
+    auto_select_n_pcs: bool = Field(
+        default=False, description="Automatically select n_pcs using elbow or cumulative method"
+    )
+    n_pcs_selection_method: Literal["elbow", "cumulative"] = Field(default="elbow")
+
     # Workflow control
-    run_regression: bool = Field(default=True, description="Run regression step")
+    run_gene_filtering: bool = Field(
+        default=True,
+        description="Filter genes expressed in too few cells before normalization/HVG selection.",
+    )
+    min_cells_per_gene: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum number of cells in which a gene must be detected.",
+    )
+    run_regression: bool = Field(
+        default=False,
+        description="Run regression step. Disabled by default to preserve biological signal.",
+    )
     run_scaling: bool = Field(default=True, description="Run scaling step")
     run_pca: bool = Field(default=True, description="Run PCA step")
     run_neighbors: bool = Field(default=True, description="Run neighbors and UMAP")
-    run_integration: bool = Field(default=True, description="Run batch correction")
+    run_integration: bool = Field(
+        default=False,
+        description="Run batch correction. Disabled by default; enable when batch effects are evident.",
+    )
     # Note: save_dir is inherited from SclucidBaseConfig
 
     @classmethod
@@ -277,12 +327,13 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
         Default configuration factory for the standard preprocessing path.
 
         This represents the canonical default pipeline:
+        - Low-detection gene filtering (min_cells_per_gene=3)
         - Normalization (log1p, target_sum=1e4)
-        - Regression (total_counts, pct_counts_mt)
-        - HVG selection (2000 genes, seurat flavor)
+        - Optional regression only when explicitly enabled
+        - HVG selection (adaptive 2000-5000 genes, dependency-light auto flavor)
         - Scaling (z-score, max_value=10)
         - PCA (50 components)
-        - Batch correction (harmony, if batch_key present)
+        - Optional batch correction (Harmony or other configured method)
         - Neighbors + UMAP (15 neighbors, 50 PCs)
 
         Args:
@@ -296,11 +347,11 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
             >>> adata = run_preprocessing(adata, config=config)
         """
         return cls(
-            run_regression=True,
+            run_regression=False,
             run_scaling=True,
             run_pca=True,
             run_neighbors=True,
-            run_integration=True,
+            run_integration=False,
             **kwargs,
         )
 

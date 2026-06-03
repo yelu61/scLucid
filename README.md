@@ -167,7 +167,7 @@ pip install sclucid
 # To include additional analysis packages (CellTypist, cosg, etc.)
 pip install "sclucid[analysis]"
 
-# To include all advanced tools (scVelo, rpy2, infercnvpy, etc.)
+# To include advanced optional tools (scVelo, infercnvpy, scVI-related workflows, etc.)
 pip install "sclucid[tools]"
 
 # To install everything
@@ -242,6 +242,26 @@ scl.pl.plot_embedding(adata_final, color_by="cell_type_auto", show=False)
 import matplotlib.pyplot as plt
 plt.savefig("results.pdf", dpi=600, bbox_inches="tight")
 ```
+
+### Recommended Pipeline Policy
+
+The maintained QC -> Preprocess -> Analysis path is light by default and
+optionally extensible:
+
+- QC uses Python-native metrics, adaptive recommendations, conservative
+  multi-criterion filtering, and optional Scrublet/heuristic doublet evidence.
+- Preprocessing preserves counts, filters low-detection genes, runs standard
+  log-normalization, uses dependency-light HVG selection, then PCA/neighbors/UMAP.
+  Regression and batch correction are explicit opt-ins.
+- Analysis consumes the unambiguous layers and embeddings from preprocessing for
+  clustering review, marker/evidence tables, annotation consensus, DE, and
+  proportion summaries.
+- Optional enhancements such as `scanpy.external.pp.scran_normalize`,
+  `seurat_v3` HVGs, Harmony, scVI/scANVI, BBKNN, SOLO, or DoubletDetection are
+  available when their dependencies and biological rationale are present.
+
+ScDblFinder wrappers, project-level ambient RNA correction, and custom rpy2
+execution branches are not part of the recommended default path.
 
 ### Documentation
 

@@ -17,7 +17,11 @@ import seaborn as sns
 from anndata import AnnData
 
 from ..config import DoubletConfig, MarkerConfig
-from .algorithms import _run_doubletdetection, _run_scrublet, _run_solo
+from .algorithms import (
+    _run_doubletdetection,
+    _run_scrublet,
+    _run_solo,
+)
 from .core import (
     FINAL_PRED_COL,
     HEURISTIC_PRED_COL,
@@ -140,7 +144,7 @@ def _export_doublet_stats(
     # Calculate per-sample statistics
     sample_stats = []
     unique_samples = adata.obs[sample_key].unique()
-    if not pd.api.types.is_categorical_dtype(adata.obs[sample_key]):
+    if not isinstance(adata.obs[sample_key].dtype, pd.CategoricalDtype):
         unique_samples = sorted(unique_samples)
 
     for sample in unique_samples:
@@ -215,7 +219,11 @@ def _export_doublet_stats(
 
 
 def predict_doublets(
-    adata: AnnData, config: DoubletConfig, sample_key: str = "sampleID", **kwargs
+    adata: AnnData,
+    config: DoubletConfig,
+    sample_key: str = "sampleID",
+    cluster_key: Optional[str] = None,
+    **kwargs,
 ) -> AnnData:
     """
     Enhanced doublet prediction with a clear, config-driven workflow.
@@ -225,6 +233,8 @@ def predict_doublets(
         adata: AnnData object containing single-cell expression data.
         config: A `DoubletConfig` object that controls the entire workflow.
         sample_key: Key for sample identification in adata.obs.
+        cluster_key: Optional key for cluster identification. When provided,
+            per-cluster doublet fractions are computed and stored in ``.uns``.
 
     Returns:
         AnnData object with doublet predictions added to .obs and .obsm.
@@ -270,7 +280,7 @@ def predict_doublets(
     ALGORITHM_DISPATCHER = {
         "scrublet": _run_scrublet,
         "solo": _run_solo,
-        "doubletdetection": _run_doubletdetection,  # Future-ready
+        "doubletdetection": _run_doubletdetection,
     }
     if cfg.method not in ALGORITHM_DISPATCHER:
         raise ValueError(
@@ -306,7 +316,12 @@ def predict_doublets(
     if cfg.use_heuristics:
         log.info("Running quantitative heuristic analysis...")
         # Call the new heuristic function and receive its multiple outputs
-        heuristic_pred, lineage_scores_df, heuristic_scores = _run_heuristic(adata, cfg)
+        heuristic_pred, lineage_scores_df, heuristic_scores = _run_heuristic(
+            adata,
+            cfg,
+            expected_rate=cfg.expected_doublet_rate,
+            sample_key=sample_key if sample_key in adata.obs.columns else None,
+        )
 
         # Store all the new results in the AnnData object
         adata.obsm["lineage_module_scores"] = lineage_scores_df  # Store detailed scores in .obsm
@@ -329,7 +344,36 @@ def predict_doublets(
     )
     adata.obs[FINAL_PRED_COL] = merged_pred
 
+    # P4: Biology-aware downgrading for allowlisted co-expression pairs
+    if cfg.ignore_coexpression_pairs and LINEAGE_SCORES_KEY in adata.obsm:
+        lineage_scores_df = adata.obsm[LINEAGE_SCORES_KEY]
+        for lin1, lin2 in cfg.ignore_coexpression_pairs:
+            if lin1 in lineage_scores_df.columns and lin2 in lineage_scores_df.columns:
+                allowlist_mask = (
+                    (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
+                )
+                # Only downgrade if algorithm did not flag the cell
+                algo_not_flagged = ~adata.obs[algo_pred_col].astype(bool)
+                downgrade_mask = allowlist_mask & algo_not_flagged
+                n_downgraded = int(downgrade_mask.sum())
+                if n_downgraded > 0:
+                    adata.obs.loc[downgrade_mask, FINAL_PRED_COL] = False
+                    log.info(
+                        f"Biology-aware downgrade: {n_downgraded} cells allowlisted "
+                        f"({lin1}+{lin2}) demoted from final doublet call."
+                    )
+
+    # P5: Record threshold evidence
     adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
+    doublet_rate = float(adata.obs[FINAL_PRED_COL].mean())
+    expected_rate = cfg.expected_doublet_rate
+    expected_rate_float = (
+        float(expected_rate)
+        if isinstance(expected_rate, (int, float))
+        else float(np.mean(list(expected_rate.values())))
+        if isinstance(expected_rate, dict)
+        else 0.10
+    )
     adata.uns["sclucid"]["qc"]["doublet_params"].update(
         {
             "merge_strategy": cfg.merge_strategy,
@@ -337,6 +381,20 @@ def predict_doublets(
             "expected_doublet_rate": cfg.expected_doublet_rate,
             "score_threshold": cfg.score_threshold,
             "method": cfg.method,
+            "threshold_evidence": {
+                "heuristic_threshold_method": (
+                    "adaptive_expected_rate"
+                    if cfg.expected_doublet_rate is not None
+                    else "legacy_quantile_90"
+                ),
+                "heuristic_expected_rate": cfg.expected_doublet_rate,
+                "actual_doublet_rate": round(doublet_rate, 4),
+                "rate_vs_expected_ratio": (
+                    round(doublet_rate / expected_rate_float, 2)
+                    if expected_rate_float > 0
+                    else None
+                ),
+            },
         }
     )
 
@@ -375,7 +433,34 @@ def predict_doublets(
 
     log.info("=" * 50)
 
-    # === 6. Reporting & Visualization ===
+    # === 6. CLUSTER-LEVEL DOUBLET AUDIT (P2) ===
+    if cluster_key and cluster_key in adata.obs.columns:
+        cluster_series = adata.obs[cluster_key].astype(str)
+        cluster_summary = []
+        for cluster in cluster_series.unique():
+            mask = cluster_series == cluster
+            n_total = int(mask.sum())
+            n_doublets = int(adata.obs.loc[mask, FINAL_PRED_COL].sum())
+            fraction = n_doublets / n_total if n_total > 0 else 0.0
+            cluster_summary.append(
+                {
+                    "cluster": str(cluster),
+                    "n_cells": n_total,
+                    "n_doublets": n_doublets,
+                    "doublet_fraction": float(fraction),
+                    "flagged": bool(fraction > 0.30 and n_total >= 10),
+                }
+            )
+        cluster_df = pd.DataFrame(cluster_summary)
+        adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
+        adata.uns["sclucid"]["qc"]["doublet_params"]["cluster_summary"] = cluster_df
+        n_flagged = int(cluster_df["flagged"].sum())
+        if n_flagged > 0:
+            log.warning(
+                f"{n_flagged} cluster(s) have >30% doublet fraction and may be doublet clusters."
+            )
+
+    # === 7. Reporting & Visualization ===
     if cfg.plot_summary:
         save_path = Path(cfg.save_dir) if cfg.save_dir else None
         _plot_doublet_summary(

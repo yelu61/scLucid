@@ -17,6 +17,7 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 from anndata import AnnData
+from matplotlib import get_backend
 
 from .config import MetricsReportingConfig
 from importlib.metadata import PackageNotFoundError, version
@@ -27,6 +28,19 @@ __all__ = ["calculate_qc_metric"]
 
 
 # --- Helper Functions ---
+def _is_interactive_backend() -> bool:
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(*figs: plt.Figure, show: bool = False) -> None:
+    if show and _is_interactive_backend():
+        plt.show()
+    else:
+        for fig in figs:
+            plt.close(fig)
+
+
 def _find_sample_key(adata: AnnData, sample_key: Optional[str] = None) -> str:
     """
     Automatically detect the sample key column in adata.obs.
@@ -35,7 +49,9 @@ def _find_sample_key(adata: AnnData, sample_key: Optional[str] = None) -> str:
     """
     if sample_key and sample_key in adata.obs.columns:
         return sample_key
-    for key in ["sampleID", "sample", "Sample", "batch", "Batch"]:
+    # Priority: explicit batch keys first (common in multi-sample designs),
+    # then sample keys.
+    for key in ["sampleID", "batch", "Batch", "sample", "Sample"]:
         if key in adata.obs.columns:
             log.info(f"Auto-detected sample/group column: {key}")
             return key
@@ -435,16 +451,7 @@ def _plot_top_genes_distribution(
 
     log.info(f"Analysis of {percent_top_col} complete.")
 
-    if show:
-        plt.show()
-    else:
-        plt.close(fig1)
-        plt.close(fig2)
-        plt.close(fig3)
-
-    # Make sure to close figures if not showing
-    if not show:
-        plt.close("all")
+    _show_or_close(fig1, fig2, fig3, show=show)
 
     return (fig1, fig2, fig3) if show else None
 
@@ -498,9 +505,7 @@ def _plot_qc_violin(
             dpi=300,
             bbox_inches="tight",
         )
-    if show:
-        plt.show()
-    plt.close(fig)
+    _show_or_close(fig, show=show)
 
 
 def _plot_qc_scatter(
@@ -552,7 +557,7 @@ def _plot_qc_scatter(
     ax.set_title(f"Sample: {sample} - Basic QC")
     ax.set_xlabel("Total Counts")
     ax.set_ylabel("Number of Genes")
-    plt.tight_layout()
+    fig.subplots_adjust(left=0.12, right=0.88, bottom=0.12, top=0.9)
 
     if save_dir:
         plt.savefig(
@@ -560,9 +565,7 @@ def _plot_qc_scatter(
             dpi=300,
             bbox_inches="tight",
         )
-    if show:
-        plt.show()
-    plt.close(fig)
+    _show_or_close(fig, show=show)
 
 
 def _get_default_gene_patterns() -> Dict[str, str]:
@@ -638,7 +641,8 @@ def calculate_qc_metric(
         show: Whether to display the plots.
         max_cells_for_plotting: Maximum number of cells to use for plotting (large dataset optimization).
         random_state: Random state for reproducible sampling.
-        percent_top: List of top gene percentages to calculate. Default is [20].
+        percent_top: List of top gene percentages to calculate. Default is [20, 50, 100],
+            clipped to the number of genes in the dataset.
         calculate_cell_cycle: Also compute cell cycle scores.
         cell_cycle_species: Species for cell cycle scoring.
         cell_cycle_kwargs: Extra kwargs for cell cycle scoring function.
@@ -713,11 +717,14 @@ def calculate_qc_metric(
 
     # --- Dynamically determine the primary top-gene column name ---
     if percent_top is None:
-        percent_top_list = [20]
+        percent_top_list = [20, 50, 100]
     elif isinstance(percent_top, int):
         percent_top_list = [percent_top]
     else:
         percent_top_list = sorted(list(set(percent_top)))  # Ensure unique and sorted
+    percent_top_list = sorted({n for n in percent_top_list if 0 < n <= adata.n_vars})
+    if not percent_top_list:
+        percent_top_list = [adata.n_vars]
 
     percent_top_cols = [f"pct_counts_in_top_{n}_genes" for n in percent_top_list]
     log.info(f"Will calculate and analyze top gene percentages for: Top {percent_top_list}")
@@ -771,17 +778,28 @@ def calculate_qc_metric(
             cell_cycle_kwargs = {}
         try:
             from .cycle import score_cell_cycle
-        except ImportError:
+        except ImportError as exc:
+            adata.uns["sclucid"]["qc"]["cell_cycle_error"] = {
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
             raise ImportError("cycle.py not found or not importable in the current module.")
         log.info("Automatic cell cycle scoring enabled.")
-        adata = score_cell_cycle(
-            adata,
-            species=cell_cycle_species,
-            plot=cfg.show_plots,
-            save_dir=cfg.save_dir,
-            **cell_cycle_kwargs,
-        )
-        log.info("Cell cycle scores and phase added to .obs.")
+        try:
+            adata = score_cell_cycle(
+                adata,
+                species=cell_cycle_species,
+                plot=cfg.show_plots,
+                save_dir=cfg.save_dir,
+                **cell_cycle_kwargs,
+            )
+            log.info("Cell cycle scores and phase added to .obs.")
+        except Exception as exc:
+            log.warning(f"Cell cycle scoring failed: {exc}")
+            adata.uns["sclucid"]["qc"]["cell_cycle_error"] = {
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
 
     # --- Export parameters and QC statistics ---
     if cfg.export_stats and cfg.save_dir:

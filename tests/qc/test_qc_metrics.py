@@ -41,6 +41,29 @@ def test_basic_qc_metrics():
     assert adata.obs["total_counts"].min() >= 0
     assert adata.obs["pct_counts_mt"].min() >= 0
     assert adata.obs["pct_counts_mt"].max() <= 100
+    for n in [20, 50, 100]:
+        assert f"pct_counts_in_top_{n}_genes" in adata.obs
+
+
+def test_qc_metrics_default_percent_top_is_clipped_for_small_panels():
+    """Default top-gene fractions should not request more genes than available."""
+    adata = generate_minimal_adata(n_cells=100, n_genes=30)
+    adata.X = adata.X + 1
+
+    calculate_qc_metric(
+        adata,
+        sample_key="sampleID",
+        show_plots=False,
+        plot_top_genes=False,
+        plot_violin=False,
+        plot_scatter=False,
+        export_stats=False,
+        print_stats=False,
+    )
+
+    assert "pct_counts_in_top_20_genes" in adata.obs
+    assert "pct_counts_in_top_50_genes" not in adata.obs
+    assert "pct_counts_in_top_100_genes" not in adata.obs
 
 
 def test_qc_metrics_with_samples():

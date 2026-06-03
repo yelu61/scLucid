@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import math
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Union
 
@@ -175,14 +176,27 @@ def generate_doublet_rates(
     elif model_type == "scale":
         log.info(f"Applying scaling model with base rate of {rate_value:.4f} per 1000 cells.")
         for sample, n_cells in cell_counts.items():
-            # Use original logic for 10x non-linear scaling at high cell counts
-            if n_cells > 10000 and chemistry in ["v2", "v3"]:
-                rate = (0.8 * (n_cells / 1000) * rate_value) + (
-                    0.2 * rate_value * (n_cells / 1000) ** 1.5
-                )
-            else:
-                # Standard linear scaling for 'HT', 'custom_scale', and lower counts
-                rate = (n_cells / 1000) * rate_value
+            # Standard linear scaling (10x Genomics documented baseline).
+            # References:
+            #   - 10x Genomics Support: ~0.8% per 1k cells (v2/v3), ~1.6% (HT).
+            #   - McGinnis et al. 2019; Xi & Li 2021.
+            n_k = n_cells / 1000.0
+            rate = n_k * rate_value
+
+            # Poisson saturation correction for high loading.
+            # Under Poisson loading the multiplet fraction is
+            #   p_multi = 1 - exp(-λ) - λ·exp(-λ)
+            #   p_non_empty = 1 - exp(-λ)
+            # For small λ the linear approximation rate ≈ λ/2 holds.
+            # At high loading the exact Poisson formula gives a modest
+            # upward correction (consistent with 10x observed curves).
+            if n_cells > 5000:
+                lambda_ = 2.0 * rate  # from rate ≈ λ/2
+                if lambda_ < 20.0:
+                    p_nonempty = 1.0 - math.exp(-lambda_)
+                    if p_nonempty > 1e-12:
+                        p_multiplet = 1.0 - math.exp(-lambda_) - lambda_ * math.exp(-lambda_)
+                        rate = p_multiplet / p_nonempty
 
             # Apply rate constraints
             rate = max(min_rate, min(rate, max_rate))

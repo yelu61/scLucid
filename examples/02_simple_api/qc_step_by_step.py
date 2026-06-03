@@ -10,6 +10,10 @@ Use this when:
 - You want to try multiple doublet detection methods
 - You need sample-aware adaptive thresholds for multi-sample data
 - You want to export QC reports for reviewers
+
+The default stance is conservative: ambient RNA correction, CellBender/SoupX,
+ScDblFinder, and R bridges are not run here. Treat them as project-specific
+upstream or optional analyses when the dataset and environment justify them.
 """
 
 from pathlib import Path
@@ -68,6 +72,9 @@ adata = scl.qc.predict_doublets(
         expected_doublet_rate=doublet_rates,
         use_heuristics=True,
         merge_strategy="weighted_average",
+        # Note: ignore_coexpression_pairs defaults to empty.
+        # For tumor/EMT studies, explicitly set:
+        #   ignore_coexpression_pairs=[("Epithelial", "Mesenchymal")]
     ),
     sample_key="sampleID",
 )
@@ -119,14 +126,17 @@ adata_filtered = scl.qc.filter_cells(
         criteria_to_filter=[
             "outlier_min_genes",
             "outlier_mt",
+            "outlier_qc_metrics",
             "predicted_doublet",
         ],
-        combination_logic="any",
+        combination_logic="threshold",
+        min_criteria_for_removal=2,
     ),
     copy=True,
 )
 print(f"Before: {adata.n_obs:,} cells → After: {adata_filtered.n_obs:,} cells")
 print(f"Retention: {adata_filtered.n_obs/adata.n_obs*100:.1f}%")
+print("Review doublet-heavy clusters before treating all doublet calls as hard failures.")
 
 # ---------------------------------------------------------------------------
 # Step 8: Export QC report

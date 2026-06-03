@@ -49,7 +49,9 @@ class QCThresholds(SclucidBaseConfig):
 
     # Gene-based filtering
     min_genes: Optional[int] = Field(default=200, ge=0, description="Minimum genes per cell.")
-    max_genes: Optional[int] = Field(default=None, ge=0, description="Maximum genes per cell.")
+    max_genes: Optional[int] = Field(
+        default=20000, ge=0, description="Maximum genes per cell. Set to None to disable."
+    )
 
     # Cell-based filtering
     min_counts: Optional[int] = Field(
@@ -60,7 +62,7 @@ class QCThresholds(SclucidBaseConfig):
     )
 
     # MAD-based outlier detection
-    nmads: float = Field(default=5.0, gt=0, description="Number of MADs for outlier detection.")
+    nmads: float = Field(default=4.0, gt=0, description="Number of MADs for outlier detection.")
 
     # Percentage-based filtering
     pc_mt: Optional[float] = Field(
@@ -148,7 +150,12 @@ class DoubletConfig(SclucidBaseConfig):
     # --- DoubletDetection Algorithm Specific Parameters ---
     dd_n_components: int = Field(default=30, gt=1, description="Number of PCs for DoubletDetection")
     dd_n_top_var_genes: int = Field(default=10000, ge=100)
-    dd_p_thresh: float = Field(default=1e-16, gt=0, lt=1)
+    dd_p_thresh: float = Field(
+        default=1e-4,
+        gt=0,
+        lt=1,
+        description="DoubletDetection p-value threshold; lower values are more conservative.",
+    )
     dd_voter_thresh: float = Field(default=0.8, ge=0, le=1)
     dd_use_raw: bool = Field(default=True)
 
@@ -169,7 +176,18 @@ class DoubletConfig(SclucidBaseConfig):
         default=2, ge=2, description="Min lineages for doublet call"
     )
     ignore_coexpression_pairs: List[Tuple[str, str]] = Field(
-        default_factory=lambda: [("Epithelial", "Mesenchymal")]
+        default_factory=list,
+        description=(
+            "Lineage pairs whose co-expression is treated as biologically plausible "
+            "and should not be penalized in heuristic doublet detection. "
+            "Example: [('Epithelial', 'Mesenchymal')] for EMT studies. "
+            "Default is empty to avoid silently masking true doublets."
+        ),
+    )
+    heuristic_score_threshold: float = Field(
+        default=0.1,
+        ge=0,
+        description="Minimum module score for a lineage to be considered 'expressed' in heuristic doublet detection.",
     )
 
     # --- Result Merging and Reporting ---
@@ -293,9 +311,14 @@ class FilterConfig(SclucidBaseConfig):
     model_config = ConfigDict(extra="ignore")
 
     criteria_to_filter: List[str] = Field(
-        default_factory=lambda: ["outlier_min_genes", "outlier_mt", "predicted_doublet"]
+        default_factory=lambda: [
+            "outlier_min_genes",
+            "outlier_mt",
+            "outlier_qc_metrics",
+            "predicted_doublet",
+        ]
     )
-    combination_logic: Literal["any", "all", "custom", "threshold"] = Field(default="any")
+    combination_logic: Literal["any", "all", "custom", "threshold"] = Field(default="threshold")
     custom_logic_expr: Optional[str] = Field(default=None)
     min_criteria_for_removal: int = Field(
         default=2, ge=1, description="Used when logic is 'threshold'"

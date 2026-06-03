@@ -74,10 +74,13 @@ Analysis Extras
 Tools Extras
 ~~~~~~~~~~~~
 - **scvelo**: RNA velocity analysis
-- **rpy2**: R bridge for CellPhoneDB, SCCODA
 - **harmonypy**, **scanorama**, **scvi-tools**: Batch correction methods
 - **triku**: Alternative HVG selection
 - **squidpy**: Spatial analysis
+
+R bridges such as **rpy2** are not part of the maintained default
+QC/preprocess path. Prefer Python-native defaults and use Scanpy's optional
+``scanpy.external`` integrations only when the environment is already prepared.
 
 Development Setup
 ------------------

@@ -6,7 +6,13 @@ import scipy.sparse
 from anndata import AnnData
 
 from scLucid.preprocess.config import ScalingConfig
-from scLucid.preprocess.scale import _minmax_scale, _robust_scale, regress_out, scale_data
+from scLucid.preprocess.scale import (
+    _minmax_scale,
+    _robust_scale,
+    _robust_scale_sparse,
+    regress_out,
+    scale_data,
+)
 
 
 @pytest.mark.unit
@@ -354,3 +360,35 @@ class TestScaleDataHelpers:
         scaled = _robust_scale(x, max_value=2)
         assert np.max(scaled) <= 2
         assert np.min(scaled) >= -2
+
+    def test_robust_scale_sparse_preserves_sparse_semantics(self):
+        x = scipy.sparse.csr_matrix(
+            np.array(
+                [
+                    [0.0, 2.0, 0.0],
+                    [1.0, 4.0, 0.0],
+                    [3.0, 0.0, 5.0],
+                    [0.0, 8.0, 7.0],
+                ]
+            )
+        )
+
+        scaled = _robust_scale_sparse(x, max_value=2)
+
+        assert scipy.sparse.isspmatrix_csr(scaled)
+        assert np.isfinite(scaled.data).all()
+        assert scaled.data.max() <= 2
+        assert scaled.data.min() >= -2
+
+        expected = x.tocsc(copy=True)
+        for i in range(expected.shape[1]):
+            col = expected.getcol(i)
+            if col.nnz:
+                median = np.median(col.data)
+                mad = np.median(np.abs(col.data - median))
+                if mad == 0:
+                    mad = 1e-8
+                col.data = np.clip((col.data - median) / mad, -2, 2)
+                expected[:, i] = col
+
+        np.testing.assert_allclose(scaled.toarray(), expected.tocsr().toarray())

@@ -55,6 +55,18 @@ For a publication-oriented package, notebooks should be used to show:
 4. `Step3-Standard_Downstream.ipynb`
 5. `Step4-Signature_and_Target_Analysis.ipynb`
 
+## Current Boundary
+
+Step1A and Step1B should now be treated as stable audit/handoff notebooks:
+they calculate, document, and review QC/preprocessing decisions using the
+light-dependency package defaults. They should not absorb project-specific
+ambient RNA correction, CellBender/SoupX/DecontX execution, ScDblFinder, or
+other R bridge workflows.
+
+Tumor purity, malignancy evidence, CNV interpretation, stress-state biology,
+and doublet-heavy cluster interpretation belong in Step2 and the analysis/tumor
+modules, where they can be reviewed with annotation and biological context.
+
 ## Recommended Maintenance Rules
 
 - keep notebooks narrative and result-oriented

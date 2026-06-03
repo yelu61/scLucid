@@ -15,6 +15,7 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 from anndata import AnnData
+from matplotlib import get_backend
 
 try:
     from matplotlib_venn import venn2, venn3
@@ -27,6 +28,11 @@ from ..config import HVGConfig
 from .core import find_hvgs
 
 log = logging.getLogger(__name__)
+
+
+def _is_interactive_backend() -> bool:
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
 
 def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str) -> None:
     """
@@ -191,7 +197,10 @@ def select_hvg_sets(
             save_path = Path(save_dir)
             # save_path.mkdir(parents=True, exist_ok=True)
             plt.savefig(f"{save_dir}/hvg_venn_{mode}.png", dpi=150, bbox_inches="tight")
-        plt.show()
+        if _is_interactive_backend():
+            plt.show()
+        else:
+            plt.close()
     elif plot_venn and not HAS_VENN and (2 <= len(hvg_sets) <= 3):
         log.warning("matplotlib_venn is not installed. Skipping Venn plot.")
 
@@ -216,5 +225,4 @@ def select_hvg_sets(
             return adata
 
     return adata
-
 

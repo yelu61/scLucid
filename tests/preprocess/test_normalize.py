@@ -243,6 +243,26 @@ class TestNormalizeDataValidation:
         normalize_data(adata, config=config, target_sum=1e5)
         assert config.to_dict() == original_dict
 
+    def test_scran_uses_scanpy_external_namespace(self, minimal_adata, monkeypatch):
+        import scanpy.external as sce
+
+        calls = {"n": 0}
+
+        def fake_scran_normalize(adata, inplace=True):
+            calls["n"] += 1
+            assert inplace is True
+            adata.X = adata.X.copy()
+
+        monkeypatch.setattr(sce.pp, "scran_normalize", fake_scran_normalize, raising=False)
+
+        result = normalize_data(
+            minimal_adata.copy(),
+            config=NormalizationConfig(method="scran", plot=False, report=False, verbose=False),
+        )
+
+        assert calls["n"] == 1
+        assert "normalized" in result.layers
+
 
 @pytest.mark.unit
 class TestNormalizeDataSparse:
