@@ -50,9 +50,10 @@ Current Example Set
       ``Step1-sce_cleaned.h5ad``
     - ``Step1B-Preprocessing_Audit.ipynb`` - QC handoff, layer audit,
       preprocessing step evidence, and ``Step2-sce_preprocessed.h5ad``
-    - ``Step2-Annotation_and_Malignancy.ipynb`` - clustering, annotation,
-      malignancy review, CNV-aware interpretation, and
-      ``Step3-sce_annotated.h5ad``
+    - ``Step2-Annotation_and_Malignancy.ipynb`` - evidence-first analysis
+      acceptance via ``scripts/run_analysis_acceptance.py``: clustering review,
+      annotation evidence, consensus labels, post-hoc QC cluster review,
+      optional malignancy interpretation, and ``Step3-sce_annotated.h5ad``
     - ``Step3-Standard_Downstream.ipynb`` - composition, proportion,
       differential expression, and enrichment
     - ``Step4-Signature_and_Target_Analysis.ipynb`` - project-specific

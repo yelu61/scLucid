@@ -1,5 +1,12 @@
 # scLucid QC模块 - 全面总结
 
+> **Status note (2026-06)**: 本文是早期 QC 模块盘点。文件行数、
+> 模块边界和默认策略可能已经变化。当前权威说明以
+> `docs/source/api/qc.rst`, `docs/source/best_practices.rst` 和
+> `docs/source/qc_preprocess_maturity.rst` 为准。默认路径应保持
+> Python-native、轻依赖、review-summary-first；ScDblFinder、ambient RNA
+> 项目级校正和自定义 R 执行路径不属于默认 QC/Preprocess。
+
 ## 📋 问题1：QC模块每个脚本的功能和必要性
 
 ### 核心必需模块 (5个) - 必须使用

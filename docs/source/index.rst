@@ -53,6 +53,7 @@ API Reference
    api/qc
    api/preprocess
    api/analysis
+   api/tumor
    api/recommendation
    api/tools
    api/plotting

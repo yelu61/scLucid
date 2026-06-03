@@ -53,7 +53,7 @@ Use the split advanced sequence when presenting a real project-style analysis:
 |----------|---------------|
 | `Step1A-QC_Audit.ipynb` | QC benchmark path, threshold evidence, module maturity, and `Step1-sce_cleaned.h5ad` |
 | `Step1B-Preprocessing_Audit.ipynb` | QC handoff, layer audit, preprocessing parameter/layer evidence, and `Step2-sce_preprocessed.h5ad` |
-| `Step2-Annotation_and_Malignancy.ipynb` | Evidence-first analysis acceptance via `scripts/run_analysis_acceptance.py`: clustering review, annotation evidence, consensus labels, malignancy interpretation, and `Step3-sce_annotated.h5ad` |
+| `Step2-Annotation_and_Malignancy.ipynb` | Evidence-first analysis acceptance via `scripts/run_analysis_acceptance.py`: clustering review, annotation evidence, consensus labels, post-hoc QC cluster review, optional malignancy interpretation, and `Step3-sce_annotated.h5ad` |
 | `Step3-Standard_Downstream.ipynb` | Composition, proportion, differential expression, and enrichment |
 | `Step4-Signature_and_Target_Analysis.ipynb` | Project-specific signatures, focused cell states, and target-oriented exports |
 
@@ -64,6 +64,9 @@ split sequence is the recommended product-facing demonstration.
 QC and preprocessing are now considered the stable handoff layers. New tumor
 specific work should live in `Step2-Annotation_and_Malignancy.ipynb` and the
 tumor/analysis modules rather than expanding Step1 with heavy correction tools.
+Doublet-heavy, high-mitochondrial, stress-high, and low tumor-purity signals
+should first be surfaced as review evidence, then acted on after project-specific
+manual confirmation.
 
 **When to use**: You are doing research where every threshold, diagnostic, and override must remain visible and reviewable.
 **Format**: Jupyter notebooks with step-by-step parameter blocks, decision-support tools, and audit trails.

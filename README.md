@@ -35,8 +35,9 @@ The strongest modules today are QC and preprocessing: both are close to
 benchmark-module maturity for auditability, reproducibility, and workflow fit.
 Analysis is the active module being raised to the same standard. It now has an
 evidence-first closed loop for clustering-resolution review, marker discovery,
-marker-manager/CellTypist/LLM annotation evidence, consensus labels, optional
-malignancy interpretation, and analysis review-summary maturity contracts.
+marker-manager/CellTypist/LLM annotation evidence, consensus labels, post-hoc
+QC cluster review, optional malignancy interpretation, and analysis
+review-summary maturity contracts.
 
 The current development boundary is important: scLucid can already provide a
 traceable, biologically informed workflow, but it should not yet claim broad
@@ -51,7 +52,7 @@ standard workflows; and turn those results into documented acceptance criteria.
 |------|---------------|----------------|-----------|
 | QC | Candidate benchmark module | Adaptive thresholds, tumor-aware warnings, doublet heuristics, review summaries, benchmark scaffolds | Broader real-data benchmarks and clearer user-facing threshold narratives |
 | Preprocessing | Candidate benchmark module | Layer contracts, normalization/HVG/PCA/neighbors/UMAP evidence, batch-correction cautions, maturity contract | Larger multi-sample validation, stronger batch-correction recommendation evidence |
-| Analysis | Second benchmark module in active hardening | `clustering_review -> markers -> annotation_evidence -> annotation_consensus -> malignancy_interpretation`, manager-routed marker resources, review-summary contract | Real-data acceptance runs, richer CellTypist/reference evidence, better human-facing review tables |
+| Analysis | Second benchmark module in active hardening | `clustering_review -> markers -> annotation_evidence -> annotation_consensus -> posthoc_qc_review -> malignancy_interpretation`, manager-routed marker resources, review-summary contract | Real-data acceptance runs, richer CellTypist/reference evidence, better human-facing review tables |
 | Marker Resources | Strong architectural direction | Unified `Manager`, human/mouse registry resources, tissue/tumor marker views, artifact/program/tumor routing, curation SOP | Source provenance at scale, mouse tissue/tumor parity, atlas-derived marker review |
 | Tumor Module | Feature-rich but needs integration hardening | CNV, malignancy scoring/classification, TME, therapy, heterogeneity, workflow scaffolds | Consume stable analysis outputs more tightly, store tumor-stage review summaries, validate on tumor datasets |
 | Plotting | Useful foundation | Publication-style themes and domain plots | Top-journal figure templates, richer multi-panel reports, visual regression checks |
@@ -80,7 +81,8 @@ execution to evidence-backed biological usefulness.
 
 **Phase 2 — Tumor-Aware Interpretation Contract**
 
-- Keep `analysis.run_malignancy_interpretation` as a lightweight bridge that
+- Keep `scLucid.tumor.malignancy.run_malignancy_interpretation` as a lightweight
+  interpretation bridge, callable from the analysis workflow, that
   consumes final annotation, tumor marker evidence, optional CNV scores, optional
   malignancy signatures, and user-provided cancer context.
 - Keep heavy tumor-specific algorithms in `scLucid.tumor`: CNV inference,
@@ -255,7 +257,9 @@ optionally extensible:
   Regression and batch correction are explicit opt-ins.
 - Analysis consumes the unambiguous layers and embeddings from preprocessing for
   clustering review, marker/evidence tables, annotation consensus, DE, and
-  proportion summaries.
+  proportion summaries. Analysis also records post-hoc QC review evidence for
+  doublet-heavy, high-mitochondrial, or stress-high clusters without deleting
+  cells automatically.
 - Optional enhancements such as `scanpy.external.pp.scran_normalize`,
   `seurat_v3` HVGs, Harmony, scVI/scANVI, BBKNN, SOLO, or DoubletDetection are
   available when their dependencies and biological rationale are present.
@@ -272,6 +276,8 @@ For detailed tutorials, how-to guides, and the full API reference:
 * **Naming Conventions**: [Naming Conventions](docs/NAMING_CONVENTIONS.md) - Code style guidelines
 * **Local Documentation Source**: [docs/source/](docs/source/) - Sphinx documentation sources for installation, quickstart, API references, and best practices
 * **Core Data Contracts**: [docs/source/data_contracts.rst](docs/source/data_contracts.rst) - Stable AnnData and review-summary conventions shared across workflow stages
+* **Analysis API**: [docs/source/api/analysis.rst](docs/source/api/analysis.rst) - Analysis review contract, annotation evidence, DE, enrichment, and proportion APIs
+* **Tumor API**: [docs/source/api/tumor.rst](docs/source/api/tumor.rst) - Tumor CNV and malignancy interpretation APIs
 * **Workflow Hardening Plan**: [docs/source/workflow_hardening.rst](docs/source/workflow_hardening.rst) - Real-data vertical-slice plan for PBMC, PDAC, and active project validation
 * **PBMC Golden Path**: [scripts/run_pbmc_golden_path.py](scripts/run_pbmc_golden_path.py) - Runnable real-data baseline that emits a manifest, final `.h5ad`, and inspection figures
 * **Analysis Acceptance Runner**: [scripts/run_analysis_acceptance.py](scripts/run_analysis_acceptance.py) - Runnable Step2 analysis hardening path for clustering review, annotation evidence, consensus labels, and optional malignancy interpretation

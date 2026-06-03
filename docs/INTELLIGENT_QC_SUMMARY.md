@@ -1,5 +1,14 @@
 # Intelligent QC Implementation Summary
 
+> **Status note (2026-06)**: This is an implementation-history note for early
+> intelligent QC work. The current recommended user-facing QC/Preprocess policy
+> is documented in `docs/source/quickstart.rst`,
+> `docs/source/best_practices.rst`, and
+> `docs/source/qc_preprocess_maturity.rst`. QC now belongs to the
+> light-dependency default path; heavy ambient RNA correction, ScDblFinder, and
+> custom R/Bioconductor execution branches are intentionally outside the default
+> workflow.
+
 ## ✅ COMPLETED (Phase 1: QC Module Intelligence)
 
 ### Core Innovation Implemented: Data-Driven QC Thresholds

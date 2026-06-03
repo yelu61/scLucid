@@ -1,5 +1,21 @@
 # scLucid 功能完善与流程设计行动计划
 
+> **Status note (2026-06)**: 本文件是早期路线草案，保留用于追溯设计演进。
+> 当前实际优先级已经更新为：
+>
+> 1. QC 与 Preprocess 作为稳定 handoff 层，保持轻依赖默认路径；
+> 2. Analysis 是当前主要打磨对象，重点是 review summary contract、
+>    clustering/annotation evidence、DE/proportion 输出一致性；
+> 3. Tumor 模块接收 Analysis 产物，重点是 malignancy interpretation、
+>    CNV evidence、tumor readiness，而不是把重依赖校正塞回 QC/Preprocess；
+> 4. ScDblFinder、ambient RNA 项目级校正、自定义 rpy2/Bioconductor 路径
+>    不属于默认流程。
+>
+> 若本文件和 `docs/source/quickstart.rst`,
+> `docs/source/best_practices.rst`,
+> `docs/source/qc_preprocess_maturity.rst` 或 API 文档冲突，以 `docs/source/`
+> 下的当前用户文档为准。
+
 ## 📋 当前后续工作优先级
 
 基于当前架构状态（已完成模块化、抽象基类、命名规范），建议按以下优先级推进：

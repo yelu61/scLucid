@@ -20,9 +20,9 @@ Bulk Deconvolution
 CNV Analysis
 ------------
 
-.. autofunction:: scLucid.tools.run_cnv_analysis
-
-.. autofunction:: scLucid.tools.find_tumor
+CNV helpers have moved out of ``scLucid.tools`` and into the tumor namespace.
+Use :mod:`scLucid.tumor.cnv` for the lightweight expression-CNV utilities and
+the optional ``infercnvpy`` bridge. See :doc:`tumor`.
 
 Trajectory Analysis (Monocle3)
 -------------------------------

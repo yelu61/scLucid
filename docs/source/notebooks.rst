@@ -42,9 +42,10 @@ See ``examples/03_advanced_notebooks/`` for:
   notebook with QC handoff context, layer transition evidence, and
   preprocessing ``step_evidence_summary``. It writes
   ``data/processed/Step2-sce_preprocessed.h5ad``.
-- ``Step2-Annotation_and_Malignancy.ipynb`` - clustering, annotation,
-  malignancy review, and CNV-aware interpretation. It writes
-  ``data/processed/Step3-sce_annotated.h5ad``.
+- ``Step2-Annotation_and_Malignancy.ipynb`` - evidence-first analysis
+  acceptance: clustering review, annotation evidence, consensus labels,
+  post-hoc QC cluster review, optional malignancy interpretation, and
+  CNV-aware interpretation. It writes ``data/processed/Step3-sce_annotated.h5ad``.
 - ``Step3-Standard_Downstream.ipynb`` - composition, proportion,
   differential expression, and enrichment.
 - ``Step4-Signature_and_Target_Analysis.ipynb`` - project-specific signatures,

@@ -1,5 +1,11 @@
 # scLucid 核心价值定位与实施计划
 
+> **Status note (2026-06)**: 本文是产品定位和早期实施设想，保留为设计
+> 记录。当前实现重点已经收敛为：QC/Preprocess 稳定轻依赖 handoff，
+> Analysis 证据契约与 annotation/DE/proportion 打磨，Tumor 接收 Analysis
+> 产物做 malignancy/CNV 解释。若本文与 `README.md` 或 `docs/source/`
+> 当前文档冲突，以当前文档为准。
+
 ## 🎯 工具定位
 
 ### 不同于其他工具

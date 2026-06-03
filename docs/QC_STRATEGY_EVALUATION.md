@@ -1,5 +1,10 @@
 # 混合QC策略的评估框架
 
+> **Status note (2026-06)**: 本文是早期 QC 策略评估设计。当前默认流程
+> 已固定为轻依赖 QC/Preprocess + review summary handoff；更重的项目级
+> 校正和 R/Bioconductor 路径只应作为外部可选增强。本文件中的实验设计
+> 可继续作为 validation idea，但不代表当前默认 pipeline。
+
 ## 🎯 如何证明混合QC策略更好？
 
 ### 实验设计
