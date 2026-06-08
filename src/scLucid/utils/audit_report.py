@@ -269,6 +269,56 @@ pre.config {{
 }}
 .module-header h3 {{ margin: 0; }}
 .module-header .stats {{ font-size: 0.8rem; color: var(--muted); }}
+.readiness-panel {{
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.6fr);
+  gap: 0.75rem;
+  margin: 0.8rem 0 0.9rem;
+}}
+.readiness-card {{
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f8fafb;
+  padding: 0.85rem;
+}}
+.readiness-card .label {{
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}}
+.readiness-card .value {{
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}}
+.readiness-card.ready {{ background: var(--ok-bg); color: var(--ok-fg); }}
+.readiness-card.degraded,
+.readiness-card.review_required {{ background: var(--warn-bg); color: var(--warn-fg); }}
+.readiness-card.blocked,
+.readiness-card.failed {{ background: var(--err-bg); color: var(--err-fg); }}
+.readiness-metrics {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.5rem;
+}}
+.metric {{
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  background: #fff;
+}}
+.metric .label {{ display: block; color: var(--muted); font-size: 0.75rem; }}
+.metric .value {{ display: block; margin-top: 0.15rem; font-weight: 600; }}
+.action-list {{
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.9rem;
+  background: #f8fafb;
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+}}
+.action-list ul {{ margin: 0.25rem 0 0; padding-left: 1.2rem; }}
 footer.report-footer {{
   text-align: center;
   padding: 1.25rem;
@@ -484,27 +534,43 @@ def _render_footer() -> str:
 
 def _render_tumor_review_details(review: Mapping[str, Any]) -> str:
     """Render tumor-specific audit fields as first-class report content."""
-    rows: list[tuple[str, str]] = []
     readiness = review.get("readiness")
+    status = "unknown"
+    score = ""
+    reasons = None
     if isinstance(readiness, Mapping):
-        status = readiness.get("status", "unknown")
+        status = str(readiness.get("status", "unknown"))
         score = readiness.get("score", "")
-        rows.append(("Tumor readiness", f"{_html.escape(str(status))} ({_html.escape(str(score))})"))
         reasons = readiness.get("reasons")
-        if reasons:
-            rows.append(("Readiness reasons", _scalar_html(reasons)))
 
-    if "claim_boundary" in review:
-        rows.append(("Claim boundary", _scalar_html(review["claim_boundary"])))
-    if "tumor_purity_estimate" in review and review["tumor_purity_estimate"] not in (None, ""):
-        rows.append(("Tumor purity estimate", _scalar_html(review["tumor_purity_estimate"])))
-    if review.get("evidence_sources"):
-        rows.append(("Evidence sources", _scalar_html(review["evidence_sources"])))
+    metric_items = [
+        ("Claim boundary", review.get("claim_boundary", "unknown")),
+        ("Evidence sources", ", ".join(str(x) for x in review.get("evidence_sources", []) or []) or "none"),
+        ("Tumor purity", review.get("tumor_purity_estimate", "not estimated")),
+        ("Completed steps", len(review.get("completed_steps", []) or [])),
+    ]
+    if reasons:
+        metric_items.append(("Readiness reasons", reasons))
 
-    body = ""
-    if rows:
-        body += "<h4>Tumor interpretation summary</h4>"
-        body += _render_kv_table(rows)
+    metrics_html = "".join(
+        "<div class='metric'>"
+        f"<span class='label'>{_html.escape(str(label))}</span>"
+        f"<span class='value'>{_scalar_html(value)}</span>"
+        "</div>"
+        for label, value in metric_items
+    )
+
+    body = "<h4>Tumor readiness panel</h4>"
+    body += (
+        "<div class='readiness-panel'>"
+        f"<div class='readiness-card {_html.escape(status)}'>"
+        "<span class='label'>Readiness</span>"
+        f"<span class='value'>{_html.escape(status)}</span>"
+        f"<span class='label'>score: {_html.escape(str(score))}</span>"
+        "</div>"
+        f"<div class='readiness-metrics'>{metrics_html}</div>"
+        "</div>"
+    )
 
     action_items = _iter_action_items(review.get("action_items"))
     if action_items:
@@ -520,10 +586,8 @@ def _render_tumor_review_details(review: Mapping[str, Any]) -> str:
                 items.append(f"<li>{_html.escape(str(text))}</li>")
             else:
                 items.append(f"<li>{_html.escape(str(item))}</li>")
-        body += (
-            f"<div class='warning-list'><strong>{len(items)} tumor action item(s):</strong>"
-            f"<ul>{''.join(items)}</ul></div>"
-        )
+        body += f"<div class='action-list'><strong>{len(items)} tumor action item(s):</strong>"
+        body += f"<ul>{''.join(items)}</ul></div>"
 
     return body
 

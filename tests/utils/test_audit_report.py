@@ -184,11 +184,13 @@ class TestRenderedContent:
         out_path = tmp_path / "tumor_report.html"
         export_audit_report(sclucid_adata, out_path)
         html = out_path.read_text()
-        assert "Tumor interpretation summary" in html
-        assert "Tumor readiness" in html
-        assert "ready (1.0)" in html
+        assert "Tumor readiness panel" in html
+        assert "readiness-panel" in html
+        assert "readiness-card ready" in html
+        assert "score: 1.0" in html
         assert "Claim boundary" in html
         assert "heuristic" in html
+        assert "Evidence sources" in html
         assert "Treat TME composition as annotation-derived" in html
 
     def test_escapes_html_special_chars(self, sclucid_adata, tmp_path):
