@@ -379,3 +379,70 @@ class TestTumorReviewSummary:
             cancer_type=None,
         )
         assert summary["claim_boundary"] == "exploratory"
+
+
+class TestTumorTraceContract:
+    """Verify tumor trace helpers and public exports."""
+
+    def test_tumor_trace_exports_resolve(self):
+        import scLucid.tumor as tumor
+
+        for name in (
+            "MalignancyScoringStep",
+            "TherapyPredictionStep",
+            "validate_tumor_review_summary",
+            "validate_tumor_module_completeness",
+            "get_tumor_module_contract",
+        ):
+            assert hasattr(tumor, name)
+            assert name in tumor.__all__
+
+    def test_validate_tumor_review_summary_accepts_hdf5_safe_action_mapping(self):
+        from scLucid.tumor.trace import validate_tumor_review_summary
+
+        summary = {
+            "schema_version": "1.0",
+            "module": "tumor",
+            "workflow_name": "tumor_analysis",
+            "requested_steps": [],
+            "completed_steps": [],
+            "claim_boundary": "unavailable",
+            "readiness": {"status": "blocked", "score": 0.0},
+            "warnings": [],
+            "action_items": {
+                "0": {
+                    "priority": "required",
+                    "action": "Review tumor workflow.",
+                    "rationale": "unit test",
+                    "evidence_keys": ["step_results"],
+                }
+            },
+            "evidence_sources": [],
+        }
+        assert validate_tumor_review_summary(summary, raise_on_error=False) == []
+
+    def test_validate_tumor_module_completeness_on_saved_namespace(self):
+        from anndata import AnnData
+        import numpy as np
+
+        from scLucid.tumor.trace import validate_tumor_module_completeness
+        from scLucid.utils import sanitize_for_hdf5, save_result
+
+        adata = AnnData(np.zeros((3, 2)))
+        summary = {
+            "schema_version": "1.0",
+            "module": "tumor",
+            "workflow_name": "tumor_analysis",
+            "requested_steps": ["tme_deconvolution"],
+            "completed_steps": ["tme_deconvolution"],
+            "claim_boundary": "heuristic",
+            "readiness": {"status": "ready", "score": 1.0, "reasons": []},
+            "warnings": [],
+            "action_items": [],
+            "evidence_sources": [],
+        }
+        save_result(adata, "tumor", "review_summary", sanitize_for_hdf5(summary))
+        save_result(adata, "tumor", "step_results", {"0": {"name": "tme_deconvolution"}})
+
+        result = validate_tumor_module_completeness(adata)
+        assert result["valid"] is True

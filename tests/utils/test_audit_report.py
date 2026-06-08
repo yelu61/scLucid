@@ -79,6 +79,38 @@ def sclucid_adata():
             ),
             UnsKeys.ERRORS: [],
         },
+        Modules.TUMOR: {
+            UnsKeys.REVIEW_SUMMARY: {
+                "schema_version": SCHEMA_VERSION,
+                "module": "tumor",
+                "workflow_name": "tumor_analysis",
+                "requested_steps": ["tme_deconvolution"],
+                "completed_steps": ["tme_deconvolution"],
+                "claim_boundary": "heuristic",
+                "readiness": {
+                    "status": "ready",
+                    "score": 1.0,
+                    "reasons": [],
+                },
+                "warnings": [],
+                "action_items": [
+                    {
+                        "priority": "review",
+                        "action": "Treat TME composition as annotation-derived.",
+                        "rationale": "No bulk deconvolution backend was used.",
+                        "evidence_keys": ["claim_boundary"],
+                    }
+                ],
+                "evidence_sources": ["annotation"],
+            },
+            "step_results": {
+                "0": {
+                    "name": "tme_deconvolution",
+                    "status": "completed",
+                    "evidence_level": "heuristic",
+                }
+            },
+        },
         UnsKeys.PIPELINE_CONTEXT: {
             "species": "human",
             "tissue_type": "pbmc_or_blood",
@@ -119,7 +151,7 @@ class TestRenderedContent:
         export_audit_report(sclucid_adata, out_path)
         html = out_path.read_text()
         # Each module section's title is its capitalized name.
-        for module in ("Qc", "Preprocess", "Analysis"):
+        for module in ("Qc", "Preprocess", "Analysis", "Tumor"):
             assert f">{module}<" in html, f"Missing section for {module}"
 
     def test_includes_dataset_shape_in_header(self, sclucid_adata, tmp_path):
@@ -147,6 +179,17 @@ class TestRenderedContent:
         export_audit_report(sclucid_adata, out_path)
         html = out_path.read_text()
         assert "contract" in html.lower()
+
+    def test_tumor_review_summary_renders_first_class_fields(self, sclucid_adata, tmp_path):
+        out_path = tmp_path / "tumor_report.html"
+        export_audit_report(sclucid_adata, out_path)
+        html = out_path.read_text()
+        assert "Tumor interpretation summary" in html
+        assert "Tumor readiness" in html
+        assert "ready (1.0)" in html
+        assert "Claim boundary" in html
+        assert "heuristic" in html
+        assert "Treat TME composition as annotation-derived" in html
 
     def test_escapes_html_special_chars(self, sclucid_adata, tmp_path):
         # Inject a value that would break HTML if not escaped.

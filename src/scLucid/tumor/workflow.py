@@ -20,6 +20,10 @@ from ..utils import (
     step_results_to_storage,
     summarize_step_results,
 )
+from .trace import (
+    enrich_tumor_review_summary,
+    validate_tumor_review_summary,
+)
 from ..utils.storage import save_result, save_workflow_result
 from .config import TumorAnalysisConfig, TumorWorkflowConfig
 
@@ -297,13 +301,18 @@ def run_tumor_analysis_expert(
         "cancer_type": cancer_type,
     })
 
-    review_summary = _build_tumor_review_summary(
+    review_summary = enrich_tumor_review_summary(
+        _build_tumor_review_summary(
+            adata=adata,
+            tumor_config=tumor_config,
+            step_results=step_results,
+            warnings=warnings_list,
+            cancer_type=cancer_type,
+        ),
         adata=adata,
-        tumor_config=tumor_config,
         step_results=step_results,
-        warnings=warnings_list,
-        cancer_type=cancer_type,
     )
+    validate_tumor_review_summary(review_summary, raise_on_error=False)
 
     save_result(adata, "tumor", "execution_trace", execution_trace)
     save_result(adata, "tumor", "review_summary", sanitize_for_hdf5(review_summary))
@@ -341,7 +350,7 @@ def _run_tumor_stage(
     cancer_type: Optional[str] = None,
 ) -> Tuple[AnnData, List[str], List[StepResult], List[str]]:
     """
-    Run tumor-specific analysis steps with structured step results.
+    Run tumor-specific analysis steps using AnalysisStep adapters.
 
     Each step is wrapped in try/except so failures degrade gracefully. Step
     results record ``status``, ``evidence_level``, and structured warnings.
@@ -350,321 +359,89 @@ def _run_tumor_stage(
     -------
     tuple of (AnnData, executed_step_names, step_results, warnings)
     """
+    from .steps import (
+        CNVInferenceStep,
+        MalignancyInterpretationStep,
+        MalignancyScoringStep,
+        TMEDeconvolutionStep,
+        TherapyPredictionStep,
+    )
+
     executed_steps: List[str] = []
     step_results: List[StepResult] = []
     stage_warnings: List[str] = []
 
-    # Malignancy
-    if config.run_malignancy:
-        step_name = "malignancy"
+    def _execute_step(
+        current_adata: AnnData,
+        step: AnalysisStep,
+        *,
+        step_name_override: Optional[str] = None,
+        extra_outputs: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, AnnData]:
+        name = step_name_override or getattr(step, "step_name", "unknown")
         try:
-            from .malignancy.classification import classify_malignant_cells
-            from .malignancy.scoring import score_malignancy
-
-            log.info("Tumor stage: scoring malignancy")
-            adata = score_malignancy(adata, key_added="malignancy", cancer_type=cancer_type)
-            executed_steps.append("malignancy_scoring")
-
-            log.info("Tumor stage: classifying malignant cells")
-            if config.malignancy_method in ("cnv", "combined"):
-                classify_malignant_cells(
-                    adata, method=config.malignancy_method, key_added="is_malignant"
-                )
-            elif config.malignancy_method in ("threshold", "ml"):
-                # reference key may be used to subset reference cells
-                ref_key = config.malignancy_reference_key
-                ref_adata = None
-                if ref_key and ref_key in adata.obs.columns:
-                    ref_adata = adata[
-                        adata.obs[ref_key]
-                        .astype(str)
-                        .str.lower()
-                        .isin({"normal", "healthy", "reference", "immune", "stromal"})
-                    ].copy()
-                    if ref_adata.n_obs == 0:
-                        log.warning(
-                            f"No reference cells found via '{ref_key}'. Falling back to unsupervised."
-                        )
-                        ref_adata = None
-                else:
-                    log.warning(
-                        f"malignancy_method='{config.malignancy_method}' may require reference cells."
-                    )
-                classify_malignant_cells(
-                    adata,
-                    method=config.malignancy_method,
-                    reference_adata=ref_adata,
-                    key_added="is_malignant",
-                )
-            executed_steps.append("malignancy_classification")
-            step_results.append(
-                StepResult(
-                    name=step_name,
-                    status="completed",
-                    evidence_level="heuristic",
-                    outputs={"method": config.malignancy_method},
-                    warnings=[],
-                )
-            )
+            adata_out = step.run(current_adata, cancer_type=cancer_type)
+            summary = step.get_summary()
+            result = step.make_step_result(status="completed")
+            if extra_outputs:
+                result = result.model_copy(update={"outputs": {**result.outputs, **extra_outputs}})
+            step_results.append(result)
+            # Per-drug sub-steps surfaced by TherapyPredictionStep
+            drug_results = getattr(step, "_drug_step_results", [])
+            if drug_results:
+                step_results.extend(drug_results)
+            return True, adata_out
         except Exception as exc:
-            msg = f"Malignancy analysis failed: {exc}"
+            msg = f"{name} failed: {exc}"
             log.warning(f"{msg}. Skipping.")
             stage_warnings.append(msg)
             step_results.append(
                 StepResult.from_exception(
-                    name=step_name,
+                    name=name,
                     exc=exc,
                     degraded=True,
                     evidence_level="unavailable",
                 )
             )
+            return False, current_adata
+
+    # Malignancy scoring + classification
+    if config.run_malignancy:
+        step = MalignancyScoringStep(config)
+        ok, adata = _execute_step(adata, step)
+        if ok:
+            executed_steps.extend(["malignancy_scoring", "malignancy_classification"])
 
     # TME
     if config.run_tme:
-        step_name = "tme_deconvolution"
-        try:
-            from .microenvironment.deconvolution import deconvolve_tme
-
-            log.info("Tumor stage: deconvolving TME")
-            cell_type_key = config.tme_cell_type_key
-            fallback_used = False
-            if cell_type_key not in adata.obs.columns:
-                log.warning(f"TME cell type key '{cell_type_key}' not found. Trying 'cell_type'.")
-                cell_type_key = "cell_type"
-                fallback_used = True
-            adata = deconvolve_tme(adata, cell_type_key=cell_type_key, key_added="tme")
-            executed_steps.append(step_name)
-
-            proportions = adata.uns.get("tme_proportions", {})
-            if hasattr(proportions, "to_dict"):
-                proportions = proportions.to_dict()
-            step_results.append(
-                StepResult(
-                    name=step_name,
-                    status="completed",
-                    evidence_level="heuristic",
-                    outputs={
-                        "cell_type_key": cell_type_key,
-                        "proportions": proportions,
-                        "immune_score": float(adata.uns.get("tme_immune_score", 0.0)),
-                        "stromal_score": float(adata.uns.get("tme_stromal_score", 0.0)),
-                    },
-                    warnings=[
-                        "TME composition is annotation-derived, not bulk deconvolution."
-                    ]
-                    + ([f"used fallback cell_type key '{cell_type_key}'"] if fallback_used else []),
-                )
-            )
-        except Exception as exc:
-            msg = f"TME deconvolution failed: {exc}"
-            log.warning(f"{msg}. Skipping.")
-            stage_warnings.append(msg)
-            step_results.append(
-                StepResult.from_exception(
-                    name=step_name,
-                    exc=exc,
-                    degraded=True,
-                    evidence_level="unavailable",
-                )
-            )
+        step = TMEDeconvolutionStep(config)
+        ok, adata = _execute_step(adata, step)
+        if ok:
+            executed_steps.append("tme_deconvolution")
 
     # CNV
     if config.run_cnv:
-        step_name = "cnv_inference"
-        try:
-            from .cnv.infercnv import infer_cnv
-
-            log.info("Tumor stage: inferring CNV")
-            ref_key = config.cnv_reference_key
-            ref_cells = None
-            has_ref = False
-            if ref_key and ref_key in adata.obs.columns:
-                ref_mask = (
-                    adata.obs[ref_key]
-                    .astype(str)
-                    .str.lower()
-                    .isin({"normal", "healthy", "reference", "immune", "stromal"})
-                )
-                has_ref = bool(ref_mask.any())
-                if has_ref:
-                    ref_cells = adata.obs.loc[ref_mask, ref_key].unique().tolist()
-
-            adata = infer_cnv(
-                adata,
-                reference_cells=ref_cells,
-                reference_key=ref_key if ref_key and ref_key in adata.obs.columns else "cell_type",
-                key_added="cnv",
-            )
-            executed_steps.append(step_name)
-
-            cnv_summary = adata.uns.get("cnv_summary", {})
-            has_coords = all(c in adata.var.columns for c in ("chromosome", "start", "end"))
-            evidence_level: Any = "validated_core" if (has_ref and has_coords) else "heuristic"
-
-            step_results.append(
-                StepResult(
-                    name=step_name,
-                    status="completed",
-                    evidence_level=evidence_level,
-                    outputs={
-                        "score_key": "cnv_score",
-                        "predicted_class_key": "cnv_predicted_class",
-                        "n_aneuploid": cnv_summary.get("n_aneuploid"),
-                        "n_diploid": cnv_summary.get("n_diploid"),
-                        "threshold": cnv_summary.get("threshold"),
-                        "mean_cnv_score": cnv_summary.get("mean_cnv_score"),
-                        "has_reference_cells": has_ref,
-                        "has_genomic_coordinates": has_coords,
-                    },
-                    warnings=[] if has_ref else ["No reference cells provided; threshold-based calls less reliable."],
-                )
-            )
-        except Exception as exc:
-            msg = f"CNV inference failed: {exc}"
-            log.warning(f"{msg}. Skipping.")
-            stage_warnings.append(msg)
-            step_results.append(
-                StepResult.from_exception(
-                    name=step_name,
-                    exc=exc,
-                    degraded=True,
-                    evidence_level="unavailable",
-                )
-            )
+        step = CNVInferenceStep(config)
+        ok, adata = _execute_step(adata, step)
+        if ok:
+            executed_steps.append("cnv_inference")
 
     # Malignancy interpretation (run after CNV so CNV scores are available)
     if config.run_malignancy:
-        step_name = "malignancy_interpretation"
-        try:
-            from .malignancy.interpretation import run_malignancy_interpretation
-
-            log.info("Tumor stage: malignancy interpretation")
-            annotation_key = config.malignancy_annotation_key
-            if annotation_key is None:
-                annotation_key = "cell_type_auto" if "cell_type_auto" in adata.obs.columns else "cell_type"
-            if annotation_key not in adata.obs.columns:
-                annotation_key = (
-                    "cell_type" if "cell_type" in adata.obs.columns else annotation_key
-                )
-
-            run_malignancy_interpretation(
-                adata,
-                annotation_key=annotation_key,
-                cancer_type=cancer_type,
-                run_cnv=config.run_cnv,
-                run_malignancy_score=True,
-            )
-            executed_steps.append(step_name)
-
-            malignancy_ns = (
-                adata.uns.get("sclucid", {}).get("analysis", {}).get("malignancy", {})
-            )
-            summary = malignancy_ns.get("malignancy_interpretation_summary", {})
-            evidence_sources = summary.get("evidence_sources", [])
-            # Upgrade evidence level if multiple independent evidence sources are available
-            evidence_level = "heuristic"
-            if len(evidence_sources) >= 3:
-                evidence_level = "validated_core"
-            step_results.append(
-                StepResult(
-                    name=step_name,
-                    status="completed",
-                    evidence_level=evidence_level,
-                    outputs={
-                        "call_key": "malignancy_call",
-                        "score_key": "malignancy_interpretation_score",
-                        "n_malignant": summary.get("n_malignant"),
-                        "n_suspect_malignant": summary.get("n_suspect_malignant"),
-                        "tumor_purity_estimate": summary.get("tumor_purity_estimate"),
-                        "evidence_sources": evidence_sources,
-                        "threshold": summary.get("threshold"),
-                        "suspect_threshold": summary.get("suspect_threshold"),
-                    },
-                    warnings=[],
-                )
-            )
-        except Exception as exc:
-            msg = f"Malignancy interpretation failed: {exc}"
-            log.warning(f"{msg}. Skipping.")
-            stage_warnings.append(msg)
-            step_results.append(
-                StepResult.from_exception(
-                    name=step_name,
-                    exc=exc,
-                    degraded=True,
-                    evidence_level="unavailable",
-                )
-            )
+        step = MalignancyInterpretationStep(config)
+        ok, adata = _execute_step(adata, step)
+        if ok:
+            executed_steps.append("malignancy_interpretation")
 
     # Therapy
     if config.run_therapy:
-        step_name = "therapy_prediction"
-        therapy_results: List[StepResult] = []
-        try:
-            from .therapy.prediction import predict_therapy_response
-
-            log.info("Tumor stage: predicting therapy response")
-            drugs = config.therapy_drugs or ["chemotherapy"]
-            for drug in drugs:
-                drug_step = f"therapy_prediction_{drug}"
-                try:
-                    predict_therapy_response(
-                        adata,
-                        therapy_type=drug,
-                        method="signature",
-                        key_added=f"therapy_response_{drug}",
-                    )
-                    executed_steps.append(drug_step)
-                    therapy_results.append(
-                        StepResult(
-                            name=drug_step,
-                            status="completed",
-                            evidence_level="exploratory",
-                            outputs={"drug": drug, "key_added": f"therapy_response_{drug}"},
-                            warnings=["Signature-based therapy prediction is exploratory."],
-                        )
-                    )
-                except Exception as drug_exc:
-                    msg = f"Therapy prediction failed for {drug}: {drug_exc}"
-                    log.warning(f"{msg}. Skipping drug.")
-                    stage_warnings.append(msg)
-                    therapy_results.append(
-                        StepResult.from_exception(
-                            name=drug_step,
-                            exc=drug_exc,
-                            degraded=True,
-                            evidence_level="unavailable",
-                        )
-                    )
-            # Aggregate therapy step
-            if therapy_results:
-                n_completed = sum(1 for r in therapy_results if r.status == "completed")
-                step_results.append(
-                    StepResult(
-                        name=step_name,
-                        status="completed" if n_completed == len(therapy_results) else "degraded",
-                        evidence_level="exploratory",
-                        outputs={
-                            "drugs_requested": drugs,
-                            "drugs_completed": n_completed,
-                            "drug_results": [r.name for r in therapy_results],
-                        },
-                        warnings=["Therapy prediction uses built-in signatures only."],
-                    )
-                )
-                step_results.extend(therapy_results)
-        except Exception as exc:
-            msg = f"Therapy response prediction failed: {exc}"
-            log.warning(f"{msg}. Skipping.")
-            stage_warnings.append(msg)
-            step_results.append(
-                StepResult.from_exception(
-                    name=step_name,
-                    exc=exc,
-                    degraded=True,
-                    evidence_level="unavailable",
-                )
-            )
+        step = TherapyPredictionStep(config)
+        ok, adata = _execute_step(adata, step)
+        if ok:
+            executed_steps.append("therapy_prediction")
+            # Also append per-drug step names for compatibility
+            drug_results = getattr(step, "_drug_step_results", [])
+            executed_steps.extend([r.name for r in drug_results if r.status == "completed"])
 
     return adata, executed_steps, step_results, stage_warnings
 

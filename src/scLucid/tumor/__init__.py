@@ -87,7 +87,18 @@ from .malignancy.interpretation import run_malignancy_interpretation
 from .steps import (
     CNVInferenceStep,
     MalignancyInterpretationStep,
+    MalignancyScoringStep,
     TMEDeconvolutionStep,
+    TherapyPredictionStep,
+)
+from .trace import (
+    TUMOR_MODULE_MATURITY_SCHEMA_VERSION,
+    TUMOR_REVIEW_SUMMARY_REQUIRED_KEYS,
+    TUMOR_TRACE_SCHEMA_VERSION,
+    enrich_tumor_review_summary,
+    get_tumor_module_contract,
+    validate_tumor_module_completeness,
+    validate_tumor_review_summary,
 )
 
 # Malignancy Analysis
@@ -185,7 +196,16 @@ __all__ = [
     "run_malignancy_interpretation",
     "CNVInferenceStep",
     "MalignancyInterpretationStep",
+    "MalignancyScoringStep",
     "TMEDeconvolutionStep",
+    "TherapyPredictionStep",
+    "TUMOR_MODULE_MATURITY_SCHEMA_VERSION",
+    "TUMOR_REVIEW_SUMMARY_REQUIRED_KEYS",
+    "TUMOR_TRACE_SCHEMA_VERSION",
+    "enrich_tumor_review_summary",
+    "get_tumor_module_contract",
+    "validate_tumor_module_completeness",
+    "validate_tumor_review_summary",
     "calculate_stemness_score",
     "identify_cancer_stem_cells",
     "compare_stemness_between_groups",
