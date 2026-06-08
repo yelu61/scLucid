@@ -391,7 +391,15 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
     find_markers: bool = Field(default=True)
     characterize: bool = Field(default=True)
     marker_method: Literal["wilcoxon", "t-test", "logreg"] = Field(default="wilcoxon")
-    run_malignancy_interpretation: bool = Field(default=False)
+
+    # Deprecated tumor-specific controls kept for backward compatibility.
+    # Tumor interpretation should be managed via ``run_tumor_analysis`` or by
+    # attaching callables to ``post_analysis_hooks`` instead.
+    run_malignancy_interpretation: bool = Field(
+        default=False,
+        deprecated=True,
+        description="Deprecated: use run_tumor_analysis() or post_analysis_hooks.",
+    )
     run_cnv_for_malignancy: bool = Field(default=False)
     run_malignancy_score: bool = Field(default=True)
     malignancy_cancer_type: Optional[str] = Field(default=None)
@@ -401,6 +409,14 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
     malignancy_score_key: str = Field(default="malignancy_interpretation_score")
     malignancy_threshold: float = Field(default=0.55, ge=0, le=1)
     malignancy_suspect_threshold: float = Field(default=0.35, ge=0, le=1)
+
+    # Optional post-analysis hooks called after the main analysis workflow completes.
+    # Each hook receives (adata, config) and returns adata. Useful for tumor modules
+    # that need annotation outputs without creating a hard import dependency.
+    post_analysis_hooks: Optional[List[Any]] = Field(
+        default=None,
+        description="List of callables(adata, config) -> adata invoked after analysis.",
+    )
 
     # Note: save_dir is inherited from SclucidBaseConfig
 

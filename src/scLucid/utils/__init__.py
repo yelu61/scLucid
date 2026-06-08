@@ -90,6 +90,15 @@ from .evidence import (
     ReviewAction,
     model_to_dict,
 )
+from .step_result import (
+    EvidenceLevel,
+    StepResult,
+    StepStatus,
+    rollup_step_status,
+    step_results_from_storage,
+    step_results_to_storage,
+    summarize_step_results,
+)
 from .helpers import (
     load_10x_data,
     merge_obs_metadata,
@@ -268,6 +277,13 @@ __all__ = [
     "EvidenceItem",
     "ReviewAction",
     "model_to_dict",
+    "EvidenceLevel",
+    "StepResult",
+    "StepStatus",
+    "rollup_step_status",
+    "step_results_from_storage",
+    "step_results_to_storage",
+    "summarize_step_results",
     # Result cleanup
     "clear_sclucid_results",
     "compact_sclucid_uns",

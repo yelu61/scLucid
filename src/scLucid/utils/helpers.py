@@ -665,11 +665,24 @@ def sanitize_for_hdf5(obj):
     2. Converting integer keys to strings in dictionaries
     3. Handling other non-HDF5 compatible types
     """
-    if isinstance(obj, tuple) or isinstance(obj, list):
+    if isinstance(obj, pd.DataFrame):
+        return sanitize_for_hdf5(obj.to_dict(orient="records"))
+    elif isinstance(obj, pd.Series):
+        return sanitize_for_hdf5(obj.to_dict())
+    elif isinstance(obj, np.ndarray):
+        return sanitize_for_hdf5(obj.tolist())
+    elif isinstance(obj, tuple) or isinstance(obj, list):
+        if obj and all(isinstance(item, dict) for item in obj):
+            return {
+                str(i): sanitize_for_hdf5(item)
+                for i, item in enumerate(obj)
+            }
         return [sanitize_for_hdf5(item) for item in obj]
     elif isinstance(obj, dict):
         return {str(k): sanitize_for_hdf5(v) for k, v in obj.items()}
-    elif isinstance(obj, (int, float, str, bool, np.number, np.bool_)) or obj is None:
+    elif obj is None:
+        return ""
+    elif isinstance(obj, (int, float, str, bool, np.number, np.bool_)):
         return obj
     else:
         # Try to convert other types to string representation

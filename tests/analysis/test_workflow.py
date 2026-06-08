@@ -265,3 +265,77 @@ class TestWorkflowKwargs:
             mock_cluster.return_value = patched
             result = run_standard_analysis(adata, config=config, save_dir="./override")
             assert result.uns["sclucid"]["analysis"]["workflow_config"]["save_dir"] == "./override"
+
+
+class TestAnalysisStepResults:
+    """Verify structured step results are recorded by run_standard_analysis."""
+
+    def test_step_results_stored_in_adata(self):
+        """run_standard_analysis writes step_results to adata.uns."""
+        adata = _make_preprocessed_adata()
+        config = AnalysisWorkflowConfig.quick(run_annotation=False, characterize=False)
+        result = run_standard_analysis(adata, config=config, show_progress=False)
+        assert "step_results" in result.uns["sclucid"]["analysis"]
+        step_results = result.uns["sclucid"]["analysis"]["step_results"]
+        assert isinstance(step_results, dict)
+        assert len(step_results) >= 1
+        names = {r["name"] for r in step_results.values()}
+        assert "clustering" in names
+
+    def test_step_results_summary_in_review_summary(self):
+        """The review summary contains a step_results section."""
+        adata = _make_preprocessed_adata()
+        config = AnalysisWorkflowConfig.quick(run_annotation=False, characterize=False)
+        result = run_standard_analysis(adata, config=config, show_progress=False)
+        review = result.uns["sclucid"]["analysis"]["review_summary"]
+        data = review.get("data", review)
+        assert "step_results" in data
+
+    def test_deprecated_malignancy_interpretation_emits_warning(self):
+        """Using run_malignancy_interpretation in analysis workflow emits FutureWarning."""
+        adata = _make_preprocessed_adata()
+        adata.obs["cell_type_auto"] = ["T_cell"] * adata.n_obs
+        config = AnalysisWorkflowConfig(
+            clustering=ClusteringConfig(key_added="leiden_clusters"),
+            annotation=AnnotationConfig(key_added="cell_type_auto"),
+            run_malignancy_interpretation=True,
+            characterize=False,
+        )
+        with pytest.warns(FutureWarning, match="deprecated"):
+            run_standard_analysis(adata, config=config, steps=["malignancy_interpretation"], show_progress=False)
+
+    def test_post_analysis_hooks_are_executed(self):
+        """post_analysis_hooks in config are called after the main workflow."""
+        adata = _make_preprocessed_adata()
+        hook_calls = []
+
+        def my_hook(adata, config):
+            hook_calls.append("called")
+            adata.obs["hook_marker"] = 1
+            return adata
+
+        config = AnalysisWorkflowConfig.quick(
+            run_annotation=False,
+            characterize=False,
+            post_analysis_hooks=[my_hook],
+        )
+        result = run_standard_analysis(adata, config=config, show_progress=False)
+        assert hook_calls == ["called"]
+        assert "hook_marker" in result.obs.columns
+
+    def test_workflow_config_with_hook_round_trips_to_h5ad(self, tmp_path):
+        """Workflow config storage should remain HDF5-safe when hooks are present."""
+        adata = _make_preprocessed_adata(n_obs=80, n_vars=120)
+
+        def my_hook(adata, config):
+            return adata
+
+        config = AnalysisWorkflowConfig.quick(
+            run_annotation=False,
+            characterize=False,
+            post_analysis_hooks=[my_hook],
+        )
+        result = run_standard_analysis(adata, config=config, show_progress=False)
+        out = tmp_path / "analysis_with_hook.h5ad"
+        result.write_h5ad(out)
+        assert out.exists()

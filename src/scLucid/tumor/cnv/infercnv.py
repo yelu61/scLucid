@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -241,6 +241,7 @@ class CNVAnalyzer:
         self.reference_mask_: Optional[np.ndarray] = None
         self.threshold_: Optional[float] = None
         self.Z_: Optional[np.ndarray] = None
+        self._input_quality: Dict[str, Any] = {}
 
     # -------------------------------------------------------------------------
     # Internal pipeline steps
@@ -358,9 +359,16 @@ class CNVAnalyzer:
             if len(idx) < 30:
                 X_smooth[:, idx] = X[:, idx].astype(np.float32)
                 continue
+            # Cap window size to the number of genes on this chromosome to avoid
+            # over-smoothing or uniform_filter1d artifacts on small chromosomes.
+            window = min(self.window_size, len(idx))
+            if window < self.window_size:
+                log.debug(
+                    f"Chromosome {chrom}: window_size capped from {self.window_size} to {window}"
+                )
             X_chr = X[:, idx].astype(np.float32)
             X_smooth[:, idx] = uniform_filter1d(
-                X_chr, size=self.window_size, axis=1, mode="nearest"
+                X_chr, size=window, axis=1, mode="nearest"
             )
 
         return X_smooth
@@ -493,6 +501,19 @@ class CNVAnalyzer:
         extreme_frac = (np.abs(Z) > 2.0).mean(axis=1)
         work.obs["cnv_score"] = self.tumor_scores_.values
         work.obs["cnv_extreme_frac"] = extreme_frac
+
+        # Record input-quality metadata for downstream audit
+        has_coords = chromosomes is not None and len(chromosomes) > 0
+        self._input_quality = {
+            "n_cells_input": int(adata.n_obs),
+            "n_genes_after_filtering": int(work.n_vars),
+            "reference_cells_used": n_ref,
+            "has_genomic_coordinates": bool(has_coords),
+            "chromosomes_used": (
+                list(pd.unique(chromosomes)) if has_coords else []
+            ),
+            "window_size": int(self.window_size),
+        }
 
         log.info("CNV inference complete")
         return self
@@ -746,15 +767,19 @@ def infer_cnv(
     }
 
     # Summary statistics
+    summary: Dict[str, Any] = {
+        "input_quality": analyzer._input_quality,
+    }
     if predict_aneuploid and f"{key_added}_predicted_class" in adata.obs.columns:
         calls = adata.obs[f"{key_added}_predicted_class"].astype(str)
-        adata.uns[f"{key_added}_summary"] = {
+        summary.update({
             "n_aneuploid": int((calls == "aneuploid").sum()),
             "n_diploid": int((calls == "diploid").sum()),
             "aneuploid_fraction": float((calls == "aneuploid").mean()),
             "mean_cnv_score": float(adata.obs[f"{key_added}_score"].mean()),
             "threshold": analyzer.threshold_,
-        }
+        })
+    adata.uns[f"{key_added}_summary"] = summary
 
     log.info(f"CNV inference complete. Results stored with prefix '{key_added}'")
     return adata

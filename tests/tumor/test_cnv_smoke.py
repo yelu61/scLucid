@@ -30,7 +30,7 @@ class TestCNVAnalyzerDeep:
         """CNVAnalyzer.fit() with explicit reference cells."""
         from scLucid.tumor.cnv.infercnv import CNVAnalyzer
 
-        adata = _make_cnv_adata(n_cells=40, n_genes=80)
+        adata = _make_cnv_adata(n_cells=100, n_genes=80)
         analyzer = CNVAnalyzer()
         result = analyzer.fit(adata, reference_cells="Normal", reference_key="cell_type")
         assert result is analyzer
@@ -43,7 +43,7 @@ class TestCNVAnalyzerDeep:
         """CNVAnalyzer.fit() without reference (uses mean)."""
         from scLucid.tumor.cnv.infercnv import CNVAnalyzer
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=60)
+        adata = _make_cnv_adata(n_cells=100, n_genes=60)
         analyzer = CNVAnalyzer()
         analyzer.fit(adata)
         assert analyzer.cnv_matrix_ is not None
@@ -53,7 +53,7 @@ class TestCNVAnalyzerDeep:
         """predict_tumor_cells after fit."""
         from scLucid.tumor.cnv.infercnv import CNVAnalyzer
 
-        adata = _make_cnv_adata(n_cells=40, n_genes=80)
+        adata = _make_cnv_adata(n_cells=100, n_genes=80)
         analyzer = CNVAnalyzer()
         analyzer.fit(adata, reference_cells="Normal")
         predictions = analyzer.predict_tumor_cells(threshold=0.5)
@@ -72,7 +72,7 @@ class TestCNVAnalyzerDeep:
         """CNVAnalyzer.fit() with chromosome gene order."""
         from scLucid.tumor.cnv.infercnv import CNVAnalyzer
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=100)
+        adata = _make_cnv_adata(n_cells=100, n_genes=100)
         # Create fake gene order with chromosomes
         gene_order = pd.DataFrame(
             {
@@ -94,7 +94,7 @@ class TestInferCNVDeep:
         """infer_cnv with default parameters."""
         from scLucid.tumor.cnv.infercnv import infer_cnv
 
-        adata = _make_cnv_adata(n_cells=40, n_genes=80)
+        adata = _make_cnv_adata(n_cells=100, n_genes=80)
         result = infer_cnv(adata, reference_cells="Normal")
         assert "X_cnv" in result.obsm
         assert "cnv_score" in result.obs
@@ -104,7 +104,7 @@ class TestInferCNVDeep:
         """infer_cnv with custom key_added."""
         from scLucid.tumor.cnv.infercnv import infer_cnv
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=60)
+        adata = _make_cnv_adata(n_cells=100, n_genes=60)
         result = infer_cnv(adata, reference_cells="Normal", key_added="my_cnv")
         assert "X_my_cnv" in result.obsm
         assert "my_cnv_score" in result.obs
@@ -113,7 +113,7 @@ class TestInferCNVDeep:
         """infer_cnv with copy=True does not modify original."""
         from scLucid.tumor.cnv.infercnv import infer_cnv
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=60)
+        adata = _make_cnv_adata(n_cells=100, n_genes=60)
         original_keys = set(adata.obsm.keys())
         result = infer_cnv(adata, reference_cells="Normal", copy=True)
         assert set(adata.obsm.keys()) == original_keys
@@ -123,7 +123,7 @@ class TestInferCNVDeep:
         """infer_cnv falls back to .X when normalized layer absent."""
         from scLucid.tumor.cnv.infercnv import infer_cnv
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=60)
+        adata = _make_cnv_adata(n_cells=100, n_genes=60)
         del adata.layers["normalized"]
         result = infer_cnv(adata, reference_cells="Normal")
         assert "X_cnv" in result.obsm
@@ -137,7 +137,7 @@ class TestFindTumorCellsDeep:
         """find_tumor_cells with cnv_score method."""
         from scLucid.tumor.cnv.infercnv import infer_cnv, find_tumor_cells
 
-        adata = _make_cnv_adata(n_cells=40, n_genes=80)
+        adata = _make_cnv_adata(n_cells=100, n_genes=80)
         adata = infer_cnv(adata, reference_cells="Normal")
         result = find_tumor_cells(adata, method="cnv_score", threshold=0.5)
         assert len(result) == adata.n_obs
@@ -147,7 +147,7 @@ class TestFindTumorCellsDeep:
         """find_tumor_cells with clustering method."""
         from scLucid.tumor.cnv.infercnv import infer_cnv, find_tumor_cells
 
-        adata = _make_cnv_adata(n_cells=40, n_genes=80)
+        adata = _make_cnv_adata(n_cells=100, n_genes=80)
         adata = infer_cnv(adata, reference_cells="Normal")
         result = find_tumor_cells(adata, method="clustering")
         assert len(result) == adata.n_obs
@@ -161,7 +161,7 @@ class TestIdentifyClonesDeep:
         """identify_clones with hierarchical clustering."""
         from scLucid.tumor.cnv.infercnv import infer_cnv, identify_clones
 
-        adata = _make_cnv_adata(n_cells=40, n_genes=80)
+        adata = _make_cnv_adata(n_cells=100, n_genes=80)
         adata = infer_cnv(adata, reference_cells="Normal")
         result = identify_clones(adata, n_clusters=3, method="hierarchical")
         assert len(result) == adata.n_obs
@@ -171,7 +171,7 @@ class TestIdentifyClonesDeep:
         """identify_clones with kmeans clustering."""
         from scLucid.tumor.cnv.infercnv import infer_cnv, identify_clones
 
-        adata = _make_cnv_adata(n_cells=40, n_genes=80)
+        adata = _make_cnv_adata(n_cells=100, n_genes=80)
         adata = infer_cnv(adata, reference_cells="Normal")
         result = identify_clones(adata, n_clusters=2, method="kmeans")
         assert len(result) == adata.n_obs
@@ -185,7 +185,7 @@ class TestCalculateCNVScoreDeep:
         """calculate_cnv_score with mean_absolute method."""
         from scLucid.tumor.cnv.infercnv import infer_cnv, calculate_cnv_score
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=60)
+        adata = _make_cnv_adata(n_cells=100, n_genes=60)
         adata = infer_cnv(adata, reference_cells="Normal")
         result = calculate_cnv_score(adata, method="mean_absolute")
         assert len(result) == adata.n_obs
@@ -195,7 +195,7 @@ class TestCalculateCNVScoreDeep:
         """calculate_cnv_score with variance method."""
         from scLucid.tumor.cnv.infercnv import infer_cnv, calculate_cnv_score
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=60)
+        adata = _make_cnv_adata(n_cells=100, n_genes=60)
         adata = infer_cnv(adata, reference_cells="Normal")
         result = calculate_cnv_score(adata, method="variance")
         assert len(result) == adata.n_obs
@@ -205,7 +205,7 @@ class TestCalculateCNVScoreDeep:
         """calculate_cnv_score with gini method."""
         from scLucid.tumor.cnv.infercnv import infer_cnv, calculate_cnv_score
 
-        adata = _make_cnv_adata(n_cells=30, n_genes=60)
+        adata = _make_cnv_adata(n_cells=100, n_genes=60)
         adata = infer_cnv(adata, reference_cells="Normal")
         result = calculate_cnv_score(adata, method="gini")
         assert len(result) == adata.n_obs

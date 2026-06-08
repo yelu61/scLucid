@@ -12,6 +12,7 @@ For more control, use the individual functions directly.
 """
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -19,9 +20,9 @@ import pandas as pd
 from anndata import AnnData
 
 from ..base_config import apply_config_overrides
-from ..tumor.malignancy import run_malignancy_interpretation
 from ..utils import (
     PartialResultManager,
+    StepResult,
     UnsKeys,
     WorkflowCheckpoint,
     WorkflowError,
@@ -29,6 +30,8 @@ from ..utils import (
     get_marker_manager,
     get_progress_bar,
     normalize_review_summary,
+    sanitize_for_hdf5,
+    step_results_to_storage,
     validate_review_summary_schema,
 )
 from .annotation import build_annotation_consensus, run_annotation, run_annotation_evidence
@@ -252,6 +255,7 @@ def run_standard_analysis(
     # Track execution
     current_step = None
     successful_steps: List[str] = []
+    step_results: List[StepResult] = []
     markers_df: Optional[pd.DataFrame] = None
     annotation_review_table: Optional[pd.DataFrame] = None
 
@@ -319,6 +323,14 @@ def run_standard_analysis(
                     )
                 log.info(f"  Reviewed {len(review_df)} clustering resolution candidate(s)")
                 successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="heuristic",
+                        outputs={"n_candidates": int(len(review_df))},
+                    )
+                )
 
             # Step 1: Clustering
             elif step_name == "clustering":
@@ -326,6 +338,17 @@ def run_standard_analysis(
                 adata = cluster_cells(adata, cluster_config)
                 log.info(f"  Clustering complete: {adata.obs[cluster_key].nunique()} clusters")
                 successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="validated_core",
+                        outputs={
+                            "n_clusters": int(adata.obs[cluster_key].nunique()),
+                            "cluster_key": cluster_key,
+                        },
+                    )
+                )
 
             # Step 2: Marker genes
             elif step_name == "markers":
@@ -344,6 +367,14 @@ def run_standard_analysis(
                 markers_df = find_markers(adata, marker_config)
                 log.info(f"  Found {len(markers_df)} marker rows")
                 successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="validated_core",
+                        outputs={"n_marker_rows": int(len(markers_df))},
+                    )
+                )
 
             # Step 3: Annotation
             elif step_name == "annotation":
@@ -360,6 +391,17 @@ def run_standard_analysis(
                 )
                 log.info(f"  Annotated {n_annotated}/{len(adata)} cells")
                 successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="heuristic",
+                        outputs={
+                            "n_annotated": int(n_annotated),
+                            "n_total": int(len(adata)),
+                        },
+                    )
+                )
 
             # Step 4: Annotation evidence table
             elif step_name == "annotation_evidence":
@@ -434,6 +476,14 @@ def run_standard_analysis(
                     f"{annotation_review_table.shape[0]} cluster rows"
                 )
                 successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="heuristic",
+                        outputs={"review_table_rows": int(annotation_review_table.shape[0])},
+                    )
+                )
 
             # Step 5: Annotation consensus application
             elif step_name == "annotation_consensus":
@@ -465,10 +515,25 @@ def run_standard_analysis(
                 )
                 log.info(f"  Applied consensus labels to obs['{annotation_config.key_added}']")
                 successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="heuristic",
+                        outputs={"final_key": annotation_config.key_added},
+                    )
+                )
 
-            # Step 6: Malignancy interpretation
+            # Step 6: Malignancy interpretation (deprecated in analysis workflow;
+            # prefer ``run_tumor_analysis`` or ``post_analysis_hooks``).
             elif step_name == "malignancy_interpretation":
                 log.info("Step: Malignancy interpretation")
+                warnings.warn(
+                    "Running malignancy_interpretation inside run_standard_analysis is "
+                    "deprecated. Use run_tumor_analysis() or config.post_analysis_hooks instead.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
                 active_cluster_key = (
                     cluster_key if cluster_key in adata.obs.columns else _default_groupby_key(adata)
                 )
@@ -485,6 +550,8 @@ def run_standard_analysis(
                         f"obs['{annotation_config.key_added}']. Include annotation_consensus "
                         "or set annotation.key_added to an existing column."
                     )
+                from ..tumor.malignancy import run_malignancy_interpretation
+
                 malignancy_table = run_malignancy_interpretation(
                     adata,
                     annotation_key=annotation_config.key_added,
@@ -511,6 +578,15 @@ def run_standard_analysis(
                     f"{malignancy_table.shape[0]} group rows"
                 )
                 successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="heuristic",
+                        outputs={"review_table_rows": int(malignancy_table.shape[0])},
+                        warnings=["deprecated: run via tumor workflow instead"],
+                    )
+                )
 
             # Step 7: Characterization
             elif step_name == "characterization":
@@ -528,9 +604,25 @@ def run_standard_analysis(
                     )
                     log.info("  Characterization complete")
                     successful_steps.append(step_name)
+                    step_results.append(
+                        StepResult(
+                            name=step_name,
+                            status="completed",
+                            evidence_level="validated_core",
+                            outputs={"groupby": active_cluster_key},
+                        )
+                    )
                 except Exception as e:
                     if on_error == "skip":
                         log.warning(f"  Characterization failed: {e}. Skipping...")
+                        step_results.append(
+                            StepResult.from_exception(
+                                name=step_name,
+                                exc=e,
+                                degraded=True,
+                                evidence_level="unavailable",
+                            )
+                        )
                     else:
                         raise
 
@@ -540,6 +632,16 @@ def run_standard_analysis(
         import traceback
 
         log.error(traceback.format_exc())
+
+        if current_step is not None:
+            step_results.append(
+                StepResult.from_exception(
+                    name=current_step,
+                    exc=e,
+                    degraded=False,
+                    evidence_level="unavailable",
+                )
+            )
 
         if error_recovery and on_error in ["raise", "save"]:
             # Save partial results
@@ -566,14 +668,38 @@ def run_standard_analysis(
         )
 
     # Store final config
+    config_dict = sanitize_for_hdf5(config.to_dict())
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {})[
         UnsKeys.WORKFLOW_CONFIG
-    ] = config.to_dict()
+    ] = config_dict
     adata.uns["sclucid"]["analysis"][UnsKeys.STEPS_EXECUTED] = successful_steps
+    adata.uns["sclucid"]["analysis"]["step_results"] = step_results_to_storage(step_results)
+
+    # Run optional post-analysis hooks (e.g., tumor interpretation without
+    # hard-coding a tumor import inside the analysis module).
+    hooks = getattr(config, "post_analysis_hooks", None) or []
+    for hook in hooks:
+        try:
+            if callable(hook):
+                adata = hook(adata, config)
+        except Exception as hook_exc:
+            log.warning(f"Post-analysis hook failed: {hook_exc}")
+            step_results.append(
+                StepResult.from_exception(
+                    name="post_analysis_hook",
+                    exc=hook_exc,
+                    degraded=True,
+                    evidence_level="unavailable",
+                )
+            )
+    # Re-save in case hooks added more results
+    adata.uns["sclucid"]["analysis"]["step_results"] = step_results_to_storage(step_results)
 
     # Build and store review summary
     enriched_summary = enrich_analysis_review_summary(
-        _build_analysis_review_summary(adata, config, successful_steps, cluster_key),
+        _build_analysis_review_summary(
+            adata, config, successful_steps, cluster_key, step_results=step_results
+        ),
         adata=adata,
         config=config,
         successful_steps=successful_steps,
@@ -585,7 +711,7 @@ def run_standard_analysis(
         workflow_name="standard",
         adata=adata,
         steps_executed=successful_steps,
-        config=config.to_dict(),
+        config=config_dict,
         warnings=(
             enriched_summary.get("analysis_readiness", {}).get("review_reasons", [])
             if isinstance(enriched_summary.get("analysis_readiness"), dict)
@@ -594,6 +720,7 @@ def run_standard_analysis(
     )
     validate_review_summary_schema(review_summary, module="analysis", raise_on_error=True)
     validate_analysis_review_summary(review_summary, raise_on_error=True)
+    review_summary = sanitize_for_hdf5(review_summary)
     adata.uns["sclucid"]["analysis"][UnsKeys.REVIEW_SUMMARY] = review_summary
 
     # Export review summary to file if save_dir is configured
@@ -618,6 +745,7 @@ def _build_analysis_review_summary(
     config: AnalysisWorkflowConfig,
     successful_steps: List[str],
     cluster_key: str,
+    step_results: Optional[List[StepResult]] = None,
 ) -> Dict[str, Any]:
     """Build a human-reviewable summary of the analysis run."""
     summary: Dict[str, Any] = {
@@ -628,6 +756,13 @@ def _build_analysis_review_summary(
         "warnings": [],
         "artifacts": {},
     }
+    if step_results:
+        from ..utils import summarize_step_results
+
+        summary["step_results"] = summarize_step_results(step_results)
+        summary["deprecated_steps_used"] = [
+            r.name for r in step_results if "deprecated" in " ".join(r.warnings)
+        ]
 
     # Clustering summary
     if "clustering" in successful_steps and cluster_key in adata.obs.columns:

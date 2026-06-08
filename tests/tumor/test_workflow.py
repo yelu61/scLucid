@@ -231,11 +231,12 @@ class TestRunTumorStageBranches:
         cfg = TumorAnalysisConfig(
             run_malignancy=False, run_tme=False, run_cnv=False, run_therapy=False
         )
-        _result_adata, steps, warns = _run_tumor_stage(adata, cfg)
+        _result_adata, steps, step_results, warns = _run_tumor_stage(adata, cfg)
         assert steps == []
+        assert step_results == []
         assert warns == []
 
-    def test_failing_stage_is_recorded_as_warning(self):
+    def test_failing_stage_is_recorded_as_warning_and_step_result(self):
         from anndata import AnnData
         import numpy as np
 
@@ -244,12 +245,137 @@ class TestRunTumorStageBranches:
 
         # AnnData with no count layer / metadata → malignancy scoring will fail
         # but the stage should catch the exception and emit a warning rather
-        # than raising.
+        # than raising. A StepResult must be recorded for audit.
         adata = AnnData(np.random.rand(5, 3))
         cfg = TumorAnalysisConfig(
             run_malignancy=True, run_tme=False, run_cnv=False, run_therapy=False
         )
-        _result_adata, steps, warns = _run_tumor_stage(adata, cfg)
+        _result_adata, steps, step_results, warns = _run_tumor_stage(adata, cfg)
         # No assertion on `steps` content (depends on scorer's resilience),
-        # but the function must not raise and warnings should be a list.
+        # but the function must not raise, warnings should be a list, and
+        # step_results must contain a degraded/failed record.
         assert isinstance(warns, list)
+        assert len(step_results) >= 1
+        assert any(r.status in ("failed", "degraded") for r in step_results)
+
+
+class TestTumorStageStepResults:
+    """Verify structured step results are produced for tumor stage steps."""
+
+    def test_tme_step_records_compartment_claim(self):
+        from anndata import AnnData
+        import numpy as np
+
+        from scLucid.tumor.config import TumorAnalysisConfig
+        from scLucid.tumor.workflow import _run_tumor_stage
+
+        adata = AnnData(np.zeros((6, 3)))
+        adata.obs["cell_type"] = ["T_cell", "T cell", "Fibroblast", "CAF", "Tumor", "Tumor"]
+        cfg = TumorAnalysisConfig(
+            run_malignancy=False, run_tme=True, run_cnv=False, run_therapy=False
+        )
+        _result_adata, steps, step_results, warns = _run_tumor_stage(adata, cfg)
+        assert "tme_deconvolution" in steps
+        tme_step = next(r for r in step_results if r.name == "tme_deconvolution")
+        assert tme_step.status == "completed"
+        assert "annotation-derived" in " ".join(tme_step.warnings)
+
+    def test_therapy_step_marks_exploratory_evidence(self):
+        from anndata import AnnData
+        import numpy as np
+
+        from scLucid.tumor.config import TumorAnalysisConfig
+        from scLucid.tumor.workflow import _run_tumor_stage
+
+        adata = AnnData(np.random.rand(4, 3))
+        cfg = TumorAnalysisConfig(
+            run_malignancy=False,
+            run_tme=False,
+            run_cnv=False,
+            run_therapy=True,
+            therapy_drugs=["chemotherapy"],
+        )
+        _result_adata, steps, step_results, warns = _run_tumor_stage(adata, cfg)
+        therapy_step = next((r for r in step_results if r.name == "therapy_prediction"), None)
+        assert therapy_step is not None
+        assert therapy_step.evidence_level == "exploratory"
+        assert therapy_step.outputs["drugs_requested"] == ["chemotherapy"]
+
+
+class TestTumorReviewSummary:
+    """Verify the tumor review summary structure."""
+
+    def test_review_summary_contains_claim_boundary(self):
+        from scLucid.tumor.workflow import _build_tumor_review_summary
+        from scLucid.utils import StepResult
+        from anndata import AnnData
+        import numpy as np
+
+        adata = AnnData(np.zeros((4, 3)))
+        summary = _build_tumor_review_summary(
+            adata=adata,
+            tumor_config=None,
+            step_results=[
+                StepResult(
+                    name="cnv_inference",
+                    status="completed",
+                    evidence_level="validated_core",
+                    outputs={"has_reference_cells": True, "has_genomic_coordinates": True},
+                ),
+            ],
+            warnings=[],
+            cancer_type="TEST",
+        )
+        assert summary["module"] == "tumor"
+        assert summary["claim_boundary"] == "validated_core"
+        assert summary["cancer_type"] == "TEST"
+        assert "readiness" in summary
+        assert summary["readiness"]["status"] == "ready"
+
+    def test_review_summary_degraded_steps_lower_readiness(self):
+        from scLucid.tumor.workflow import _build_tumor_review_summary
+        from scLucid.utils import StepResult
+        from anndata import AnnData
+        import numpy as np
+
+        adata = AnnData(np.zeros((4, 3)))
+        summary = _build_tumor_review_summary(
+            adata=adata,
+            tumor_config=None,
+            step_results=[
+                StepResult(name="a", status="completed", evidence_level="heuristic"),
+                StepResult(
+                    name="b",
+                    status="degraded",
+                    evidence_level="unavailable",
+                    outputs={},
+                    warnings=["fallback used"],
+                ),
+            ],
+            warnings=[],
+            cancer_type=None,
+        )
+        assert summary["readiness"]["status"] == "degraded"
+        assert summary["readiness"]["score"] < 1.0
+        assert any("degraded_steps" in reason for reason in summary["readiness"]["reasons"])
+        assert len(summary["action_items"]) >= 1
+
+    def test_review_summary_claim_boundary_is_conservative(self):
+        from scLucid.tumor.workflow import _build_tumor_review_summary
+        from scLucid.utils import StepResult
+        from anndata import AnnData
+        import numpy as np
+
+        adata = AnnData(np.zeros((4, 3)))
+        summary = _build_tumor_review_summary(
+            adata=adata,
+            tumor_config=None,
+            step_results=[
+                StepResult(name="cnv_inference", status="completed", evidence_level="validated_core"),
+                StepResult(name="tme_deconvolution", status="completed", evidence_level="heuristic"),
+                StepResult(name="therapy_prediction", status="completed", evidence_level="exploratory"),
+            ],
+            warnings=[],
+            cancer_type=None,
+        )
+        assert summary["claim_boundary"] == "exploratory"

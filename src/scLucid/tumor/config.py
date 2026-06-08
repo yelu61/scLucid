@@ -28,6 +28,13 @@ class TumorAnalysisConfig(SclucidBaseConfig):
         default=None,
         description="Observation key identifying reference normal cells for threshold/ml methods.",
     )
+    malignancy_annotation_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Observation key containing cell type annotations for malignancy interpretation. "
+            "If None, the workflow tries cell_type_auto then cell_type."
+        ),
+    )
 
     # TME analysis
     run_tme: bool = Field(default=True, description="Run tumor microenvironment deconvolution.")
@@ -70,13 +77,14 @@ class TumorWorkflowConfig(WorkflowConfigBase):
     model_config = ConfigDict(extra="ignore")
 
     # Sub-stage configs (expert override layer)
-    qc_config: Optional[Any] = Field(
+    # Forward references avoid a runtime import dependency on qc/preprocess/analysis.
+    qc_config: Optional["QCWorkflowConfig"] = Field(
         default=None, description="Optional QCWorkflowConfig override."
     )
-    preprocess_config: Optional[Any] = Field(
+    preprocess_config: Optional["PreprocessWorkflowConfig"] = Field(
         default=None, description="Optional PreprocessingWorkflowConfig override."
     )
-    analysis_config: Optional[Any] = Field(
+    analysis_config: Optional["AnalysisWorkflowConfig"] = Field(
         default=None, description="Optional AnalysisWorkflowConfig override."
     )
     tumor_config: Optional[TumorAnalysisConfig] = Field(
@@ -117,6 +125,7 @@ class TumorWorkflowConfig(WorkflowConfigBase):
             "use_recommendations": "use_recommendations",
             "run_malignancy": ("tumor_config", "run_malignancy"),
             "malignancy_method": ("tumor_config", "malignancy_method"),
+            "malignancy_annotation_key": ("tumor_config", "malignancy_annotation_key"),
             "run_tme": ("tumor_config", "run_tme"),
             "run_cnv": ("tumor_config", "run_cnv"),
             "run_therapy": ("tumor_config", "run_therapy"),

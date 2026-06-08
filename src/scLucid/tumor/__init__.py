@@ -84,6 +84,11 @@ from .malignancy.classification import (
     score_malignancy_potential,
 )
 from .malignancy.interpretation import run_malignancy_interpretation
+from .steps import (
+    CNVInferenceStep,
+    MalignancyInterpretationStep,
+    TMEDeconvolutionStep,
+)
 
 # Malignancy Analysis
 from .malignancy.scoring import (
@@ -178,6 +183,9 @@ __all__ = [
     "classify_malignant_cells",
     "score_malignancy_potential",
     "run_malignancy_interpretation",
+    "CNVInferenceStep",
+    "MalignancyInterpretationStep",
+    "TMEDeconvolutionStep",
     "calculate_stemness_score",
     "identify_cancer_stem_cells",
     "compare_stemness_between_groups",

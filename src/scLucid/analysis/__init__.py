@@ -85,12 +85,23 @@ _export(
         "validate_analysis_review_summary",
     ],
 )
+# Backward compatibility: re-export tumor malignancy interpretation with a
+# deprecation warning. Users should call this from ``scLucid.tumor`` instead.
 try:
     from ..tumor.malignancy import (
         run_malignancy_interpretation as _run_malignancy_interpretation,
     )
 
-    run_malignancy_interpretation = _run_malignancy_interpretation
+    def run_malignancy_interpretation(*args, **kwargs):  # type: ignore[misc]
+        warnings.warn(
+            "scLucid.analysis.run_malignancy_interpretation is deprecated and will be "
+            "removed in a future release. Use scLucid.tumor.run_malignancy_interpretation "
+            "or run_tumor_analysis() instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return _run_malignancy_interpretation(*args, **kwargs)
+
     __all__.append("run_malignancy_interpretation")
 except Exception as exc:
     warnings.warn(

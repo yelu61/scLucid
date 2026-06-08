@@ -6,12 +6,17 @@ the tumor microenvironment composition.
 """
 
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 from anndata import AnnData
 
 log = logging.getLogger(__name__)
+
+
+def _normalize_compartment_label(label: str) -> str:
+    """Normalize user-provided cell labels for compartment mapping."""
+    return str(label).lower().replace("-", " ").replace("_", " ").strip()
 
 
 class TMEProfiler:
@@ -25,13 +30,85 @@ class TMEProfiler:
     ----------
     cell_type_key : str
         Column in adata.obs containing cell type annotations
+    compartment_map : dict, optional
+        Mapping from input cell type labels to canonical compartments
+        ("immune", "stromal", "malignant", "other"). If None, uses an
+        internal normalization map that covers common label variants.
     """
 
-    def __init__(self, cell_type_key: str = "cell_type"):
+    # Canonical compartment map. Keys are lower-cased input labels.
+    _DEFAULT_COMPARTMENT_MAP: Dict[str, str] = {
+        # T cells
+        "t_cell": "immune",
+        "t cell": "immune",
+        "t-cell": "immune",
+        "tcell": "immune",
+        "cd4_t": "immune",
+        "cd4 t": "immune",
+        "cd4": "immune",
+        "cd8_t": "immune",
+        "cd8 t": "immune",
+        "cd8": "immune",
+        "treg": "immune",
+        "regulatory t": "immune",
+        # B cells
+        "b_cell": "immune",
+        "b cell": "immune",
+        "b-cell": "immune",
+        "bcell": "immune",
+        "plasma": "immune",
+        "plasma_cell": "immune",
+        "plasma cell": "immune",
+        # NK / myeloid
+        "nk": "immune",
+        "nk_cell": "immune",
+        "nk cell": "immune",
+        "macrophage": "immune",
+        "monocyte": "immune",
+        "neutrophil": "immune",
+        "dc": "immune",
+        "dendritic": "immune",
+        "mast_cell": "immune",
+        "mast cell": "immune",
+        "myeloid": "immune",
+        # Stromal
+        "fibroblast": "stromal",
+        "endothelial": "stromal",
+        "pericyte": "stromal",
+        "stromal": "stromal",
+        "caf": "stromal",
+        "myofibroblast": "stromal",
+        # Malignant / tumor labels
+        "tumor": "malignant",
+        "malignant": "malignant",
+        "cancer": "malignant",
+        "carcinoma": "malignant",
+        "adenocarcinoma": "malignant",
+        "tumor epithelial": "malignant",
+        "malignant epithelial": "malignant",
+        # Common non-malignant epithelial labels (treated as reference)
+        "epithelial": "other",
+        "normal_epithelial": "other",
+        "normal epithelial": "other",
+        "normal": "other",
+    }
+
+    def __init__(
+        self,
+        cell_type_key: str = "cell_type",
+        compartment_map: Optional[Dict[str, str]] = None,
+    ):
         self.cell_type_key = cell_type_key
-        self.proportions_: Optional[pd.DataFrame] = None
-        self.immune_score_: Optional[pd.Series] = None
-        self.stromal_score_: Optional[pd.Series] = None
+        raw_map = compartment_map or self._DEFAULT_COMPARTMENT_MAP
+        self.compartment_map = {
+            _normalize_compartment_label(k): v for k, v in raw_map.items()
+        }
+        self.proportions_: Optional[pd.Series] = None
+        self.immune_score_: Optional[float] = None
+        self.stromal_score_: Optional[float] = None
+        self.malignant_score_: Optional[float] = None
+        self.normalized_labels_: Optional[pd.Series] = None
+        self.unmapped_labels_: List[str] = []
 
     def fit(self, adata: AnnData) -> "TMEProfiler":
         """
@@ -47,47 +124,55 @@ class TMEProfiler:
         TMEProfiler
             Fitted profiler
         """
-        cell_types = adata.obs[self.cell_type_key]
+        cell_types = adata.obs[self.cell_type_key].astype(str)
+
+        # Normalize labels using the compartment map
+        normalized = cell_types.map(_normalize_compartment_label)
+        compartments = normalized.map(self.compartment_map)
+        self.unmapped_labels_ = sorted(
+            normalized[compartments.isna()].unique().tolist()
+        )
+        if self.unmapped_labels_:
+            log.debug(
+                f"TMEProfiler: unmapped labels treated as malignant/other: "
+                f"{self.unmapped_labels_}"
+            )
+        # Unmapped labels default to "other" so they do not inflate malignant
+        # estimates; they remain listed for manual review.
+        compartments = compartments.fillna("other")
+        self.normalized_labels_ = compartments
 
         # Calculate proportions
-        self.proportions_ = cell_types.value_counts(normalize=True)
+        self.proportions_ = compartments.value_counts(normalize=True)
 
-        # Calculate immune score
-        immune_types = self._get_immune_types()
-        self.immune_score_ = cell_types.isin(immune_types).mean()
-
-        # Calculate stromal score
-        stromal_types = self._get_stromal_types()
-        self.stromal_score_ = cell_types.isin(stromal_types).mean()
+        # Calculate compartment scores
+        self.immune_score_ = float((compartments == "immune").mean())
+        self.stromal_score_ = float((compartments == "stromal").mean())
+        self.malignant_score_ = float((compartments == "malignant").mean())
 
         return self
 
     def _get_immune_types(self) -> List[str]:
-        """Get list of immune cell type names."""
-        return [
-            "T_cell",
-            "B_cell",
-            "NK_cell",
-            "Macrophage",
-            "Monocyte",
-            "Neutrophil",
-            "DC",
-            "Mast_cell",
-        ]
+        """Get list of canonical immune compartment labels."""
+        return ["immune"]
 
     def _get_stromal_types(self) -> List[str]:
-        """Get list of stromal cell type names."""
-        return ["Fibroblast", "Endothelial", "Pericyte", "Stromal", "CAF"]
+        """Get list of canonical stromal compartment labels."""
+        return ["stromal"]
 
     def get_immune_infiltration(self) -> pd.Series:
-        """Get immune infiltration scores by cell type."""
-        immune_types = self._get_immune_types()
-        return self.proportions_[self.proportions_.index.isin(immune_types)]
+        """Get immune infiltration proportion."""
+        if self.proportions_ is None:
+            raise ValueError("Profiler has not been fitted.")
+        value = float(self.proportions_.get("immune", 0.0))
+        return pd.Series([value], index=["immune"])
 
     def get_stromal_content(self) -> pd.Series:
-        """Get stromal content by cell type."""
-        stromal_types = self._get_stromal_types()
-        return self.proportions_[self.proportions_.index.isin(stromal_types)]
+        """Get stromal content proportion."""
+        if self.proportions_ is None:
+            raise ValueError("Profiler has not been fitted.")
+        value = float(self.proportions_.get("stromal", 0.0))
+        return pd.Series([value], index=["stromal"])
 
 
 def deconvolve_tme(
@@ -125,18 +210,25 @@ def deconvolve_tme(
     adata.uns[f"{key_added}_proportions"] = profiler.proportions_
     adata.uns[f"{key_added}_immune_score"] = profiler.immune_score_
     adata.uns[f"{key_added}_stromal_score"] = profiler.stromal_score_
+    adata.uns[f"{key_added}_malignant_score"] = profiler.malignant_score_
+    adata.uns[f"{key_added}_compartment_claim"] = (
+        "annotation-derived TME composition; not a bulk deconvolution"
+    )
 
     # Per-cell TME scores (useful for downstream analysis and visualization)
-    cell_types = adata.obs[cell_type_key]
-    immune_types = profiler._get_immune_types()
-    stromal_types = profiler._get_stromal_types()
-    adata.obs[f"{key_added}_is_immune"] = cell_types.isin(immune_types).astype(int)
-    adata.obs[f"{key_added}_is_stromal"] = cell_types.isin(stromal_types).astype(int)
-    adata.obs[f"{key_added}_is_malignant"] = (~cell_types.isin(immune_types + stromal_types)).astype(int)
+    compartments = profiler.normalized_labels_
+    if compartments is not None:
+        adata.obs[f"{key_added}_compartment"] = compartments.astype(str)
+        adata.obs[f"{key_added}_is_immune"] = (compartments == "immune").astype(int)
+        adata.obs[f"{key_added}_is_stromal"] = (compartments == "stromal").astype(int)
+        adata.obs[f"{key_added}_is_malignant"] = (compartments == "malignant").astype(int)
+
+    if profiler.unmapped_labels_:
+        adata.uns[f"{key_added}_unmapped_labels"] = profiler.unmapped_labels_
 
     log.info(
         f"TME profiling complete. Results in uns['{key_added}_*'] and "
-        f"obs['{key_added}_is_immune'/'_is_stromal'/'_is_malignant']"
+        f"obs['{key_added}_compartment']"
     )
 
     return adata
