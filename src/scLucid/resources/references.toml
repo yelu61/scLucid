@@ -5,9 +5,9 @@
 # ============================================================================
 
 [metadata]
-version = "1.0"
+version = "1.2"
 last_updated = "2026-05-20"
-total_references = 127
+total_references = 220
 
 [[references]]
 source_id = "SRC0001"
@@ -1171,3 +1171,839 @@ doi = "10.1038/s41590-024-01994-8"
 journal = "Nature Immunology"
 url = "https://www.nature.com/articles/s41590-024-01994-8"
 
+[[references]]
+source_id = "SRC0128"
+zotero_item_id = ""
+title = "The Molecular Signatures Database Hallmark Gene Set Collection"
+year = "2015"
+doi = "10.1016/j.cels.2015.12.004"
+journal = "Cell Systems"
+url = "https://www.cell.com/cell-systems/fulltext/S2405-4712(15)00218-5"
+
+[[references]]
+source_id = "SRC0129"
+zotero_item_id = ""
+title = "Hallmarks of cancer: the next generation"
+year = "2011"
+doi = "10.1016/j.cell.2011.02.013"
+journal = "Cell"
+url = "https://www.cell.com/cell/fulltext/S0092-8674(11)00127-9"
+
+[[references]]
+source_id = "SRC0130"
+zotero_item_id = ""
+title = "Embracing cancer complexity: hallmarks of systemic disease"
+year = "2024"
+doi = "10.1016/j.cell.2024.02.009"
+journal = "Cell"
+url = "https://www.cell.com/cell/fulltext/S0092-8674(24)00183-9"
+
+[[references]]
+source_id = "SRC0131"
+zotero_item_id = ""
+title = "A gene set enrichment analysis for cancer hallmarks"
+year = "2025"
+doi = "10.1016/j.jpha.2024.101065"
+journal = "Journal of Pharmaceutical Analysis"
+url = "https://www.sciencedirect.com/science/article/pii/S2095177924001920"
+
+[[references]]
+source_id = "SRC0132"
+zotero_item_id = "2A3P4RZD"
+title = "Guidelines for T cell nomenclature"
+year = "2026"
+doi = "10.1038/s41577-025-01238-2"
+journal = "Nature Reviews Immunology"
+url = "https://www.nature.com/articles/s41577-025-01238-2"
+
+[[references]]
+source_id = "SRC0133"
+zotero_item_id = "687M4DD7"
+title = "Cross-tissue multicellular coordination and its rewiring in cancer"
+year = "2025"
+doi = "10.1038/s41586-025-09053-4"
+journal = "Nature"
+url = "https://doi.org/10.1038/s41586-025-09053-4"
+
+[[references]]
+source_id = "SRC0134"
+zotero_item_id = "4625QWBN"
+title = "Asian diversity in human immune cells"
+year = "2025"
+doi = "10.1016/j.cell.2025.02.017"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2025.02.017"
+
+[[references]]
+source_id = "SRC0135"
+zotero_item_id = "USI3CY3E"
+title = "TCellSI: A novel method for T cell state assessment and its applications in immune environment prediction"
+year = "2024"
+doi = "10.1002/imt2.231"
+journal = "iMeta"
+url = "https://doi.org/10.1002/imt2.231"
+
+[[references]]
+source_id = "SRC0136"
+zotero_item_id = "QYRL3N4N"
+title = "High-dimensional single-cell analysis of human natural killer cell heterogeneity"
+year = "2024"
+doi = "10.1038/s41590-024-01883-0"
+journal = "Nature Immunology"
+url = "https://doi.org/10.1038/s41590-024-01883-0"
+
+[[references]]
+source_id = "SRC0137"
+zotero_item_id = "2T9XI96N"
+title = "Roles of natural killer cells in immunity to cancer, and applications to immunotherapy"
+year = "2023"
+doi = "10.1038/s41577-022-00732-1"
+journal = "Nature Reviews Immunology"
+url = "https://doi.org/10.1038/s41577-022-00732-1"
+
+[[references]]
+source_id = "SRC0138"
+zotero_item_id = "P9SG4VPW"
+title = "Natural killer cells in antitumour adoptive cell immunotherapy"
+year = "2022"
+doi = "10.1038/s41568-022-00491-0"
+journal = "Nature Reviews Cancer"
+url = "https://doi.org/10.1038/s41568-022-00491-0"
+
+[[references]]
+source_id = "SRC0139"
+zotero_item_id = "GUYWHKSU"
+title = "Pan-Cancer Analyses Refine the Single-Cell Portrait of Tumor-Infiltrating Dendritic Cells"
+year = "2025"
+doi = "10.1158/0008-5472.CAN-24-3595"
+journal = "Cancer Research"
+url = "https://doi.org/10.1158/0008-5472.CAN-24-3595"
+
+[[references]]
+source_id = "SRC0140"
+zotero_item_id = "QB7PJSFH"
+title = "Dendritic cells as orchestrators of anticancer immunity and immunotherapy"
+year = "2024"
+doi = "10.1038/s41571-024-00859-1"
+journal = "Nature Reviews Clinical Oncology"
+url = "https://doi.org/10.1038/s41571-024-00859-1"
+
+[[references]]
+source_id = "SRC0141"
+zotero_item_id = "TY48SDHE"
+title = "Human dendritic cells in cancer"
+year = "2022"
+doi = "10.1126/sciimmunol.abm9409"
+journal = "Science Immunology"
+url = "https://doi.org/10.1126/sciimmunol.abm9409"
+
+[[references]]
+source_id = "SRC0142"
+zotero_item_id = "KGBQZ63A"
+title = "Tumor-infiltrating dendritic cell states are conserved across solid human cancers"
+year = "2021"
+doi = "10.1084/jem.20200264"
+journal = "Journal of Experimental Medicine"
+url = "https://doi.org/10.1084/jem.20200264"
+
+[[references]]
+source_id = "SRC0143"
+zotero_item_id = "DE9QUI7Q"
+title = "Dendritic cells in cancer immunology and immunotherapy"
+year = "2020"
+doi = "10.1038/s41577-019-0210-z"
+journal = "Nature Reviews Immunology"
+url = "https://doi.org/10.1038/s41577-019-0210-z"
+
+[[references]]
+source_id = "SRC0144"
+zotero_item_id = "TFLIJHWI"
+title = "Single-cell RNA-seq reveals new types of human blood dendritic cells, monocytes, and progenitors"
+year = "2017"
+doi = "10.1126/science.aah4573"
+journal = "Science"
+url = "https://doi.org/10.1126/science.aah4573"
+
+[[references]]
+source_id = "SRC0145"
+zotero_item_id = "TXV6IRWC"
+title = "Timing and location dictate monocyte fate and their transition to tumor-associated macrophages"
+year = "2024"
+doi = "10.1126/sciimmunol.adk3981"
+journal = "Science Immunology"
+url = "https://doi.org/10.1126/sciimmunol.adk3981"
+
+[[references]]
+source_id = "SRC0146"
+zotero_item_id = "74XRSIYR"
+title = "Decoding the spatiotemporal heterogeneity of tumor-associated macrophages"
+year = "2024"
+doi = "10.1186/s12943-024-02064-1"
+journal = "Molecular Cancer"
+url = "https://doi.org/10.1186/s12943-024-02064-1"
+
+[[references]]
+source_id = "SRC0147"
+zotero_item_id = "XCY5JDXD"
+title = "Coordinated chemokine expression defines macrophage subsets across tissues"
+year = "2024"
+doi = "10.1038/s41590-024-01826-9"
+journal = "Nature Immunology"
+url = "https://doi.org/10.1038/s41590-024-01826-9"
+
+[[references]]
+source_id = "SRC0148"
+zotero_item_id = "BRC3S2W6"
+title = "Macrophages at the interface of the co-evolving cancer ecosystem"
+year = "2023"
+doi = "10.1016/j.cell.2023.02.020"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2023.02.020"
+
+[[references]]
+source_id = "SRC0149"
+zotero_item_id = "AF4FF9WD"
+title = "Tumor macrophage functional heterogeneity can inform the development of novel cancer therapies"
+year = "2023"
+doi = "10.1016/j.it.2023.10.007"
+journal = "Trends in Immunology"
+url = "https://doi.org/10.1016/j.it.2023.10.007"
+
+[[references]]
+source_id = "SRC0150"
+zotero_item_id = "6TKWRVJ3"
+title = "Macrophage diversity in cancer revisited in the era of single-cell omics"
+year = "2022"
+doi = "10.1016/j.it.2022.04.008"
+journal = "Trends in Immunology"
+url = "https://doi.org/10.1016/j.it.2022.04.008"
+
+[[references]]
+source_id = "SRC0151"
+zotero_item_id = "Q47VX7UZ"
+title = "Macrophages in health and disease"
+year = "2022"
+doi = "10.1016/j.cell.2022.10.007"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2022.10.007"
+
+[[references]]
+source_id = "SRC0152"
+zotero_item_id = "76TL4IXI"
+title = "Cross-tissue single-cell landscape of human monocytes and macrophages in health and disease"
+year = "2021"
+doi = "10.1016/j.immuni.2021.07.007"
+journal = "Immunity"
+url = "https://doi.org/10.1016/j.immuni.2021.07.007"
+
+[[references]]
+source_id = "SRC0153"
+zotero_item_id = "TFLIJHWI"
+title = "Single-cell RNA-seq reveals new types of human blood dendritic cells, monocytes, and progenitors"
+year = "2017"
+doi = "10.1126/science.aah4573"
+journal = "Science"
+url = "https://doi.org/10.1126/science.aah4573"
+
+[[references]]
+source_id = "SRC0154"
+zotero_item_id = "7Z9UY4BS"
+title = "From complexity to consensus: a roadmap for neutrophil classification"
+year = "2025"
+doi = "10.1016/j.immuni.2025.07.011"
+journal = "Immunity"
+url = "https://doi.org/10.1016/j.immuni.2025.07.011"
+
+[[references]]
+source_id = "SRC0155"
+zotero_item_id = "DF8BNF2Y"
+title = "Neutrophil profiling illuminates anti-tumor antigen-presenting potency"
+year = "2024"
+doi = "10.1016/j.cell.2024.02.005"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2024.02.005"
+
+[[references]]
+source_id = "SRC0156"
+zotero_item_id = "PDHBQ9QW"
+title = "Deterministic reprogramming of neutrophils within tumors"
+year = "2024"
+doi = "10.1126/science.adf6493"
+journal = "Science"
+url = "https://doi.org/10.1126/science.adf6493"
+
+[[references]]
+source_id = "SRC0157"
+zotero_item_id = "DF8BNF2Y"
+title = "Neutrophil profiling illuminates anti-tumor antigen-presenting potency"
+year = "2024"
+doi = "10.1016/j.cell.2024.02.005"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2024.02.005"
+
+[[references]]
+source_id = "SRC0158"
+zotero_item_id = "MUBBUEUJ"
+title = "Liver tumour immune microenvironment subtypes and neutrophil heterogeneity"
+year = "2022"
+doi = "10.1038/s41586-022-05400-x"
+journal = "Nature"
+url = "https://doi.org/10.1038/s41586-022-05400-x"
+
+[[references]]
+source_id = "SRC0159"
+zotero_item_id = "35I2FQLC"
+title = "Single-cell RNA-seq analysis reveals BHLHE40-driven pro-tumour neutrophils with hyperactivated glycolysis in pancreatic tumour microenvironment"
+year = "2022"
+doi = "10.1136/gutjnl-2021-326070"
+journal = "Gut"
+url = "https://doi.org/10.1136/gutjnl-2021-326070"
+
+[[references]]
+source_id = "SRC0160"
+zotero_item_id = "DR5V3C3B"
+title = "Neutrophils in cancer: heterogeneous and multifaceted"
+year = "2022"
+doi = "10.1038/s41577-021-00571-6"
+journal = "Nature Reviews Immunology"
+url = "https://doi.org/10.1038/s41577-021-00571-6"
+
+[[references]]
+source_id = "SRC0161"
+zotero_item_id = "MCHQ8GRQ"
+title = "Neutrophil diversity and plasticity in tumour progression and therapy"
+year = "2020"
+doi = "10.1038/s41568-020-0281-y"
+journal = "Nature Reviews Cancer"
+url = "https://doi.org/10.1038/s41568-020-0281-y"
+
+[[references]]
+source_id = "SRC0162"
+zotero_item_id = "TVA3EKXY"
+title = "Microenvironmental determinants of endothelial cell heterogeneity"
+year = "2025"
+doi = "10.1038/s41580-024-00825-w"
+journal = "Nature Reviews Molecular Cell Biology"
+url = "https://doi.org/10.1038/s41580-024-00825-w"
+
+[[references]]
+source_id = "SRC0163"
+zotero_item_id = "67VASI3Q"
+title = "A systems view of the vascular endothelium in health and disease"
+year = "2024"
+doi = "10.1016/j.cell.2024.07.012"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2024.07.012"
+
+[[references]]
+source_id = "SRC0164"
+zotero_item_id = "Q2Q42FZT"
+title = "Understanding tumour endothelial cell heterogeneity and function from single-cell omics"
+year = "2023"
+doi = "10.1038/s41568-023-00591-5"
+journal = "Nature Reviews Cancer"
+url = "https://doi.org/10.1038/s41568-023-00591-5"
+
+[[references]]
+source_id = "SRC0165"
+zotero_item_id = "2EI933WJ"
+title = "Single-cell screens identify ADAM12 as a fibroblast checkpoint impeding anti-tumor immunity"
+year = "2026"
+doi = "10.1016/j.ccell.2025.12.018"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2025.12.018"
+
+[[references]]
+source_id = "SRC0166"
+zotero_item_id = "ECL9UJ4A"
+title = "Classifying cancer-associated fibroblasts-the good, the bad, and the target"
+year = "2024"
+doi = "10.1016/j.ccell.2024.08.011"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2024.08.011"
+
+[[references]]
+source_id = "SRC0167"
+zotero_item_id = "FQ2JGGH6"
+title = "Cancer associated fibroblasts in cancer development and therapy"
+year = "2025"
+doi = "10.1186/s13045-025-01688-0"
+journal = "J Hematol Oncol"
+url = "https://doi.org/10.1186/s13045-025-01688-0"
+
+[[references]]
+source_id = "SRC0168"
+zotero_item_id = "TZYJ4SPU"
+title = "The advent of immune stimulating CAFs in cancer"
+year = "2023"
+doi = "10.1038/s41568-023-00549-7"
+journal = "Nat Rev Cancer"
+url = "https://doi.org/10.1038/s41568-023-00549-7"
+
+[[references]]
+source_id = "SRC0169"
+zotero_item_id = "GVVUDJF9"
+title = "Cancer-associated fibroblasts in the single-cell era"
+year = "2022"
+doi = "10.1038/s43018-022-00411-z"
+journal = "Nat Cancer"
+url = "https://doi.org/10.1038/s43018-022-00411-z"
+
+[[references]]
+source_id = "SRC0170"
+zotero_item_id = "XTN94NBC"
+title = "Clinical and therapeutic relevance of cancer-associated fibroblasts"
+year = "2021"
+doi = "10.1038/s41571-021-00546-5"
+journal = "Nat Rev Clin Oncol"
+url = "https://doi.org/10.1038/s41571-021-00546-5"
+
+[[references]]
+source_id = "SRC0171"
+zotero_item_id = "L2J7KRI2"
+title = "Fibroblasts: origins, definitions, and functions in health and disease"
+year = "2021"
+doi = "10.1016/j.cell.2021.06.024"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2021.06.024"
+
+[[references]]
+source_id = "SRC0172"
+zotero_item_id = "D5GVVYFN"
+title = "Single-cell spatial transcriptomics unravels cell states and ecosystems associated with clinical response to immunotherapy"
+year = "2025"
+doi = "10.1136/jitc-2024-011308"
+journal = "JITC"
+url = "https://doi.org/10.1136/jitc-2024-011308"
+
+[[references]]
+source_id = "SRC0173"
+zotero_item_id = "V6X3F55L"
+title = "Cancer cell states: lessons from ten years of single-cell RNA-sequencing of human tumors"
+year = "2024"
+doi = "10.1016/j.ccell.2024.08.005"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2024.08.005"
+
+[[references]]
+source_id = "SRC0174"
+zotero_item_id = "KPIRPZ5U"
+title = "How chemokines organize the tumour microenvironment"
+year = "2024"
+doi = "10.1038/s41568-023-00635-w"
+journal = "Nat Rev Cancer"
+url = "https://doi.org/10.1038/s41568-023-00635-w"
+
+[[references]]
+source_id = "SRC0175"
+zotero_item_id = "H5JRZ6QU"
+title = "Single cell multi-omics reveal intra-cell-line heterogeneity across human cancer cell lines"
+year = "2023"
+doi = "10.1038/s41467-023-43991-9"
+journal = "Nat Commun"
+url = "https://doi.org/10.1038/s41467-023-43991-9"
+
+[[references]]
+source_id = "SRC0176"
+zotero_item_id = "2KFBM3HJ"
+title = "Mechanisms driving the immunoregulatory function of cancer cells"
+year = "2023"
+doi = "10.1038/s41568-022-00544-4"
+journal = "Nat Rev Cancer"
+url = "https://doi.org/10.1038/s41568-022-00544-4"
+
+[[references]]
+source_id = "SRC0177"
+zotero_item_id = "PXUAUFJR"
+title = "Metabolic programming and immune suppression in the tumor microenvironment"
+year = "2023"
+doi = "10.1016/j.ccell.2023.01.009"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2023.01.009"
+
+[[references]]
+source_id = "SRC0178"
+zotero_item_id = "2PXYS4SH"
+title = "Cancer cell states recur across tumor types and form specific interactions with the tumor microenvironment"
+year = "2022"
+doi = "10.1038/s41588-022-01141-9"
+journal = "Nat Genet"
+url = "https://doi.org/10.1038/s41588-022-01141-9"
+
+[[references]]
+source_id = "SRC0179"
+zotero_item_id = "TABAUG3I"
+title = "Hallmarks of response, resistance, and toxicity to immune checkpoint blockade"
+year = "2021"
+doi = "10.1016/j.cell.2021.09.020"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2021.09.020"
+
+[[references]]
+source_id = "SRC0180"
+zotero_item_id = "VTAKVEC6"
+title = "Deciphering Human Tumor Biology by Single-Cell Expression Profiling"
+year = "2019"
+doi = "10.1146/annurev-cancerbio-030518-055609"
+journal = "Annu Rev Cancer Biol"
+url = "https://doi.org/10.1146/annurev-cancerbio-030518-055609"
+
+[[references]]
+source_id = "SRC0181"
+zotero_item_id = "RII58TH2"
+title = "IL-1β+ macrophages fuel pathogenic inflammation in pancreatic cancer"
+year = "2023"
+doi = "10.1038/s41586-023-06685-2"
+journal = "Nature"
+url = "https://doi.org/10.1038/s41586-023-06685-2"
+
+[[references]]
+source_id = "SRC0182"
+zotero_item_id = "PUFR847M"
+title = "Integrated single-cell and spatial transcriptomics uncover distinct cellular subtypes involved in neural invasion in pancreatic cancer"
+year = "2025"
+doi = "10.1016/j.ccell.2025.06.020"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2025.06.020"
+
+[[references]]
+source_id = "SRC0183"
+zotero_item_id = "DZHH36I4"
+title = "Single cell transcriptomic analyses implicate an immunosuppressive tumor microenvironment in pancreatic cancer liver metastasis"
+year = "2023"
+doi = "10.1038/s41467-023-40727-7"
+journal = "Nat Commun"
+url = "https://doi.org/10.1038/s41467-023-40727-7"
+
+[[references]]
+source_id = "SRC0184"
+zotero_item_id = "B52QS95X"
+title = "Single-cell RNA sequencing highlights epithelial and microenvironmental heterogeneity in malignant progression of pancreatic ductal adenocarcinoma"
+year = "2024"
+doi = "10.1016/j.canlet.2024.216607"
+journal = "Cancer Lett"
+url = "https://doi.org/10.1016/j.canlet.2024.216607"
+
+[[references]]
+source_id = "SRC0185"
+zotero_item_id = "S6QHLETR"
+title = "Single-cell transcriptional dissection illuminates an evolution of immunosuppressive microenvironment during pancreatic ductal adenocarcinoma metastasis"
+year = "2025"
+doi = "10.1038/s41392-025-02265-0"
+journal = "STTT"
+url = "https://doi.org/10.1038/s41392-025-02265-0"
+
+[[references]]
+source_id = "SRC0186"
+zotero_item_id = "67F9KYFK"
+title = "Spatial mapping of transcriptomic plasticity in metastatic pancreatic cancer"
+year = "2025"
+doi = "10.1038/s41586-025-08927-x"
+journal = "Nature"
+url = "https://doi.org/10.1038/s41586-025-08927-x"
+
+[[references]]
+source_id = "SRC0187"
+zotero_item_id = "T9F5U9SQ"
+title = "Deciphering the Oncogenic Landscape of Hepatocytes Through Integrated Single-Nucleus and Bulk RNA-Seq of Hepatocellular Carcinoma"
+year = "2025"
+doi = "10.1002/advs.202412944"
+journal = "Adv Sci"
+url = "https://doi.org/10.1002/advs.202412944"
+
+[[references]]
+source_id = "SRC0188"
+zotero_item_id = "MUBBUEUJ"
+title = "Liver tumour immune microenvironment subtypes and neutrophil heterogeneity"
+year = "2022"
+doi = "10.1038/s41586-022-05400-x"
+journal = "Nature"
+url = "https://doi.org/10.1038/s41586-022-05400-x"
+
+[[references]]
+source_id = "SRC0189"
+zotero_item_id = "AKJCXCZ5"
+title = "Single-cell landscape of the ecosystem in early-relapse hepatocellular carcinoma"
+year = "2021"
+doi = "10.1016/j.cell.2020.11.041"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2020.11.041"
+
+[[references]]
+source_id = "SRC0190"
+zotero_item_id = "X2FG5FKE"
+title = "Spatial analysis reveals targetable macrophage-mediated mechanisms of immune evasion in hepatocellular carcinoma minimal residual disease"
+year = "2024"
+doi = "10.1038/s43018-024-00828-8"
+journal = "Nat Cancer"
+url = "https://doi.org/10.1038/s43018-024-00828-8"
+
+[[references]]
+source_id = "SRC0191"
+zotero_item_id = "K4N5RAND"
+title = "Spatial single-cell protein landscape reveals vimentin-high macrophages as immune-suppressive in the microenvironment of hepatocellular carcinoma"
+year = "2024"
+doi = "10.1038/s43018-024-00824-y"
+journal = "Nat Cancer"
+url = "https://doi.org/10.1038/s43018-024-00824-y"
+
+[[references]]
+source_id = "SRC0192"
+zotero_item_id = "692KTNKI"
+title = "Unraveling the significance of cuproptosis in hepatocellular carcinoma heterogeneity and tumor microenvironment through integrated single-cell sequencing and machine learning approaches"
+year = "2025"
+doi = "10.1007/s12672-025-02696-9"
+journal = "Discov Oncol"
+url = "https://doi.org/10.1007/s12672-025-02696-9"
+
+[[references]]
+source_id = "SRC0193"
+zotero_item_id = "7R2GQY2H"
+title = "Single-cell and spatial transcriptomic analyses revealing tumor microenvironment remodeling after neoadjuvant chemoimmunotherapy in non-small cell lung cancer"
+year = "2025"
+doi = "10.1186/s12943-025-02287-w"
+journal = "Mol Cancer"
+url = "https://doi.org/10.1186/s12943-025-02287-w"
+
+[[references]]
+source_id = "SRC0194"
+zotero_item_id = "4DZ66WP8"
+title = "Single-cell RNA sequencing demonstrates the molecular and cellular reprogramming of metastatic lung adenocarcinoma"
+year = "2020"
+doi = "10.1038/s41467-020-16164-1"
+journal = "Nat Commun"
+url = "https://doi.org/10.1038/s41467-020-16164-1"
+
+[[references]]
+source_id = "SRC0195"
+zotero_item_id = "YBL7DTUN"
+title = "Single-cell RNA sequencing reveals immune microenvironment niche transitions during the invasive and metastatic processes of ground-glass nodules and part-solid nodules in lung adenocarcinoma"
+year = "2024"
+doi = "10.1186/s12943-024-02177-7"
+journal = "Mol Cancer"
+url = "https://doi.org/10.1186/s12943-024-02177-7"
+
+[[references]]
+source_id = "SRC0196"
+zotero_item_id = "2E2SFIDX"
+title = "The Single-Cell Immunogenomic Landscape of B and Plasma Cells in Early-Stage Lung Adenocarcinoma"
+year = "2022"
+doi = "10.1158/2159-8290.CD-21-1658"
+journal = "Cancer Discov"
+url = "https://doi.org/10.1158/2159-8290.CD-21-1658"
+
+[[references]]
+source_id = "SRC0197"
+zotero_item_id = "N678CYP8"
+title = "Cancer-associated fibroblasts shape the formation of budding cancer cells at the invasive front of human colorectal cancer"
+year = "2025"
+doi = "10.1038/s42003-025-08799-x"
+journal = "Commun Biol"
+url = "https://doi.org/10.1038/s42003-025-08799-x"
+
+[[references]]
+source_id = "SRC0198"
+zotero_item_id = "95ZT3G8S"
+title = "Integrative single-cell analysis of human colorectal cancer reveals patient stratification with distinct immune evasion mechanisms"
+year = "2024"
+doi = "10.1038/s43018-024-00807-z"
+journal = "Nat Cancer"
+url = "https://doi.org/10.1038/s43018-024-00807-z"
+
+[[references]]
+source_id = "SRC0199"
+zotero_item_id = "PQE8K7AI"
+title = "Single-cell analyses define a continuum of cell state and composition changes in the malignant transformation of polyps to colorectal cancer"
+year = "2022"
+doi = "10.1038/s41588-022-01088-x"
+journal = "Nat Genet"
+url = "https://doi.org/10.1038/s41588-022-01088-x"
+
+[[references]]
+source_id = "SRC0200"
+zotero_item_id = "8BQ7TKGD"
+title = "Single-Cell Analyses Inform Mechanisms of Myeloid-Targeted Therapies in Colon Cancer"
+year = "2020"
+doi = "10.1016/j.cell.2020.03.048"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2020.03.048"
+
+[[references]]
+source_id = "SRC0201"
+zotero_item_id = "ECXTYL6A"
+title = "Single-cell and bulk transcriptome sequencing identifies two epithelial tumor cell states and refines the consensus molecular classification of colorectal cancer"
+year = "2022"
+doi = "10.1038/s41588-022-01100-4"
+journal = "Nat Genet"
+url = "https://doi.org/10.1038/s41588-022-01100-4"
+
+[[references]]
+source_id = "SRC0202"
+zotero_item_id = "CAG3BEYB"
+title = "Single-cell analyses reveal key immune cell subsets associated with response to PD-L1 blockade in triple-negative breast cancer"
+year = "2021"
+doi = "10.1016/j.ccell.2021.09.010"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2021.09.010"
+
+[[references]]
+source_id = "SRC0203"
+zotero_item_id = "SC558LDW"
+title = "Single-cell integrative analysis reveals consensus cancer cell states and clinical relevance in breast cancer"
+year = "2024"
+doi = "10.1038/s41597-024-03127-0"
+journal = "Sci Data"
+url = "https://doi.org/10.1038/s41597-024-03127-0"
+
+[[references]]
+source_id = "SRC0204"
+zotero_item_id = "YQBRRXX4"
+title = "Integrative single-cell and bulk transcriptomes analyses identify intrinsic HNSCC subtypes with distinct prognoses and therapeutic vulnerabilities"
+year = "2023"
+doi = "10.1158/1078-0432.CCR-22-3563"
+journal = "Clin Cancer Res"
+url = "https://doi.org/10.1158/1078-0432.CCR-22-3563"
+
+[[references]]
+source_id = "SRC0205"
+zotero_item_id = "K9EVG24M"
+title = "Single cell deciphering of progression trajectories of the tumor ecosystem in head and neck cancer"
+year = "2024"
+doi = "10.1038/s41467-024-46912-6"
+journal = "Nat Commun"
+url = "https://doi.org/10.1038/s41467-024-46912-6"
+
+[[references]]
+source_id = "SRC0206"
+zotero_item_id = "8Z2SK5XX"
+title = "Single-cell analyses reveal the metabolic heterogeneity and plasticity of the tumor microenvironment during head and neck squamous cell carcinoma progression"
+year = "2024"
+doi = "10.1158/0008-5472.CAN-23-1344"
+journal = "Cancer Res"
+url = "https://doi.org/10.1158/0008-5472.CAN-23-1344"
+
+[[references]]
+source_id = "SRC0207"
+zotero_item_id = "EW6MSEHU"
+title = "Large B cell lymphoma microenvironment archetype profiles"
+year = "2025"
+doi = "10.1016/j.ccell.2025.06.002"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2025.06.002"
+
+[[references]]
+source_id = "SRC0208"
+zotero_item_id = "A2D4JCIK"
+title = "Multi-modal spatial characterization of tumor immune microenvironments identifies targetable inflammatory niches in diffuse large B cell lymphoma"
+year = "2025"
+doi = "10.1038/s41588-025-02353-5"
+journal = "Nat Genet"
+url = "https://doi.org/10.1038/s41588-025-02353-5"
+
+[[references]]
+source_id = "SRC0209"
+zotero_item_id = "BXKQK5SD"
+title = "The landscape of tumor cell states and ecosystems in diffuse large B cell lymphoma"
+year = "2021"
+doi = "10.1016/j.ccell.2021.08.011"
+journal = "Cancer Cell"
+url = "https://doi.org/10.1016/j.ccell.2021.08.011"
+
+[[references]]
+source_id = "SRC0210"
+zotero_item_id = "8SEA3N47"
+title = "A spatially resolved atlas of gastric cancer characterises a lymphocyte-aggregated region"
+year = "2026"
+doi = "10.1038/s41467-026-68612-z"
+journal = "Nat Commun"
+url = "https://doi.org/10.1038/s41467-026-68612-z"
+
+[[references]]
+source_id = "SRC0211"
+zotero_item_id = "NXRSGYJD"
+title = "Integrative single-cell multiomics analyses dissect molecular signatures of intratumoral heterogeneities and differentiation states of human gastric cancer"
+year = "2023"
+doi = "10.1093/nsr/nwad094"
+journal = "NSR"
+url = "https://doi.org/10.1093/nsr/nwad094"
+
+[[references]]
+source_id = "SRC0212"
+zotero_item_id = "GDCDTXPD"
+title = "Single-cell transcriptomics reveals metabolic remodeling and functional specialization in the immune microenvironment of bone tumors"
+year = "2025"
+doi = "10.1186/s12967-025-06346-0"
+journal = "J Transl Med"
+url = "https://doi.org/10.1186/s12967-025-06346-0"
+
+[[references]]
+source_id = "SRC0213"
+zotero_item_id = "RRRQ6L8B"
+title = "Deciphering the tumor immune microenvironment: single-cell and spatial transcriptomic insights into cervical cancer fibroblasts"
+year = "2025"
+doi = "10.1186/s13046-025-03432-5"
+journal = "J Exp Clin Cancer Res"
+url = "https://doi.org/10.1186/s13046-025-03432-5"
+
+[[references]]
+source_id = "SRC0214"
+zotero_item_id = "BAIXTGW4"
+title = "Integrative spatial analysis reveals a multi-layered organization of glioblastoma"
+year = "2024"
+doi = "10.1016/j.cell.2024.03.029"
+journal = "Cell"
+url = "https://doi.org/10.1016/j.cell.2024.03.029"
+
+[[references]]
+source_id = "SRC0215"
+zotero_item_id = "75JWMJPX"
+title = "Defining the mucosal ecosystem: epithelial–mesenchymal interdependence in gastrointestinal health and disease"
+year = "2025"
+doi = "10.1038/s41575-025-01113-4"
+journal = "Nat Rev Gastroenterol Hepatol"
+url = "https://doi.org/10.1038/s41575-025-01113-4"
+
+[[references]]
+source_id = "SRC0216"
+zotero_item_id = "P6U3KKKW"
+title = "Single-cell analyses implicate ascites in remodeling the ecosystems of primary and metastatic tumors in ovarian cancer"
+year = "2023"
+doi = "10.1038/s43018-023-00599-8"
+journal = "Nat Cancer"
+url = "https://doi.org/10.1038/s43018-023-00599-8"
+
+[[references]]
+source_id = "SRC0217"
+zotero_item_id = "PV8KVM5R"
+title = "Single-cell and spatial RNA sequencing identify divergent microenvironments and progression signatures in early- versus late-onset prostate cancer"
+year = "2025"
+doi = "10.1038/s43587-025-00842-0"
+journal = "Nat Aging"
+url = "https://doi.org/10.1038/s43587-025-00842-0"
+
+[[references]]
+source_id = "SRC0218"
+zotero_item_id = "K6XTKLPH"
+title = "Single-cell profiling reveals molecular basis of malignant phenotypes and tumor microenvironments in small bowel adenocarcinomas"
+year = "2022"
+doi = "10.1038/s41421-022-00434-x"
+journal = "Cell Discov"
+url = "https://doi.org/10.1038/s41421-022-00434-x"
+
+[[references]]
+source_id = "SRC0219"
+zotero_item_id = "L9TEKFHP"
+title = "Multi-layered molecular profiling informs the diagnosis and targeted therapy of desmoplastic small round cell tumor"
+year = "2026"
+doi = "10.1038/s41467-026-71636-0"
+journal = "Nat Commun"
+url = "https://doi.org/10.1038/s41467-026-71636-0"
+
+[[references]]
+source_id = "SRC0220"
+zotero_item_id = "NCGW7KUA"
+title = "Single-cell multiomics profiling reveals heterogeneous transcriptional programs and microenvironment in DSRCTs"
+year = "2024"
+doi = "10.1016/j.xcrm.2024.101582"
+journal = "Cell Rep Med"
+url = "https://doi.org/10.1016/j.xcrm.2024.101582"

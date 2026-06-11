@@ -21,26 +21,126 @@ from anndata import AnnData
 from matplotlib import get_backend
 
 from .config import IntegrationConfig, apply_config_overrides
+from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 # Logging config
 log = logging.getLogger(__name__)
 
 __all__ = [
     "batch_correction",
+    "diagnose_integration_risk",
     "evaluate_integration",
 ]
 
 
-def _is_interactive_backend() -> bool:
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+def _cramers_v(x: pd.Series, y: pd.Series) -> float:
+    table = pd.crosstab(x.astype(str), y.astype(str))
+    if table.empty or min(table.shape) < 2:
+        return 0.0
+    from scipy.stats import chi2_contingency
+
+    chi2 = chi2_contingency(table)[0]
+    n = table.to_numpy().sum()
+    phi2 = chi2 / max(1, n)
+    r, k = table.shape
+    return float(np.sqrt(phi2 / max(1, min(k - 1, r - 1))))
 
 
-def _show_or_close(fig: plt.Figure, *, show: bool = True) -> None:
-    if show and _is_interactive_backend():
-        plt.show()
+def diagnose_integration_risk(
+    adata: AnnData,
+    *,
+    batch_key: str,
+    condition_key: Optional[str] = None,
+    label_key: Optional[str] = None,
+    tumor: bool = False,
+    clone_key: Optional[str] = None,
+    state_key: Optional[str] = None,
+    before_rep: str = "X_pca",
+    after_rep: Optional[str] = None,
+    confounding_threshold: float = 0.8,
+    preservation_drop_threshold: float = 0.15,
+    key_added: str = "integration_risk",
+) -> Dict[str, Union[str, float, bool, List[str], Dict[str, float]]]:
+    """Diagnose when batch integration may be scientifically unsafe."""
+    if batch_key not in adata.obs.columns:
+        raise ValueError(f"batch_key '{batch_key}' not in adata.obs")
+
+    warnings: List[str] = []
+    metrics: Dict[str, float] = {}
+    risk_score = 0.0
+
+    if condition_key and condition_key in adata.obs.columns:
+        confounding = _cramers_v(adata.obs[batch_key], adata.obs[condition_key])
+        metrics["batch_condition_cramers_v"] = confounding
+        if confounding >= confounding_threshold:
+            warnings.append(
+                "Batch and biological condition are strongly confounded; integration may remove biology."
+            )
+            risk_score += 0.4
+
+    if label_key and label_key in adata.obs.columns and before_rep in adata.obsm and after_rep in adata.obsm:
+        try:
+            import sklearn.metrics as skm
+
+            labels = adata.obs[label_key].astype(str)
+            sample_size = min(adata.n_obs, max(100, min(5000, adata.n_obs)))
+            before_sil = skm.silhouette_score(
+                adata.obsm[before_rep],
+                labels,
+                sample_size=sample_size,
+                random_state=42,
+            )
+            after_sil = skm.silhouette_score(
+                adata.obsm[after_rep],
+                labels,
+                sample_size=sample_size,
+                random_state=42,
+            )
+            drop = float(before_sil - after_sil)
+            metrics["label_silhouette_before"] = float(before_sil)
+            metrics["label_silhouette_after"] = float(after_sil)
+            metrics["label_silhouette_drop"] = drop
+            if drop >= preservation_drop_threshold:
+                warnings.append(
+                    "Cell type/state separation decreased after integration; inspect overcorrection."
+                )
+                risk_score += 0.3
+        except Exception as exc:
+            warnings.append(f"Label preservation diagnostic failed: {exc}")
+
+    tumor_keys = [key for key in [clone_key, state_key] if key and key in adata.obs.columns]
+    if tumor or tumor_keys:
+        warnings.append(
+            "Tumor data can contain clone/state structure that Harmony/scVI-like integration may smooth away."
+        )
+        risk_score += 0.2
+        for key in tumor_keys:
+            metrics[f"n_{key}"] = float(adata.obs[key].nunique())
+
+    if not warnings:
+        recommendation = "Integration risk appears low; still compare pre/post cell type preservation."
+        risk_level = "low"
     else:
-        plt.close(fig)
+        risk_level = "high" if risk_score >= 0.6 else "moderate"
+        recommendation = "Run integration only with explicit biological-preservation checks and unintegrated controls."
+
+    result = {
+        "available": True,
+        "risk_level": risk_level,
+        "risk_score": float(min(1.0, risk_score)),
+        "batch_key": batch_key,
+        "condition_key": condition_key,
+        "label_key": label_key,
+        "before_rep": before_rep,
+        "after_rep": after_rep,
+        "metrics": metrics,
+        "warnings": warnings,
+        "recommendation": recommendation,
+    }
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        key_added
+    ] = result
+    return result
 
 
 # ==============================================================================

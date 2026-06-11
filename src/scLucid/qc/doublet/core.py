@@ -29,6 +29,14 @@ LINEAGE_SCORES_KEY = "lineage_module_scores"
 HEURISTIC_SCORE_COL = "heuristic_confidence_score"
 HEURISTIC_PRED_COL = "heuristic_predicted"
 FINAL_PRED_COL = "predicted_doublet"
+ALGORITHM_SCORE_COL = "algorithm_doublet_score"
+ALGORITHM_PRED_COL = "algorithm_predicted_doublet"
+COMBINED_SCORE_COL = "combined_doublet_score"
+HETEROTYPIC_RISK_COL = "heterotypic_doublet_risk"
+HOMOTYPIC_RISK_COL = "homotypic_doublet_risk"
+EXPECTED_TOTAL_RATE_COL = "expected_total_doublet_rate"
+EXPECTED_HETEROTYPIC_RATE_COL = "expected_heterotypic_doublet_rate"
+EXPECTED_HOMOTYPIC_RATE_COL = "expected_homotypic_doublet_rate"
 
 __all__ = [
     "generate_doublet_rates",
@@ -272,5 +280,4 @@ def create_custom_marker_dict(
         log.info(f"Marker configuration saved to {save_path}")
 
     return config_dict
-
 

@@ -116,9 +116,25 @@ color = "#ff6600"
 markers = ["CX3CR1", "GZMH", "TBX21", "KLRD1"]
 
 [[compartment.minor.minor.minor.minor]]
-name = "Tex"
+name = "CD8+ T | exhausted-like"
 color = "#cc5500"
 markers = ["PDCD1", "TOX", "LAG3", "HAVCR2", "CTLA4"]
+
+[compartment.minor.minor.minor.minor.metadata]
+kind = "state"
+granularity = "state"
+category = "immune_dysfunction"
+scope = "lineage_restricted"
+applies_to = ["CD8+ T", "T cells"]
+alias_of = "T cell exhaustion-like"
+marker_role = "state_evidence"
+evidence_tier = "seed"
+source_type = "curated_review"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "human"
 
 [[compartment.minor.minor.minor]]
 name = "NKT"
@@ -162,7 +178,7 @@ markers = ["LMO2", "CXCR4", "MKI67", "MEF2B"]
 [[compartment.minor.minor.minor]]
 name = "Plasmablast"
 color = "#629b92"
-markers = ["TXNDC5", "MYDGF"]
+markers = ["TXNDC5", "MYDGF", "MZB1", "PRDM1"]
 
 [[compartment.minor.minor.minor]]
 name = "Plasma"
@@ -310,12 +326,12 @@ markers = ["FCGR3B", "CXCR2", "CSF3R"]
 [[compartment.minor.minor]]
 name = "Eosinophils"
 color = "#ff99cc"
-markers = ["CCR3", "FUT4"]
+markers = ["CCR3", "FUT4", "CLC", "SIGLEC8"]
 
 [[compartment.minor.minor]]
 name = "Basophils"
 color = "#cc99ff"
-markers = ["CD63", "ENPP3"]
+markers = ["CD63", "ENPP3", "MS4A2", "FCER1A"]
 
 [[compartment]]
 name = "Stromal"
@@ -371,7 +387,7 @@ markers = ["COL4A1", "KDR", "ESM1"]
 [[compartment.minor.minor]]
 name = "EndoMT"
 color = "#ffa700"
-markers = ["PDGFRB"]
+markers = ["PDGFRB", "ACTA2", "TAGLN"]
 
 [compartment.minor.metadata]
 doublet_lineage = true
@@ -1135,7 +1151,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Exhausted"
+name = "T/NK checkpoint exhaustion program"
 color = ""
 markers = ["PDCD1", "CTLA4", "LAG3", "HAVCR2", "CD244", "CD160", "TIGIT", "ENTPD1", "TOX", "NR4A1", "NR4A2", "NR4A3", "EOMES"]
 
@@ -1144,7 +1160,7 @@ kind = "functional_program"
 granularity = "program"
 category = "immune_function"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["T cells", "CD8+ T", "CD4+ T", "NK cells"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1155,7 +1171,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Pro_inflammatory"
+name = "Pro-inflammatory cytokine program"
 color = ""
 markers = ["IL1B", "IL18", "IL23A", "TNF", "CCL2", "CXCL8", "CXCL9", "CXCL10", "CXCL11", "CCL5", "CCL7", "CCL8", "IL1A", "CCL13", "IL6", "IL1R1", "IRF5", "CD40", "IDO1", "KYNU", "CCR7", "NLRP3", "S100A8", "S100A9", "PTGS2", "IL12B"]
 
@@ -1164,7 +1180,7 @@ kind = "functional_program"
 granularity = "program"
 category = "immune_function"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["Immune", "Myeloid", "Monocytes", "Macrophages", "Dendritic cells", "T cells", "NK cells"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1175,7 +1191,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Anti_inflammatory"
+name = "Anti-inflammatory regulatory program"
 color = ""
 markers = ["IL1RN", "IL10", "IL4", "IL11", "IL13", "TGFB1", "TNFRSF1A", "TNFRSF1B", "IL1R2", "IL18BP", "CD247", "SOCS3"]
 
@@ -1184,7 +1200,7 @@ kind = "functional_program"
 granularity = "program"
 category = "immune_function"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["Immune", "Myeloid", "Monocytes", "Macrophages", "Dendritic cells", "T cells"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1195,7 +1211,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Immune_regulatory"
+name = "Immune regulatory chemokine program"
 color = ""
 markers = ["C5", "TGFBR1", "C5AR1", "TGFBR2", "CXCL12", "CXCR4", "CXCL13", "CXCR5", "C7", "CFB", "CFH", "CFI", "BCAM", "F11R", "IRF5", "CCL2", "IL6", "CXCL1", "CXCL2", "CXCL3", "IL10", "TGFB1"]
 
@@ -1215,7 +1231,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Antigen_presenting"
+name = "Antigen presentation"
 color = ""
 markers = ["CD74", "HLA-DQA1", "HLA-DRA", "HLA-DPA1", "HLA-DPB1", "HLA-DRB1", "HLA-DQA2", "HLA-DQB1", "CD83", "CD80", "CD86", "CD40", "CIITA", "B2M", "TAP1", "TAP2", "HLA-A", "HLA-B", "HLA-C"]
 
@@ -1224,7 +1240,7 @@ kind = "functional_program"
 granularity = "program"
 category = "immune_function"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["Myeloid", "Monocytes", "Macrophages", "Dendritic cells", "B cells", "Epithelial"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1244,7 +1260,7 @@ kind = "functional_program"
 granularity = "program"
 category = "macrophage_polarization"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["Myeloid", "Monocytes", "Macrophages"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1264,7 +1280,7 @@ kind = "functional_program"
 granularity = "program"
 category = "macrophage_polarization"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["Myeloid", "Monocytes", "Macrophages"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1304,7 +1320,7 @@ kind = "functional_program"
 granularity = "program"
 category = "macrophage_polarization"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["Myeloid", "Monocytes", "Macrophages", "Dendritic cells"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1315,7 +1331,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "ECM"
+name = "ECM remodeling"
 color = ""
 markers = ["ACTA2", "TAGLN", "BGN", "COL8A1", "COL15A1", "IGFBP7", "TPM1", "TPM2", "COL10A1", "POSTN", "MYL9", "COL13A1", "COL14A1", "MYH11", "MYLK", "ACTG2", "FN1", "LUM", "DCN", "SPARC", "VCAN", "COL5A1", "COL6A3", "PDGFA", "MMP2", "COL1A2", "COL1A1", "COL3A1", "LOX"]
 
@@ -1355,7 +1371,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Interferon_Response"
+name = "Interferon response"
 color = ""
 markers = ["ISG15", "IFI44L", "MX1", "STAT1", "OAS1", "IFIT1", "IFIT2", "IFIT3", "OAS2", "OASL", "IRF7", "RSAD2"]
 
@@ -1415,7 +1431,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Oxidative_Phosphorylation"
+name = "Oxidative phosphorylation"
 color = ""
 markers = ["ATP5A1", "COX5A", "NDUFB8", "SDHB", "UQCRC1", "NDUFA9", "COX4I1"]
 
@@ -1435,9 +1451,9 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "Immune_Checkpoint"
+name = "Immune checkpoint"
 color = ""
-markers = ["PDCD1", "CD274", "PDCD1LG2", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "CD160", "CD244", "BTLA", "VSIR", "SIGLEC7", "SIGLEC9", "GAL9", "TNFRSF14", "CD276", "VTCN1", "ICOS", "TNFRSF9", "TNFRSF4"]
+markers = ["PDCD1", "CD274", "PDCD1LG2", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "CD160", "CD244", "BTLA", "VSIR", "SIGLEC7", "SIGLEC9", "LGALS9", "TNFRSF14", "CD276", "VTCN1", "ICOS", "TNFRSF9", "TNFRSF4"]
 
 [functional_program.minor.metadata]
 kind = "functional_program"
@@ -1455,7 +1471,7 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "T_cell_activation"
+name = "T cell activation"
 color = ""
 markers = ["CD3D", "CD3E", "CD3G", "CD247", "CD28", "ICOS", "CD69", "ZAP70", "LAT", "TRAT1"]
 
@@ -1464,7 +1480,7 @@ kind = "functional_program"
 granularity = "program"
 category = "t_cell_states"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["T cells", "CD4+ T", "CD8+ T"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1475,16 +1491,16 @@ use_for_malignancy_interpretation = true
 species = "human"
 
 [[functional_program.minor]]
-name = "T_cell_memory"
+name = "T cell memory"
 color = ""
-markers = ["CCR7", "SELL", "IL7R", "TCF7", "LEF1", "KLF2", "CD27", "CD62L"]
+markers = ["CCR7", "SELL", "IL7R", "TCF7", "LEF1", "KLF2", "CD27"]
 
 [functional_program.minor.metadata]
 kind = "functional_program"
 granularity = "program"
 category = "t_cell_states"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["T cells", "CD4+ T", "CD8+ T"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -1504,7 +1520,7 @@ kind = "functional_program"
 granularity = "program"
 category = "t_cell_states"
 scope = "lineage_restricted"
-applies_to = ["Immune", "T cells", "NK cells", "Myeloid", "Macrophages"]
+applies_to = ["T cells", "CD4+ T"]
 marker_role = "program"
 evidence_tier = "seed"
 source_type = "curated_geneset"
@@ -2355,3 +2371,216 @@ use_for_malignancy_interpretation = false
 species = "human"
 source_ids = ["SRC0002"]
 notes = "Interferon-response state in macrophages (Li 2024). Shared by Macro_ISG15, Macro_IFI27, and Macro_APOC1+IFI27+ subsets. Associated with ICB response in some cancer types."
+
+# ============================================================================
+# Analysis-ready additions from curated batch evidence
+# These entries are deliberately compact identity/state evidence, not broad
+# scoring programs. Large programs are routed to genesets_cancer_signatures.json.
+# ============================================================================
+
+[[subtype]]
+name = "CD4+ Th1"
+color = "#4C78A8"
+markers = ["TBX21", "IFNG", "CXCR3"]
+negative_markers = ["GATA3", "IL4", "IL5", "IL13", "FOXP3", "IL2RA"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "T cells"
+scope = "lineage_restricted"
+applies_to = ["CD4+ T"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0100", "SRC0132"]
+notes = "Canonical CD4 helper subtype label following modular nomenclature: lineage/subtype identity first; helper cytokine state can be scored separately."
+
+[[subtype]]
+name = "CD4+ Th2"
+color = "#F58518"
+markers = ["GATA3", "IL4", "IL5", "IL13"]
+negative_markers = ["TBX21", "IFNG", "CXCR3", "FOXP3", "IL2RA"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "T cells"
+scope = "lineage_restricted"
+applies_to = ["CD4+ T"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0100", "SRC0132"]
+notes = "Canonical CD4 helper subtype label. Kept separate from broad Th2 functional scoring programs."
+
+[[subtype]]
+name = "Tfr"
+color = "#B279A2"
+markers = ["FOXP3", "CXCR5", "BCL6", "IL2RA", "CTLA4"]
+negative_markers = ["IL21", "IL17A", "GZMB", "PRF1"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "T cells"
+scope = "lineage_restricted"
+applies_to = ["CD4+ T", "Treg", "Tfh"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0100", "SRC0132"]
+notes = "Follicular regulatory T cell; resolves the Treg/Tfh overlap as a stable subtype rather than a generic activation state."
+
+[[subtype]]
+name = "AtM/TAAB B"
+color = "#8CD17D"
+markers = ["FCRL4", "FCRL5", "TBX21", "ITGAX", "BATF"]
+negative_markers = ["CD3D", "NKG7", "LYZ", "EPCAM"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "B cells"
+scope = "lineage_restricted"
+applies_to = ["B cells", "Memory B"]
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0008", "SRC0009", "SRC0050"]
+notes = "Canonical umbrella for overlapping atypical/tumor-associated B cell labels. Kept needs_review because references differ on subtype versus state boundaries."
+
+[[subtype]]
+name = "FOLR2+ resident macrophage"
+color = "#72B7B2"
+markers = ["FOLR2", "LYVE1", "MERTK", "C1QA", "C1QB"]
+negative_markers = ["FCN1", "S100A8", "S100A9", "VCAN", "EPCAM"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "immune"
+lineage = "Myeloid"
+scope = "lineage_restricted"
+applies_to = ["Macrophage", "Myeloid"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0041", "SRC0152"]
+notes = "Resident macrophage evidence for normal/tissue contexts. Tumor TAM variants remain routed through tumor/context genesets and tumor_interpretation views."
+
+[[subtype]]
+name = "PI16+ fibroblast"
+color = "#54A24B"
+markers = ["PI16", "FAP", "THY1", "CD34", "DPP4", "NT5E", "ENG"]
+negative_markers = ["ACTA2", "TAGLN", "LRRC15", "MMP1", "MMP3", "POSTN", "PTPRC", "EPCAM", "PECAM1"]
+
+[subtype.metadata]
+kind = "cell_type"
+granularity = "subtype"
+compartment = "stromal"
+lineage = "Fibroblasts"
+scope = "lineage_restricted"
+applies_to = ["Fibroblasts", "Stromal"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = true
+use_for_state_annotation = false
+use_for_malignancy_interpretation = false
+species = "human"
+source_ids = ["SRC0042", "SRC0043"]
+notes = "Reusable normal/universal fibroblast subtype. LRRC15+ and MMP1+ myofibroblast/CAF programs are kept out of global subtype annotation."
+
+[[state]]
+name = "CD8+ T | progenitor exhausted-like"
+color = "#6C8EBF"
+markers = ["TCF7", "SELL", "PDCD1", "TOX", "IL7R"]
+negative_markers = ["GZMB", "PRF1", "GNLY"]
+
+[state.metadata]
+kind = "state"
+granularity = "state"
+compartment = "immune"
+lineage = "T cells"
+scope = "lineage_restricted"
+applies_to = ["CD8+ T"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "human"
+source_ids = ["SRC0100", "SRC0132"]
+notes = "State label follows modular nomenclature: cell identity remains CD8+ T; exhaustion stage is interpreted after lineage/subtype assignment."
+
+[[state]]
+name = "CD8+ T | terminal exhausted-like"
+color = "#A66999"
+markers = ["PDCD1", "HAVCR2", "TOX", "ENTPD1", "CXCL13"]
+negative_markers = ["TCF7", "SELL", "CCR7"]
+
+[state.metadata]
+kind = "state"
+granularity = "state"
+compartment = "immune"
+lineage = "T cells"
+scope = "lineage_restricted"
+applies_to = ["CD8+ T"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "human"
+source_ids = ["SRC0100", "SRC0132"]
+notes = "Terminal exhausted-like CD8 T state. Kept as a state so it does not compete with CD8 lineage/subtype labels."
+
+[[state]]
+name = "Treg | cytotoxic state"
+color = "#D37295"
+markers = ["FOXP3", "IL2RA", "CTLA4", "GZMB", "PRF1"]
+negative_markers = ["IL21", "RORC", "IL17A"]
+
+[state.metadata]
+kind = "state"
+granularity = "state"
+compartment = "immune"
+lineage = "T cells"
+scope = "lineage_restricted"
+applies_to = ["Treg", "CD4+ T"]
+evidence_tier = "atlas_supported"
+source_type = "single_cell_atlas"
+review_status = "reviewed"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+species = "human"
+source_ids = ["SRC0100", "SRC0132"]
+notes = "Cytotoxicity layered on Treg identity; not a standalone global annotation label."

@@ -15,9 +15,9 @@ import pandas as pd
 import scanpy as sc
 import seaborn as sns
 from anndata import AnnData
-from matplotlib import get_backend
 
 from ...utils import get_marker_manager
+from ...utils.helpers import _show_or_close
 from ..config import DoubletConfig, MarkerConfig
 from .core import (
     FINAL_PRED_COL,
@@ -28,18 +28,6 @@ from .core import (
 )
 
 log = logging.getLogger(__name__)
-
-
-def _is_interactive_backend() -> bool:
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
-
-
-def _show_or_close(fig: plt.Figure, *, show: bool) -> None:
-    if show and _is_interactive_backend():
-        plt.show()
-    else:
-        plt.close(fig)
 
 
 def _extract_conflict_pairs(manager) -> list[tuple[str, str]]:
@@ -239,6 +227,32 @@ def _run_heuristic(
     if max_score > 0:
         heuristic_confidence_score /= max_score
 
+    # Apply biology-aware allowlist before thresholding so the continuous score
+    # and binary heuristic prediction remain consistent.
+    allowlist_cells = pd.Series(False, index=adata.obs_names)
+    if cfg.ignore_coexpression_pairs:
+        ignored_pairs = []
+        for lin1, lin2 in cfg.ignore_coexpression_pairs:
+            if lin1 in lineage_scores_df.columns and lin2 in lineage_scores_df.columns:
+                mask = (lineage_scores_df[lin1] > score_th) & (lineage_scores_df[lin2] > score_th)
+                allowlist_cells |= mask
+                ignored_pairs.append({"pair": [lin1, lin2], "n_cells": int(mask.sum())})
+                log.info(
+                    f"Ignoring co-expression of {lin1} + {lin2} in {int(mask.sum())} cells (allowlist)."
+                )
+            else:
+                missing = []
+                if lin1 not in lineage_scores_df.columns:
+                    missing.append(lin1)
+                if lin2 not in lineage_scores_df.columns:
+                    missing.append(lin2)
+                log.debug(
+                    f"Skipping co-expression pair ({lin1}, {lin2}) - lineages not found: {missing}"
+                )
+        heuristic_confidence_score.loc[allowlist_cells] = 0.0
+    else:
+        ignored_pairs = []
+
     # --- 4. Generate a Binary Prediction based on the Score ---
     # Adaptive threshold: use expected_doublet_rate to set the quantile.
     # If no rate is provided, fall back to the legacy 90% quantile.
@@ -280,34 +294,15 @@ def _run_heuristic(
             f"flagged={int(potential_doublets.sum())}"
         )
 
-    # The ignore_coexpression_pairs logic can still be applied here if needed,
-    # for example, to set scores of certain co-expressing cells to 0.
-    if cfg.ignore_coexpression_pairs:
-        # top_two_scores 包含了 lineage names，假设你修改了逻辑让它返回 Name 而不是 Score
-        # 或者在这里遍历 whitelist
-        for lin1, lin2 in cfg.ignore_coexpression_pairs:
-            # 检查谱系是否存在于lineage_scores_df中
-            if lin1 in lineage_scores_df.columns and lin2 in lineage_scores_df.columns:
-                # 找到同时高表达 lin1 和 lin2 的细胞，将其 heuristic_score 强制置 0
-                mask = (lineage_scores_df[lin1] > score_th) & (lineage_scores_df[lin2] > score_th)
-                heuristic_confidence_score[mask] = 0.0
-                log.info(
-                    f"Ignoring co-expression of {lin1} + {lin2} in {mask.sum()} cells (Allowlist)."
-                )
-            else:
-                missing = []
-                if lin1 not in lineage_scores_df.columns:
-                    missing.append(lin1)
-                if lin2 not in lineage_scores_df.columns:
-                    missing.append(lin2)
-                log.debug(
-                    f"Skipping co-expression pair ({lin1}, {lin2}) - lineages not found: {missing}"
-                )
-
     adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
     adata.uns["sclucid"]["qc"]["doublet_params"]["heuristic_temp_norm"] = {
         "used": True,
         "use_raw": cfg.default_use_raw,
+    }
+    adata.uns["sclucid"]["qc"]["doublet_params"]["heuristic_allowlist"] = {
+        "n_cells_score_zeroed": int(allowlist_cells.sum()),
+        "pairs": ignored_pairs,
+        "applied_before_thresholding": True,
     }
     return potential_doublets, lineage_scores_df, heuristic_confidence_score.fillna(0)
 

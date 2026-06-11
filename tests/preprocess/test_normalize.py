@@ -151,6 +151,26 @@ class TestNormalizeDataCLR:
         # CLR centers log-values per cell, so mean should be near zero
         np.testing.assert_allclose(cell_means, 0, atol=1e-6)
 
+    def test_clr_matches_pseudocount_log_ratio_formula(self):
+        counts = np.array([[0, 1, 3], [2, 2, 6]], dtype=float)
+        adata = AnnData(X=counts.copy())
+        adata.layers["counts"] = counts.copy()
+
+        result = normalize_data(
+            adata,
+            config=NormalizationConfig(
+                method="clr",
+                clr_pseudocount=1.0,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+        )
+
+        expected = np.log(counts + 1.0)
+        expected = expected - expected.mean(axis=1, keepdims=True)
+        np.testing.assert_allclose(result.layers["normalized"], expected)
+
 
 @pytest.mark.unit
 class TestNormalizeDataPearson:

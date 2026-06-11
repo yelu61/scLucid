@@ -187,10 +187,38 @@ class PseudobulkDEConfig(SclucidBaseConfig):
     min_counts: int = Field(default=10, ge=0)
     min_samples_per_condition: int = Field(default=1, ge=1)
     pseudocount: float = Field(default=0.5, gt=0)
-    method: Literal["auto", "deseq2", "welch_logcpm", "cell_level_fallback"] = Field(
-        default="auto"
+    method: Literal[
+        "auto",
+        "deseq2",
+        "welch_logcpm",
+        "linear_model_logcpm",
+        "cell_level_fallback",
+    ] = Field(default="auto")
+    design_covariates: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Sample-level covariates to include in the Python logCPM linear model "
+            "path, for example batch or patient identifiers."
+        ),
     )
-    fallback_to_cell_level: bool = Field(default=True)
+    block_col: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional sample-level blocking column, typically patient or donor. "
+            "It is included as a categorical covariate in linear_model_logcpm."
+        ),
+    )
+    fallback_to_cell_level: bool = Field(
+        default=False,
+        description=(
+            "Allow exploratory cell-level fallback when sample-level replicates are insufficient. "
+            "Disabled by default to avoid pseudoreplication being mistaken for formal inference."
+        ),
+    )
+    single_sample_mode: Literal["descriptive", "skip"] = Field(
+        default="descriptive",
+        description="Behavior when a contrast has only one biological sample per condition.",
+    )
     p_adjust_method: Literal["fdr_bh", "bonferroni"] = Field(default="fdr_bh")
     key_added: str = Field(default="pseudobulk_de")
     n_jobs: int = Field(default=1, ge=1)
@@ -279,6 +307,11 @@ class AnnotationConfig(SclucidBaseConfig):
     custom_state_signatures: Optional[Dict[str, List[str]]] = Field(default=None)
     custom_state_metadata: Optional[Dict[str, Dict[str, Any]]] = Field(default=None)
     state_score_suffix: str = Field(default="_program")
+    min_state_score: float = Field(
+        default=0.1,
+        ge=0,
+        description="Minimum top state signature score required to assign a state.",
+    )
 
     # DE and enrichment parameters
     min_log2fc: float = Field(default=0.5, ge=0)
@@ -307,6 +340,11 @@ class ProportionConfig(SclucidBaseConfig):
     auto_configure: bool = Field(default=True)
     test_method: Literal[
         "deseq2",
+        "clr-t-test",
+        "clr-wilcoxon",
+        "clr-paired-t-test",
+        "clr-paired-wilcoxon",
+        "clr-ols",
         "t-test",
         "wilcoxon",
         "anova",
@@ -314,7 +352,11 @@ class ProportionConfig(SclucidBaseConfig):
         "chi-square",
         "paired-t-test",
         "paired-wilcoxon",
-    ] = Field(default="deseq2")
+    ] = Field(default="clr-t-test")
+    composition_transform: Literal["clr", "none"] = Field(default="clr")
+    composition_pseudocount: float = Field(default=1e-6, gt=0)
+    require_biological_replicates: bool = Field(default=True)
+    min_samples_per_condition: int = Field(default=2, ge=1)
     correction_scope: str = Field(default="per_test")
 
     # Plotting

@@ -32,6 +32,19 @@ from .metrics import calculate_qc_metric
 log = logging.getLogger(__name__)
 
 
+def _make_json_safe(obj: Any) -> Any:
+    """Recursively convert numpy/tuple types to plain Python for JSON/HDF5."""
+    if isinstance(obj, dict):
+        return {k: _make_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_make_json_safe(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
+    return obj
+
+
 class StrategyType(str, Enum):
     """QC strategy types"""
 
@@ -137,14 +150,14 @@ class ThresholdRecommendation:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to a JSON-serializable dictionary."""
-        return {
+        return _make_json_safe({
             "threshold": self.threshold,
             "ci_lower": self.ci_lower,
             "ci_upper": self.ci_upper,
             "confidence": self.confidence,
             "method": self.method,
             "evidence": self.evidence,
-        }
+        })
 
 
 @dataclass
@@ -893,8 +906,8 @@ class IntelligentQCRecommender:
         from scipy.stats import beta
 
         # Fit beta distribution to doublet scores
-        params = beta.fit(doublet_scores)
-        alpha, beta_loc, beta_scale = params
+        beta_a, beta_b, beta_loc, beta_scale = beta.fit(doublet_scores)
+        beta_params = (beta_a, beta_b, beta_loc, beta_scale)
 
         # Find "elbow" in distribution
         # Typically, there's a peak at low scores (real cells) and tail (doublets)
@@ -925,12 +938,13 @@ class IntelligentQCRecommender:
 
         # Confidence based on distribution fit
         # Use KS test to check if beta distribution is a good fit
-        ks_stat, ks_pval = stats.kstest(doublet_scores, beta.cdf(alpha, beta_loc, beta_scale))
+        ks_stat, ks_pval = stats.kstest(doublet_scores, "beta", args=beta_params)
         confidence = min(1.0, max(0.5, 0.5 + 0.5 * ks_pval))
 
         evidence = {
-            "beta_alpha": alpha,
-            "beta_beta": beta_loc,
+            "beta_a": beta_a,
+            "beta_b": beta_b,
+            "beta_loc": beta_loc,
             "beta_scale": beta_scale,
             "ks_stat": ks_stat,
             "ks_pval": ks_pval,
@@ -1019,21 +1033,10 @@ class IntelligentQCRecommender:
 
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        def _json_safe(obj: Any):
-            if isinstance(obj, dict):
-                return {k: _json_safe(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_json_safe(v) for v in obj]
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, np.generic):
-                return obj.item()
-            return obj
-
         # Save as JSON
         json_path = save_dir / "qc_recommendation.json"
         with open(json_path, "w") as f:
-            json.dump(_json_safe(recommendation.to_dict()), f, indent=2)
+            json.dump(_make_json_safe(recommendation.to_dict()), f, indent=2)
 
         log.info(f"  Recommendation saved to: {json_path}")
 

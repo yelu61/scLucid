@@ -13,6 +13,7 @@ from typing import Any
 
 from anndata import AnnData
 
+from scLucid.utils.contracts import _review_payload
 from ..utils.evidence import (
     DecisionRecord,
     EvidenceBundle,
@@ -160,16 +161,6 @@ def _to_dict(value: Any) -> dict[str, Any]:
     if hasattr(value, "model_dump"):
         return _json_safe(value.model_dump())
     return {}
-
-
-def _review_payload(summary: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Return the canonical review payload from flat or backward-compatible summary."""
-    if not isinstance(summary, Mapping):
-        return {}
-    data = summary.get("data")
-    if isinstance(data, Mapping):
-        return data
-    return summary
 
 
 def _get_nested(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
@@ -1094,10 +1085,10 @@ def validate_qc_review_summary(
     missing = sorted(QC_REQUIRED_REVIEW_SECTIONS - set(summary.keys()))
     if missing:
         errors.append(f"QC review summary missing required sections: {missing}")
-    if not isinstance(summary.get("decision_table"), list):
-        errors.append("QC review summary field 'decision_table' must be a list.")
-    if not isinstance(summary.get("evidence_chain"), list):
-        errors.append("QC review summary field 'evidence_chain' must be a list.")
+    if not isinstance(summary.get("decision_table"), (list, dict)):
+        errors.append("QC review summary field 'decision_table' must be a list or dict.")
+    if not isinstance(summary.get("evidence_chain"), (list, dict)):
+        errors.append("QC review summary field 'evidence_chain' must be a list or dict.")
     execution_trace = summary.get("execution_trace")
     if not isinstance(execution_trace, Mapping):
         errors.append("QC review summary field 'execution_trace' must be a mapping.")
@@ -1110,8 +1101,8 @@ def validate_qc_review_summary(
     if not isinstance(readiness, Mapping):
         errors.append("QC review summary field 'qc_readiness' must be a mapping.")
     actions = summary.get("review_action_items")
-    if not isinstance(actions, list):
-        errors.append("QC review summary field 'review_action_items' must be a list.")
+    if not isinstance(actions, (list, dict)):
+        errors.append("QC review summary field 'review_action_items' must be a list or dict.")
     manifest = summary.get("reproducibility_manifest")
     if not isinstance(manifest, Mapping):
         errors.append("QC review summary field 'reproducibility_manifest' must be a mapping.")

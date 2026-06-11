@@ -2,80 +2,1468 @@
   "_metadata": {
     "version": "1.0.0",
     "last_updated": "2025-02-07",
+    "schema": "scLucid_genesets_v1",
+    "resource_type": "genesets_cancer_signatures",
+    "curation_status": "seed_scoring_resource",
     "description": "Cancer-specific gene signatures for tumor characterization",
+    "usage": "Wide scoring/enrichment modules. Do not use these signatures as direct cell identity labels.",
     "author": "scLucid Development Team",
+    "source_collections": [
+      {
+        "name": "Pan-cancer recurring programs",
+        "source_ids": [
+          "SRC0039",
+          "SRC0016"
+        ],
+        "role": "pan_cancer_meta_program"
+      },
+      {
+        "name": "CancerSEA state atlas",
+        "source_ids": [
+          "SRC0123"
+        ],
+        "role": "database_signature_collection"
+      },
+      {
+        "name": "scLucid seed TME signatures",
+        "source_ids": [
+          "SRC0001",
+          "SRC0005",
+          "SRC0015"
+        ],
+        "role": "internal_seed_from_curated_atlases"
+      },
+      {
+        "name": "Gavish 2023 transcriptional ITH hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "zotero_item_key": "RNXMRWIT",
+        "role": "primary_tumor_transcriptional_ith_hallmarks",
+        "notes": "Nature 2023: 41 malignant-cell consensus meta-programs grouped into 11 hallmarks of transcriptional intratumour heterogeneity."
+      }
+    ],
     "sources": [
       "Literature-curated tumor biology signatures",
       "TCGA marker gene publications",
       "Therapy response and resistance studies"
     ],
-    "total_signatures": 12,
-    "categories": ["EMT", "Stemness", "Metastasis", "Therapy_Response", "TME"],
-    "species": ["human"]
+    "total_signatures": 49,
+    "categories": [
+      "EMT",
+      "Stemness",
+      "Metastasis",
+      "Therapy_Response",
+      "TME",
+      "ITH_Hallmarks",
+      "TCellSI",
+      "Myeloid_Macrophage",
+      "CAF_Fibroblast",
+      "ITH_Metabolism"
+    ],
+    "species": [
+      "human"
+    ]
   },
   "human": {
+    "_default_entry_metadata": {
+      "source_collection": "scLucid cancer signatures seed",
+      "source_ids": [
+        "SRC0039",
+        "SRC0016",
+        "SRC0123"
+      ],
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
     "_categories": {
-      "EMT": ["EMT_epithelial", "EMT_mesenchymal", "EMT_hybrid"],
-      "Stemness": ["Core_stemness", "Embryonic_stemness", "Tissue_stemness", "Epithelial_plasticity"],
-      "Metastasis": ["EMT_metastasis", "Invasion", "Angiogenesis_metastasis", "Organ_tropism"],
-      "Therapy_Response": ["Chemo_sensitive", "Chemo_resistant", "Immunotherapy_responsive", "Immunotherapy_nonresponsive"],
-      "TME": ["Immune_infiltrated", "Immune_desert", "Stromal_reactive"]
+      "EMT": [
+        "EMT_epithelial",
+        "EMT_mesenchymal",
+        "EMT_hybrid"
+      ],
+      "Stemness": [
+        "Core_stemness",
+        "Embryonic_stemness",
+        "Tissue_stemness",
+        "Epithelial_plasticity"
+      ],
+      "Metastasis": [
+        "Metastasis_EMT",
+        "Metastasis_invasion",
+        "Metastasis_angiogenesis"
+      ],
+      "Therapy_Response": [
+        "Chemotherapy_sensitive",
+        "Chemotherapy_resistant",
+        "Immunotherapy_responsive",
+        "Immunotherapy_nonresponsive"
+      ],
+      "TME": [
+        "Immune_infiltrated",
+        "Stromal_barrier",
+        "Myeloid_suppression"
+      ],
+      "ITH_Hallmarks": [
+        "ITH_cell_cycle",
+        "ITH_stress",
+        "ITH_hypoxia",
+        "ITH_interferon_MHCII",
+        "ITH_mesenchymal_invasion",
+        "ITH_secreted_mucin",
+        "ITH_protein_regulation_ER",
+        "ITH_respiration_OXPHOS"
+      ],
+      "TCellSI": [
+        "TCellSI_quiescence",
+        "TCellSI_regulating",
+        "TCellSI_proliferation",
+        "TCellSI_helper",
+        "TCellSI_cytotoxicity",
+        "TCellSI_progenitor_exhaustion",
+        "TCellSI_terminal_exhaustion",
+        "TCellSI_senescence"
+      ],
+      "Myeloid_Macrophage": [
+        "Tryptophan_degradation",
+        "IL4I1_macrophage_program",
+        "TREM2_macrophage_signature",
+        "FOLR2_macrophage_signature",
+        "TAM_collagen_program"
+      ],
+      "CAF_Fibroblast": [
+        "PI16_fibroblast_program",
+        "LRRC15_myofibroblast_program",
+        "MMP1_myofibroblast_program",
+        "TSPAN8_chromatin_remodeling_fibroblast"
+      ],
+      "ITH_Metabolism": [
+        "ITH_glycolysis",
+        "ITH_TCA_cycle",
+        "ITH_oxphos",
+        "ITH_fatty_acid_metabolism",
+        "ITH_amino_acid_metabolism",
+        "ITH_nucleotide_metabolism",
+        "ITH_cuproptosis_metabolism"
+      ]
     },
     "EMT_epithelial": {
-      "genes": ["CDH1", "EPCAM", "CLDN1", "CLDN3", "CLDN4", "CLDN7", "OCLN", "TJP1"],
+      "genes": [
+        "CDH1",
+        "EPCAM",
+        "CLDN1",
+        "CLDN3",
+        "CLDN4",
+        "CLDN7",
+        "OCLN",
+        "TJP1"
+      ],
       "description": "Epithelial phenotype markers"
     },
     "EMT_mesenchymal": {
-      "genes": ["VIM", "CDH2", "FN1", "ZEB1", "ZEB2", "SNAI1", "SNAI2", "TWIST1", "ACTA2"],
+      "genes": [
+        "VIM",
+        "CDH2",
+        "FN1",
+        "ZEB1",
+        "ZEB2",
+        "SNAI1",
+        "SNAI2",
+        "TWIST1",
+        "ACTA2"
+      ],
       "description": "Mesenchymal phenotype markers"
     },
     "EMT_hybrid": {
-      "genes": ["CLDN1", "VIM", "CDH1", "ZEB1", "SNAI1"],
+      "genes": [
+        "CLDN1",
+        "VIM",
+        "CDH1",
+        "ZEB1",
+        "SNAI1"
+      ],
       "description": "Hybrid E/M state markers"
     },
     "Core_stemness": {
-      "genes": ["PROM1", "CD44", "ALDH1A1", "ALDH1A3", "NANOG", "SOX2", "POU5F1", "MYC", "KLF4", "LIN28A", "SALL4", "DPPA4"],
+      "genes": [
+        "PROM1",
+        "CD44",
+        "ALDH1A1",
+        "ALDH1A3",
+        "NANOG",
+        "SOX2",
+        "POU5F1",
+        "MYC",
+        "KLF4",
+        "LIN28A",
+        "SALL4",
+        "DPPA4"
+      ],
       "description": "Core cancer stem cell markers"
     },
     "Embryonic_stemness": {
-      "genes": ["NANOG", "SOX2", "POU5F1", "LIN28A", "SALL4", "DPPA2", "DPPA4", "ZFP42", "TDGF1", "GDF3", "UTF1", "LEFTY1"],
+      "genes": [
+        "NANOG",
+        "SOX2",
+        "POU5F1",
+        "LIN28A",
+        "SALL4",
+        "DPPA2",
+        "DPPA4",
+        "ZFP42",
+        "TDGF1",
+        "GDF3",
+        "UTF1",
+        "LEFTY1"
+      ],
       "description": "Embryonic stem cell signature"
     },
     "Tissue_stemness": {
-      "genes": ["LGR5", "ASCL2", "SMOC2", "OLFM4", "AXIN2", "EPHB2", "TNFRSF19", "SOX9", "CD44", "ITGB1", "EPCAM", "PROM1"],
+      "genes": [
+        "LGR5",
+        "ASCL2",
+        "SMOC2",
+        "OLFM4",
+        "AXIN2",
+        "EPHB2",
+        "TNFRSF19",
+        "SOX9",
+        "CD44",
+        "ITGB1",
+        "EPCAM",
+        "PROM1"
+      ],
       "description": "Adult tissue stem cell markers"
     },
     "Epithelial_plasticity": {
-      "genes": ["CDH1", "CDH2", "VIM", "CLDN3", "CLDN4", "CLDN7", "EPCAM", "MUC1", "CD24", "CD44", "ALCAM", "MET"],
+      "genes": [
+        "CDH1",
+        "CDH2",
+        "VIM",
+        "CLDN3",
+        "CLDN4",
+        "CLDN7",
+        "EPCAM",
+        "MUC1",
+        "CD24",
+        "CD44",
+        "ALCAM",
+        "MET"
+      ],
       "description": "Epithelial cell plasticity markers"
     },
     "Metastasis_EMT": {
-      "genes": ["CDH2", "VIM", "SNAI1", "SNAI2", "TWIST1", "ZEB1", "ZEB2", "FN1", "MMP2", "MMP3", "MMP9", "TGFB1", "TGFB2"],
+      "genes": [
+        "CDH2",
+        "VIM",
+        "SNAI1",
+        "SNAI2",
+        "TWIST1",
+        "ZEB1",
+        "ZEB2",
+        "FN1",
+        "MMP2",
+        "MMP3",
+        "MMP9",
+        "TGFB1",
+        "TGFB2"
+      ],
       "description": "EMT-mediated metastasis"
     },
     "Metastasis_invasion": {
-      "genes": ["MMP1", "MMP2", "MMP3", "MMP7", "MMP9", "MMP13", "PLAU", "PLAUR", "CTSD", "CTSB", "HEBP2"],
+      "genes": [
+        "MMP1",
+        "MMP2",
+        "MMP3",
+        "MMP7",
+        "MMP9",
+        "MMP13",
+        "PLAU",
+        "PLAUR",
+        "CTSD",
+        "CTSB",
+        "HEBP2"
+      ],
       "description": "Matrix degradation and invasion"
     },
     "Metastasis_angiogenesis": {
-      "genes": ["VEGFA", "VEGFB", "VEGFC", "ANGPT1", "ANGPT2", "PDGFA", "FGF2", "HGF", "TGFA", "IGF1", "IGF2"],
+      "genes": [
+        "VEGFA",
+        "VEGFB",
+        "VEGFC",
+        "ANGPT1",
+        "ANGPT2",
+        "PDGFA",
+        "FGF2",
+        "HGF",
+        "TGFA",
+        "IGF1",
+        "IGF2"
+      ],
       "description": "Angiogenesis for metastatic spread"
     },
     "Chemotherapy_sensitive": {
-      "genes": ["BCL2L11", "BAD", "BAK1", "BAX", "CASP8", "FAS", "TNFRSF10A", "CHEK1", "CHEK2", "TP53", "ATM", "ATR"],
+      "genes": [
+        "BCL2L11",
+        "BAD",
+        "BAK1",
+        "BAX",
+        "CASP8",
+        "FAS",
+        "TNFRSF10A",
+        "CHEK1",
+        "CHEK2",
+        "TP53",
+        "ATM",
+        "ATR"
+      ],
       "description": "Markers of chemotherapy sensitivity"
     },
     "Chemotherapy_resistant": {
-      "genes": ["ABCB1", "ABCC1", "ABCC2", "ABCG2", "GSTP1", "MGMT", "BCL2", "BCL2L1", "MCL1", "BIRC5", "XIAP"],
+      "genes": [
+        "ABCB1",
+        "ABCC1",
+        "ABCC2",
+        "ABCG2",
+        "GSTP1",
+        "MGMT",
+        "BCL2",
+        "BCL2L1",
+        "MCL1",
+        "BIRC5",
+        "XIAP"
+      ],
       "description": "Drug resistance mechanisms"
     },
     "Immunotherapy_responsive": {
-      "genes": ["CD8A", "CD8B", "GZMA", "GZMB", "PRF1", "IFNG", "CXCL9", "CXCL10", "CXCL11", "TBX21", "EOMES", "PDCD1", "CTLA4", "LAG3"],
+      "genes": [
+        "CD8A",
+        "CD8B",
+        "GZMA",
+        "GZMB",
+        "PRF1",
+        "IFNG",
+        "CXCL9",
+        "CXCL10",
+        "CXCL11",
+        "TBX21",
+        "EOMES",
+        "PDCD1",
+        "CTLA4",
+        "LAG3"
+      ],
       "description": "Immune-active tumor phenotype"
     },
     "Immunotherapy_nonresponsive": {
-      "genes": ["FOXP3", "IL10", "TGFB1", "VEGFA", "ARG1", "IDO1", "CD274", "PDCD1LG2", "SIGLEC15", "VTCN1"],
+      "genes": [
+        "FOXP3",
+        "IL10",
+        "TGFB1",
+        "VEGFA",
+        "ARG1",
+        "IDO1",
+        "CD274",
+        "PDCD1LG2",
+        "SIGLEC15",
+        "VTCN1"
+      ],
       "description": "Immune-suppressed tumor phenotype"
+    },
+    "Immune_infiltrated": {
+      "genes": [
+        "PTPRC",
+        "CD3D",
+        "CD3E",
+        "CD8A",
+        "NKG7",
+        "GZMB",
+        "PRF1",
+        "MS4A1",
+        "LYZ",
+        "HLA-DRA",
+        "CXCL9",
+        "CXCL10"
+      ],
+      "description": "Broad immune-infiltrated tumor microenvironment module; use as a scoring signature, not a cell type label"
+    },
+    "Stromal_barrier": {
+      "genes": [
+        "COL1A1",
+        "COL1A2",
+        "COL3A1",
+        "DCN",
+        "LUM",
+        "ACTA2",
+        "TAGLN",
+        "FAP",
+        "POSTN",
+        "CTHRC1",
+        "TGFB1",
+        "CXCL12"
+      ],
+      "description": "Fibroblast-rich stromal barrier and TGF-beta-associated exclusion module"
+    },
+    "Myeloid_suppression": {
+      "genes": [
+        "LYZ",
+        "LST1",
+        "C1QA",
+        "C1QB",
+        "APOE",
+        "TREM2",
+        "SPP1",
+        "MRC1",
+        "CD163",
+        "IL10",
+        "TGFB1",
+        "ARG1",
+        "IDO1"
+      ],
+      "description": "Suppressive myeloid/TAM-enriched tumor microenvironment module"
+    },
+    "ITH_cell_cycle": {
+      "genes": [
+        "MKI67",
+        "TOP2A",
+        "PCNA",
+        "CCNB1",
+        "CCNB2",
+        "CDK1",
+        "UBE2C",
+        "CENPF",
+        "BIRC5"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: cell-cycle meta-program family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "ITH_stress": {
+      "genes": [
+        "HSPA1A",
+        "HSPA1B",
+        "HSP90AA1",
+        "HSPB1",
+        "DNAJB1",
+        "FOS",
+        "JUN",
+        "ATF3",
+        "DDIT3"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: stress-response meta-program family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "ITH_hypoxia": {
+      "genes": [
+        "VEGFA",
+        "CA9",
+        "NDRG1",
+        "BNIP3",
+        "SLC2A1",
+        "LDHA",
+        "PGK1",
+        "EGLN3"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: hypoxia-associated meta-program family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "ITH_interferon_MHCII": {
+      "genes": [
+        "IFIT1",
+        "IFIT2",
+        "IFIT3",
+        "ISG15",
+        "MX1",
+        "OAS1",
+        "STAT1",
+        "IRF1",
+        "CXCL10",
+        "HLA-DRA",
+        "HLA-DRB1",
+        "CD74"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: interferon and MHC-II meta-program family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "ITH_mesenchymal_invasion": {
+      "genes": [
+        "VIM",
+        "FN1",
+        "SPARC",
+        "S100A4",
+        "MMP2",
+        "MMP9",
+        "COL1A1",
+        "COL1A2",
+        "LAMC2"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: mesenchymal/invasive meta-program family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "ITH_secreted_mucin": {
+      "genes": [
+        "MUC1",
+        "MUC5AC",
+        "MUC5B",
+        "MUC13",
+        "TFF1",
+        "TFF2",
+        "TFF3",
+        "GCNT3",
+        "AGR2"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: secreted/mucin-production meta-program family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "ITH_protein_regulation_ER": {
+      "genes": [
+        "HSPA5",
+        "XBP1",
+        "ATF4",
+        "DDIT3",
+        "HERPUD1",
+        "PDIA4",
+        "HSP90B1",
+        "SEC61G"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: protein regulation and unfolded-protein/ER-response family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "ITH_respiration_OXPHOS": {
+      "genes": [
+        "NDUFA9",
+        "NDUFB8",
+        "SDHB",
+        "UQCRC1",
+        "COX5A",
+        "COX4I1",
+        "ATP5F1A"
+      ],
+      "description": "Gavish 2023 primary-tumor ITH hallmark seed: respiration/oxidative phosphorylation family.",
+      "source_collection": "Gavish 2023 transcriptional ITH hallmarks",
+      "source_ids": [
+        "SRC0016"
+      ],
+      "zotero_item_key": "RNXMRWIT",
+      "evidence_role": "program_scoring",
+      "use_for": [
+        "program_scoring",
+        "tumor_interpretation",
+        "llm_annotation_summary"
+      ],
+      "not_for": [
+        "cell_identity_annotation",
+        "global_annotation"
+      ],
+      "review_status": "needs_review"
+    },
+    "_source_collections": {
+      "TCellSI": {
+        "source_ids": [
+          "SRC0135"
+        ],
+        "resource_role": "T cell state program scoring",
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ]
+      },
+      "MNP_VERSE_macrophage": {
+        "source_ids": [
+          "SRC0152"
+        ],
+        "resource_role": "monocyte/macrophage state and program scoring",
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ]
+      },
+      "fibroblast_CAF_atlases": {
+        "source_ids": [
+          "SRC0042",
+          "SRC0043"
+        ],
+        "resource_role": "fibroblast and CAF program scoring",
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ]
+      },
+      "ITH_hallmarks": {
+        "source_ids": [
+          "SRC0016"
+        ],
+        "resource_role": "intratumour heterogeneity hallmark scoring",
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ]
+      }
+    },
+    "TCellSI_quiescence": {
+      "genes": [
+        "TCF7",
+        "SELL",
+        "CCR7",
+        "LEF1",
+        "IL7R",
+        "MAL"
+      ],
+      "description": "TCellSI quiescence/resting naive-like T cell state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "TCellSI_regulating": {
+      "genes": [
+        "FOXP3",
+        "IL2RA",
+        "CTLA4",
+        "IKZF2",
+        "TNFRSF18",
+        "ENTPD1"
+      ],
+      "description": "TCellSI regulatory/suppressive T cell state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "TCellSI_proliferation": {
+      "genes": [
+        "MKI67",
+        "TOP2A",
+        "PCNA",
+        "CCNB1",
+        "UBE2C",
+        "STMN1"
+      ],
+      "description": "TCellSI proliferating T cell state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "TCellSI_helper": {
+      "genes": [
+        "IL2",
+        "IL4",
+        "IL17A",
+        "IL21",
+        "IFNG",
+        "CXCR5",
+        "BCL6"
+      ],
+      "description": "TCellSI helper cytokine/function state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "TCellSI_cytotoxicity": {
+      "genes": [
+        "GZMA",
+        "GZMB",
+        "PRF1",
+        "NKG7",
+        "GNLY",
+        "IFNG"
+      ],
+      "description": "TCellSI cytotoxic effector T cell state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "TCellSI_progenitor_exhaustion": {
+      "genes": [
+        "TCF7",
+        "SELL",
+        "IL7R",
+        "PDCD1",
+        "TOX",
+        "CXCR5"
+      ],
+      "description": "TCellSI stem-like/progenitor exhausted T cell state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "TCellSI_terminal_exhaustion": {
+      "genes": [
+        "PDCD1",
+        "HAVCR2",
+        "LAG3",
+        "ENTPD1",
+        "CXCL13",
+        "TOX",
+        "TIGIT"
+      ],
+      "description": "TCellSI terminal exhausted/dysfunctional T cell state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "TCellSI_senescence": {
+      "genes": [
+        "CDKN1A",
+        "CDKN2A",
+        "GLB1",
+        "TP53",
+        "KLRG1",
+        "B3GAT1"
+      ],
+      "description": "TCellSI T cell senescence/aging dysfunction state score.",
+      "metadata": {
+        "source_collection": "TCellSI",
+        "source_ids": [
+          "SRC0135"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "seed_reviewed",
+        "category": "TCellSI"
+      }
+    },
+    "Tryptophan_degradation": {
+      "genes": [
+        "IDO1",
+        "IDO2",
+        "TDO2",
+        "KYNU",
+        "KMO",
+        "IL4I1",
+        "AFMID"
+      ],
+      "description": "Tryptophan degradation/kynurenine pathway program relevant to immunosuppressive myeloid states.",
+      "metadata": {
+        "source_collection": "MNP_VERSE_macrophage",
+        "source_ids": [
+          "SRC0152"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "Myeloid_Macrophage"
+      }
+    },
+    "IL4I1_macrophage_program": {
+      "genes": [
+        "IL4I1",
+        "CD274",
+        "IDO1",
+        "CD40",
+        "CD83",
+        "CCR7",
+        "FSCN1",
+        "EBI3",
+        "HLA-DRA",
+        "HLA-DQA1",
+        "CD86",
+        "CD80"
+      ],
+      "description": "IL4I1-associated macrophage/APC-like immunoregulatory program.",
+      "metadata": {
+        "source_collection": "MNP_VERSE_macrophage",
+        "source_ids": [
+          "SRC0152"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "Myeloid_Macrophage"
+      }
+    },
+    "TREM2_macrophage_signature": {
+      "genes": [
+        "TREM2",
+        "CD9",
+        "LPL",
+        "GPNMB",
+        "APOE",
+        "CST7",
+        "SPP1",
+        "CTSB",
+        "CTSD",
+        "C1QA",
+        "C1QB",
+        "C1QC"
+      ],
+      "description": "TREM2/APOE/SPP1 macrophage program for TAM-like and lipid-associated macrophage scoring.",
+      "metadata": {
+        "source_collection": "MNP_VERSE_macrophage",
+        "source_ids": [
+          "SRC0001",
+          "SRC0040",
+          "SRC0152"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "Myeloid_Macrophage"
+      }
+    },
+    "FOLR2_macrophage_signature": {
+      "genes": [
+        "FOLR2",
+        "LYVE1",
+        "MERTK",
+        "CD163",
+        "MRC1",
+        "COLEC12",
+        "STAB1",
+        "STAB2",
+        "C1QA",
+        "C1QB"
+      ],
+      "description": "Resident/FOLR2 macrophage program for tissue macrophage scoring.",
+      "metadata": {
+        "source_collection": "MNP_VERSE_macrophage",
+        "source_ids": [
+          "SRC0041",
+          "SRC0152"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "Myeloid_Macrophage"
+      }
+    },
+    "TAM_collagen_program": {
+      "genes": [
+        "COL1A1",
+        "COL1A2",
+        "COL3A1",
+        "COL5A1",
+        "COL6A1",
+        "LOX",
+        "LOXL2",
+        "P4HA1",
+        "P4HA2",
+        "PLOD1",
+        "PLOD2",
+        "BMP1"
+      ],
+      "description": "Collagen/ECM-remodeling TAM program reported in tumor-associated macrophage contexts.",
+      "metadata": {
+        "source_collection": "MNP_VERSE_macrophage",
+        "source_ids": [
+          "SRC0152"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "Myeloid_Macrophage"
+      }
+    },
+    "PI16_fibroblast_program": {
+      "genes": [
+        "PI16",
+        "FAP",
+        "THY1",
+        "CD34",
+        "NT5E",
+        "ENG",
+        "DPP4",
+        "PDGFRA"
+      ],
+      "description": "PI16+ universal/progenitor-like fibroblast scoring program.",
+      "metadata": {
+        "source_collection": "fibroblast_CAF_atlases",
+        "source_ids": [
+          "SRC0042",
+          "SRC0043"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "CAF_Fibroblast"
+      }
+    },
+    "LRRC15_myofibroblast_program": {
+      "genes": [
+        "LRRC15",
+        "ACTA2",
+        "TAGLN",
+        "MYL9",
+        "TPM2",
+        "DES",
+        "CNN1"
+      ],
+      "description": "LRRC15+ contractile myofibroblast/CAF scoring program.",
+      "metadata": {
+        "source_collection": "fibroblast_CAF_atlases",
+        "source_ids": [
+          "SRC0042",
+          "SRC0043"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "CAF_Fibroblast"
+      }
+    },
+    "MMP1_myofibroblast_program": {
+      "genes": [
+        "MMP1",
+        "MMP3",
+        "MMP10",
+        "MMP13",
+        "MMP14",
+        "COL1A1",
+        "COL1A2",
+        "FN1"
+      ],
+      "description": "MMP1+ ECM-remodeling myofibroblast/CAF scoring program.",
+      "metadata": {
+        "source_collection": "fibroblast_CAF_atlases",
+        "source_ids": [
+          "SRC0042",
+          "SRC0043"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "CAF_Fibroblast"
+      }
+    },
+    "TSPAN8_chromatin_remodeling_fibroblast": {
+      "genes": [
+        "TSPAN8",
+        "KDM6B",
+        "KDM5B",
+        "EZH2",
+        "KMT2D",
+        "BRD4",
+        "SMARCA4",
+        "CHD7"
+      ],
+      "description": "TSPAN8-associated chromatin-remodeling fibroblast program from curated CAF evidence.",
+      "metadata": {
+        "source_collection": "fibroblast_CAF_atlases",
+        "source_ids": [
+          "SRC0042",
+          "SRC0043"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "CAF_Fibroblast"
+      }
+    },
+    "ITH_glycolysis": {
+      "genes": [
+        "HK2",
+        "PFKP",
+        "ALDOA",
+        "GAPDH",
+        "PGK1",
+        "ENO1",
+        "PKM",
+        "LDHA",
+        "SLC2A1",
+        "PGAM1",
+        "TPI1"
+      ],
+      "description": "Hallmarks of intratumour heterogeneity metabolic glycolysis meta-program.",
+      "metadata": {
+        "source_collection": "ITH_hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "ITH_Hallmarks"
+      }
+    },
+    "ITH_TCA_cycle": {
+      "genes": [
+        "IDH1",
+        "IDH2",
+        "SUCLA2",
+        "SDHB",
+        "FH",
+        "MDH2",
+        "CS",
+        "ACO2",
+        "OGDH",
+        "DLST"
+      ],
+      "description": "Hallmarks of intratumour heterogeneity citric acid cycle meta-program.",
+      "metadata": {
+        "source_collection": "ITH_hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "ITH_Hallmarks"
+      }
+    },
+    "ITH_oxphos": {
+      "genes": [
+        "NDUFA4",
+        "COX4I1",
+        "ATP5F1A",
+        "ATP5F1B",
+        "UQCRB",
+        "SDHB",
+        "CYC1",
+        "ATP5MG"
+      ],
+      "description": "Hallmarks of intratumour heterogeneity oxidative phosphorylation/respiration meta-program.",
+      "metadata": {
+        "source_collection": "ITH_hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "ITH_Hallmarks"
+      }
+    },
+    "ITH_fatty_acid_metabolism": {
+      "genes": [
+        "ACLY",
+        "FASN",
+        "SCD",
+        "ELOVL6",
+        "ACACA",
+        "SREBF1",
+        "ACSS2",
+        "GPAM"
+      ],
+      "description": "Hallmarks of intratumour heterogeneity fatty-acid/lipid synthesis meta-program.",
+      "metadata": {
+        "source_collection": "ITH_hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "ITH_Hallmarks"
+      }
+    },
+    "ITH_amino_acid_metabolism": {
+      "genes": [
+        "GLS",
+        "GCLC",
+        "PSAT1",
+        "ASNS",
+        "GPT2",
+        "SLC1A5",
+        "SLC7A5",
+        "SLC7A11"
+      ],
+      "description": "Hallmarks of intratumour heterogeneity amino-acid/glutamine/asparagine metabolism meta-program.",
+      "metadata": {
+        "source_collection": "ITH_hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "ITH_Hallmarks"
+      }
+    },
+    "ITH_nucleotide_metabolism": {
+      "genes": [
+        "TYMS",
+        "RRM1",
+        "RRM2",
+        "DTYMK",
+        "IMPDH1",
+        "MCM2",
+        "MCM5",
+        "PCNA"
+      ],
+      "description": "Hallmarks of intratumour heterogeneity nucleotide metabolism/proliferation-linked meta-program.",
+      "metadata": {
+        "source_collection": "ITH_hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "ITH_Hallmarks"
+      }
+    },
+    "ITH_cuproptosis_metabolism": {
+      "genes": [
+        "FDX1",
+        "LIAS",
+        "LIPT1",
+        "DLD",
+        "DLAT",
+        "PDHA1",
+        "PDHB"
+      ],
+      "description": "Hallmarks/metabolic heterogeneity copper metabolism and cuproptosis-related meta-program.",
+      "metadata": {
+        "source_collection": "ITH_hallmarks",
+        "source_ids": [
+          "SRC0016"
+        ],
+        "evidence_role": "program_scoring",
+        "use_for": [
+          "program_scoring",
+          "tumor_interpretation",
+          "llm_annotation_summary"
+        ],
+        "not_for": [
+          "cell_identity_annotation",
+          "global_annotation"
+        ],
+        "review_status": "needs_review",
+        "category": "ITH_Hallmarks"
+      }
     }
   }
 }

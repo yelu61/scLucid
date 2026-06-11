@@ -44,6 +44,15 @@ _export(
 
 # Core
 _export("metrics", ["calculate_qc_metric"])
+_export(
+    "ambient",
+    [
+        "diagnose_ambient_rna",
+        "diagnose_empty_droplets",
+        "record_ambient_correction_status",
+        "register_external_ambient_result",
+    ],
+)
 _export("cycle", ["score_cell_cycle"])
 _export(
     "doublet",

@@ -32,6 +32,7 @@ from ..runtime import (
     run_joblib_or_sequential,
     setup_runtime_environment,
 )
+from .audit_report import export_audit_report
 
 # Import and expose key functions from submodules
 from .context import (
@@ -46,20 +47,24 @@ from .context import (
 from .contracts import (
     API_LAYER_CONTRACTS,
     API_LAYER_ORDER,
+    MINIMAL_WORKFLOW_CONTRACT,
+    REVIEW_SUMMARY_RECOMMENDED_KEYS,
+    REVIEW_SUMMARY_REQUIRED_KEYS,
     SCHEMA_VERSION,
     SCLUCID_ROOT,
     STAGE_CONTRACTS,
     STAGE_ORDER,
     APILayerContract,
+    AssayKeys,
     ContractError,
     ContractValidationResult,
     LayerKeys,
-    MINIMAL_WORKFLOW_CONTRACT,
+    LayerSemanticKeys,
+    ModalityContractResult,
+    ModalityKeys,
     Modules,
     ObsKeys,
     ObsmKeys,
-    REVIEW_SUMMARY_RECOMMENDED_KEYS,
-    REVIEW_SUMMARY_REQUIRED_KEYS,
     StageContract,
     UnsKeys,
     VarKeys,
@@ -71,14 +76,17 @@ from .contracts import (
     get_contract_spec,
     get_minimal_workflow_contract,
     get_stage_contract,
+    infer_anndata_semantics,
     module_namespace,
     normalize_review_summary,
     record_artifact,
-    record_contract_result,
     record_config_lineage,
+    record_contract_result,
     record_error,
+    register_anndata_semantics,
     stage_contract_to_dict,
     validate_all_stage_contracts,
+    validate_modality_contract,
     validate_review_summary_schema,
     validate_stage_contract,
 )
@@ -90,23 +98,16 @@ from .evidence import (
     ReviewAction,
     model_to_dict,
 )
-from .step_result import (
-    EvidenceLevel,
-    StepResult,
-    StepStatus,
-    rollup_step_status,
-    step_results_from_storage,
-    step_results_to_storage,
-    summarize_step_results,
-)
 from .helpers import (
     load_10x_data,
     merge_obs_metadata,
+    read_10x,
     sanitize_for_hdf5,
     subset_adata,
     subset_from_annotations,
     use_layer_as_X,
 )
+from .io import read_h5ad
 
 # Import and expose key functions and classes from the submodule
 from .manager import (
@@ -115,10 +116,15 @@ from .manager import (
     CellType,
     Manager,
     _get_cancer_markers,
+    canonicalize_marker_label,
+    get_gene_display_aliases,
+    get_marker_aliases,
     get_marker_manager,
     load_gene_set_manager,
     load_gene_sets,
+    load_marker_aliases,
 )
+from .manual_review import finalize_manual_review_summary
 from .marker_sets import filter_marker_dict, flatten_marker_dict
 
 # Import profiling utilities
@@ -132,12 +138,34 @@ from .profiling import (
     profile_function,
     profile_performance,
 )
+from .resource_audit import (
+    assert_trusted_resources,
+    audit_curation_index,
+    audit_geneset_resources,
+    audit_marker_entry_quality,
+    audit_marker_resources,
+    audit_resource_manifest,
+    build_resource_trust_report,
+    classify_literature_resource_utility,
+    load_marker_curation_literature_index,
+    load_reference_index,
+    load_resource_manifest,
+)
 
 # Import result cleanup utilities
 from .result_cleanup import (
     clear_sclucid_results,
     compact_sclucid_uns,
     list_sclucid_modules,
+)
+from .step_result import (
+    EvidenceLevel,
+    StepResult,
+    StepStatus,
+    rollup_step_status,
+    step_results_from_storage,
+    step_results_to_storage,
+    summarize_step_results,
 )
 
 # Import storage utilities (new simplified interface)
@@ -168,9 +196,6 @@ from .validation import (
     validate_analysis_results,
     validate_config,
 )
-from .audit_report import export_audit_report
-from .helpers import read_10x
-from .io import read_h5ad
 from .validation_scaffold import (
     COMPARATIVE_READINESS_LABEL,
     VALIDATION_SCAFFOLD_SCHEMA_VERSION,
@@ -231,10 +256,14 @@ __all__ = [
     "API_LAYER_CONTRACTS",
     "API_LAYER_ORDER",
     "APILayerContract",
+    "AssayKeys",
     "ContractError",
     "ContractValidationResult",
     "LayerKeys",
+    "LayerSemanticKeys",
     "MINIMAL_WORKFLOW_CONTRACT",
+    "ModalityContractResult",
+    "ModalityKeys",
     "Modules",
     "ObsmKeys",
     "ObsKeys",
@@ -255,14 +284,17 @@ __all__ = [
     "get_contract_spec",
     "get_minimal_workflow_contract",
     "get_stage_contract",
+    "infer_anndata_semantics",
     "module_namespace",
     "normalize_review_summary",
     "record_artifact",
     "record_contract_result",
     "record_config_lineage",
     "record_error",
+    "register_anndata_semantics",
     "stage_contract_to_dict",
     "validate_all_stage_contracts",
+    "validate_modality_contract",
     "validate_review_summary_schema",
     "validate_stage_contract",
     "effective_n_jobs",
@@ -271,6 +303,7 @@ __all__ = [
     "setup_runtime_environment",
     "flatten_marker_dict",
     "filter_marker_dict",
+    "finalize_manual_review_summary",
     "DecisionRecord",
     "EVIDENCE_SCHEMA_VERSION",
     "EvidenceBundle",
@@ -303,12 +336,27 @@ __all__ = [
     # Marker management
     "CellType",
     "Manager",
+    "canonicalize_marker_label",
+    "get_gene_display_aliases",
+    "get_marker_aliases",
     "get_marker_manager",
     "load_gene_set_manager",
     "load_gene_sets",
+    "load_marker_aliases",
     "_get_cancer_markers",
     "KNOWN_SPECIES",
     "MARKER_FORMATS",
+    "assert_trusted_resources",
+    "audit_curation_index",
+    "audit_geneset_resources",
+    "audit_marker_entry_quality",
+    "audit_marker_resources",
+    "audit_resource_manifest",
+    "build_resource_trust_report",
+    "classify_literature_resource_utility",
+    "load_marker_curation_literature_index",
+    "load_reference_index",
+    "load_resource_manifest",
     # Storage management (new simplified interface)
     "get_storage",
     "save_result",

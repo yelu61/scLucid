@@ -10,6 +10,7 @@ from anndata import AnnData
 
 from ..utils import sanitize_for_hdf5
 from ..utils.evidence import EvidenceBundle, EvidenceItem, ReviewAction, model_to_dict
+from scLucid.utils.contracts import _review_payload
 
 ANALYSIS_TRACE_SCHEMA_VERSION = "1.0"
 ANALYSIS_MODULE_MATURITY_SCHEMA_VERSION = "1.0"
@@ -807,16 +808,6 @@ def validate_analysis_module_completeness(
     if result["issues"] and raise_on_error:
         raise ValueError("; ".join(result["issues"]))
     return _json_safe(result)
-
-
-def _review_payload(summary: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Return the canonical review payload from flat or mirrored summaries."""
-    if not isinstance(summary, Mapping):
-        return {}
-    data = summary.get("data")
-    if isinstance(data, Mapping):
-        return data
-    return summary
 
 
 def _json_safe(value: Any) -> Any:

@@ -26,13 +26,10 @@ except ImportError:
 from ...utils import use_layer_as_X
 from ..config import HVGConfig
 from .core import find_hvgs
+from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
-
-def _is_interactive_backend() -> bool:
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
 
 def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str) -> None:
     """

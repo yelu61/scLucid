@@ -75,3 +75,10 @@ species = "human"
 workflow = ["program_scoring", "pathway_enrichment", "tumor_interpretation", "llm_annotation_summary"]
 status = "active"
 description = "Cancer hallmark gene sets for scoring/enrichment; kept separate from concise marker TOML resources"
+
+[[resources]]
+name = "marker_aliases"
+species = "all"
+workflow = ["nomenclature", "manual_review", "llm_annotation_summary"]
+status = "active"
+description = "Canonical label aliases and display-only gene aliases; not used as marker evidence"

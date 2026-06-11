@@ -50,6 +50,9 @@ class TestFindMarkers:
         assert "group" in df.columns
         assert "names" in df.columns
         assert "logfoldchanges" in df.columns
+        assert set(df["inference_level"]) == {"cell_level_marker_discovery"}
+        assert not df["valid_for_publication_inference"].any()
+        assert df["pseudoreplication_warning"].all()
 
     def test_kwargs_override_config(self, de_adata):
         """Kwargs override config values."""
@@ -58,6 +61,7 @@ class TestFindMarkers:
         # Verify the override was applied by checking stored params
         stored = de_adata.uns["sclucid"]["analysis"]["de"]["rank_genes_groups_params"]
         assert stored["method"] == "t-test"
+        assert stored["valid_for_publication_inference"] is False
 
     def test_stores_in_uns(self, de_adata):
         """Results are stored in adata.uns under sclucid path."""
@@ -168,6 +172,10 @@ class TestCompareGroups:
         )
         df = compare_groups(de_adata, config)
         assert isinstance(df, pd.DataFrame)
+        if not df.empty:
+            assert set(df["inference_level"]) == {"exploratory_cell_level"}
+            assert not df["valid_for_publication_inference"].any()
+            assert df["pseudoreplication_warning"].all()
 
     def test_missing_groupby_raises(self, de_adata):
         """KeyError when groupby column doesn't exist."""
@@ -197,6 +205,8 @@ class TestCompareGroups:
         compare_groups(de_adata, config)
         root = de_adata.uns["sclucid"]["analysis"]["de"]
         assert "my_comparison" in root.keys()
+        assert root["my_comparison_params"]["inference_level"] == "exploratory_cell_level"
+        assert root["my_comparison_params"]["valid_for_publication_inference"] is False
 
 
 class TestCompareConditions:
@@ -218,6 +228,10 @@ class TestCompareConditions:
         )
         df = compare_conditions(de_adata, config)
         assert isinstance(df, pd.DataFrame)
+        if not df.empty:
+            assert set(df["inference_level"]) == {"exploratory_cell_level"}
+            assert not df["valid_for_publication_inference"].any()
+            assert df["pseudoreplication_warning"].all()
 
     def test_missing_group_raises(self, de_adata):
         """ValueError when group not found."""
@@ -287,6 +301,9 @@ class TestRunPseudobulkDE:
         assert t_gene_a["logfoldchanges"] > 0
         assert t_gene_a["direction"] == "treat - ctrl"
         assert t_gene_a["n_samples_condition1"] == 3
+        assert t_gene_a["inference_level"] == "sample_level"
+        assert bool(t_gene_a["valid_for_publication_inference"]) is True
+        assert t_gene_a["replicate_status"] == "replicated"
         assert adata.uns["sclucid"]["analysis"]["de"]["pb_de"].equals(df)
 
     def test_pseudobulk_de_n2_uses_welch_logcpm(self):
@@ -367,7 +384,7 @@ class TestRunPseudobulkDE:
         assert not df.empty
         assert set(df["method"]) == {"deseq2"}
 
-    def test_pseudobulk_de_single_replicate_falls_back_to_cell_level(self):
+    def test_pseudobulk_de_single_replicate_returns_descriptive_pseudobulk(self):
         adata = self._make_pseudobulk_adata(n_reps=1)
         config = PseudobulkDEConfig(
             sample_col="sample",
@@ -382,7 +399,11 @@ class TestRunPseudobulkDE:
         df = run_pseudobulk_de(adata, config)
 
         assert not df.empty
-        assert set(df["method"]) == {"cell_level_fallback"}
+        assert set(df["method"]) == {"descriptive_pseudobulk"}
+        assert set(df["inference_level"]) == {"descriptive_single_sample"}
+        assert not df["valid_for_publication_inference"].any()
+        assert df["pvals"].isna().all()
+        assert df["pvals_adj"].isna().all()
         assert "pseudobulk_warning" in df.columns
 
     def test_pseudobulk_de_forced_welch_skips_single_replicate(self):
@@ -419,6 +440,9 @@ class TestRunPseudobulkDE:
 
         assert not df.empty
         assert set(df["method"]) == {"cell_level_fallback"}
+        assert set(df["inference_level"]) == {"exploratory_cell_level"}
+        assert df["pseudoreplication_warning"].all()
+        assert not df["valid_for_publication_inference"].any()
         assert df["pseudobulk_warning"].str.contains("forced").all()
 
     def test_pseudobulk_de_parallel_multiple_contrasts(self):
@@ -438,3 +462,76 @@ class TestRunPseudobulkDE:
         df = run_pseudobulk_de(adata, config)
 
         assert set(df["contrast"]) == {"B_vs_A", "A_vs_B"}
+
+    def test_pseudobulk_de_linear_model_includes_batch_covariate(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        sample_meta = adata.obs[["sample", "condition"]].drop_duplicates().copy()
+        sample_meta["batch"] = ["b1", "b2", "b1", "b2", "b1", "b2"] * 2
+        batch_map = dict(zip(sample_meta["sample"], sample_meta["batch"]))
+        adata.obs["batch"] = adata.obs["sample"].map(batch_map)
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+            design_covariates=["batch"],
+        )
+
+        df = run_pseudobulk_de(adata, config)
+
+        assert not df.empty
+        assert set(df["method"]) == {"linear_model_logcpm"}
+        assert set(df["inference_level"]) == {"sample_level"}
+        assert df["valid_for_publication_inference"].all()
+        assert df["design_covariates"].str.contains("batch").all()
+        assert df["design_formula"].str.contains("C\\(__condition\\)").all()
+
+    def test_pseudobulk_de_block_col_enters_linear_model(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        sample_meta = adata.obs[["sample", "condition"]].drop_duplicates().copy()
+        sample_meta["patient"] = [f"p{idx % 3}" for idx in range(len(sample_meta))]
+        patient_map = dict(zip(sample_meta["sample"], sample_meta["patient"]))
+        adata.obs["patient"] = adata.obs["sample"].map(patient_map)
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+            block_col="patient",
+        )
+
+        df = run_pseudobulk_de(adata, config)
+
+        assert not df.empty
+        assert set(df["method"]) == {"linear_model_logcpm"}
+        assert df["design_covariates"].str.contains("patient").all()
+        assert set(df["block_col"]) == {"patient"}
+
+    def test_pseudobulk_de_rejects_nonunique_sample_covariate(self):
+        adata = self._make_pseudobulk_adata(n_reps=2)
+        adata.obs["batch"] = "b1"
+        first_sample = adata.obs["sample"].iloc[0]
+        mask = adata.obs["sample"] == first_sample
+        adata.obs.loc[adata.obs.index[mask.to_numpy().nonzero()[0][0]], "batch"] = "b2"
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+            design_covariates=["batch"],
+        )
+
+        with pytest.raises(ValueError, match="multiple values in covariate"):
+            run_pseudobulk_de(adata, config)

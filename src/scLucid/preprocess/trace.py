@@ -8,6 +8,7 @@ from typing import Any
 from anndata import AnnData
 
 from ..utils.evidence import EvidenceBundle, EvidenceItem, ReviewAction, model_to_dict
+from scLucid.utils.contracts import _review_payload
 
 PREPROCESS_TRACE_SCHEMA_VERSION = "1.0"
 PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION = "1.0"
@@ -110,16 +111,6 @@ def enrich_preprocessing_review_summary(
     summary["evidence_bundle"] = build_preprocess_evidence_bundle(summary)
     summary["module_maturity"] = build_preprocess_module_maturity_assessment(summary)
     return _json_safe(summary)
-
-
-def _review_payload(summary: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Return the canonical review payload from flat or mirrored summaries."""
-    if not isinstance(summary, Mapping):
-        return {}
-    data = summary.get("data")
-    if isinstance(data, Mapping):
-        return data
-    return summary
 
 
 def get_preprocess_module_contract() -> dict[str, Any]:
@@ -885,6 +876,8 @@ def build_sample_depth_diagnostic(adata: AnnData, config: Any) -> dict[str, Any]
 
 def build_cell_cycle_regression_diagnostic(adata: AnnData, config: Any) -> dict[str, Any]:
     """Provide review guidance for cell-cycle regression without enabling it by default."""
+    from .scale import diagnose_cell_cycle_regression
+
     has_scores = {"S_score", "G2M_score"}.issubset(set(adata.obs.columns)) or "phase" in adata.obs
     vars_to_regress = set(getattr(getattr(config, "scaling", None), "vars_to_regress", []) or [])
     regress_in_scale = bool(getattr(getattr(config, "scaling", None), "regress_in_scale", False))
@@ -896,21 +889,23 @@ def build_cell_cycle_regression_diagnostic(adata: AnnData, config: Any) -> dict[
             "regression_configured": configured,
             "message": "Cell-cycle scores were not detected.",
         }
-    if configured:
-        return {
-            "status": "ok",
-            "scores_present": True,
-            "regression_configured": True,
-            "message": "Cell-cycle covariates are configured for regression; document biological rationale.",
-        }
-    return {
-        "status": "review_required",
-        "scores_present": True,
-        "regression_configured": False,
-        "message": (
-            "Cell-cycle scores are present but regression is disabled. This is the default; regress only for a homogeneous dataset where cell cycle is likely technical."
-        ),
-    }
+    diagnostic = diagnose_cell_cycle_regression(
+        adata,
+        condition_key=getattr(config, "condition_key", None),
+        batch_key=getattr(getattr(config, "integration", None), "batch_key", None)
+        if isinstance(getattr(getattr(config, "integration", None), "batch_key", None), str)
+        else None,
+        cell_type_key="cell_type_final" if "cell_type_final" in adata.obs else None,
+        record=False,
+    )
+    diagnostic["regression_configured"] = configured
+    diagnostic["message"] = diagnostic.get("recommendation", "")
+    if configured and diagnostic.get("status") == "low_risk":
+        diagnostic["status"] = "ok"
+        diagnostic["message"] = (
+            "Cell-cycle covariates are configured for regression; document biological rationale."
+        )
+    return diagnostic
 
 
 def build_preprocess_review_action_items(
@@ -1192,8 +1187,8 @@ def validate_preprocessing_review_summary(
     step_evidence = summary.get("step_evidence_summary")
     if not isinstance(step_evidence, Mapping):
         errors.append("Preprocessing review summary field 'step_evidence_summary' must be a mapping.")
-    elif not isinstance(step_evidence.get("steps"), list):
-        errors.append("Preprocessing step_evidence_summary.steps must be a list.")
+    elif not isinstance(step_evidence.get("steps"), (list, dict)):
+        errors.append("Preprocessing step_evidence_summary.steps must be a list or dict.")
     maturity = summary.get("module_maturity")
     if not isinstance(maturity, Mapping):
         errors.append("Preprocessing review summary field 'module_maturity' must be a mapping.")

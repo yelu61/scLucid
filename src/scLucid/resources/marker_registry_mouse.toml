@@ -54,7 +54,7 @@ markers = ["Cd4", "Il7r", "Ccr7"]
 [[compartment.minor.minor.minor]]
 name = "CD8+ T"
 color = "#ff7f0e"
-markers = ["Cd8a", "Cd8b1"]
+markers = ["Cd8a", "Cd8b1", "Gzmb"]
 
 [[compartment.minor.minor.minor]]
 name = "Treg"
@@ -264,7 +264,7 @@ markers = ["Plp1", "Mog", "Mbp", "Cnp"]
 [[compartment.minor]]
 name = "Oligodendrocyte Precursors (OPC)"
 color = "#6aa84f"
-markers = ["Pdgfra", "Cspg4"]
+markers = ["Pdgfra", "Cspg4", "Olig1", "Olig2"]
 
 [[compartment.minor]]
 name = "Microglia"

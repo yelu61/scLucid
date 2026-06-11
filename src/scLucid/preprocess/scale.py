@@ -7,7 +7,7 @@ regressing out covariates, ensuring consistency with the scLucid workflow.
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,7 +23,151 @@ from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
-__all__ = ["scale_data", "regress_out", "plot_scaling_effect"]
+__all__ = [
+    "diagnose_cell_cycle_regression",
+    "scale_data",
+    "regress_out",
+    "plot_scaling_effect",
+]
+
+
+def _safe_corr(a: pd.Series, b: pd.Series) -> float:
+    values = pd.concat(
+        [pd.to_numeric(a, errors="coerce"), pd.to_numeric(b, errors="coerce")],
+        axis=1,
+    ).dropna()
+    if len(values) < 3:
+        return 0.0
+    if values.iloc[:, 0].std() == 0 or values.iloc[:, 1].std() == 0:
+        return 0.0
+    return float(values.iloc[:, 0].corr(values.iloc[:, 1]))
+
+
+def _eta_squared_numeric_by_group(values: pd.Series, groups: pd.Series) -> float:
+    df = pd.DataFrame({"value": pd.to_numeric(values, errors="coerce"), "group": groups}).dropna()
+    if df.empty or df["group"].nunique() < 2:
+        return 0.0
+    grand = df["value"].mean()
+    ss_total = float(((df["value"] - grand) ** 2).sum())
+    if ss_total <= 0:
+        return 0.0
+    ss_between = 0.0
+    for _, sub in df.groupby("group", observed=False):
+        ss_between += len(sub) * float((sub["value"].mean() - grand) ** 2)
+    return float(max(0.0, min(1.0, ss_between / ss_total)))
+
+
+def diagnose_cell_cycle_regression(
+    adata: AnnData,
+    *,
+    condition_key: Optional[str] = None,
+    batch_key: Optional[str] = None,
+    cell_type_key: Optional[str] = None,
+    tumor: bool = False,
+    proliferation_markers: Optional[List[str]] = None,
+    confounding_threshold: float = 0.15,
+    technical_threshold: float = 0.20,
+    key_added: str = "cell_cycle_regression_diagnostic",
+    record: bool = True,
+) -> Dict[str, object]:
+    """Diagnose whether cell-cycle regression is biologically appropriate.
+
+    The function deliberately does not run regression. It records whether cell
+    cycle scores are associated with condition, batch, or cell type so users can
+    decide whether regression would remove biology or mitigate technical bias.
+    """
+    has_scores = {"S_score", "G2M_score"}.issubset(adata.obs.columns)
+    result: Dict[str, object] = {
+        "schema_version": "cell_cycle_regression_diagnostic_v1",
+        "scores_present": bool(has_scores),
+        "status": "not_available",
+        "metrics": {},
+        "warnings": [],
+        "recommendation": "Cell-cycle scores were not detected.",
+    }
+    if not has_scores:
+        if record:
+            adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[key_added] = result
+        return result
+
+    cc_score = pd.to_numeric(adata.obs["S_score"], errors="coerce") - pd.to_numeric(
+        adata.obs["G2M_score"], errors="coerce"
+    )
+    cycling_fraction = (
+        adata.obs["phase"].astype(str).isin(["S", "G2M"]).mean()
+        if "phase" in adata.obs.columns
+        else float(((adata.obs["S_score"] > 0) | (adata.obs["G2M_score"] > 0)).mean())
+    )
+    metrics: Dict[str, float] = {"cycling_fraction": float(cycling_fraction)}
+    warnings: List[str] = []
+
+    for key_name, key in [
+        ("condition", condition_key),
+        ("batch", batch_key),
+        ("cell_type", cell_type_key),
+    ]:
+        if key and key in adata.obs.columns:
+            eta = _eta_squared_numeric_by_group(cc_score, adata.obs[key].astype(str))
+            metrics[f"{key_name}_eta2_cc_score"] = eta
+            if key_name in {"condition", "cell_type"} and eta >= confounding_threshold:
+                warnings.append(
+                    f"Cell-cycle scores are associated with {key_name}; regression may remove biology."
+                )
+            if key_name == "batch" and eta >= technical_threshold:
+                warnings.append(
+                    "Cell-cycle scores are associated with batch; regression may be useful if biology is not confounded."
+                )
+
+    if "n_genes_by_counts" in adata.obs.columns:
+        metrics["corr_cc_n_genes"] = abs(_safe_corr(cc_score, adata.obs["n_genes_by_counts"]))
+    if "total_counts" in adata.obs.columns:
+        metrics["corr_cc_total_counts"] = abs(_safe_corr(cc_score, adata.obs["total_counts"]))
+
+    present_markers = []
+    markers = proliferation_markers or ["MKI67", "TOP2A", "PCNA", "MCM6", "TYMS"]
+    var_upper = {str(g).upper(): str(g) for g in adata.var_names}
+    for marker in markers:
+        if marker.upper() in var_upper:
+            present_markers.append(var_upper[marker.upper()])
+    if tumor or present_markers:
+        warnings.append(
+            "Proliferation may be a tumor or cell-state signal; avoid direct cell-cycle regression unless explicitly justified."
+        )
+
+    if any("batch" in warning for warning in warnings) and not any(
+        "condition" in warning or "cell_type" in warning or "tumor" in warning.lower()
+        for warning in warnings
+    ):
+        status = "technical_regression_candidate"
+        recommendation = (
+            "Cell cycle appears batch-associated without strong biology-confounding evidence; "
+            "regression can be considered with pre/post preservation checks."
+        )
+    elif warnings:
+        status = "review_required"
+        recommendation = (
+            "Do not regress cell cycle by default. Review condition, cell type, and tumor-state "
+            "confounding before enabling regression."
+        )
+    else:
+        status = "low_risk"
+        recommendation = (
+            "No strong cell-cycle confounding detected; keep regression disabled unless a specific "
+            "technical rationale exists."
+        )
+
+    result.update(
+        {
+            "status": status,
+            "metrics": metrics,
+            "warnings": warnings,
+            "present_proliferation_markers": present_markers,
+            "recommendation": recommendation,
+        }
+    )
+    if record:
+        adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[key_added] = result
+    return result
 
 
 # --- Helper functions for different scaling methods ---
@@ -299,6 +443,10 @@ def regress_out(
     if input_layer not in adata.layers:
         raise ValueError(f"Input layer '{input_layer}' not found in adata.layers.")
 
+    cc_diagnostic = None
+    if {"S_score", "G2M_score", "phase"} & set(vars_to_regress):
+        cc_diagnostic = diagnose_cell_cycle_regression(adata)
+
     log.info(f"Regressing out: {', '.join(vars_to_regress)} from layer '{input_layer}'")
     temp_adata = AnnData(
         X=adata.layers[input_layer].copy(), obs=adata.obs.copy(), var=adata.var.copy()
@@ -318,6 +466,7 @@ def regress_out(
         "output_layer": output_layer,
         "vars_to_regress": vars_to_regress,
         "scanpy_version": version("scanpy"),
+        "cell_cycle_regression_diagnostic": cc_diagnostic,
     }
     return adata
 

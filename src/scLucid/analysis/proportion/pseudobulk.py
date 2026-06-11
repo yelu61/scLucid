@@ -155,20 +155,26 @@ def _auto_configure_analysis(adata: AnnData, config: ProportionConfig) -> Propor
         f"Auto-config detected: {n_groups} groups, min reps={min_reps}, max reps={max_reps}, paired={is_paired}"
     )
 
-    # Auto-select test method
+    # Auto-select test method. Prefer compositional sample-level tests by default.
     suggested_method = config.test_method
 
-    if n_groups > 2 and config.test_method not in {"anova", "kruskal"}:
-        suggested_method = "anova"
+    if n_groups > 2:
+        if config.test_method not in {"anova", "kruskal"}:
+            suggested_method = "anova"
     elif is_paired:
-        suggested_method = "paired-wilcoxon" if min_reps >= 5 else "paired-t-test"
-    elif min_reps == 1 and config.test_method not in {"chi-square", "kruskal"}:
-        log.warning("Detected N=1 in at least one group. Forcing statistical test to 'chi-square'.")
-        suggested_method = "chi-square"
+        suggested_method = "clr-paired-wilcoxon" if min_reps >= 5 else "clr-paired-t-test"
+    elif config.batch_col and config.batch_col in adata.obs.columns:
+        suggested_method = "clr-ols"
+    elif min_reps == 1:
+        log.warning(
+            "Detected N=1 in at least one group. Formal proportion inference will be "
+            "descriptive/underpowered; p-values may be NaN."
+        )
+        suggested_method = "clr-t-test"
     elif min_reps == 2:
-        if config.test_method == "wilcoxon":
-            log.info("N=2 is too small for Wilcoxon power. Suggesting 'deseq2' or 't-test'.")
-            suggested_method = "deseq2"
+        if config.test_method in {"wilcoxon", "clr-wilcoxon"}:
+            log.info("N=2 is too small for Wilcoxon power. Suggesting 'clr-t-test'.")
+            suggested_method = "clr-t-test"
 
     # Update method
     if getattr(config, "auto_configure", True):
@@ -267,6 +273,8 @@ def celltype_proportion_analysis(
         sample_meta_cols = [config.sample_col, config.condition_col]
         if config.pairing_col:
             sample_meta_cols.append(config.pairing_col)
+        if config.batch_col and config.batch_col not in sample_meta_cols:
+            sample_meta_cols.append(config.batch_col)
         sample_meta = (
             adata.obs[sample_meta_cols]
             .drop_duplicates(subset=[config.sample_col])
@@ -276,6 +284,7 @@ def celltype_proportion_analysis(
         sample_to_pair = (
             sample_meta.loc[prop_df.index, config.pairing_col] if config.pairing_col else None
         )
+        sample_to_batch = sample_meta.loc[prop_df.index, config.batch_col] if config.batch_col else None
 
         stat_df = run_statistical_test(
             prop_df,
@@ -283,7 +292,24 @@ def celltype_proportion_analysis(
             test_method=config.test_method,
             sample_to_cond=sample_to_cond,
             sample_to_pair=sample_to_pair,
+            sample_to_batch=sample_to_batch,
+            composition_pseudocount=config.composition_pseudocount,
         )
+
+        if not stat_df.empty:
+            reps = sample_to_cond.astype(str).value_counts()
+            min_reps = int(reps.min()) if not reps.empty else 0
+            formal = min_reps >= int(config.min_samples_per_condition)
+            stat_df["replicate_status"] = (
+                "replicated" if formal else "single_sample_or_unreplicated"
+            )
+            stat_df["valid_for_publication_inference"] = bool(formal)
+            if not formal:
+                stat_df["inference_level"] = "descriptive_sample_level"
+                stat_df["proportion_warning"] = (
+                    "Insufficient biological replicates for publication-level "
+                    "cell-type proportion inference."
+                )
 
         # Add effect sizes
         if config.test_method in ["t-test", "wilcoxon", "paired-t-test", "paired-wilcoxon"]:

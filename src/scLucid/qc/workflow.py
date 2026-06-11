@@ -27,6 +27,7 @@ from ..utils import (
     save_workflow_result,
     validate_review_summary_schema,
 )
+from .ambient import diagnose_ambient_rna, diagnose_empty_droplets
 from .benchmark import evaluate_qc_benchmark, export_qc_benchmark_report
 from .config import QCWorkflowConfig
 from .doublet import predict_doublets
@@ -283,10 +284,12 @@ def _process_sample_doublet(
     else:
         doublet_config.save_dir = None
 
+    doublet_group_key = doublet_config.detection_group_key or config.sample_key
+
     sample_adata = predict_doublets(
         sample_adata,
         config=doublet_config,
-        sample_key=config.sample_key,
+        sample_key=doublet_group_key,
     )
 
     return sample_adata
@@ -558,6 +561,8 @@ def _build_qc_review_summary(
     sample_thresholds: Dict[str, Any],
     filtering_summary: Dict[str, Any],
     warnings: List[str],
+    ambient_summary: Optional[Dict[str, Any]] = None,
+    empty_droplet_summary: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a human-reviewable summary of the QC run.
 
@@ -690,6 +695,10 @@ def _build_qc_review_summary(
 
     # --- Warnings ---
     summary["warnings"] = warnings
+    if ambient_summary is not None:
+        summary["ambient_rna_summary"] = ambient_summary
+    if empty_droplet_summary is not None:
+        summary["empty_droplet_summary"] = empty_droplet_summary
 
     return summary
 
@@ -742,6 +751,33 @@ def _store_qc_trace(
         )
         save_result(adata, "qc", "benchmark_summary", benchmark_summary)
 
+    ambient_input = adata_before_filtering if adata_before_filtering is not None else adata
+    try:
+        ambient_summary = diagnose_ambient_rna(ambient_input)
+        save_result(adata, "qc", "ambient_rna_summary", ambient_summary)
+        empty_droplet_summary = diagnose_empty_droplets(ambient_input)
+        save_result(adata, "qc", "empty_droplet_summary", empty_droplet_summary)
+        if ambient_summary.get("risk_level") in {"moderate", "high"}:
+            warnings.append(
+                "Ambient RNA risk is "
+                f"{ambient_summary.get('risk_level')}; inspect ambient_rna_summary "
+                "and consider Python backends such as CellBender or scAR."
+            )
+            save_result(adata, "qc", "warnings", warnings)
+    except Exception as exc:
+        ambient_summary = {
+            "available": False,
+            "risk_level": "unknown",
+            "reason": f"ambient diagnostic failed: {exc}",
+        }
+        empty_droplet_summary = {
+            "available": False,
+            "risk_level": "unknown",
+            "reason": f"empty-droplet diagnostic failed: {exc}",
+        }
+        save_result(adata, "qc", "ambient_rna_summary", ambient_summary)
+        save_result(adata, "qc", "empty_droplet_summary", empty_droplet_summary)
+
     # Build and store the review-facing summary
     base_review_summary = _build_qc_review_summary(
         config,
@@ -750,6 +786,8 @@ def _store_qc_trace(
         sample_thresholds,
         filtering_summary,
         warnings,
+        ambient_summary=ambient_summary,
+        empty_droplet_summary=empty_droplet_summary,
     )
     if benchmark_summary is not None:
         base_review_summary["benchmark_summary"] = benchmark_summary
@@ -851,6 +889,8 @@ def _export_qc_review_summary(
     md_lines.append("")
 
     action_items = review_summary.get("review_action_items", [])
+    if isinstance(action_items, dict):
+        action_items = list(action_items.values())
     if action_items:
         md_lines.extend(
             [
@@ -878,7 +918,10 @@ def _export_qc_review_summary(
             "|-----------|---------|--------|----------------|--------|------------|",
         ]
     )
-    for row in review_summary.get("decision_table", []):
+    decision_table = review_summary.get("decision_table", [])
+    if isinstance(decision_table, dict):
+        decision_table = list(decision_table.values())
+    for row in decision_table:
         md_lines.append(
             "| {parameter} | {applied} | {source} | {enabled} | {method} | {confidence} |".format(
                 parameter=row.get("parameter"),
@@ -901,9 +944,12 @@ def _export_qc_review_summary(
             f"- **Genes**: {health.get('n_genes')}",
         ]
     )
-    if health.get("issues"):
+    issues = health.get("issues", [])
+    if isinstance(issues, dict):
+        issues = list(issues.values())
+    if issues:
         md_lines.append("- **Issues**:")
-        for issue in health.get("issues", []):
+        for issue in issues:
             md_lines.append(f"  - {issue}")
     md_lines.append("")
 
@@ -990,7 +1036,10 @@ def _export_qc_review_summary(
             "",
         ]
     )
-    for item in downstream.get("recommendations", []):
+    _recs = downstream.get("recommendations", [])
+    if isinstance(_recs, dict):
+        _recs = list(_recs.values())
+    for item in _recs:
         md_lines.append(
             "- **{target}** ({priority}): {recommendation}".format(
                 target=item.get("target"),
@@ -1015,14 +1064,17 @@ def _export_qc_review_summary(
         ]
     )
 
-    if review_summary.get("warnings"):
+    warnings = review_summary.get("warnings", [])
+    if isinstance(warnings, dict):
+        warnings = list(warnings.values())
+    if warnings:
         md_lines.extend(
             [
                 "## Warnings",
                 "",
             ]
         )
-        for w in review_summary["warnings"]:
+        for w in warnings:
             md_lines.append(f"- {w}")
         md_lines.append("")
 
@@ -1190,16 +1242,27 @@ def _run_qc_workflow(
         if results_path is not None:
             config.doublet_config.save_dir = str(results_path / "doublet")
 
-        if config.use_parallel and active_n_jobs != 1 and len(samples) > 1:
+        doublet_group_key = config.doublet_config.detection_group_key or config.sample_key
+        if doublet_group_key not in adata.obs:
+            log.warning(
+                "Doublet detection group key '%s' not found; falling back to sample_key '%s'.",
+                doublet_group_key,
+                config.sample_key,
+            )
+            doublet_group_key = config.sample_key
+        doublet_groups = adata.obs[doublet_group_key].unique()
+        doublet_n_jobs = effective_n_jobs(config.n_jobs, max_jobs=len(doublet_groups))
+
+        if config.use_parallel and doublet_n_jobs != 1 and len(doublet_groups) > 1:
             # Parallel doublet detection with error handling
             results = _safe_parallel_process(
                 process_func=lambda data, cfg, name: _process_sample_doublet(
                     data, cfg, config.doublet_config.save_dir, name
                 ),
-                samples=list(samples),
-                sample_data_func=lambda s: adata[adata.obs[config.sample_key] == s].copy(),
+                samples=list(doublet_groups),
+                sample_data_func=lambda s: adata[adata.obs[doublet_group_key] == s].copy(),
                 config=config,
-                n_jobs=active_n_jobs,
+                n_jobs=doublet_n_jobs,
                 step_name="doublet detection",
                 show_progress=show_progress,
             )
@@ -1224,7 +1287,7 @@ def _run_qc_workflow(
             adata = predict_doublets(
                 adata,
                 config=config.doublet_config,
-                sample_key=config.sample_key,
+                sample_key=doublet_group_key,
             )
 
     # --- 3. Low-quality cell marking ---

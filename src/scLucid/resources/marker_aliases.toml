@@ -1,0 +1,139 @@
+# =============================================================================
+# scLucid Marker Alias Registry
+# =============================================================================
+# Purpose:
+# - Keep nomenclature aliases, paper-specific labels, and display-only gene aliases
+#   out of marker lists.
+# - Preserve original literature terms without letting them become canonical labels.
+# - Support future review tools that map user labels to stable registry entries.
+# =============================================================================
+
+[metadata]
+version = "0.1.0"
+last_updated = "2026-06-10"
+schema = "scLucid_marker_aliases_v1"
+resource_type = "marker_aliases"
+description = "Canonical marker label and display alias registry"
+source_ids = ["SRC0132"]
+nomenclature_scope = "T cell guideline generalized to all lineages as modular label grammar"
+
+[[label_aliases]]
+canonical = "CD4+ Tn"
+aliases = ["Naive CD4 T", "CD4 naive T", "CD4+ CCR7+ SELL+ TCF7+"]
+category = "cell_type"
+lineage = "T cells"
+source_note = "Aligned with modular T cell nomenclature guidance."
+
+[[label_aliases]]
+canonical = "CD8+ Tn"
+aliases = ["Naive CD8 T", "CD8 naive T", "CD8+ CCR7+ SELL+ TCF7+"]
+category = "cell_type"
+lineage = "T cells"
+source_note = "Aligned with modular T cell nomenclature guidance."
+
+[[label_aliases]]
+canonical = "T cell exhaustion-like"
+aliases = ["Tex", "Exhausted T", "dysfunctional T", "PDCD1+ TOX+ T"]
+category = "state"
+lineage = "T cells"
+source_note = "State label is preferred over fixed subtype when context-dependent."
+
+[[label_aliases]]
+canonical = "CD8+ T | exhausted-like"
+aliases = ["CD8+ Tex", "CD8 Tex", "CD8 exhausted T", "CD8+ PDCD1+ TOX+ T"]
+category = "state"
+lineage = "CD8+ T"
+source_note = "Lineage-qualified state label; keep exhaustion as state evidence rather than stable subtype."
+
+[[label_aliases]]
+canonical = "T/NK checkpoint exhaustion program"
+aliases = ["Exhausted", "Exhaustion program", "checkpoint exhaustion", "T cell exhaustion program"]
+category = "functional_program"
+lineage = "T cells"
+source_note = "Renamed from historical underspecified program label."
+
+[[label_aliases]]
+canonical = "Pro-inflammatory cytokine program"
+aliases = ["Pro_inflammatory", "pro-inflammatory", "inflammatory cytokine program"]
+category = "functional_program"
+lineage = "Immune"
+source_note = "Readable canonical program name; old underscore form retained as alias."
+
+[[label_aliases]]
+canonical = "Anti-inflammatory regulatory program"
+aliases = ["Anti_inflammatory", "anti-inflammatory", "regulatory cytokine program"]
+category = "functional_program"
+lineage = "Immune"
+source_note = "Readable canonical program name; old underscore form retained as alias."
+
+[[label_aliases]]
+canonical = "Antigen presentation"
+aliases = ["Antigen_presenting", "MHC presentation", "APC program"]
+category = "functional_program"
+lineage = "Myeloid"
+source_note = "Canonical program label for MHC-I/MHC-II antigen presentation scoring."
+
+[[label_aliases]]
+canonical = "T cell activation"
+aliases = ["T_cell_activation", "T activation program"]
+category = "functional_program"
+lineage = "T cells"
+source_note = "Readable canonical program name; old underscore form retained as alias."
+
+[[label_aliases]]
+canonical = "T cell memory"
+aliases = ["T_cell_memory", "memory T program"]
+category = "functional_program"
+lineage = "T cells"
+source_note = "Readable canonical program name; old underscore form retained as alias."
+
+[[label_aliases]]
+canonical = "AtM/TAAB B"
+aliases = ["AtM B", "TAAB", "Tumor-associated atypical B", "Atypical memory B"]
+category = "cell_type"
+lineage = "B cells"
+source_note = "Pan-cancer B cell atlas labels are overlapping and should be reviewed as one canonical concept."
+
+[[label_aliases]]
+canonical = "SPP1-like macrophage"
+aliases = ["SPP1+ TAM", "SPP1 macrophage", "TREM2+ SPP1+ macrophage"]
+category = "cell_type"
+lineage = "Macrophages"
+source_note = "Tumor-associated macrophage terms vary across pan-cancer myeloid atlases."
+
+[[label_aliases]]
+canonical = "CAF activation program"
+aliases = ["activated CAF", "myCAF-like program", "matrix CAF program"]
+category = "functional_program"
+lineage = "Fibroblasts"
+source_note = "Functional CAF programs should remain separate from stable fibroblast identity labels."
+
+[[gene_aliases]]
+symbol = "NAPSA"
+display_aliases = ["Napsin A"]
+notes = "Display alias found in tumor marker literature; marker resources should store gene symbol NAPSA."
+
+[[gene_aliases]]
+symbol = "CD274"
+display_aliases = ["PD-L1", "PDL1"]
+notes = "Use CD274 in gene lists; retain PD-L1 as display alias."
+
+[[gene_aliases]]
+symbol = "SELL"
+display_aliases = ["CD62L", "L-selectin"]
+notes = "Use SELL in gene lists; retain CD62L as protein/display alias."
+
+[[gene_aliases]]
+symbol = "LGALS9"
+display_aliases = ["Galectin-9", "GAL9"]
+notes = "Use LGALS9 in gene lists; retain Galectin-9/GAL9 as display aliases."
+
+[[gene_aliases]]
+symbol = "MUC16"
+display_aliases = ["CA125"]
+notes = "Use MUC16 in gene lists; retain CA125 as display alias."
+
+[[gene_aliases]]
+symbol = "WFDC2"
+display_aliases = ["HE4"]
+notes = "Use WFDC2 in gene lists; retain HE4 as display alias."

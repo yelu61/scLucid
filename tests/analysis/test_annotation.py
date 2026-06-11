@@ -11,19 +11,27 @@ import numpy as np
 import pandas as pd
 import pytest
 import scanpy as sc
+from anndata import AnnData
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.analysis.annotation import (
-    apply_final_annotation,
     annotate_clusters,
+    apply_final_annotation,
+    apply_subset_annotation_reconciliation,
     build_annotation_review_table,
+    build_hierarchical_annotation_plan,
     build_llm_annotation_bundle,
+    build_subset_annotation_reconciliation,
+    evaluate_annotation,
+    evaluate_annotation_benchmark,
     filter_marker_table_for_annotation,
     flag_suspect_clusters,
     merge_annotation_evidence,
-    run_marker_annotation_evidence,
     run_lineage_state_annotation,
+    run_marker_annotation_evidence,
+    run_program_annotation_evidence,
+    run_subset_annotation_refinement,
     score_cell_types,
     standardize_cluster_marker_table,
 )
@@ -194,6 +202,7 @@ class TestAnnotation:
             "leiden_clusters",
             markers_df=markers_df,
             marker_evidence=marker_evidence,
+            lineage_key="lineage_gate",
         )
         assert bundle["schema_version"] == "analysis_annotation_bundle_v1"
         assert cluster_codes[0] in bundle["clusters"]
@@ -213,6 +222,246 @@ class TestAnnotation:
         result = apply_final_annotation(adata, "leiden_clusters", review)
         assert "cell_type_final" in result.obs.columns
         assert "cell_type_final_confidence" in result.obs.columns
+
+    def test_hierarchical_annotation_plan_recommends_subset_refinement(self):
+        adata = AnnData(X=np.ones((80, 6)))
+        adata.obs_names = [f"cell{i}" for i in range(80)]
+        adata.var_names = [f"gene{i}" for i in range(6)]
+        adata.obs["cluster"] = ["0"] * 45 + ["1"] * 35
+        adata.obs["lineage"] = ["T cells"] * 80
+
+        plan = build_hierarchical_annotation_plan(
+            adata,
+            cluster_key="cluster",
+            lineage_key="lineage",
+            min_cells_per_lineage=20,
+            min_clusters_per_lineage=2,
+            min_lineage_purity=0.4,
+        )
+
+        assert plan.loc[0, "lineage_label"] == "T cells"
+        assert plan.loc[0, "recommended_action"] == "subset_recluster_for_subtype"
+        assert "hierarchical_annotation_plan" in adata.uns["sclucid"]["analysis"]["annotation"]
+
+    def test_llm_bundle_includes_hierarchical_gate_context(self):
+        adata = AnnData(X=np.ones((6, 4)))
+        adata.obs_names = [f"cell{i}" for i in range(6)]
+        adata.var_names = ["CD3D", "IL7R", "MS4A1", "NKG7"]
+        adata.obs["cluster"] = ["0", "0", "0", "1", "1", "1"]
+        adata.obs["lineage"] = ["T cells", "T cells", "T cells", "B cells", "B cells", "B cells"]
+        adata.obs["subtype"] = ["CD4+ T", "CD4+ T", "CD4+ T", "Naive B", "Naive B", "Naive B"]
+        markers_df = pd.DataFrame(
+            {
+                "group": ["0", "0", "1", "1"],
+                "names": ["CD3D", "IL7R", "MS4A1", "NKG7"],
+                "scores": [5, 4, 5, 2],
+            }
+        )
+
+        bundle = build_llm_annotation_bundle(
+            adata,
+            "cluster",
+            markers_df=markers_df,
+            lineage_key="lineage",
+            subtype_key="subtype",
+        )
+
+        cluster_zero = bundle["clusters"]["0"]
+        lineage_items = list(cluster_zero["lineage_annotation"].values())
+        subtype_items = list(cluster_zero["subtype_annotation"].values())
+        assert lineage_items[0]["label"] == "T cells"
+        assert subtype_items[0]["label"] == "CD4+ T"
+        assert "major lineage evidence" in bundle["instructions"]
+
+    def test_subset_annotation_refinement_reprocesses_counts_without_writeback(self):
+        rng = np.random.default_rng(42)
+        counts = rng.poisson(2, size=(70, 30)).astype(float)
+        counts[:35, :4] += 4
+        counts[35:, 4:8] += 4
+        adata = AnnData(X=np.log1p(counts))
+        adata.obs_names = [f"cell{i}" for i in range(70)]
+        adata.var_names = [f"gene{i}" for i in range(30)]
+        adata.layers["counts"] = counts.copy()
+        adata.obs["lineage"] = ["T cells"] * 70
+
+        build_hierarchical_annotation_plan(
+            adata,
+            cluster_key="lineage",
+            lineage_key="lineage",
+            min_cells_per_lineage=20,
+            min_clusters_per_lineage=1,
+        )
+        subsets = run_subset_annotation_refinement(
+            adata,
+            lineage_key="lineage",
+            lineages=["T cells"],
+            cluster_resolution=0.2,
+            n_top_hvgs=15,
+            n_pcs=5,
+            n_neighbors=5,
+            min_cells=20,
+            write_back=False,
+        )
+
+        assert "T cells" in subsets
+        subset = subsets["T cells"]
+        assert "subset_annotation_input" in subset.layers
+        summary = adata.uns["sclucid"]["analysis"]["annotation"]["subset_annotation_refinement"]
+        assert summary.loc[0, "input_mode"] == "layer:counts"
+        assert summary.loc[0, "status"] == "completed"
+        assert "subset_annotation_refinement_cluster" not in adata.obs.columns
+
+    def test_subset_annotation_refinement_can_optionally_write_back_clusters(self):
+        rng = np.random.default_rng(7)
+        counts = rng.poisson(2, size=(60, 24)).astype(float)
+        counts[:30, :4] += 3
+        counts[30:, 4:8] += 3
+        adata = AnnData(X=np.log1p(counts))
+        adata.obs_names = [f"cell{i}" for i in range(60)]
+        adata.var_names = [f"gene{i}" for i in range(24)]
+        adata.layers["counts"] = counts.copy()
+        adata.obs["lineage"] = ["Myeloid"] * 60
+
+        subsets = run_subset_annotation_refinement(
+            adata,
+            lineage_key="lineage",
+            lineages=["Myeloid"],
+            cluster_resolution=0.2,
+            n_top_hvgs=12,
+            n_pcs=5,
+            n_neighbors=5,
+            min_cells=20,
+            write_back=True,
+            key_added="myeloid_refine",
+        )
+
+        assert "Myeloid" in subsets
+        assert "myeloid_refine_cluster" in adata.obs.columns
+        assert str(adata.obs["myeloid_refine_cluster"].iloc[0]).startswith("Myeloid:")
+
+    def test_subset_reconciliation_flags_conflicts_and_exclusions_without_dropping_cells(self):
+        adata = AnnData(X=np.ones((5, 4)))
+        adata.obs_names = [f"cell{i}" for i in range(5)]
+        adata.var_names = [f"gene{i}" for i in range(4)]
+        adata.obs["lineage"] = ["T cells"] * 5
+        adata.obs["subtype_global"] = [
+            "CD4+ T",
+            "CD4+ T",
+            "CD8+ T",
+            "Unknown",
+            "CD4+ T",
+        ]
+
+        subset = adata.copy()
+        subset.obs["subset_clusters"] = ["0", "0", "1", "1", "2"]
+        subset.obs["subset_label"] = [
+            "CD4+ T",
+            "CD8+ T",
+            "CD8+ T",
+            "CD8+ T",
+            "Unknown",
+        ]
+        subset.obs["subset_review_exclude"] = [False, False, False, True, False]
+
+        reconciliation = build_subset_annotation_reconciliation(
+            adata,
+            {"T cells": subset},
+            lineage_key="lineage",
+            global_subtype_key="subtype_global",
+            subset_label_key="subset_label",
+            subset_cluster_key="subset_clusters",
+        )
+
+        conflict = reconciliation.set_index("obs_name").loc["cell1"]
+        excluded = reconciliation.set_index("obs_name").loc["cell3"]
+        assert conflict["recommended_action"] == "review_subtype_conflict"
+        assert bool(conflict["subtype_conflict"]) is True
+        assert excluded["recommended_action"] == "exclude_from_global_review"
+        assert bool(excluded["exclude_from_global"]) is True
+        assert adata.n_obs == 5
+
+        apply_subset_annotation_reconciliation(
+            adata,
+            reconciliation,
+            target_key="subtype_refined",
+            global_subtype_key="subtype_global",
+        )
+
+        assert str(adata.obs.loc["cell0", "subtype_refined"]) == "CD4+ T"
+        assert str(adata.obs.loc["cell1", "subtype_refined"]) == "CD4+ T"
+        assert bool(adata.obs.loc["cell3", "subset_refinement_exclude"]) is True
+        assert adata.n_obs == 5
+
+    def test_program_annotation_evidence_enriches_bundle_and_review_without_label_vote(
+        self, tmp_path
+    ):
+        adata = AnnData(X=np.ones((8, 6), dtype=float))
+        adata.obs_names = [f"cell{i}" for i in range(8)]
+        adata.var_names = ["GZMB", "PRF1", "NKG7", "PDCD1", "TOX", "HAVCR2"]
+        adata.obs["cluster"] = ["0"] * 4 + ["1"] * 4
+        adata.X[:4, :3] = 8
+        adata.X[4:, 3:] = 8
+
+        program_file = _write_marker_toml(
+            tmp_path / "program_annotation_markers.toml",
+            ["GZMB", "PRF1", "NKG7"],
+            ["PDCD1", "TOX", "HAVCR2"],
+        )
+        program_mgr = Manager(program_file, case_sensitive=True)
+        program_evidence = run_program_annotation_evidence(
+            adata,
+            "cluster",
+            program_config=program_mgr,
+            min_genes=2,
+            top_n_programs=1,
+        )
+
+        assert {"cluster", "program", "program_score_mean", "top_programs"}.issubset(
+            program_evidence.columns
+        )
+        bundle = build_llm_annotation_bundle(
+            adata,
+            "cluster",
+            program_evidence=program_evidence,
+        )
+        assert bundle["clusters"]["0"]["program_evidence"]
+        review = merge_annotation_evidence(
+            adata,
+            "cluster",
+            program_evidence=program_evidence,
+        )
+        assert "top_programs" in review.columns
+        assert review["final_label"].astype(str).eq("Unknown").all()
+
+    def test_evaluate_annotation_benchmark_reports_disagreement_and_confusion(self):
+        adata = AnnData(X=np.ones((6, 3)))
+        adata.obs["truth"] = ["T", "T", "B", "B", "NK", "NK"]
+        adata.obs["cell_type_final"] = ["T", "T", "B", "T", "Unknown", "NK"]
+        review = pd.DataFrame(
+            {
+                "cluster": ["0", "1", "2"],
+                "reference_label": ["T", "B", "NK"],
+                "marker_label": ["T", "T", "Unknown"],
+                "llm_label": ["T", "B", "NK"],
+                "final_label": ["T", "T", "Unknown"],
+                "needs_review": [False, True, False],
+                "marker_database": ["testdb", "testdb", "testdb"],
+            }
+        )
+
+        result = evaluate_annotation_benchmark(
+            adata,
+            label_key="cell_type_final",
+            truth_key="truth",
+            review_table=review,
+        )
+
+        assert result["schema_version"] == "annotation_benchmark_v1"
+        assert result["accuracy"] < 1.0
+        assert "Ambiguous" in result["conservative_label_counts"]
+        assert not result["disagreement_matrix"].empty
+        assert not result["confusion_matrix"].empty
+        assert "annotation_benchmark" in adata.uns["sclucid"]["analysis"]["annotation"]
 
     def test_flag_suspect_clusters_identifies_ribosomal_and_doublet_clusters(self, clustered_adata):
         """Cluster-level suspect flags should capture ribosomal dominance and doublet-heavy clusters."""
@@ -252,6 +501,39 @@ class TestAnnotation:
         assert flagged.loc[target_cluster, "suspect_flag"] == "doublet_suspect"
         assert "ribosomal_dominant" in flagged.loc[target_cluster, "suspect_reasons"]
         assert flagged.loc[other_cluster, "suspect_flag"] == "clean"
+
+    def test_evaluate_annotation_uses_exclusive_marker_support(self, tmp_path):
+        """Shared markers should not be treated as annotation-conflict evidence."""
+        X = np.zeros((40, 6), dtype=float)
+        clusters = np.array(["0"] * 20 + ["1"] * 20)
+        X[:, 0] = 5  # shared marker
+        X[clusters == "0", 1] = 20  # Type_A exclusive marker
+        X[clusters == "1", 2] = 20  # Type_B exclusive marker
+        X[:, 3:] = 1
+        adata = AnnData(X=X)
+        adata.var_names = [f"g{i}" for i in range(6)]
+        adata.obs["cluster"] = pd.Categorical(clusters)
+        adata.obs["cell_type_auto"] = np.where(clusters == "0", "Type_A", "Type_B")
+
+        marker_file = _write_marker_toml(
+            tmp_path / "shared_marker_eval.toml",
+            ["g0", "g1"],
+            ["g0", "g2"],
+        )
+
+        result = evaluate_annotation(
+            adata,
+            cluster_key="cluster",
+            annotation_key="cell_type_auto",
+            marker_config=marker_file,
+            plot=False,
+        )
+
+        row_a = result.loc[result["cell_type"] == "Type_A"].iloc[0]
+        assert row_a["marker_specificity_reason"] == "exclusive_marker_support"
+        assert row_a["exclusive_expected_markers"] == 1
+        assert row_a["exclusive_detected_markers"] == 1
+        assert row_a["marker_specificity"] == pytest.approx(1.0)
 
     def test_build_annotation_review_table_summarizes_clusters(self, clustered_adata):
         """Review helper should build a compact per-cluster annotation table and persist it."""
@@ -313,7 +595,7 @@ class TestAnnotation:
 
         # This may fail without proper marker databases, so we test config validation
         assert config.cluster_key == "leiden_clusters"
-        assert config.run_celltypist == False
+        assert not config.run_celltypist
 
     def test_run_lineage_state_annotation_generates_modular_labels(self, clustered_adata, tmp_path):
         """Hierarchical annotation should produce lineage/subtype/state outputs plus a modular display label."""
@@ -475,6 +757,50 @@ metadata = {{ kind = "state", scope = "lineage_restricted", applies_to = ["Type_
             .eq("Type_B_only_state")
             .all()
         )
+
+    def test_run_lineage_state_annotation_respects_min_state_score(
+        self, clustered_adata, tmp_path
+    ):
+        """Low state scores should remain Not_applicable instead of forced to the top state."""
+        adata = clustered_adata.copy()
+        clusters = adata.obs["leiden_clusters"].astype(str)
+        cluster_a = clusters.iloc[0]
+        cluster_b = next(code for code in clusters.unique() if code != cluster_a)
+
+        lineage_genes = adata.var_names[:8].tolist()
+        state_genes = adata.var_names[8:10].tolist()
+        X = np.asarray(adata.X)
+        X[clusters == cluster_a, 0:4] += 8.0
+        X[clusters == cluster_b, 4:8] += 8.0
+        X[clusters == cluster_a, 8:10] += 4.0
+        adata.X = X
+        adata.raw = adata.copy()
+
+        lineage_marker_file = _write_marker_toml(
+            tmp_path / "lineage_markers_min_state.toml",
+            lineage_genes[:4],
+            lineage_genes[4:8],
+        )
+
+        config = AnnotationConfig(
+            cluster_key="leiden_clusters",
+            final_method="hierarchical",
+            marker_method="max_score",
+            lineage_marker_config=str(lineage_marker_file),
+            target_lineage="Type_A",
+            lineage_key="lineage_auto",
+            subtype_key="subtype_auto",
+            state_key="state_auto",
+            key_added="celltype_display",
+            custom_state_signatures={"Weak_state": state_genes},
+            min_state_score=999.0,
+            nomenclature_style="modular",
+        )
+
+        result = run_lineage_state_annotation(adata, config)
+
+        assert result.obs["state_auto"].astype(str).eq("Not_applicable").all()
+        assert result.obs["state_auto_confidence"].isna().all()
 
 
 @pytest.mark.integration

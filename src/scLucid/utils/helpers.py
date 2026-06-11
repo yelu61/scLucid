@@ -20,6 +20,7 @@ from anndata import AnnData
 from scipy import io
 
 from .contracts import LayerKeys, SCLUCID_ROOT, UnsKeys, ensure_sclucid_namespace
+from .sanitize import sanitize_for_hdf5
 
 log = logging.getLogger(__name__)
 
@@ -658,38 +659,21 @@ def use_layer_as_X(adata: AnnData, layer: Optional[str]):
         adata.X = X_backup
 
 
-def sanitize_for_hdf5(obj):
-    """
-    Make objects HDF5-compatible by:
-    1. Converting tuples to lists
-    2. Converting integer keys to strings in dictionaries
-    3. Handling other non-HDF5 compatible types
-    """
-    if isinstance(obj, pd.DataFrame):
-        return sanitize_for_hdf5(obj.to_dict(orient="records"))
-    elif isinstance(obj, pd.Series):
-        return sanitize_for_hdf5(obj.to_dict())
-    elif isinstance(obj, np.ndarray):
-        return sanitize_for_hdf5(obj.tolist())
-    elif isinstance(obj, tuple) or isinstance(obj, list):
-        if obj and all(isinstance(item, dict) for item in obj):
-            return {
-                str(i): sanitize_for_hdf5(item)
-                for i, item in enumerate(obj)
-            }
-        return [sanitize_for_hdf5(item) for item in obj]
-    elif isinstance(obj, dict):
-        return {str(k): sanitize_for_hdf5(v) for k, v in obj.items()}
-    elif obj is None:
-        return ""
-    elif isinstance(obj, (int, float, str, bool, np.number, np.bool_)):
-        return obj
+def _is_interactive_backend() -> bool:
+    """Return whether the active matplotlib backend can show figures interactively."""
+    from matplotlib import get_backend
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(*figs, show: bool = True) -> None:
+    """Show figures on interactive backends; otherwise close quietly."""
+    import matplotlib.pyplot as plt
+    if show and _is_interactive_backend():
+        plt.show()
     else:
-        # Try to convert other types to string representation
-        try:
-            return str(obj)
-        except:
-            return "Unconvertible object"
+        for fig in figs:
+            plt.close(fig)
 
 
 def subset_adata(

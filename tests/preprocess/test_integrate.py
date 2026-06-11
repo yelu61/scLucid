@@ -5,7 +5,11 @@ import pytest
 from anndata import AnnData
 
 from scLucid.preprocess.config import IntegrationConfig
-from scLucid.preprocess.integrate import batch_correction, evaluate_integration
+from scLucid.preprocess.integrate import (
+    batch_correction,
+    diagnose_integration_risk,
+    evaluate_integration,
+)
 
 
 @pytest.mark.unit
@@ -19,6 +23,27 @@ class TestBatchCorrection:
             config=IntegrationConfig(method=None, plot=False, report=False, verbose=False),
         )
         assert result is adata or isinstance(result, AnnData)
+
+    def test_diagnose_integration_risk_flags_batch_condition_confounding(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["b1"] * (adata.n_obs // 2) + ["b2"] * (
+            adata.n_obs - adata.n_obs // 2
+        )
+        adata.obs["condition"] = ["ctrl"] * (adata.n_obs // 2) + ["treat"] * (
+            adata.n_obs - adata.n_obs // 2
+        )
+
+        result = diagnose_integration_risk(
+            adata,
+            batch_key="batch",
+            condition_key="condition",
+            tumor=True,
+        )
+
+        assert result["risk_level"] in {"moderate", "high"}
+        assert result["metrics"]["batch_condition_cramers_v"] >= 0.8
+        assert result["warnings"]
+        assert "integration_risk" in adata.uns["sclucid"]["preprocess"]["integration"]
 
     def test_harmony_integration_mock(self, monkeypatch, minimal_adata):
         import scLucid.preprocess.integrate as integrate_module

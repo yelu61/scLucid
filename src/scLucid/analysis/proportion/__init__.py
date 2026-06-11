@@ -3,7 +3,8 @@ Cell type proportion analysis submodule.
 
 This module provides comprehensive tools for analyzing cell type proportions,
 including multiple statistical methods:
-- Pseudo-bulk: Traditional statistical tests (DESeq2, t-test, Wilcoxon)
+- Pseudo-bulk: sample-level CLR/DESeq2-style tests for compositional proportions
+- Legacy raw-proportion tests: retained for exploratory summaries only
 - scCODA: Bayesian compositional data analysis
 
 Usage:
@@ -20,7 +21,7 @@ Usage:
 
 from .config import MethodSelectionConfig, ProportionConfig
 from .pseudobulk import celltype_proportion_analysis
-from .stats import compute_celltype_proportion, run_statistical_test
+from .stats import composition_transform, compute_celltype_proportion, run_statistical_test
 
 # Alias for backward compatibility
 pb_analysis = celltype_proportion_analysis
@@ -79,6 +80,7 @@ __all__ = [
     "compare_methods",
     # Pseudo-bulk
     "compute_celltype_proportion",
+    "composition_transform",
     "run_statistical_test",
     # scCODA (optional)
     "run_sccoda",

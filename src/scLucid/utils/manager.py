@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from importlib import resources
@@ -52,14 +54,30 @@ _MARKER_VIEWS = {
     "artifact_annotation",
     "artifact_qc",
     "compartment_annotation",
+    "doublet_detection",
     "global_annotation",
     "lineage_annotation",
+    "plotting",
     "qc_artifact",
     "state_annotation",
     "subtype_annotation",
     "program_scoring",
     "tumor_interpretation",
 }
+
+_MARKER_SYMBOL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+_REQUIRED_MARKER_METADATA = {
+    "kind",
+    "granularity",
+    "scope",
+    "review_status",
+    "use_for_global_annotation",
+    "use_for_state_annotation",
+    "use_for_malignancy_interpretation",
+}
+
+_VALID_REVIEW_STATUS = {"scaffold", "needs_review", "reviewed", "conflict", "deprecated"}
 
 
 def _get_marker_path(name_or_path: str) -> Path:
@@ -390,13 +408,17 @@ class Manager:
 
         parent_kind = str(parent_metadata.get("kind", "")).lower()
         parent_granularity = str(parent_metadata.get("granularity", "")).lower()
-        kind = str(metadata.get("kind", "")).lower()
+        child_has_kind = "kind" in child_metadata
+        child_has_granularity = "granularity" in child_metadata
+        kind = str(child_metadata.get("kind", metadata.get("kind", ""))).lower()
+        inferred_context_granularity = False
 
         if parent_kind == "tissue_context" and parent_granularity == "tissue":
             if "kind" not in child_metadata:
                 metadata["kind"] = "cell_type"
             if "granularity" not in child_metadata:
                 metadata["granularity"] = "tissue_subtype"
+                inferred_context_granularity = True
             metadata.setdefault("marker_role", "positive")
             metadata["use_for_global_annotation"] = child_metadata.get(
                 "use_for_global_annotation", True
@@ -410,6 +432,7 @@ class Manager:
                 metadata["kind"] = "cancer_context"
             if "granularity" not in child_metadata:
                 metadata["granularity"] = "cancer_subtype"
+                inferred_context_granularity = True
             metadata.setdefault("marker_role", "evidence")
             metadata["use_for_global_annotation"] = child_metadata.get(
                 "use_for_global_annotation", False
@@ -420,7 +443,7 @@ class Manager:
             )
             kind = str(metadata.get("kind", "")).lower()
 
-        if not kind:
+        if not child_has_kind:
             if parent_kind in {"cell_type", "cell_type_collection"}:
                 metadata["kind"] = "cell_type"
             elif parent_kind in {"state", "state_collection"}:
@@ -432,7 +455,7 @@ class Manager:
             elif parent_kind in {"cancer_context", "tumor_evidence", "tumor_collection"}:
                 metadata["kind"] = parent_kind
 
-        if "granularity" not in child_metadata and "granularity" not in metadata:
+        if not child_has_granularity and not inferred_context_granularity:
             if metadata.get("kind") == "cell_type":
                 parent_compartment = str(parent_metadata.get("compartment", "")).lower()
                 if child_metadata.get("doublet_lineage") is True:
@@ -451,6 +474,31 @@ class Manager:
                 metadata["granularity"] = "artifact"
             elif metadata.get("kind") == "functional_program":
                 metadata["granularity"] = "program"
+
+        kind = str(metadata.get("kind", "")).lower()
+        if kind in {
+            "state",
+            "artifact",
+            "functional_program",
+            "state_collection",
+            "artifact_collection",
+            "program_collection",
+        }:
+            metadata.setdefault("use_for_global_annotation", False)
+            metadata.setdefault(
+                "use_for_state_annotation",
+                kind in {"state", "functional_program", "state_collection", "program_collection"},
+            )
+            metadata.setdefault("use_for_malignancy_interpretation", False)
+        elif kind in {"tumor_evidence", "cancer_context", "cancer_state"}:
+            metadata.setdefault("scope", "tumor_context")
+            metadata.setdefault("use_for_global_annotation", False)
+            metadata.setdefault("use_for_state_annotation", kind == "cancer_state")
+            metadata.setdefault("use_for_malignancy_interpretation", True)
+        elif kind == "cell_type":
+            metadata.setdefault("use_for_global_annotation", True)
+            metadata.setdefault("use_for_state_annotation", False)
+            metadata.setdefault("use_for_malignancy_interpretation", False)
 
         return metadata
 
@@ -940,6 +988,116 @@ class Manager:
         log.info(f"Extracted {len(lineage_markers)} dedicated lineages for doublet detection.")
         return lineage_markers
 
+    def get_marker_table(self, *, include_negative: bool = True) -> List[Dict[str, object]]:
+        """Return a flat, review-friendly marker table for all loaded entries."""
+        rows: List[Dict[str, object]] = []
+        for name, cell in self.CELLS.items():
+            rows.append(
+                {
+                    "name": name,
+                    "markers": list(cell.markers),
+                    "negative_markers": list(cell.negative_markers) if include_negative else [],
+                    "parent": cell.parent.name if cell.parent else None,
+                    "level": cell.level,
+                    "path": cell.get_hierarchy_path(),
+                    **dict(cell.metadata),
+                }
+            )
+        return rows
+
+    def audit_summary(self, *, include_views: bool = True) -> Dict[str, object]:
+        """Summarize loaded marker content by routing metadata and optional views."""
+        by_kind = Counter(str(cell.metadata.get("kind", "missing")) for cell in self.CELLS.values())
+        by_granularity = Counter(
+            str(cell.metadata.get("granularity", "missing")) for cell in self.CELLS.values()
+        )
+        by_review_status = Counter(
+            str(cell.metadata.get("review_status", "missing")) for cell in self.CELLS.values()
+        )
+        summary: Dict[str, object] = {
+            "n_entries": len(self.CELLS),
+            "n_marker_genes": len(self.get_all_markers()),
+            "by_kind": dict(sorted(by_kind.items())),
+            "by_granularity": dict(sorted(by_granularity.items())),
+            "by_review_status": dict(sorted(by_review_status.items())),
+        }
+        if include_views:
+            summary["views"] = {
+                view: len(self.get_view(view).CELLS)
+                for view in sorted(_MARKER_VIEWS)
+            }
+        return summary
+
+    def validate_resource_contract(
+        self,
+        *,
+        known_source_ids: Optional[Set[str]] = None,
+    ) -> List[Dict[str, object]]:
+        """
+        Validate normalized marker entries against the scLucid resource contract.
+
+        The check runs after Manager metadata inheritance/defaulting, so it tests
+        what downstream callers actually consume rather than only raw TOML fields.
+        """
+        issues: List[Dict[str, object]] = []
+
+        def _add_issue(name: str, issue: str, severity: str, detail: object = None) -> None:
+            issues.append(
+                {
+                    "entry": name,
+                    "issue": issue,
+                    "severity": severity,
+                    "detail": detail,
+                }
+            )
+
+        for name, cell in self.CELLS.items():
+            missing = sorted(_REQUIRED_MARKER_METADATA.difference(cell.metadata))
+            if missing:
+                _add_issue(name, "missing_metadata", "error", missing)
+
+            review_status = cell.metadata.get("review_status")
+            if review_status is not None and str(review_status) not in _VALID_REVIEW_STATUS:
+                _add_issue(name, "invalid_review_status", "error", review_status)
+
+            for field_name, genes in {
+                "markers": cell.markers,
+                "negative_markers": cell.negative_markers,
+            }.items():
+                invalid_genes = [
+                    gene
+                    for gene in genes
+                    if gene != gene.strip() or not _MARKER_SYMBOL_RE.match(gene)
+                ]
+                if invalid_genes:
+                    _add_issue(
+                        name,
+                        f"invalid_{field_name}",
+                        "error",
+                        invalid_genes,
+                    )
+
+            source_ids = cell.metadata.get("source_ids", [])
+            if isinstance(source_ids, str):
+                source_ids = [source_ids]
+            if known_source_ids is not None:
+                unknown = [source_id for source_id in source_ids if source_id not in known_source_ids]
+                if unknown:
+                    _add_issue(name, "unknown_source_ids", "error", unknown)
+
+            if (
+                cell.metadata.get("review_status") in {"conflict", "deprecated"}
+                and cell.metadata.get("use_for_global_annotation") is True
+            ):
+                _add_issue(
+                    name,
+                    "non_default_entry_in_global_annotation",
+                    "error",
+                    cell.metadata.get("review_status"),
+                )
+
+        return issues
+
     def select_cells(self, names: Sequence[str], include_children: bool = True) -> Manager:
         """
         Build a new manager containing only selected cell types.
@@ -983,6 +1141,7 @@ class Manager:
         self,
         *,
         include_children: bool = True,
+        exclude: Optional[Dict[str, object]] = None,
         **criteria: object,
     ) -> Manager:
         """
@@ -990,6 +1149,7 @@ class Manager:
 
         Criteria values can be scalars or iterables. When a cell metadata value is
         itself a list, any overlap with the requested value is treated as a match.
+        Exclude criteria use the same matching rules and remove matching cells.
         """
 
         def _as_values(value: object) -> Set[str]:
@@ -1008,8 +1168,49 @@ class Manager:
                     return False
             return True
 
+        def _excluded(cell: CellType) -> bool:
+            if not exclude:
+                return False
+            for key, expected in exclude.items():
+                actual = cell.metadata.get(key)
+                if actual is None:
+                    continue
+                if _as_values(expected).intersection(_as_values(actual)):
+                    return True
+            return False
+
         return self.select_cells(
-            [name for name, cell in self.CELLS.items() if _matches(cell)],
+            [
+                name
+                for name, cell in self.CELLS.items()
+                if _matches(cell) and not _excluded(cell)
+            ],
+            include_children=include_children,
+        )
+
+    def exclude_by_metadata(
+        self,
+        *,
+        include_children: bool = True,
+        **criteria: object,
+    ) -> Manager:
+        """Build a manager excluding cells whose metadata matches any criterion."""
+        def _as_values(value: object) -> Set[str]:
+            if isinstance(value, (list, tuple, set)):
+                return {str(v).lower() for v in value}
+            return {str(value).lower()}
+
+        def _matches_any(cell: CellType) -> bool:
+            for key, expected in criteria.items():
+                actual = cell.metadata.get(key)
+                if actual is None:
+                    continue
+                if _as_values(expected).intersection(_as_values(actual)):
+                    return True
+            return False
+
+        return self.select_cells(
+            [name for name, cell in self.CELLS.items() if not _matches_any(cell)],
             include_children=include_children,
         )
 
@@ -1034,6 +1235,8 @@ class Manager:
         - ``program_scoring``: reusable functional programs and gene-set managers
         - ``tumor_interpretation``: cancer and malignancy-interpretation evidence
         - ``qc_artifact`` / ``artifact_annotation``: QC/artifact signatures
+        - ``doublet_detection``: broad mutually exclusive doublet-lineage markers
+        - ``plotting``: compact curated display markers across marker layers
         """
         if view not in _MARKER_VIEWS:
             raise ValueError(f"Unknown marker manager view '{view}'. Available: {sorted(_MARKER_VIEWS)}")
@@ -1076,7 +1279,12 @@ class Manager:
             elif view == "subtype_annotation":
                 if kind == "tissue_context" and cell.level == "minor" and cell.markers:
                     selected.append(name)
-                elif kind == "cell_type" and granularity in {"subtype", "tissue_subtype"}:
+                elif (
+                    kind == "cell_type"
+                    and granularity in {"subtype", "tissue_subtype"}
+                    and cell.metadata.get("use_for_global_annotation", True) is not False
+                    and str(cell.metadata.get("scope", "")).lower() != "tumor_context"
+                ):
                     selected.append(name)
             elif view == "state_annotation":
                 if kind in {"state", "cancer_state"}:
@@ -1106,6 +1314,27 @@ class Manager:
                     and not kind.endswith("_collection")
                 ):
                     selected.append(name)
+            elif view == "doublet_detection":
+                if cell.metadata.get("doublet_lineage") is True and cell.markers:
+                    selected.append(name)
+            elif view == "plotting":
+                if not cell.markers or kind.endswith("_collection"):
+                    continue
+                if cell.metadata.get("use_for_plotting") is False:
+                    continue
+                if cell.metadata.get("marker_role") == "negative_control":
+                    continue
+                if kind in {
+                    "cell_type",
+                    "state",
+                    "artifact",
+                    "functional_program",
+                    "tumor_evidence",
+                    "cancer_context",
+                    "cancer_state",
+                    "tissue_context",
+                }:
+                    selected.append(name)
 
         return self.select_cells(selected, include_children=False)
 
@@ -1113,6 +1342,65 @@ class Manager:
 # =============================================================================
 # Gene-set resources as Manager instances
 # =============================================================================
+
+
+def load_marker_aliases() -> Dict[str, Dict[str, object]]:
+    """Load canonical label and display gene aliases from the alias resource."""
+    try:
+        path = _get_marker_path("aliases")
+    except FileNotFoundError:
+        path = Path(__file__).parent.parent / "resources" / "marker_aliases.toml"
+        if not path.is_file():
+            raise
+
+    data = _load_marker_file(path)
+    label_to_canonical: Dict[str, str] = {}
+    canonical_to_aliases: Dict[str, List[str]] = {}
+    for item in data.get("label_aliases", []):
+        canonical = str(item.get("canonical", "")).strip()
+        aliases = [str(alias).strip() for alias in item.get("aliases", []) if str(alias).strip()]
+        if not canonical:
+            continue
+        canonical_to_aliases[canonical] = aliases
+        label_to_canonical[canonical.lower()] = canonical
+        for alias in aliases:
+            label_to_canonical[alias.lower()] = canonical
+
+    gene_display_aliases = {
+        str(item.get("symbol", "")).strip(): [
+            str(alias).strip()
+            for alias in item.get("display_aliases", [])
+            if str(alias).strip()
+        ]
+        for item in data.get("gene_aliases", [])
+        if str(item.get("symbol", "")).strip()
+    }
+
+    return {
+        "metadata": data.get("metadata", {}),
+        "label_to_canonical": label_to_canonical,
+        "canonical_to_aliases": canonical_to_aliases,
+        "gene_display_aliases": gene_display_aliases,
+    }
+
+
+def canonicalize_marker_label(label: str) -> str:
+    """Map a paper/user marker label alias to the registry canonical label."""
+    aliases = load_marker_aliases()
+    return str(aliases["label_to_canonical"].get(label.strip().lower(), label))
+
+
+def get_marker_aliases(label: str) -> List[str]:
+    """Return known aliases for a canonical marker label."""
+    aliases = load_marker_aliases()
+    canonical = canonicalize_marker_label(label)
+    return list(aliases["canonical_to_aliases"].get(canonical, []))
+
+
+def get_gene_display_aliases(symbol: str) -> List[str]:
+    """Return display-only aliases for a gene symbol without using them as markers."""
+    aliases = load_marker_aliases()
+    return list(aliases["gene_display_aliases"].get(symbol.strip(), []))
 
 
 def _extract_genesets(data: dict) -> Dict[str, List[str]]:
@@ -1126,6 +1414,38 @@ def _extract_genesets(data: dict) -> Dict[str, List[str]]:
         elif isinstance(value, dict) and "genes" in value:
             genesets[str(key)] = [g for g in value["genes"] if isinstance(g, str)]
     return genesets
+
+
+def _extract_geneset_metadata(data: dict) -> Dict[str, Dict[str, object]]:
+    """Extract per-gene-set metadata from supported JSON gene-set resource shapes."""
+    metadata: Dict[str, Dict[str, object]] = {}
+    default_entry_metadata = (
+        dict(data.get("_default_entry_metadata", {}))
+        if isinstance(data.get("_default_entry_metadata"), dict)
+        else {}
+    )
+    categories = data.get("_categories", {}) if isinstance(data.get("_categories"), dict) else {}
+    for category_name, signatures in categories.items():
+        if not isinstance(signatures, list):
+            continue
+        for signature in signatures:
+            metadata.setdefault(str(signature), dict(default_entry_metadata))["category"] = str(category_name)
+
+    for key, value in data.items():
+        if str(key).startswith("_") or not isinstance(value, dict):
+            continue
+        metadata.setdefault(str(key), dict(default_entry_metadata))
+        entry_meta = {
+            meta_key: meta_value
+            for meta_key, meta_value in value.items()
+            if meta_key not in {"genes", "metadata"}
+        }
+        nested_meta = value.get("metadata")
+        if isinstance(nested_meta, dict):
+            entry_meta.update(nested_meta)
+        if entry_meta:
+            metadata.setdefault(str(key), {}).update(entry_meta)
+    return metadata
 
 
 def _extract_functional_programs_from_registry(data: dict) -> Dict[str, List[str]]:
@@ -1154,18 +1474,18 @@ def _extract_functional_programs_from_registry(data: dict) -> Dict[str, List[str
     return genesets
 
 
-def load_gene_sets(
-    species: str = "human",
-    name: str = "functional_signatures",
-) -> Dict[str, List[str]]:
-    """Load a built-in gene-set resource as a simple ``{signature: genes}`` mapping."""
+def _load_gene_set_payload(
+    species: str,
+    name: str,
+) -> Tuple[Dict[str, List[str]], Dict[str, Dict[str, object]]]:
+    """Load a JSON/registry gene-set payload with per-signature metadata."""
     species = species.lower()
     if name == "functional_signatures":
         registry_path = _get_marker_path(f"registry_{species}")
         registry_data = _load_marker_file(registry_path)
         genesets = _extract_functional_programs_from_registry(registry_data)
         if genesets:
-            return genesets
+            return genesets, {}
 
     file_patterns = [
         f"marker_{name}.json",
@@ -1179,9 +1499,10 @@ def load_gene_sets(
         if dev_resource_path.is_file():
             with open(dev_resource_path, encoding="utf-8") as f:
                 data = json.load(f)
-            if species in data:
-                return _extract_genesets(data[species])
-            return _extract_genesets(data)
+            payload = data.get(species, data) if isinstance(data, dict) else data
+            if not isinstance(payload, dict):
+                return {}, {}
+            return _extract_genesets(payload), _extract_geneset_metadata(payload)
 
     for pattern in file_patterns:
         try:
@@ -1190,13 +1511,23 @@ def load_gene_sets(
                 continue
             with open(resource_path, encoding="utf-8") as f:
                 data = json.load(f)
-            if species in data:
-                return _extract_genesets(data[species])
-            return _extract_genesets(data)
+            payload = data.get(species, data) if isinstance(data, dict) else data
+            if not isinstance(payload, dict):
+                return {}, {}
+            return _extract_genesets(payload), _extract_geneset_metadata(payload)
         except (ImportError, ModuleNotFoundError, FileNotFoundError):
             continue
 
     raise FileNotFoundError(f"Gene-set resource '{name}' not found in resources")
+
+
+def load_gene_sets(
+    species: str = "human",
+    name: str = "functional_signatures",
+) -> Dict[str, List[str]]:
+    """Load a built-in gene-set resource as a simple ``{signature: genes}`` mapping."""
+    genesets, _ = _load_gene_set_payload(species=species, name=name)
+    return genesets
 
 
 def load_gene_set_manager(
@@ -1209,8 +1540,7 @@ def load_gene_set_manager(
 ) -> Manager:
     """Load a gene-set JSON resource into the unified marker ``Manager``."""
     species = species.lower()
-    categories: Dict[str, str] = {}
-    genesets = load_gene_sets(species=species, name=name)
+    genesets, geneset_metadata = _load_gene_set_payload(species=species, name=name)
 
     mgr = Manager.__new__(Manager)
     mgr.CELLS = {}
@@ -1222,11 +1552,14 @@ def load_gene_set_manager(
     mgr.CLUSTERS[cluster] = []
 
     for sig_name, genes in genesets.items():
-        sig_category = category or categories.get(sig_name)
+        sig_metadata = dict(geneset_metadata.get(sig_name, {}))
+        sig_category = category or sig_metadata.pop("category", None)
         metadata: Dict[str, object] = {
             "kind": kind,
+            "granularity": "program",
             "source": name,
             "scope": "all",
+            "review_status": "needs_review",
             "use_for_global_annotation": False,
             "use_for_state_annotation": kind == "functional_program",
             "use_for_malignancy_interpretation": name
@@ -1234,6 +1567,7 @@ def load_gene_set_manager(
         }
         if sig_category:
             metadata["category"] = sig_category
+        metadata.update(sig_metadata)
         cell = CellType(
             name=sig_name,
             color=None,
@@ -1350,11 +1684,16 @@ def get_marker_manager(
         if states:
             try:
                 mgr_states_all = Manager(f"registry_{species}", case_sensitive=case_sensitive)
+                requested_state_names = [canonicalize_marker_label(state_name) for state_name in states]
                 found_states = [
-                    state_name for state_name in states if state_name in mgr_states_all.CELLS
+                    state_name
+                    for state_name in requested_state_names
+                    if state_name in mgr_states_all.CELLS
                 ]
                 missing_states = [
-                    state_name for state_name in states if state_name not in mgr_states_all.CELLS
+                    state_name
+                    for state_name in requested_state_names
+                    if state_name not in mgr_states_all.CELLS
                 ]
 
                 for state_name in missing_states:
@@ -1447,7 +1786,11 @@ def get_marker_manager(
             except FileNotFoundError as e:
                 log.warning(f"Could not load functional signatures: {str(e)}")
 
-        for gene_set_name in gene_sets or []:
+        gene_set_names = list(gene_sets or [])
+        if view == "program_scoring":
+            gene_set_names.extend(["cancer_signatures", "cancer_hallmarks"])
+
+        for gene_set_name in dict.fromkeys(gene_set_names):
             try:
                 mgr.merge_from(
                     load_gene_set_manager(
@@ -1468,7 +1811,11 @@ def get_marker_manager(
         else:
             result = mgr.get_view("global_annotation")
             if states:
-                selected_states = [state for state in states if state in mgr.CELLS]
+                selected_states = [
+                    canonicalize_marker_label(state)
+                    for state in states
+                    if canonicalize_marker_label(state) in mgr.CELLS
+                ]
                 if selected_states:
                     result.merge_from(mgr.select_cells(selected_states, include_children=True))
             if include_functional:

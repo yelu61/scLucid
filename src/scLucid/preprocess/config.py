@@ -34,6 +34,11 @@ class NormalizationConfig(SclucidBaseConfig):
     target_sum: float = Field(default=1e4, gt=0, description="Target sum for normalization")
     exclude_highly_expressed: bool = Field(default=False)
     max_fraction: float = Field(default=0.05, gt=0, lt=1)
+    clr_pseudocount: float = Field(
+        default=1.0,
+        gt=0,
+        description="Pseudocount for CLR: log(x + pseudocount) minus per-cell mean log.",
+    )
     input_layer: str = Field(default="counts", description="Input layer name")
     output_layer: str = Field(default="normalized", description="Output layer name")
     update_X: bool = Field(default=True, description="Update adata.X with normalized data")
@@ -86,6 +91,31 @@ class HVGConfig(SclucidBaseConfig):
     n_specific_genes: int = Field(default=20, ge=0)
     exclude_gene_types: Optional[List[str]] = Field(
         default_factory=lambda: ["mitochondrial", "ribosomal"]
+    )
+    protected_gene_presets: List[
+        Literal[
+            "immune_receptor",
+            "cytokine",
+            "transcription_factor",
+            "pathway",
+            "tumor_heterogeneity",
+        ]
+    ] = Field(
+        default_factory=list,
+        description="Biology-oriented gene presets to preserve in the final HVG mask.",
+    )
+    protected_gene_sets: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Custom protected genes by set name. Matching is case-insensitive.",
+    )
+    protect_genes: bool = Field(
+        default=True,
+        description="If true, genes from protected presets/custom sets present in var_names are included in final HVGs.",
+    )
+    protection_max_extra_genes: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional cap on protected genes added beyond algorithm-selected HVGs.",
     )
 
     @field_validator("span")

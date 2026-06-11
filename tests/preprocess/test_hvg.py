@@ -6,6 +6,7 @@ import pytest
 from anndata import AnnData
 
 from scLucid.preprocess.hvg import (
+    PROTECTED_GENE_PRESETS,
     _exclude_genes,
     _gene_type_detection,
     _get_hvg_input_matrix,
@@ -219,6 +220,96 @@ class TestFindHVGs:
         adata = minimal_adata.copy()
         result = find_hvgs(adata, config=config, force=True, n_top_genes=120, input_layer="counts")
         assert result is not None
+
+    def test_protected_gene_set_rescues_biology_gene_into_final_hvg(self):
+        from scLucid.preprocess.config import HVGConfig
+
+        rng = np.random.default_rng(0)
+        X = rng.poisson(2, size=(160, 130)).astype(float)
+        X[:, -1] = 0.0
+        adata = AnnData(X=X)
+        adata.var_names = [f"Gene{i}" for i in range(129)] + ["TRAC"]
+        adata.layers["counts"] = adata.X.copy()
+
+        config = HVGConfig(
+            method="scanpy",
+            flavor="seurat",
+            n_top_genes=100,
+            auto_n_top_genes=False,
+            protected_gene_sets={"immune_core": ["TRAC"]},
+        )
+        result = find_hvgs(adata, config=config, force=True, input_layer="counts")
+        hvg_key = "highly_variable_scanpy_seurat"
+        report = result.uns["sclucid"]["preprocess"]["hvg"]["biological_protection"]
+
+        assert bool(result.var.loc["TRAC", hvg_key]) is True
+        assert bool(result.var.loc["TRAC", "hvg_protection_rescued"]) is True
+        assert report["n_rescued"] >= 1
+        assert "TRAC" in report["rescued_genes"]
+
+    def test_preserve_tumor_heterogeneity_enables_tumor_preset(self):
+        from scLucid.preprocess.config import HVGConfig
+
+        rng = np.random.default_rng(1)
+        X = rng.poisson(2, size=(160, 130)).astype(float)
+        X[:, -1] = 0.0
+        adata = AnnData(X=X)
+        adata.var_names = [f"Gene{i}" for i in range(129)] + ["EPCAM"]
+        adata.layers["counts"] = adata.X.copy()
+
+        config = HVGConfig(
+            method="scanpy",
+            flavor="seurat",
+            n_top_genes=100,
+            auto_n_top_genes=False,
+            protected_gene_presets=[],
+        )
+        result = find_hvgs(
+            adata,
+            config=config,
+            force=True,
+            input_layer="counts",
+            preserve_tumor_heterogeneity=True,
+        )
+        report = result.uns["sclucid"]["preprocess"]["hvg"]["biological_protection"]
+
+        assert "tumor_heterogeneity" in report["presets"]
+        assert bool(result.var.loc["EPCAM", "highly_variable_scanpy_seurat"]) is True
+        assert "EPCAM" in PROTECTED_GENE_PRESETS["tumor_heterogeneity"]
+
+    def test_custom_hvg_records_sample_consensus_report(self):
+        from scLucid.preprocess.config import HVGConfig
+
+        rng = np.random.default_rng(2)
+        X = rng.poisson(2, size=(180, 140)).astype(float)
+        adata = AnnData(X=X)
+        adata.var_names = [f"Gene{i}" for i in range(140)]
+        adata.obs["sampleID"] = ["s1"] * 60 + ["s2"] * 60 + ["s3"] * 60
+        adata.layers["counts"] = adata.X.copy()
+
+        config = HVGConfig(
+            method="custom",
+            flavor="seurat",
+            n_top_genes=100,
+            auto_n_top_genes=False,
+            min_n_samples=2,
+            n_highly_expressed_genes=0,
+            n_specific_genes=0,
+            exclude_gene_types=[],
+        )
+        result = find_hvgs(
+            adata,
+            config=config,
+            force=True,
+            input_layer="counts",
+            n_jobs=1,
+            plot=False,
+        )
+        report = result.uns["sclucid"]["preprocess"]["hvg"]["consensus_report"]
+
+        assert report["available"] is True
+        assert report["evidence_key"] == "highly_variable_custom_sample_count"
+        assert "sample_count_distribution" in report
 
 
 class TestEvaluateHVGStability:

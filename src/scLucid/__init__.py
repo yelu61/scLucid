@@ -330,12 +330,14 @@ def run_pipeline(
             raise RuntimeError("QC module not available")
         assert_qc_ready(adata)
         qc_input_contract = validate_stage_contract(adata, "qc", when="input", raise_on_error=True)
+        qc_stage_kwargs = _stage_kwargs("qc", kwargs)
+        qc_stage_kwargs.pop("save_dir", None)
         adata = run_standard_qc(
             adata,
             config=qc_config,
             tissue_type=analysis_context.qc_tissue_type,
             show_progress=show_progress,
-            **_stage_kwargs("qc", kwargs),
+            **qc_stage_kwargs,
         )
         record_contract_result(adata, Modules.QC, qc_input_contract)
         qc_contract = validate_stage_contract(adata, "qc", when="output")

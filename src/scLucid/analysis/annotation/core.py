@@ -1,6 +1,13 @@
 """Compatibility facade for the annotation subpackage."""
 
 from .cluster import annotate_clusters
+from .evidence import (
+    apply_subset_annotation_reconciliation,
+    build_hierarchical_annotation_plan,
+    build_subset_annotation_reconciliation,
+    run_program_annotation_evidence,
+    run_subset_annotation_refinement,
+)
 from .mapping import apply_annotation_mapping, remap_labels
 from .reference import run_celltypist, transfer_labels
 from .review import (
@@ -19,6 +26,11 @@ __all__ = [
     "transfer_labels",
     "evaluate_annotation",
     "summarize_annotation_evidence",
+    "build_hierarchical_annotation_plan",
+    "build_subset_annotation_reconciliation",
+    "apply_subset_annotation_reconciliation",
+    "run_program_annotation_evidence",
+    "run_subset_annotation_refinement",
     "run_lineage_state_annotation",
     "filter_marker_table_for_annotation",
     "flag_suspect_clusters",

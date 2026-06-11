@@ -49,7 +49,7 @@ from .hvg import (
     select_hvg_sets,
     suggest_hvg_choice,
 )
-from .integrate import batch_correction, evaluate_integration
+from .integrate import batch_correction, diagnose_integration_risk, evaluate_integration
 
 # --- Intelligent Preprocessing ---
 from .intelligent import (
@@ -70,7 +70,7 @@ from .neighbors import optimize_neighbors_pcs
 # --- Core Functions ---
 # --- Plotting & Evaluation Functions ---
 from .normalize import normalize_data, plot_normalization_effect
-from .scale import plot_scaling_effect, regress_out, scale_data
+from .scale import diagnose_cell_cycle_regression, plot_scaling_effect, regress_out, scale_data
 from .trace import (
     PREPROCESS_REQUIRED_REVIEW_SECTIONS,
     PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION,
@@ -129,7 +129,9 @@ __all__ = [
     "find_hvgs",
     "select_hvg_sets",
     "scale_data",
+    "diagnose_cell_cycle_regression",
     "batch_correction",
+    "diagnose_integration_risk",
     "annotate_gene_biotypes",
     "filter_genes_by_biotype",
     "get_biotype_statistics",

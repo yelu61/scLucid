@@ -32,6 +32,7 @@ from ...runtime import run_joblib_or_sequential
 from ...utils import use_layer_as_X
 from ..config import HVGConfig
 from .plotting import plot_hvg_metrics
+from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
@@ -40,21 +41,119 @@ __all__ = [
 ]
 
 
+PROTECTED_GENE_PRESETS: Dict[str, List[str]] = {
+    "immune_receptor": [
+        "TRAC",
+        "TRBC1",
+        "TRBC2",
+        "TRDC",
+        "TRGC1",
+        "TRGC2",
+        "IGHM",
+        "IGHD",
+        "IGHG1",
+        "IGHG2",
+        "IGHG3",
+        "IGHG4",
+        "IGHA1",
+        "IGHA2",
+        "IGKC",
+        "IGLC1",
+        "IGLC2",
+        "IGLC3",
+    ],
+    "cytokine": [
+        "IL2",
+        "IL4",
+        "IL6",
+        "IL7",
+        "IL10",
+        "IL12A",
+        "IL12B",
+        "IL15",
+        "IL17A",
+        "IL18",
+        "IL21",
+        "IFNG",
+        "TNF",
+        "TGFB1",
+        "CCL2",
+        "CCL3",
+        "CCL4",
+        "CCL5",
+        "CXCL8",
+        "CXCL9",
+        "CXCL10",
+        "CXCL13",
+    ],
+    "transcription_factor": [
+        "TBX21",
+        "GATA3",
+        "RORC",
+        "FOXP3",
+        "TCF7",
+        "LEF1",
+        "PRDM1",
+        "BCL6",
+        "IRF4",
+        "IRF8",
+        "SPI1",
+        "CEBPA",
+        "CEBPB",
+        "NFKB1",
+        "STAT1",
+        "STAT3",
+        "STAT5A",
+        "STAT5B",
+        "MYC",
+        "JUN",
+        "FOS",
+    ],
+    "pathway": [
+        "ISG15",
+        "IFIT1",
+        "IFIT2",
+        "IFIT3",
+        "MX1",
+        "OAS1",
+        "OAS2",
+        "CXCL10",
+        "HLA-DRA",
+        "HLA-DRB1",
+        "CD274",
+        "PDCD1",
+        "CTLA4",
+        "LAG3",
+        "TIGIT",
+        "HAVCR2",
+    ],
+    "tumor_heterogeneity": [
+        "EPCAM",
+        "KRT8",
+        "KRT18",
+        "KRT19",
+        "VIM",
+        "FN1",
+        "CDH1",
+        "CDH2",
+        "ITGA6",
+        "CD44",
+        "ALDH1A1",
+        "PROM1",
+        "MKI67",
+        "TOP2A",
+        "PCNA",
+        "HIF1A",
+        "VEGFA",
+        "MYC",
+        "SOX2",
+        "NANOG",
+        "POU5F1",
+    ],
+}
+
+
 # --- Helper Functions ---#
-def _is_interactive_backend() -> bool:
-    """Return whether the active matplotlib backend can show figures interactively."""
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
-
-
-def _show_or_close(fig: plt.Figure) -> None:
-    """Show figures only on interactive backends; otherwise close them quietly."""
-    if _is_interactive_backend():
-        plt.show()
-    else:
-        plt.close(fig)
-
-
 def _get_hvg_input_matrix(adata: AnnData, input_layer: str):
     """Resolve HVG input matrix from the requested layer."""
     if input_layer == "X":
@@ -213,6 +312,149 @@ def _exclude_genes(
     log.info(f"\nTotal genes excluded: {total_excluded}")
 
     return updated_mask, excluded_counts
+
+
+def _resolve_protected_gene_sets(
+    adata: AnnData,
+    *,
+    presets: Optional[List[str]] = None,
+    custom_sets: Optional[Dict[str, List[str]]] = None,
+) -> tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Resolve protected gene presets/custom sets against ``adata.var_names``."""
+    requested: Dict[str, List[str]] = {}
+    for preset in presets or []:
+        if preset not in PROTECTED_GENE_PRESETS:
+            log.warning("Unknown protected gene preset '%s'. Skipping.", preset)
+            continue
+        requested[preset] = list(PROTECTED_GENE_PRESETS[preset])
+    for name, genes in (custom_sets or {}).items():
+        requested[str(name)] = [str(g) for g in genes]
+
+    upper_to_gene = {str(g).upper(): str(g) for g in adata.var_names}
+    present: Dict[str, List[str]] = {}
+    missing: Dict[str, List[str]] = {}
+    for name, genes in requested.items():
+        present_genes: List[str] = []
+        missing_genes: List[str] = []
+        seen = set()
+        for gene in genes:
+            key = str(gene).upper()
+            if key in upper_to_gene:
+                resolved = upper_to_gene[key]
+                if resolved not in seen:
+                    present_genes.append(resolved)
+                    seen.add(resolved)
+            else:
+                missing_genes.append(str(gene))
+        present[name] = present_genes
+        missing[name] = missing_genes
+    return present, missing
+
+
+def _apply_hvg_biological_protection(
+    adata: AnnData,
+    hvg_mask: np.ndarray,
+    *,
+    presets: Optional[List[str]] = None,
+    custom_sets: Optional[Dict[str, List[str]]] = None,
+    max_extra_genes: Optional[int] = None,
+) -> tuple[np.ndarray, Dict[str, object]]:
+    """Include protected biology genes in the final HVG mask and build an audit report."""
+    protected_sets, missing_sets = _resolve_protected_gene_sets(
+        adata,
+        presets=presets,
+        custom_sets=custom_sets,
+    )
+    protected_genes = []
+    seen = set()
+    for genes in protected_sets.values():
+        for gene in genes:
+            if gene not in seen:
+                protected_genes.append(gene)
+                seen.add(gene)
+
+    protected_mask = adata.var_names.isin(protected_genes)
+    already_selected = protected_mask & hvg_mask
+    rescued_mask = protected_mask & ~hvg_mask
+    rescued_genes = adata.var_names[rescued_mask].astype(str).tolist()
+
+    if max_extra_genes is not None and len(rescued_genes) > int(max_extra_genes):
+        rescued_genes = rescued_genes[: int(max_extra_genes)]
+        rescued_mask = adata.var_names.isin(rescued_genes)
+
+    updated_mask = np.asarray(hvg_mask, dtype=bool).copy()
+    updated_mask |= np.asarray(rescued_mask, dtype=bool)
+    adata.var["hvg_biologically_protected"] = protected_mask
+    adata.var["hvg_protection_rescued"] = rescued_mask
+
+    preset_summary = {
+        name: {
+            "n_requested": len((PROTECTED_GENE_PRESETS.get(name) or custom_sets.get(name, [])) if custom_sets else PROTECTED_GENE_PRESETS.get(name, [])),
+            "n_present": len(genes),
+            "present_genes": genes,
+            "missing_genes": missing_sets.get(name, []),
+        }
+        for name, genes in protected_sets.items()
+    }
+    report: Dict[str, object] = {
+        "enabled": True,
+        "presets": list(presets or []),
+        "custom_set_names": list((custom_sets or {}).keys()),
+        "n_protected_present": int(protected_mask.sum()),
+        "n_already_selected": int(already_selected.sum()),
+        "n_rescued": int(rescued_mask.sum()),
+        "rescued_genes": rescued_genes,
+        "max_extra_genes": max_extra_genes,
+        "sets": preset_summary,
+        "rationale": (
+            "Protected genes are included to preserve interpretable immune, pathway, "
+            "transcriptional, or tumor-heterogeneity signals that may not rank highly by variance alone."
+        ),
+    }
+    return updated_mask, report
+
+
+def _build_hvg_consensus_report(
+    adata: AnnData,
+    output_key: str,
+    *,
+    sample_key: Optional[str] = None,
+) -> Dict[str, object]:
+    """Summarize batch/sample-specific versus consensus HVG evidence when available."""
+    report: Dict[str, object] = {
+        "output_key": output_key,
+        "n_final_hvgs": int(adata.var[output_key].sum()) if output_key in adata.var else 0,
+        "sample_key": sample_key,
+        "available": False,
+    }
+    sample_count_key = f"{output_key}_sample_count"
+    nbatches_key = f"{output_key}_highly_variable_nbatches"
+    if sample_count_key in adata.var:
+        counts = pd.to_numeric(adata.var[sample_count_key], errors="coerce").fillna(0)
+        report.update(
+            {
+                "available": True,
+                "evidence_key": sample_count_key,
+                "n_consensus_all_samples": int((counts == counts.max()).sum()) if counts.max() > 0 else 0,
+                "sample_count_distribution": {
+                    str(int(k)): int(v) for k, v in counts.value_counts().sort_index().items()
+                },
+                "median_sample_hvg_count": float(counts[counts > 0].median()) if (counts > 0).any() else 0.0,
+            }
+        )
+    elif nbatches_key in adata.var:
+        counts = pd.to_numeric(adata.var[nbatches_key], errors="coerce").fillna(0)
+        report.update(
+            {
+                "available": True,
+                "evidence_key": nbatches_key,
+                "n_consensus_all_batches": int((counts == counts.max()).sum()) if counts.max() > 0 else 0,
+                "batch_count_distribution": {
+                    str(int(k)): int(v) for k, v in counts.value_counts().sort_index().items()
+                },
+            }
+        )
+    return report
 
 
 def _compute_hvg_single_sample(
@@ -819,6 +1061,8 @@ def _write_hvg_report(
     n_hvg: int,
     config: HVGConfig,
     gene_type_counts: dict,
+    protection_report: Optional[Dict[str, object]] = None,
+    consensus_report: Optional[Dict[str, object]] = None,
 ) -> None:
     """Write a simple markdown HVG report."""
     with open(report_path, "w") as f:
@@ -835,6 +1079,21 @@ def _write_hvg_report(
         f.write("\n## Excluded gene types\n")
         for k, v in gene_type_counts.items():
             f.write(f"- {k}: {v}\n")
+        if protection_report:
+            f.write("\n## Biological protection\n")
+            f.write(f"- enabled: {protection_report.get('enabled')}\n")
+            f.write(f"- protected genes present: {protection_report.get('n_protected_present', 0)}\n")
+            f.write(f"- rescued into final HVG: {protection_report.get('n_rescued', 0)}\n")
+            rescued = protection_report.get("rescued_genes", [])
+            if rescued:
+                f.write(f"- rescued genes: {', '.join(map(str, rescued[:50]))}\n")
+        if consensus_report:
+            f.write("\n## Sample/batch consensus\n")
+            f.write(f"- available: {consensus_report.get('available')}\n")
+            f.write(f"- evidence key: {consensus_report.get('evidence_key', '')}\n")
+            for key in ["sample_count_distribution", "batch_count_distribution"]:
+                if consensus_report.get(key):
+                    f.write(f"- {key}: {consensus_report.get(key)}\n")
 
 
 def _to_savable_dict(d: dict) -> dict:
@@ -873,7 +1132,7 @@ def find_hvgs(
         active_config = config.model_copy()
 
     # Apply overrides from kwargs
-    ignored_override_keys = {"force"}
+    ignored_override_keys = {"force", "n_jobs"}
     for key, value in kwargs.items():
         if hasattr(active_config, key):
             setattr(active_config, key, value)
@@ -944,7 +1203,13 @@ def find_hvgs(
                 inplace=True,
             )
             adata.var[output_key] = adata.var["highly_variable"].copy()
-            for metric in ["means", "dispersions", "dispersions_norm"]:
+            for metric in [
+                "means",
+                "dispersions",
+                "dispersions_norm",
+                "highly_variable_nbatches",
+                "highly_variable_intersection",
+            ]:
                 if metric in adata.var:
                     adata.var[f"{output_key}_{metric}"] = adata.var[metric].copy()
             if output_key != "highly_variable":
@@ -1034,6 +1299,7 @@ def find_hvgs(
                 log.info(f"Marked {highly_expressed_mask.sum()} genes as highly expressed")
 
             # 3b. Sample-specific marker genes
+            sample_specific_mask = np.zeros(adata.n_vars, dtype=bool)
             if n_specific_genes > 0:
                 if preserve_tumor_heterogeneity:
                     log.info(
@@ -1044,16 +1310,16 @@ def find_hvgs(
                         "Identifying sample-specific genes to exclude (Batch Effect removal)..."
                     )
 
-                sample_specific_mask = _identify_sample_specific_genes_parallel(
-                    adata,
-                    sample_key=sample_key,
-                    n_genes_per_group=n_specific_genes,
-                    layer=input_layer,
-                    method="t-test",
-                    n_jobs=1,  # Avoid nested parallelization
-                )
+                    sample_specific_mask = _identify_sample_specific_genes_parallel(
+                        adata,
+                        sample_key=sample_key,
+                        n_genes_per_group=n_specific_genes,
+                        layer=input_layer,
+                        method="t-test",
+                        n_jobs=1,  # Avoid nested parallelization
+                    )
 
-                genes_to_exclude |= sample_specific_mask
+                    genes_to_exclude |= sample_specific_mask
 
                 # Store for diagnostics
                 adata.var[f"{output_key}_sample_specific"] = sample_specific_mask
@@ -1124,8 +1390,34 @@ def find_hvgs(
         adata.var[output_key] = updated_mask
         gene_type_counts.update(excluded_counts)
 
+    protection_report = {"enabled": False}
+    if getattr(active_config, "protect_genes", True):
+        protected_presets = list(getattr(active_config, "protected_gene_presets", []) or [])
+        protected_sets = dict(getattr(active_config, "protected_gene_sets", {}) or {})
+        if preserve_tumor_heterogeneity and "tumor_heterogeneity" not in protected_presets:
+            protected_presets.append("tumor_heterogeneity")
+        if protected_presets or protected_sets:
+            protected_mask, protection_report = _apply_hvg_biological_protection(
+                adata,
+                np.asarray(adata.var[output_key], dtype=bool),
+                presets=protected_presets,
+                custom_sets=protected_sets,
+                max_extra_genes=getattr(active_config, "protection_max_extra_genes", None),
+            )
+            adata.var[output_key] = protected_mask
+            log.info(
+                "[HVG] Biological protection added %s genes to '%s'.",
+                protection_report.get("n_rescued", 0),
+                output_key,
+            )
+
     n_hvg = int(adata.var[output_key].sum())
     log.info(f"[HVG] Final number of highly variable genes: {n_hvg}")
+    consensus_report = _build_hvg_consensus_report(
+        adata,
+        output_key,
+        sample_key=getattr(active_config, "sample_key", None),
+    )
 
     # --- Store metadata in .uns ---
     # Use a helper function to ensure the dictionary is savable
@@ -1141,6 +1433,8 @@ def find_hvgs(
         "n_hvg": n_hvg,
         "input_stats": stats,
         "excluded_gene_types": gene_type_counts,
+        "biological_protection": protection_report,
+        "consensus_report": consensus_report,
     }
 
     if plot:
@@ -1158,7 +1452,15 @@ def find_hvgs(
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)
         report_path = Path(save_dir) / "hvg_report.md"
-        _write_hvg_report(report_path, stats, n_hvg, active_config, gene_type_counts)
+        _write_hvg_report(
+            report_path,
+            stats,
+            n_hvg,
+            active_config,
+            gene_type_counts,
+            protection_report=protection_report,
+            consensus_report=consensus_report,
+        )
         log.info(f"[HVG] Report written to {report_path}")
 
     return adata

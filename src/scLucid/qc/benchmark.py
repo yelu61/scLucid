@@ -267,14 +267,15 @@ def evaluate_qc_benchmark(
 
 def build_qc_benchmark_assessment(
     *,
-    checks: list[Mapping[str, Any]],
+    checks: dict[str, Mapping[str, Any]],
     retention: Mapping[str, Any],
     marker_fidelity: Mapping[str, Any],
     profile: str,
     profile_spec: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Convert benchmark checks into a publication-facing QC assessment."""
-    failed = [check for check in checks if not check.get("passed")]
+    check_values = list(checks.values())
+    failed = [check for check in check_values if not check.get("passed")]
     critical = [check for check in failed if check.get("severity") == "critical"]
     high = [check for check in failed if check.get("severity") == "high"]
 
@@ -291,25 +292,23 @@ def build_qc_benchmark_assessment(
         status = "pass"
         risk_level = "low"
 
-    recommendations = [
-        {
+    recommendations = {
+        f"rec_{i}": {
             "priority": _priority_for_severity(str(check.get("severity", "moderate"))),
             "action": str(check.get("recommendation")),
             "rationale": str(check.get("interpretation") or ""),
             "evidence_key": f"benchmark_summary.checks.{check.get('name')}",
         }
-        for check in failed
+        for i, check in enumerate(failed)
         if check.get("recommendation")
-    ]
+    }
     if not recommendations and status == "pass":
-        recommendations.append(
-            {
-                "priority": "optional",
-                "action": "Archive QC benchmark outputs with the analysis record.",
-                "rationale": "All configured benchmark checks passed for the inferred profile.",
-                "evidence_key": "benchmark_summary.assessment",
-            }
-        )
+        recommendations["rec_0"] = {
+            "priority": "optional",
+            "action": "Archive QC benchmark outputs with the analysis record.",
+            "rationale": "All configured benchmark checks passed for the inferred profile.",
+            "evidence_key": "benchmark_summary.assessment",
+        }
 
     return _json_ready(
         {
@@ -377,7 +376,7 @@ def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
         "| Priority | Action | Rationale |",
         "|----------|--------|-----------|",
     ]
-    for item in assessment.get("recommendations", []):
+    for item in assessment.get("recommendations", {}).values():
         lines.append(
             f"| {item.get('priority')} | {item.get('action')} | {item.get('rationale')} |"
         )
@@ -393,7 +392,7 @@ def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
             "|-------|--------|----------|-------|-----------|----------------|",
         ]
     )
-    for check in benchmark.get("checks", []):
+    for check in benchmark.get("checks", {}).values():
         lines.append(
             f"| {check.get('name')} | {check.get('passed')} | "
             f"{check.get('severity', 'review')} | {check.get('value')} | "
@@ -428,7 +427,7 @@ def render_qc_benchmark_compact_markdown(benchmark: Mapping[str, Any]) -> str:
         "Action items:",
         "",
     ]
-    for item in assessment.get("recommendations", []):
+    for item in assessment.get("recommendations", {}).values():
         lines.append(f"- [{item.get('priority')}] {item.get('action')}")
     if not assessment.get("recommendations"):
         lines.append("- [optional] No benchmark action required.")
@@ -439,11 +438,11 @@ def _evaluate_benchmark_checks(
     retention: Mapping[str, Any],
     marker_fidelity: Mapping[str, Any],
     profile_spec: Mapping[str, Any],
-) -> list[dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     retention_rate = float(retention.get("retention_rate", 0.0))
     fidelity = marker_fidelity.get("overall_marker_fidelity")
-    checks = [
-        {
+    checks = {
+        "minimum_retention": {
             "name": "minimum_retention",
             "passed": retention_rate >= profile_spec["min_retention"],
             "value": retention_rate,
@@ -458,7 +457,7 @@ def _evaluate_benchmark_checks(
                 "per-sample retention before preprocessing."
             ),
         },
-        {
+        "maximum_retention": {
             "name": "maximum_retention",
             "passed": retention_rate <= profile_spec["max_retention"],
             "value": retention_rate,
@@ -473,50 +472,46 @@ def _evaluate_benchmark_checks(
                 "and biologically appropriate for this dataset."
             ),
         },
-    ]
-    checks.extend(_stratified_retention_checks(retention, profile_spec))
+    }
+    checks.update(_stratified_retention_checks(retention, profile_spec))
     if fidelity is not None:
         fidelity = float(fidelity)
-        checks.append(
-            {
-                "name": "marker_fidelity",
-                "passed": fidelity >= profile_spec["min_marker_fidelity"],
-                "value": fidelity,
-                "threshold": profile_spec["min_marker_fidelity"],
-                "severity": "high",
-                "interpretation": (
-                    "Known marker signal is poorly preserved after QC, suggesting "
-                    "selective loss of biological populations or excessive filtering."
-                ),
-                "recommendation": (
-                    "Inspect marker-set retention and compare filtered versus unfiltered "
-                    "embeddings or cell-type summaries."
-                ),
-            }
-        )
+        checks["marker_fidelity"] = {
+            "name": "marker_fidelity",
+            "passed": fidelity >= profile_spec["min_marker_fidelity"],
+            "value": fidelity,
+            "threshold": profile_spec["min_marker_fidelity"],
+            "severity": "high",
+            "interpretation": (
+                "Known marker signal is poorly preserved after QC, suggesting "
+                "selective loss of biological populations or excessive filtering."
+            ),
+            "recommendation": (
+                "Inspect marker-set retention and compare filtered versus unfiltered "
+                "embeddings or cell-type summaries."
+            ),
+        }
     else:
-        checks.append(
-            {
-                "name": "marker_fidelity",
-                "passed": True,
-                "value": None,
-                "threshold": profile_spec["min_marker_fidelity"],
-                "severity": "informational",
-                "interpretation": "No configured marker set was available in this dataset.",
-                "recommendation": (
-                    "Provide tissue- or study-specific marker sets for stronger QC benchmarking."
-                ),
-                "note": "No configured marker set was available in this dataset.",
-            }
-        )
+        checks["marker_fidelity"] = {
+            "name": "marker_fidelity",
+            "passed": True,
+            "value": None,
+            "threshold": profile_spec["min_marker_fidelity"],
+            "severity": "informational",
+            "interpretation": "No configured marker set was available in this dataset.",
+            "recommendation": (
+                "Provide tissue- or study-specific marker sets for stronger QC benchmarking."
+            ),
+            "note": "No configured marker set was available in this dataset.",
+        }
     return checks
 
 
 def _stratified_retention_checks(
     retention: Mapping[str, Any],
     profile_spec: Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    checks: list[dict[str, Any]] = []
+) -> dict[str, dict[str, Any]]:
+    checks: dict[str, dict[str, Any]] = {}
     min_retention = float(profile_spec["min_retention"])
     for key, label in [
         ("per_sample", "sample"),
@@ -536,40 +531,36 @@ def _stratified_retention_checks(
         max_rate = max(rates)
         spread = max_rate - min_rate
         label_text = label.replace("_", " ")
-        checks.append(
-            {
-                "name": f"minimum_{label}_retention",
-                "passed": min_rate >= min_retention * 0.75,
-                "value": min_rate,
-                "threshold": min_retention * 0.75,
-                "severity": "high" if label == "sample" else "moderate",
-                "interpretation": (
-                    f"At least one {label_text} has much lower retention than expected, "
-                    "which can bias downstream comparisons."
-                ),
-                "recommendation": (
-                    f"Review {label_text}-level QC distributions and consider sample-aware "
-                    "thresholds or documenting biological justification."
-                ),
-            }
-        )
-        checks.append(
-            {
-                "name": f"{label}_retention_spread",
-                "passed": spread <= 0.35,
-                "value": spread,
-                "threshold": 0.35,
-                "severity": "moderate",
-                "interpretation": (
-                    f"Retention varies substantially across {label_text} strata, which may "
-                    "confound downstream differential analyses."
-                ),
-                "recommendation": (
-                    f"Inspect retained/removed fractions by {label_text} before interpreting "
-                    "downstream abundance or expression shifts."
-                ),
-            }
-        )
+        checks[f"minimum_{label}_retention"] = {
+            "name": f"minimum_{label}_retention",
+            "passed": min_rate >= min_retention * 0.75,
+            "value": min_rate,
+            "threshold": min_retention * 0.75,
+            "severity": "high" if label == "sample" else "moderate",
+            "interpretation": (
+                f"At least one {label_text} has much lower retention than expected, "
+                "which can bias downstream comparisons."
+            ),
+            "recommendation": (
+                f"Review {label_text}-level QC distributions and consider sample-aware "
+                "thresholds or documenting biological justification."
+            ),
+        }
+        checks[f"{label}_retention_spread"] = {
+            "name": f"{label}_retention_spread",
+            "passed": spread <= 0.35,
+            "value": spread,
+            "threshold": 0.35,
+            "severity": "moderate",
+            "interpretation": (
+                f"Retention varies substantially across {label_text} strata, which may "
+                "confound downstream differential analyses."
+            ),
+            "recommendation": (
+                f"Inspect retained/removed fractions by {label_text} before interpreting "
+                "downstream abundance or expression shifts."
+            ),
+        }
     return checks
 
 
@@ -607,11 +598,23 @@ def _bounded_preservation_score(*ratios: float | None) -> float:
 
 
 def _format_percent(value: Any) -> str:
-    return "N/A" if value is None else f"{float(value):.1%}"
+    if value is None or value == "":
+        return "N/A"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    return "N/A" if not np.isfinite(numeric) else f"{numeric:.1%}"
 
 
 def _format_float(value: Any) -> str:
-    return "N/A" if value is None else f"{float(value):.3f}"
+    if value is None or value == "":
+        return "N/A"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    return "N/A" if not np.isfinite(numeric) else f"{numeric:.3f}"
 
 
 def _priority_for_severity(severity: str) -> str:

@@ -4,6 +4,7 @@ from .core import *  # noqa: F401, F403
 
 # Re-export symbols that moved to focused submodules.
 from .core import (  # noqa: F401
+    PROTECTED_GENE_PRESETS,
     _exclude_genes,
     _gene_type_detection,
     _get_hvg_input_matrix,

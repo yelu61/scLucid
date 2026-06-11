@@ -49,8 +49,8 @@ minor = [
     { name = "Ductal-like2", color = "", markers = ["CRP", "MUC5B", "ONECUT2", "TFF3"] },
     { name = "Alpha cell", color = "", markers = ["GCG", "ARX", "IRX2"] },
     { name = "Beta cell", color = "", markers = ["INS", "IAPP", "MAFA", "NKX6-1"] },
-    { name = "Delta cell", color = "", markers = ["SST", "HHEX"] },
-    { name = "PP cell", color = "", markers = ["PPY", "PAX6"] }
+    { name = "Delta cell", color = "", markers = ["SST", "HHEX", "RBP4"] },
+    { name = "PP cell", color = "", markers = ["PPY", "PAX6", "PNOC"] }
 ]
 
 # --- Lung (肺) ---
@@ -63,7 +63,7 @@ minor = [
     { name = "AT1 cell", color = "#B0C4DE", markers = ["AGER", "PDPN", "CAV1"] },
     { name = "AT2 cell", color = "#ADD8E6", markers = ["SFTPC", "SFTPA1", "SFTPB", "NAPSA"] },
     { name = "Ciliated cell", color = "#20B2AA", markers = ["FOXJ1", "TPPP3", "DNAH5"] },
-    { name = "Club cell", color = "#FFA07A", markers = ["SCGB1A1", "SCGB3A2"] },
+    { name = "Club cell", color = "#FFA07A", markers = ["SCGB1A1", "SCGB3A2", "SCGB3A1"] },
     { name = "Lung Goblet cell", color = "#FFD700", markers = ["MUC5AC", "SPDEF", "TFF3"] },
     { name = "Basal cell", color = "#A9A9A9", markers = ["KRT5", "TP63", "KRT14"] },
     # Renamed to be specific subtypes of base types
@@ -146,7 +146,7 @@ minor = [
     { name = "Enteroendocrine cell", color = "#FFD700", markers = ["CHGA", "CHGB", "TPH1"] },
     { name = "Tuft cell", color = "#8A2BE2", markers = ["POU2F3", "TRPM5", "DCLK1"] },
     { name = "Intestinal Stem Cell", color = "#FF4500", markers = ["LGR5", "ASCL2", "OLFM4"] },
-    { name = "Intestinal TA Cell", color = "#FFDAB9", markers = ["MKI67", "PCNA"] },
+    { name = "Intestinal TA Cell", color = "#FFDAB9", markers = ["MKI67", "PCNA", "TOP2A"] },
     { name = "Intestinal Myofibroblast", color = "#D2B48C", markers = ["ACTA2", "VIM", "PDGFRA"] }
 ]
 
@@ -161,7 +161,7 @@ minor = [
     { name = "Basal Keratinocyte", color = "#FFE4B5", markers = ["KRT5", "KRT14", "TP63"] },
     { name = "Skin Melanocyte", color = "#A0522D", markers = ["MITF", "TYR", "PMEL", "DCT"] },
     { name = "Dermal Fibroblast", color = "#DEB887", markers = ["COL1A1", "DCN", "LUM"] },
-    { name = "Langerhans Cell", color = "#DA70D6", markers = ["CD207", "CD1A"] },
+    { name = "Langerhans Cell", color = "#DA70D6", markers = ["CD207", "CD1A", "CD1C"] },
     { name = "Merkel Cell", color = "#48D1CC", markers = ["KRT20", "KRT18", "PIEZO2"] },
     { name = "Sebaceous Gland Cell", color = "#FFFFE0", markers = ["KRT7", "SOX9", "PPARG"] },
     { name = "Sweat Gland Cell", color = "#AFEEEE", markers = ["KRT7", "DCD", "AQP5"] }

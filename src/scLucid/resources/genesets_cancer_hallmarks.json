@@ -2,9 +2,31 @@
   "_metadata": {
     "version": "1.0.0",
     "last_updated": "2025-02-07",
+    "schema": "scLucid_genesets_v1",
+    "resource_type": "genesets_cancer_hallmarks",
+    "curation_status": "seed_scoring_resource",
     "description": "Cancer Hallmark Gene Signatures based on MSigDB Hallmarks",
+    "usage": "Pathway-level scoring/enrichment modules. Use for interpretation and module scoring, not direct annotation labels.",
     "author": "scLucid Development Team",
     "citation": "MSigDB Hallmark gene sets (Liberzon et al., 2015)",
+    "source_collections": [
+      {
+        "name": "MSigDB Hallmark",
+        "source_ids": ["SRC0128"],
+        "role": "database_signature_collection",
+        "database_version": "v2024.1"
+      },
+      {
+        "name": "Hanahan cancer hallmarks framework",
+        "source_ids": ["SRC0129", "SRC0130"],
+        "role": "conceptual_framework"
+      },
+      {
+        "name": "Cancer hallmark GSEA review",
+        "source_ids": ["SRC0131"],
+        "role": "methodological_review"
+      }
+    ],
     "sources": [
       "MSigDB Hallmark v2024.1",
       "The Hallmarks of Cancer (Hanahan & Weinberg, 2000, 2011)"
@@ -13,6 +35,24 @@
     "species": ["human"]
   },
   "human": {
+    "_default_entry_metadata": {
+      "source_collection": "MSigDB Hallmark",
+      "source_ids": ["SRC0128"],
+      "framework_source_ids": ["SRC0129", "SRC0130"],
+      "evidence_role": "pathway_scoring",
+      "use_for": ["program_scoring", "pathway_enrichment", "tumor_interpretation"],
+      "not_for": ["cell_identity_annotation", "global_annotation"],
+      "database_version": "v2024.1",
+      "review_status": "needs_review"
+    },
+    "_categories": {
+      "cell_cycle": ["HALLMARK_E2F_TARGETS", "HALLMARK_G2M_CHECKPOINT"],
+      "cell_fate_stress": ["HALLMARK_APOPTOSIS", "HALLMARK_P53_PATHWAY", "HALLMARK_DNA_REPAIR"],
+      "plasticity_invasion": ["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", "HALLMARK_ANGIOGENESIS"],
+      "hypoxia_metabolism": ["HALLMARK_HYPOXIA", "HALLMARK_MTORC1_SIGNALING", "HALLMARK_PROTEIN_SECRETION"],
+      "immune_inflammation": ["HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_INTERFERON_ALPHA_RESPONSE", "HALLMARK_INTERFERON_GAMMA_RESPONSE", "HALLMARK_TNFA_SIGNALING_VIA_NFKB"],
+      "oncogenic_signaling": ["HALLMARK_KRAS_SIGNALING_UP", "HALLMARK_MYC_TARGETS_V1"]
+    },
     "HALLMARK_APOPTOSIS": {
       "genes": ["BAD", "BAK1", "BAX", "BCL2", "BCL2L1", "BCL2L11", "BID", "BIRC2", "CASP3", "CASP7", "CASP8", "CASP9", "DIABLO", "FAS", "FASLG", "PARP1"],
       "description": "Programmed cell death pathway"

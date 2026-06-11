@@ -217,7 +217,7 @@ def _store_annotation_evidence_summary(
     annotation_ns = (
         adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
     )
-    annotation_ns[f"{annotation_key}_evidence"] = summary_df
+    annotation_ns[f"{annotation_key}_evidence"] = sanitize_for_hdf5(summary_df)
     annotation_ns[f"{annotation_key}_evidence_params"] = sanitize_for_hdf5(
         {
             "cluster_key": cluster_key,
@@ -372,10 +372,11 @@ def run_lineage_state_annotation(
                 axis=1,
             )
             state_confidence = (top1 - top2).astype(float)
-            state_values = state_values.where(
-                top1.replace(-np.inf, np.nan).notna(), "Not_applicable"
+            valid_top_state = top1.replace(-np.inf, np.nan).notna() & (
+                top1.astype(float) >= float(config.min_state_score)
             )
-            state_confidence = state_confidence.where(top1.replace(-np.inf, np.nan).notna(), np.nan)
+            state_values = state_values.where(valid_top_state, "Not_applicable")
+            state_confidence = state_confidence.where(valid_top_state, np.nan)
             state_values = state_values.where(target_mask, "Not_applicable")
             state_confidence = state_confidence.where(target_mask, np.nan)
 
@@ -476,6 +477,7 @@ def evaluate_annotation(
             log.warning(f"No DE genes or required columns missing for cluster '{cluster}'.")
             continue
         sig_genes = set(de_genes.loc[de_genes["pvals_adj"] < 0.05, "names"].astype(str))
+        sig_gene_by_upper = {gene.upper(): gene for gene in sig_genes}
 
         # Determine assigned type
         cluster_mask = adata.obs[cluster_key] == cluster
@@ -488,30 +490,43 @@ def evaluate_annotation(
         if assigned_type == "Unknown" or assigned_type not in mgr.CELLS:
             continue
 
-        expected_markers = set(mgr[assigned_type].markers)
-        found_markers = sig_genes & expected_markers
+        expected_markers = {str(marker).upper() for marker in mgr[assigned_type].markers}
+        found_marker_keys = set(sig_gene_by_upper) & expected_markers
+        found_markers = {sig_gene_by_upper[key] for key in found_marker_keys}
         marker_coverage = len(found_markers) / len(expected_markers) if expected_markers else 0.0
 
         all_other_markers = {
-            m for t, c in mgr.CELLS.items() if t != assigned_type for m in c.markers
+            str(m).upper() for t, c in mgr.CELLS.items() if t != assigned_type for m in c.markers
         }
-        specificity = (
-            1.0 - (len(found_markers & all_other_markers) / len(found_markers))
-            if found_markers
-            else 0.0
-        )
+        exclusive_markers = expected_markers - all_other_markers
+        found_exclusive_keys = found_marker_keys & exclusive_markers
+        found_exclusive_markers = {sig_gene_by_upper[key] for key in found_exclusive_keys}
+        if exclusive_markers:
+            specificity = len(found_exclusive_markers) / len(exclusive_markers)
+            specificity_reason = "exclusive_marker_support"
+            specificity_for_confidence = specificity
+        else:
+            specificity = np.nan
+            specificity_reason = "no_exclusive_markers_available"
+            specificity_for_confidence = 0.5
 
-        confidence = 0.6 * marker_coverage + 0.4 * specificity
+        confidence = 0.6 * marker_coverage + 0.4 * specificity_for_confidence
         results.append(
             {
                 "cluster": cluster,
                 "cell_type": assigned_type,
                 "marker_coverage": marker_coverage,
                 "marker_specificity": specificity,
+                "marker_specificity_reason": specificity_reason,
                 "annotation_confidence": confidence,
                 "found_markers": ", ".join(sorted(found_markers)) if found_markers else "",
+                "exclusive_found_markers": (
+                    ", ".join(sorted(found_exclusive_markers)) if found_exclusive_markers else ""
+                ),
                 "expected_markers": len(expected_markers),
                 "detected_markers": len(found_markers),
+                "exclusive_expected_markers": len(exclusive_markers),
+                "exclusive_detected_markers": len(found_exclusive_markers),
             }
         )
 

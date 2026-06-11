@@ -4,7 +4,8 @@ Cell type proportion statistical analysis.
 This module provides statistical methods for analyzing cell type proportions,
 including:
 - Proportion computation from count matrices
-- Multiple statistical tests (DESeq2, t-test, Wilcoxon, ANOVA, paired tests)
+- CLR-transformed sample-level tests for compositional proportions
+- Optional legacy raw-proportion tests for exploratory summaries
 - Effect size calculation (Cohen's d, Cliff's Delta)
 - Data export utilities
 """
@@ -21,6 +22,60 @@ from anndata import AnnData
 from scipy import stats
 
 log = logging.getLogger(__name__)
+
+
+def composition_transform(
+    prop_df: pd.DataFrame,
+    *,
+    method: str = "clr",
+    pseudocount: float = 1e-6,
+) -> pd.DataFrame:
+    """Transform sample-level compositions for valid compositional testing."""
+    if method == "none":
+        return prop_df.astype(float).copy()
+    if method != "clr":
+        raise ValueError(f"Unknown composition transform: {method}")
+    values = prop_df.astype(float).copy()
+    counts_like = values.max().max() > 1.0
+    if counts_like:
+        values = values.div(values.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
+    transformed = np.log(values + float(pseudocount))
+    transformed = transformed.sub(transformed.mean(axis=1), axis=0)
+    return transformed
+
+
+def _mean_diff_ci(
+    group1: pd.Series,
+    group2: pd.Series,
+    *,
+    paired: bool = False,
+    alpha: float = 0.05,
+) -> tuple[float, float, float]:
+    """Return condition2-condition1 mean difference and t-based confidence interval."""
+    group1 = pd.to_numeric(group1, errors="coerce").dropna()
+    group2 = pd.to_numeric(group2, errors="coerce").dropna()
+    if paired:
+        diffs = (group2.to_numpy() - group1.to_numpy()).astype(float)
+    else:
+        diffs = np.r_[
+            group2.to_numpy(dtype=float) - float(group1.mean()),
+        ]
+        mean_diff = float(group2.mean() - group1.mean())
+        se = np.sqrt(group1.var(ddof=1) / len(group1) + group2.var(ddof=1) / len(group2))
+        df = min(len(group1), len(group2)) - 1
+        if len(group1) < 2 or len(group2) < 2 or not np.isfinite(se) or se == 0:
+            return mean_diff, np.nan, np.nan
+        tcrit = stats.t.ppf(1 - alpha / 2, df=max(1, df))
+        return mean_diff, float(mean_diff - tcrit * se), float(mean_diff + tcrit * se)
+
+    if diffs.size < 2:
+        return float(np.mean(diffs)) if diffs.size else np.nan, np.nan, np.nan
+    mean_diff = float(np.mean(diffs))
+    se = float(stats.sem(diffs, nan_policy="omit"))
+    if not np.isfinite(se) or se == 0:
+        return mean_diff, np.nan, np.nan
+    tcrit = stats.t.ppf(1 - alpha / 2, df=max(1, diffs.size - 1))
+    return mean_diff, float(mean_diff - tcrit * se), float(mean_diff + tcrit * se)
 
 
 def compute_celltype_proportion(
@@ -463,13 +518,135 @@ def _run_paired_test(
     return pd.DataFrame(results)
 
 
+def _run_clr_sample_level_test(
+    count_df: pd.DataFrame,
+    sample_to_cond: pd.Series,
+    *,
+    test_type: str = "t-test",
+    sample_to_pair: Optional[pd.Series] = None,
+    sample_to_batch: Optional[pd.Series] = None,
+    pseudocount: float = 1e-6,
+) -> pd.DataFrame:
+    """Run sample-level tests on CLR-transformed compositions."""
+    conditions = list(sample_to_cond.dropna().astype(str).unique())
+    if len(conditions) != 2:
+        log.warning("CLR sample-level tests require exactly 2 conditions. Got %s.", len(conditions))
+        return pd.DataFrame()
+    condition1, condition2 = conditions
+    aligned = count_df.loc[sample_to_cond.dropna().index]
+    sample_to_cond = sample_to_cond.loc[aligned.index].astype(str)
+    clr_df = composition_transform(aligned, method="clr", pseudocount=pseudocount)
+
+    results = []
+    for celltype in clr_df.columns:
+        group1 = clr_df.loc[sample_to_cond == condition1, celltype]
+        group2 = clr_df.loc[sample_to_cond == condition2, celltype]
+        if len(group1) < 1 or len(group2) < 1:
+            continue
+
+        n1, n2 = len(group1), len(group2)
+        stat = np.nan
+        pval = np.nan
+        n_pairs = np.nan
+        ci_lower = np.nan
+        ci_upper = np.nan
+        mean_diff = float(group2.mean() - group1.mean())
+
+        if test_type == "paired-t-test" or test_type == "paired-wilcoxon":
+            if sample_to_pair is None:
+                raise ValueError("sample_to_pair required for paired CLR tests")
+            pairs = []
+            pair_series = sample_to_pair.loc[clr_df.index].astype(str)
+            for pair_id in pair_series.dropna().unique():
+                pair_samples = pair_series[pair_series == pair_id].index
+                conds = sample_to_cond.loc[pair_samples]
+                vals1 = clr_df.loc[pair_samples[conds == condition1], celltype].to_numpy()
+                vals2 = clr_df.loc[pair_samples[conds == condition2], celltype].to_numpy()
+                if vals1.size and vals2.size:
+                    pairs.append((float(vals1[0]), float(vals2[0])))
+            n_pairs = len(pairs)
+            if n_pairs >= 2:
+                paired1 = pd.Series([p[0] for p in pairs], dtype=float)
+                paired2 = pd.Series([p[1] for p in pairs], dtype=float)
+                if test_type == "paired-wilcoxon":
+                    stat, pval = stats.wilcoxon(paired2, paired1)
+                else:
+                    stat, pval = stats.ttest_rel(paired2, paired1)
+                mean_diff, ci_lower, ci_upper = _mean_diff_ci(paired1, paired2, paired=True)
+        elif test_type == "wilcoxon":
+            if n1 >= 2 and n2 >= 2:
+                stat, pval = stats.mannwhitneyu(group2, group1, alternative="two-sided")
+                mean_diff, ci_lower, ci_upper = _mean_diff_ci(group1, group2)
+        elif test_type == "ols":
+            if sample_to_batch is None:
+                log.warning("CLR OLS requested without sample_to_batch; falling back to t-test.")
+                if n1 >= 2 and n2 >= 2:
+                    stat, pval = stats.ttest_ind(group2, group1, equal_var=False)
+                    mean_diff, ci_lower, ci_upper = _mean_diff_ci(group1, group2)
+            else:
+                try:
+                    import statsmodels.formula.api as smf
+                except ImportError:
+                    log.warning("statsmodels not installed; CLR OLS cannot be run.")
+                else:
+                    model_df = pd.DataFrame(
+                        {
+                            "value": clr_df[celltype],
+                            "condition": sample_to_cond,
+                            "batch": sample_to_batch.loc[clr_df.index].astype(str),
+                        }
+                    ).dropna()
+                    term = f"C(condition)[T.{condition2}]"
+                    if model_df["condition"].nunique() == 2 and model_df["batch"].nunique() > 1:
+                        fit = smf.ols("value ~ C(condition) + C(batch)", data=model_df).fit()
+                        if term in fit.params:
+                            stat = float(fit.tvalues[term])
+                            pval = float(fit.pvalues[term])
+                            mean_diff = float(fit.params[term])
+                            ci = fit.conf_int().loc[term]
+                            ci_lower, ci_upper = float(ci.iloc[0]), float(ci.iloc[1])
+        else:
+            if n1 >= 2 and n2 >= 2:
+                stat, pval = stats.ttest_ind(group2, group1, equal_var=False)
+                mean_diff, ci_lower, ci_upper = _mean_diff_ci(group1, group2)
+
+        results.append(
+            {
+                "cell_type": celltype,
+                "condition1": condition1,
+                "condition2": condition2,
+                "statistic": float(stat) if np.isfinite(stat) else np.nan,
+                "pval": float(pval) if np.isfinite(pval) else np.nan,
+                "mean_diff": mean_diff,
+                "effect_size": mean_diff,
+                "ci_lower": ci_lower,
+                "ci_upper": ci_upper,
+                "direction": f"{condition2} - {condition1}",
+                "n_samples_condition1": int(n1),
+                "n_samples_condition2": int(n2),
+                "n_pairs": n_pairs,
+                "method": f"clr-{test_type}",
+                "transform": "clr",
+                "inference_level": "sample_level",
+                "compositional_data_warning": (
+                    "Cell type proportions are compositional; inference was run on "
+                    "sample-level CLR-transformed values."
+                ),
+            }
+        )
+
+    return pd.DataFrame(results)
+
+
 def run_statistical_test(
     count_df: pd.DataFrame,
     condition_col: str,
     test_method: str = "wilcoxon",
     sample_to_cond: Optional[pd.Series] = None,
     sample_to_pair: Optional[pd.Series] = None,
+    sample_to_batch: Optional[pd.Series] = None,
     multiple_testing_correction: str = "fdr_bh",
+    composition_pseudocount: float = 1e-6,
 ) -> pd.DataFrame:
     """
     Run statistical tests for differential cell type abundance.
@@ -482,8 +659,11 @@ def run_statistical_test(
     condition_col : str
         Name of condition column
     test_method : str
-        Statistical method: 'deseq2', 't-test', 'wilcoxon', 'anova',
-        'paired-t-test', 'paired-wilcoxon'
+        Statistical method. Prefer 'clr-t-test', 'clr-wilcoxon',
+        'clr-paired-t-test', 'clr-paired-wilcoxon', or 'clr-ols' for
+        sample-level compositional inference. Raw-proportion 't-test',
+        'wilcoxon', 'anova', 'kruskal', 'paired-t-test', and
+        'paired-wilcoxon' are retained for legacy exploratory summaries.
     sample_to_cond : pd.Series, optional
         Mapping from sample to condition
     sample_to_pair : pd.Series, optional
@@ -504,6 +684,42 @@ def run_statistical_test(
     # Dispatch to appropriate test function
     if test_method == "deseq2":
         res_df = _run_deseq2(count_df, sample_to_cond, condition_col)
+    elif test_method == "clr-t-test":
+        res_df = _run_clr_sample_level_test(
+            count_df, sample_to_cond, test_type="t-test", pseudocount=composition_pseudocount
+        )
+    elif test_method == "clr-wilcoxon":
+        res_df = _run_clr_sample_level_test(
+            count_df, sample_to_cond, test_type="wilcoxon", pseudocount=composition_pseudocount
+        )
+    elif test_method == "clr-paired-t-test":
+        if sample_to_pair is None:
+            raise ValueError("sample_to_pair required for paired tests")
+        res_df = _run_clr_sample_level_test(
+            count_df,
+            sample_to_cond,
+            test_type="paired-t-test",
+            sample_to_pair=sample_to_pair,
+            pseudocount=composition_pseudocount,
+        )
+    elif test_method == "clr-paired-wilcoxon":
+        if sample_to_pair is None:
+            raise ValueError("sample_to_pair required for paired tests")
+        res_df = _run_clr_sample_level_test(
+            count_df,
+            sample_to_cond,
+            test_type="paired-wilcoxon",
+            sample_to_pair=sample_to_pair,
+            pseudocount=composition_pseudocount,
+        )
+    elif test_method == "clr-ols":
+        res_df = _run_clr_sample_level_test(
+            count_df,
+            sample_to_cond,
+            test_type="ols",
+            sample_to_batch=sample_to_batch,
+            pseudocount=composition_pseudocount,
+        )
     elif test_method == "t-test":
         res_df = _run_ttest(count_df, sample_to_cond)
     elif test_method == "wilcoxon":
@@ -528,14 +744,34 @@ def run_statistical_test(
     if res_df.empty:
         return res_df
 
+    legacy_raw_methods = {
+        "t-test",
+        "wilcoxon",
+        "anova",
+        "kruskal",
+        "paired-t-test",
+        "paired-wilcoxon",
+    }
+    if test_method in legacy_raw_methods:
+        res_df["inference_level"] = "exploratory_legacy_proportion"
+        res_df["valid_for_publication_inference"] = False
+        res_df["compositional_data_warning"] = (
+            "Raw cell-type proportions are compositional; prefer CLR-transformed "
+            "sample-level tests or a compositional model for formal inference."
+        )
+
     # Multiple testing correction
     if "pval" in res_df.columns and multiple_testing_correction:
         try:
             from statsmodels.stats.multitest import multipletests
 
-            _, res_df["padj"], _, _ = multipletests(
-                res_df["pval"], method=multiple_testing_correction
-            )
+            valid = res_df["pval"].notna() & np.isfinite(res_df["pval"])
+            res_df["padj"] = np.nan
+            if valid.any():
+                _, adjusted, _, _ = multipletests(
+                    res_df.loc[valid, "pval"], method=multiple_testing_correction
+                )
+                res_df.loc[valid, "padj"] = adjusted
         except ImportError:
             log.warning(
                 "statsmodels not installed. Skipping correction. "

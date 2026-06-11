@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from scLucid.analysis.config import ProportionConfig as PublicProportionConfig
 from scLucid.analysis.proportion.config import ProportionConfig
 from scLucid.analysis.proportion.pseudobulk import celltype_proportion_analysis
-from scLucid.analysis.proportion.stats import run_statistical_test
+from scLucid.analysis.proportion.stats import composition_transform, run_statistical_test
 
 
 def test_proportion_config_accepts_kruskal():
@@ -21,6 +21,17 @@ def test_proportion_config_accepts_kruskal():
     )
 
     assert cfg.test_method == "kruskal"
+
+
+def test_proportion_config_defaults_to_clr_sample_level():
+    cfg = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+    )
+
+    assert cfg.test_method == "clr-t-test"
+    assert cfg.composition_transform == "clr"
 
 
 def test_proportion_config_rejects_unimplemented_fisher():
@@ -90,6 +101,59 @@ def test_two_group_statistics_use_condition2_minus_condition1_direction():
     assert row["condition2"] == "B"
     assert row["direction"] == "B - A"
     assert row["mean_diff"] == pytest.approx(0.6)
+    assert row["inference_level"] == "exploratory_legacy_proportion"
+    assert bool(row["valid_for_publication_inference"]) is False
+    assert "compositional" in row["compositional_data_warning"]
+
+
+def test_clr_ttest_reports_compositional_effect_ci_and_fdr():
+    prop_df = pd.DataFrame(
+        {
+            "T": [0.7, 0.65, 0.2, 0.25],
+            "B": [0.2, 0.25, 0.6, 0.55],
+            "NK": [0.1, 0.1, 0.2, 0.2],
+        },
+        index=["a1", "a2", "b1", "b2"],
+    )
+    sample_to_cond = pd.Series(["A", "A", "B", "B"], index=prop_df.index)
+
+    clr = composition_transform(prop_df, pseudocount=0.01)
+    result = run_statistical_test(
+        prop_df,
+        condition_col="condition",
+        test_method="clr-t-test",
+        sample_to_cond=sample_to_cond,
+        composition_pseudocount=0.01,
+    )
+
+    assert clr.mean(axis=1).abs().max() < 1e-10
+    assert {"effect_size", "ci_lower", "ci_upper", "padj", "inference_level"}.issubset(
+        result.columns
+    )
+    assert set(result["method"]) == {"clr-t-test"}
+    assert set(result["inference_level"]) == {"sample_level"}
+
+
+def test_pseudobulk_single_replicate_proportion_marked_descriptive():
+    adata = AnnData(X=np.ones((6, 1)))
+    adata.obs["sample"] = ["s1", "s1", "s1", "s2", "s2", "s2"]
+    adata.obs["condition"] = ["A", "A", "A", "B", "B", "B"]
+    adata.obs["cell_type"] = ["T", "T", "B", "T", "B", "B"]
+
+    cfg = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        test_method="clr-t-test",
+        auto_configure=True,
+        plot_types=[],
+    )
+    _, stat_df = celltype_proportion_analysis(adata, cfg)
+
+    assert not stat_df.empty
+    assert set(stat_df["inference_level"]) == {"descriptive_sample_level"}
+    assert not stat_df["valid_for_publication_inference"].any()
+    assert stat_df["pval"].isna().all()
 
 
 def test_chi_square_returns_global_pvalue_and_celltype_contributions():

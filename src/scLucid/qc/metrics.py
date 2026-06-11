@@ -21,6 +21,7 @@ from matplotlib import get_backend
 
 from .config import MetricsReportingConfig
 from importlib.metadata import PackageNotFoundError, version
+from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
@@ -28,19 +29,6 @@ __all__ = ["calculate_qc_metric"]
 
 
 # --- Helper Functions ---
-def _is_interactive_backend() -> bool:
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
-
-
-def _show_or_close(*figs: plt.Figure, show: bool = False) -> None:
-    if show and _is_interactive_backend():
-        plt.show()
-    else:
-        for fig in figs:
-            plt.close(fig)
-
-
 def _find_sample_key(adata: AnnData, sample_key: Optional[str] = None) -> str:
     """
     Automatically detect the sample key column in adata.obs.

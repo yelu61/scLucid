@@ -57,6 +57,8 @@ def test_contract_spec_is_serializable_and_documents_stages():
     assert spec["canonical_keys"]["uns"]["namespace_metadata"] == "_metadata"
     assert spec["canonical_keys"]["uns"]["config_lineage"] == "config_lineage"
     assert spec["canonical_keys"]["layers"]["counts"] == "counts"
+    assert spec["canonical_keys"]["modalities"]["spatial"] == "spatial"
+    assert spec["canonical_keys"]["layer_semantics"]["raw_counts"] == "raw_counts"
     assert spec["stages"]["qc"]["name"] == "qc"
     assert preprocess["input_layers"] == ["counts"]
     assert preprocess["output_obsm"] == ["X_pca"]
@@ -66,6 +68,27 @@ def test_contract_spec_is_serializable_and_documents_stages():
         "steps_executed",
         "review_summary",
     ]
+
+
+def test_normalize_review_summary_preserves_review_lists():
+    from scLucid.utils.contracts import normalize_review_summary
+
+    review = normalize_review_summary(
+        {
+            "step_evidence_summary": {"steps": [{"step": "normalization"}]},
+            "evidence_bundle": {"evidence_chain": [{"name": "step_evidence_summary"}]},
+            "review_action_items": [{"evidence_key": "x"}],
+        },
+        module="preprocess",
+        workflow_name="run_preprocessing",
+        steps_executed=["normalization"],
+    )
+
+    assert isinstance(review["step_evidence_summary"]["steps"], list)
+    assert review["step_evidence_summary"]["steps"][0]["step"] == "normalization"
+    assert isinstance(review["evidence_bundle"]["evidence_chain"], list)
+    assert isinstance(review["review_action_items"], list)
+    assert isinstance(review["data"]["step_evidence_summary"]["steps"], list)
 
 
 def test_frozen_api_layer_entrypoints_resolve():
@@ -230,6 +253,73 @@ def test_validate_all_stage_contracts_returns_per_stage_results():
 
     assert results["qc"].valid is True
     assert results["preprocess"].valid is False
+
+
+def test_register_and_validate_spatial_input_semantics():
+    from scLucid.utils.contracts import (
+        LayerSemanticKeys,
+        ModalityKeys,
+        register_anndata_semantics,
+        validate_modality_contract,
+    )
+
+    adata = _adata()
+    adata.obsm["spatial"] = np.random.default_rng(1).normal(size=(adata.n_obs, 2))
+    register_anndata_semantics(
+        adata,
+        modality=ModalityKeys.SPATIAL,
+        assay="visium",
+        layer_semantics={"counts": LayerSemanticKeys.RAW_COUNTS},
+    )
+
+    result = validate_modality_contract(adata, require_spatial=True, require_raw_counts=True)
+
+    assert result.valid is True
+    assert result.modality == "spatial"
+    assert adata.uns["sclucid"]["input_semantics"]["modality"] == "spatial"
+    assert adata.uns["sclucid"]["input_semantics_validation"]["valid"] is True
+
+
+def test_validate_multimodal_protein_and_atac_contract():
+    from scLucid.utils.contracts import (
+        ModalityKeys,
+        register_anndata_semantics,
+        validate_modality_contract,
+    )
+
+    adata = _adata()
+    adata.obsm["protein_counts"] = np.random.default_rng(2).poisson(1, size=(adata.n_obs, 3))
+    adata.layers["atac_counts"] = np.random.default_rng(3).poisson(1, size=adata.shape)
+    adata.var["feature_types"] = "Gene Expression"
+    register_anndata_semantics(
+        adata,
+        modality=ModalityKeys.MULTIOME,
+        assay="multiome",
+        protein_obsm_key="protein_counts",
+        atac_layer="atac_counts",
+    )
+
+    result = validate_modality_contract(
+        adata,
+        require_protein=True,
+        require_atac=True,
+    )
+
+    assert result.valid is True
+    assert result.detected["protein_obsm_key"] == "protein_counts"
+    assert result.detected["atac_layer"] == "atac_counts"
+
+
+def test_validate_modality_contract_reports_missing_spatial_coordinates():
+    from scLucid.utils.contracts import ModalityKeys, register_anndata_semantics, validate_modality_contract
+
+    adata = _adata()
+    register_anndata_semantics(adata, modality=ModalityKeys.SPATIAL, assay="visium")
+
+    result = validate_modality_contract(adata, require_spatial=True)
+
+    assert result.valid is False
+    assert any("Spatial modality" in error for error in result.errors)
 
 
 def test_run_pipeline_records_stage_contract(monkeypatch):

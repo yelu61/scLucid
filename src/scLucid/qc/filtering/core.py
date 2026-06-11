@@ -20,6 +20,7 @@ from scipy import stats
 
 from ..adaptive_threshold import compute_mad_bounds
 from ..config import FilterConfig, MarkingConfig, QCThresholds
+from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
@@ -29,11 +30,6 @@ __all__ = [
     "mark_low_quality_cells_adaptive",
     "filter_cells",
 ]
-
-
-def _is_interactive_backend() -> bool:
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
 
 
 class AdaptiveThresholdCalculator:

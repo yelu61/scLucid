@@ -2,10 +2,10 @@
 Core differential expression analysis functions.
 
 This module provides the main DE analysis functions:
-- find_markers: One-vs-rest marker gene discovery
+- find_markers: One-vs-rest cell-level marker gene discovery
 - filter_markers: Filter DE results by criteria
-- compare_groups: Pairwise group comparisons
-- compare_conditions: Compare conditions within cell types
+- compare_groups: Exploratory pairwise cell-level group comparisons
+- compare_conditions: Exploratory cell-level condition comparisons within cell types
 - get_conserved_markers: Find conserved markers across conditions
 """
 
@@ -42,13 +42,40 @@ log = logging.getLogger(__name__)
 # ==================== Core Differential Expression Functions ====================
 
 
+def _tag_cell_level_de_result(
+    df: pd.DataFrame,
+    *,
+    inference_level: str,
+    analysis_intent: str,
+) -> pd.DataFrame:
+    """Add explicit inference semantics to cell-level DE result tables."""
+    if df.empty:
+        return df
+    tagged = df.copy()
+    tagged["inference_level"] = inference_level
+    tagged["analysis_intent"] = analysis_intent
+    tagged["valid_for_publication_inference"] = False
+    tagged["pseudoreplication_warning"] = True
+    tagged["de_warning"] = (
+        "Cell-level rank_genes_groups treats cells as independent observations. "
+        "Use sample-level pseudobulk DE for publication-grade condition inference."
+    )
+    return tagged
+
+
 def find_markers(
     adata: AnnData,
     config: Optional[DifferentialConfig] = None,
     **kwargs,
 ) -> pd.DataFrame:
     """
-    Find marker genes using one-vs-rest differential expression analysis.
+    Find marker genes using one-vs-rest cell-level differential expression.
+
+    This function is intended for marker discovery and cluster/cell-type
+    characterization. It is not a publication-grade condition-level inference
+    test because cells from the same biological sample are not independent
+    replicates. Use ``run_pseudobulk_de`` for condition DE when sample
+    replicates are available.
 
     This function:
     1. Runs Scanpy's rank_genes_groups
@@ -181,6 +208,11 @@ def find_markers(
     else:
         full_df = pd.concat(result_dfs, ignore_index=True)
         full_df = _standardize_pct_columns(full_df)
+        full_df = _tag_cell_level_de_result(
+            full_df,
+            inference_level="cell_level_marker_discovery",
+            analysis_intent="marker_discovery",
+        )
 
     # Store with provenance
     root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
@@ -192,6 +224,11 @@ def find_markers(
     # Parameter tracking
     params = active_config.to_dict()
     params["scanpy_version"] = version("scanpy")
+    params["inference_level"] = "cell_level_marker_discovery"
+    params["valid_for_publication_inference"] = False
+    params["de_warning"] = (
+        "find_markers is for marker discovery; use run_pseudobulk_de for formal condition DE."
+    )
     root[f"{key_added}_params"] = sanitize_for_hdf5(params)
 
     if active_config.verbose:
@@ -398,10 +435,13 @@ def compare_groups(
     adata: AnnData, config: Optional[CompareGroupsConfig] = None, **kwargs
 ) -> pd.DataFrame:
     """
-    Compare two specific groups (e.g., cell types, conditions) for DE genes.
+    Compare two specific groups (e.g., cell types, conditions) for DE genes at cell level.
 
     Combines the robustness of careful validation with the convenience of
-    integrated visualization.
+    integrated visualization. This is an exploratory cell-level comparison,
+    suitable for marker discovery or cluster characterization. For
+    condition-level biological inference, use ``run_pseudobulk_de`` so
+    biological samples, not cells, define replicates.
 
     Args:
         adata: AnnData object
@@ -494,6 +534,11 @@ def compare_groups(
         .head(config.n_top_genes)
     )
     final = pd.concat([up, down], ignore_index=True)
+    final = _tag_cell_level_de_result(
+        final,
+        inference_level="exploratory_cell_level",
+        analysis_intent="exploratory_pairwise_cell_level_de",
+    )
 
     if config.verbose:
         log.info(f"Found {len(final)} DE genes ({len(up)} up, {len(down)} down)")
@@ -501,7 +546,13 @@ def compare_groups(
     # Store results
     root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     root[key_added] = final
-    root[f"{key_added}_params"] = sanitize_for_hdf5(config.to_dict())
+    params = config.to_dict()
+    params["inference_level"] = "exploratory_cell_level"
+    params["valid_for_publication_inference"] = False
+    params["de_warning"] = (
+        "compare_groups is cell-level exploratory DE; use run_pseudobulk_de for formal condition DE."
+    )
+    root[f"{key_added}_params"] = sanitize_for_hdf5(params)
 
     log.info(f"Results stored at .uns['sclucid']['analysis']['de']['{key_added}']")
 
@@ -530,10 +581,13 @@ def compare_conditions(
     adata: AnnData, config: Optional[CompareConditionsConfig] = None, **kwargs
 ) -> pd.DataFrame:
     """
-    Compare two conditions within a specific cell type/group.
+    Compare two conditions within a specific cell type/group at cell level.
 
     This is a specialized wrapper around compare_groups() that first
-    subsets to a specific cell type, then compares conditions.
+    subsets to a specific cell type, then compares conditions. It is
+    exploratory and not formal condition inference because cells are not
+    biological replicates. Prefer ``run_pseudobulk_de`` for publication-grade
+    condition DE.
 
     Args:
         adata: AnnData object
@@ -607,7 +661,13 @@ def compare_conditions(
     # Store in parent AnnData
     root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     root[comp_config.key_added] = results_df
-    root[f"{comp_config.key_added}_params"] = sanitize_for_hdf5(config.to_dict())
+    params = config.to_dict()
+    params["inference_level"] = "exploratory_cell_level"
+    params["valid_for_publication_inference"] = False
+    params["de_warning"] = (
+        "compare_conditions is cell-level exploratory DE; use run_pseudobulk_de for formal condition DE."
+    )
+    root[f"{comp_config.key_added}_params"] = sanitize_for_hdf5(params)
 
     log.info(
         f"Condition comparison complete: {len(results_df)} DE genes. "
@@ -637,12 +697,17 @@ def _aggregate_counts_by_sample(
     layer: Optional[str],
     use_raw: bool,
     min_cells_per_sample: int,
+    covariate_cols: Optional[List[str]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Aggregate cell-level counts to sample-level pseudobulk counts."""
     if sample_col not in adata.obs:
         raise KeyError(f"Column '{sample_col}' not found in adata.obs")
     if condition_key not in adata.obs:
         raise KeyError(f"Column '{condition_key}' not found in adata.obs")
+    covariate_cols = list(dict.fromkeys(covariate_cols or []))
+    missing_covariates = [col for col in covariate_cols if col not in adata.obs]
+    if missing_covariates:
+        raise KeyError(f"Covariate column(s) not found in adata.obs: {missing_covariates}")
 
     X, var_names = _get_expression_matrix(adata, layer=layer, use_raw=use_raw)
     sample_values = adata.obs[sample_col].astype(str)
@@ -663,14 +728,20 @@ def _aggregate_counts_by_sample(
             raise ValueError(
                 f"Sample '{sample}' has multiple conditions in '{condition_key}': {cond_values}"
             )
-        meta_rows.append(
-            {
-                "sample": sample,
-                condition_key: cond_values[0],
-                "n_cells": n_cells,
-                "library_size": float(np.sum(summed)),
-            }
-        )
+        meta_row = {
+            "sample": sample,
+            condition_key: cond_values[0],
+            "n_cells": n_cells,
+            "library_size": float(np.sum(summed)),
+        }
+        for covariate in covariate_cols:
+            cov_values = adata.obs.loc[mask, covariate].astype(str).unique()
+            if len(cov_values) != 1:
+                raise ValueError(
+                    f"Sample '{sample}' has multiple values in covariate '{covariate}': {cov_values}"
+                )
+            meta_row[covariate] = cov_values[0]
+        meta_rows.append(meta_row)
 
     if not rows:
         return pd.DataFrame(columns=var_names), pd.DataFrame()
@@ -785,6 +856,208 @@ def _run_welch_logcpm_de(
     result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
     result["padj"] = result["pvals_adj"]
     return result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(drop=True)
+
+
+def _run_linear_model_logcpm_de(
+    counts: pd.DataFrame,
+    meta: pd.DataFrame,
+    condition_key: str,
+    condition1: str,
+    condition2: str,
+    min_counts: int,
+    pseudocount: float,
+    p_adjust_method: str,
+    covariates: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """Run sample-level OLS on logCPM values with optional covariates."""
+    try:
+        import statsmodels.formula.api as smf
+    except ImportError as exc:
+        raise ImportError("statsmodels is required for linear_model_logcpm") from exc
+
+    covariates = list(dict.fromkeys(covariates or []))
+    selected = meta[meta[condition_key].astype(str).isin([condition1, condition2])].copy()
+    if selected.empty:
+        return pd.DataFrame()
+    missing_covariates = [cov for cov in covariates if cov not in selected.columns]
+    if missing_covariates:
+        raise KeyError(f"Covariate column(s) missing from pseudobulk metadata: {missing_covariates}")
+
+    selected_counts = counts.loc[selected.index]
+    keep = selected_counts.sum(axis=0) >= min_counts
+    selected_counts = selected_counts.loc[:, keep]
+    if selected_counts.empty:
+        return pd.DataFrame()
+
+    lib_sizes = selected_counts.sum(axis=1)
+    nonzero_lib = lib_sizes > 0
+    if not nonzero_lib.all():
+        selected_counts = selected_counts.loc[nonzero_lib]
+        lib_sizes = lib_sizes.loc[nonzero_lib]
+        selected = selected.loc[selected_counts.index]
+        if selected.empty:
+            return pd.DataFrame()
+
+    selected["__condition"] = pd.Categorical(
+        selected[condition_key].astype(str),
+        categories=[condition1, condition2],
+        ordered=False,
+    )
+    design_terms = ["C(__condition)"]
+    model_covariates: List[str] = []
+    for idx, covariate in enumerate(covariates):
+        if selected[covariate].nunique(dropna=True) < 2:
+            log.info(
+                "Skipping covariate '%s' in pseudobulk linear model because it has <2 levels.",
+                covariate,
+            )
+            continue
+        safe_col = f"__cov_{idx}"
+        selected[safe_col] = selected[covariate].astype(str)
+        design_terms.append(f"C({safe_col})")
+        model_covariates.append(covariate)
+
+    cpm = selected_counts.div(lib_sizes, axis=0) * 1e6
+    logcpm = np.log2(cpm + pseudocount)
+    n1 = int((selected["__condition"].astype(str) == condition1).sum())
+    n2 = int((selected["__condition"].astype(str) == condition2).sum())
+    if n1 < 2 or n2 < 2:
+        return pd.DataFrame()
+
+    formula = "value ~ " + " + ".join(design_terms)
+    term = f"C(__condition)[T.{condition2}]"
+    records = []
+    for gene in logcpm.columns:
+        model_df = selected.copy()
+        model_df["value"] = logcpm[gene].astype(float)
+        try:
+            fit = smf.ols(formula, data=model_df).fit()
+        except Exception as exc:
+            log.warning("Linear model failed for gene '%s': %s", gene, exc)
+            continue
+        if term not in fit.params:
+            continue
+        coef = float(fit.params[term])
+        pval = float(fit.pvalues[term])
+        stat = float(fit.tvalues[term])
+        ci = fit.conf_int().loc[term]
+        records.append(
+            {
+                "names": gene,
+                "gene": gene,
+                "logfoldchanges": coef,
+                "log2fc": coef,
+                "scores": stat,
+                "statistic": stat,
+                "pvals": pval,
+                "pval": pval,
+                "ci_lower": float(ci.iloc[0]),
+                "ci_upper": float(ci.iloc[1]),
+                "mean_logcpm_condition1": float(
+                    logcpm.loc[selected["__condition"].astype(str) == condition1, gene].mean()
+                ),
+                "mean_logcpm_condition2": float(
+                    logcpm.loc[selected["__condition"].astype(str) == condition2, gene].mean()
+                ),
+                "base_mean": float(selected_counts[gene].mean()),
+                "condition1": condition1,
+                "condition2": condition2,
+                "contrast": f"{condition2}_vs_{condition1}",
+                "direction": f"{condition2} - {condition1}",
+                "n_samples_condition1": n1,
+                "n_samples_condition2": n2,
+                "method": "linear_model_logcpm",
+                "design_formula": formula,
+                "design_covariates": ",".join(model_covariates),
+            }
+        )
+
+    result = pd.DataFrame(records)
+    if result.empty:
+        return result
+    result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
+    result["padj"] = result["pvals_adj"]
+    result["model_warning"] = (
+        "Python OLS on sample-level logCPM values; use as replicate-aware inference "
+        "with explicit covariates, not as a replacement for full count-model validation."
+    )
+    return result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(drop=True)
+
+
+def _run_descriptive_single_sample_pseudobulk(
+    counts: pd.DataFrame,
+    meta: pd.DataFrame,
+    condition_key: str,
+    condition1: str,
+    condition2: str,
+    min_counts: int,
+    pseudocount: float,
+) -> pd.DataFrame:
+    """Return effect-size-only pseudobulk summaries when formal replication is absent."""
+    selected = meta[meta[condition_key].astype(str).isin([condition1, condition2])].copy()
+    if selected.empty:
+        return pd.DataFrame()
+
+    selected_counts = counts.loc[selected.index]
+    keep = selected_counts.sum(axis=0) >= min_counts
+    selected_counts = selected_counts.loc[:, keep]
+    if selected_counts.empty:
+        return pd.DataFrame()
+
+    lib_sizes = selected_counts.sum(axis=1)
+    nonzero_lib = lib_sizes > 0
+    selected_counts = selected_counts.loc[nonzero_lib]
+    lib_sizes = lib_sizes.loc[nonzero_lib]
+    selected = selected.loc[selected_counts.index]
+    if selected.empty:
+        return pd.DataFrame()
+
+    cpm = selected_counts.div(lib_sizes, axis=0) * 1e6
+    logcpm = np.log2(cpm + pseudocount)
+    group1_mask = selected[condition_key].astype(str) == condition1
+    group2_mask = selected[condition_key].astype(str) == condition2
+    group1 = logcpm.loc[group1_mask]
+    group2 = logcpm.loc[group2_mask]
+    counts1 = selected_counts.loc[group1_mask]
+    counts2 = selected_counts.loc[group2_mask]
+    n1, n2 = len(group1), len(group2)
+    if n1 == 0 or n2 == 0:
+        return pd.DataFrame()
+
+    records = []
+    for gene in logcpm.columns:
+        mean1 = float(group1[gene].mean())
+        mean2 = float(group2[gene].mean())
+        log2fc = mean2 - mean1
+        records.append(
+            {
+                "names": gene,
+                "gene": gene,
+                "logfoldchanges": log2fc,
+                "log2fc": log2fc,
+                "scores": np.nan,
+                "statistic": np.nan,
+                "pvals": np.nan,
+                "pval": np.nan,
+                "pvals_adj": np.nan,
+                "padj": np.nan,
+                "mean_logcpm_condition1": mean1,
+                "mean_logcpm_condition2": mean2,
+                "mean_counts_condition1": float(counts1[gene].mean()),
+                "mean_counts_condition2": float(counts2[gene].mean()),
+                "base_mean": float(selected_counts[gene].mean()),
+                "condition1": condition1,
+                "condition2": condition2,
+                "contrast": f"{condition2}_vs_{condition1}",
+                "direction": f"{condition2} - {condition1}",
+                "n_samples_condition1": n1,
+                "n_samples_condition2": n2,
+                "method": "descriptive_pseudobulk",
+            }
+        )
+
+    result = pd.DataFrame(records)
+    return result.sort_values("logfoldchanges", key=lambda s: s.abs(), ascending=False).reset_index(drop=True)
 
 
 def _run_pydeseq2_de(
@@ -910,6 +1183,9 @@ def run_pseudobulk_de(
         for group_name in group_names
         for condition1, condition2 in active_config.contrasts
     ]
+    design_covariates = list(dict.fromkeys(active_config.design_covariates or []))
+    if active_config.block_col:
+        design_covariates = list(dict.fromkeys([*design_covariates, active_config.block_col]))
 
     def _run_one(task: Tuple[Optional[str], str, str]) -> pd.DataFrame:
         group_name, condition1, condition2 = task
@@ -927,6 +1203,7 @@ def run_pseudobulk_de(
             layer=active_config.layer,
             use_raw=active_config.use_raw,
             min_cells_per_sample=active_config.min_cells_per_sample,
+            covariate_cols=design_covariates,
         )
         if meta.empty:
             return pd.DataFrame()
@@ -942,14 +1219,50 @@ def run_pseudobulk_de(
             )
             return pd.DataFrame()
 
+        has_formal_replicates = min(n1, n2) >= 2
         should_use_cell_fallback = active_config.method == "cell_level_fallback" or (
-            active_config.method == "auto" and min(n1, n2) < 2
+            active_config.method == "auto"
+            and min(n1, n2) < 2
+            and active_config.fallback_to_cell_level
         )
-        should_try_deseq2 = active_config.method in {"auto", "deseq2"} and min(n1, n2) >= 2
-        should_use_welch = active_config.method in {"auto", "welch_logcpm"} and min(n1, n2) >= 2
+        should_use_descriptive_single_sample = (
+            active_config.method == "auto"
+            and min(n1, n2) < 2
+            and not active_config.fallback_to_cell_level
+            and active_config.single_sample_mode == "descriptive"
+        )
+        should_use_linear_model = (
+            active_config.method == "linear_model_logcpm"
+            or (active_config.method == "auto" and bool(design_covariates))
+        ) and min(n1, n2) >= 2
+        should_try_deseq2 = (
+            active_config.method in {"auto", "deseq2"}
+            and not should_use_linear_model
+            and min(n1, n2) >= 2
+        )
+        should_use_welch = (
+            active_config.method in {"auto", "welch_logcpm"}
+            and not should_use_linear_model
+            and min(n1, n2) >= 2
+        )
 
-        if should_use_cell_fallback:
-            if not active_config.fallback_to_cell_level:
+        if should_use_descriptive_single_sample:
+            result = _run_descriptive_single_sample_pseudobulk(
+                counts,
+                meta,
+                condition_key=active_config.condition_key,
+                condition1=condition1,
+                condition2=condition2,
+                min_counts=active_config.min_counts,
+                pseudocount=active_config.pseudocount,
+            )
+            if not result.empty:
+                result["pseudobulk_warning"] = (
+                    "Only one biological sample in at least one condition; "
+                    "returned descriptive pseudobulk effect sizes without formal p-values."
+                )
+        elif should_use_cell_fallback:
+            if active_config.method != "cell_level_fallback" and not active_config.fallback_to_cell_level:
                 log.warning(
                     f"Skipping {group_label} {condition2} vs {condition1}: "
                     "cell-level fallback is disabled"
@@ -990,6 +1303,18 @@ def run_pseudobulk_de(
                 result["pseudobulk_warning"] = "Only one sample in at least one condition"
             else:
                 result["pseudobulk_warning"] = "Cell-level fallback forced by method='cell_level_fallback'"
+        elif should_use_linear_model:
+            result = _run_linear_model_logcpm_de(
+                counts,
+                meta,
+                condition_key=active_config.condition_key,
+                condition1=condition1,
+                condition2=condition2,
+                min_counts=active_config.min_counts,
+                pseudocount=active_config.pseudocount,
+                p_adjust_method=active_config.p_adjust_method,
+                covariates=design_covariates,
+            )
         elif should_try_deseq2:
             try:
                 result = _run_pydeseq2_de(
@@ -1050,10 +1375,27 @@ def run_pseudobulk_de(
         result["condition2"] = condition2
         result["contrast"] = f"{condition2}_vs_{condition1}"
         result["direction"] = f"{condition2} - {condition1}"
+        result["design_covariates"] = ",".join(design_covariates)
+        result["block_col"] = active_config.block_col or ""
         if "n_samples_condition1" not in result:
             result["n_samples_condition1"] = n1
         if "n_samples_condition2" not in result:
             result["n_samples_condition2"] = n2
+        result["replicate_status"] = (
+            "replicated" if has_formal_replicates else "single_sample_or_unreplicated"
+        )
+        result["inference_level"] = "sample_level"
+        result["valid_for_publication_inference"] = bool(has_formal_replicates)
+        result["pseudoreplication_warning"] = False
+        if result["method"].astype(str).eq("descriptive_pseudobulk").all():
+            result["inference_level"] = "descriptive_single_sample"
+            result["valid_for_publication_inference"] = False
+        elif result["method"].astype(str).eq("cell_level_fallback").all():
+            result["inference_level"] = "exploratory_cell_level"
+            result["valid_for_publication_inference"] = False
+            result["pseudoreplication_warning"] = True
+        if not has_formal_replicates and "pseudobulk_warning" not in result:
+            result["pseudobulk_warning"] = "Insufficient biological replicates for formal inference"
         return result
 
     if active_config.n_jobs > 1 and len(tasks) > 1:

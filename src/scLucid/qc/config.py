@@ -135,6 +135,13 @@ class DoubletConfig(SclucidBaseConfig):
     method: Literal["scrublet", "solo", "doubletdetection"] = Field(
         default="scrublet", description="Algorithm for doublet score calculation"
     )
+    detection_group_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "obs column used to group independent doublet-detection runs. "
+            "Prefer a capture/library/GEM-well key. If unset, the QC workflow sample_key is used."
+        ),
+    )
 
     # --- Scrublet Algorithm Specific Parameters ---
     scr_n_pcs: int = Field(default=30, gt=1, description="Number of PCs for scrublet")
@@ -193,6 +200,20 @@ class DoubletConfig(SclucidBaseConfig):
     # --- Result Merging and Reporting ---
     merge_strategy: Literal["weighted_average", "max_score", "heuristic_boost"] = Field(
         default="weighted_average"
+    )
+    external_doublet_cols: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional boolean obs columns from hashing/genotype/manual doublet calls. "
+            "By default these are recorded as review evidence."
+        ),
+    )
+    external_doublet_policy: Literal["review_only", "include_in_final"] = Field(
+        default="review_only",
+        description=(
+            "How to handle external_doublet_cols. 'review_only' records evidence without "
+            "changing predicted_doublet; 'include_in_final' ORs external calls into the final call."
+        ),
     )
     algorithm_weight: float = Field(default=0.7, ge=0, le=1)
     expected_doublet_rate: Optional[Union[float, Dict[str, float]]] = Field(default=None)

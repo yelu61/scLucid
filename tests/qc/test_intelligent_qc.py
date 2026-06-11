@@ -144,6 +144,20 @@ class TestIntelligentQCRecommender:
             assert "confidence" in payload[key]
             assert "evidence" in payload[key]
 
+    def test_doublet_beta_fit_uses_four_parameter_evidence(self, sample_adata_with_qc):
+        """Doublet threshold analysis should handle scipy beta.fit's four parameters."""
+        adata = sample_adata_with_qc.copy()
+        rng = np.random.default_rng(7)
+        adata.obs["doublet_score"] = rng.beta(1.5, 12.0, size=adata.n_obs)
+        recommender = IntelligentQCRecommender()
+
+        result = recommender._analyze_doublet_patterns(adata, plot=False)
+
+        assert isinstance(result, ThresholdRecommendation)
+        for key in ["beta_a", "beta_b", "beta_loc", "beta_scale"]:
+            assert key in result.evidence
+        assert 0 <= result.threshold <= 1
+
 
 # =============================================================================
 # Test Different Strategies

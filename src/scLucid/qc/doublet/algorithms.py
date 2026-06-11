@@ -6,27 +6,78 @@ Extracted from core.py for maintainability.
 from __future__ import annotations
 
 import gc
-import importlib
 import logging
+from pathlib import Path
 from typing import Optional, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.sparse as sparse
 from anndata import AnnData
 
 from ..config import DoubletConfig
 
 log = logging.getLogger(__name__)
 
+
+def _raw_count_guard(adata: AnnData, *, sample_name: str, method: str) -> bool:
+    """Return True when the active matrix looks compatible with raw UMI counts."""
+    X = adata.X
+    if X is None:
+        log.warning("Skipping %s for sample '%s': expression matrix is missing.", method, sample_name)
+        return False
+
+    values = X.data if sparse.issparse(X) else np.asarray(X).ravel()
+    if values.size == 0:
+        log.warning("Skipping %s for sample '%s': expression matrix is empty.", method, sample_name)
+        return False
+
+    finite = np.asarray(values[np.isfinite(values)], dtype=float)
+    if finite.size == 0:
+        log.warning("Skipping %s for sample '%s': matrix has no finite values.", method, sample_name)
+        return False
+    if np.min(finite) < 0:
+        log.warning(
+            "Skipping %s for sample '%s': matrix contains negative values and is not raw counts.",
+            method,
+            sample_name,
+        )
+        return False
+
+    positive = finite[finite > 0]
+    if positive.size:
+        fractional_fraction = float(np.mean(np.abs(positive - np.rint(positive)) > 1e-6))
+        if fractional_fraction > 0.01:
+            log.warning(
+                "Skipping %s for sample '%s': %.1f%% of positive values are fractional; "
+                "doublet algorithms require raw UMI-like counts.",
+                method,
+                sample_name,
+                fractional_fraction * 100.0,
+            )
+            return False
+
+    total_entries = adata.n_obs * adata.n_vars
+    if total_entries > 0:
+        nonzero = X.nnz if sparse.issparse(X) else int(np.count_nonzero(X))
+        zero_fraction = 1.0 - (float(nonzero) / float(total_entries))
+        if zero_fraction < 0.05:
+            log.warning(
+                "Skipping %s for sample '%s': matrix has very few zeros (%.1f%%), "
+                "suggesting normalized/transformed input rather than raw counts.",
+                method,
+                sample_name,
+                zero_fraction * 100.0,
+            )
+            return False
+
+    return True
+
+
 def _ensure_scrublet_compatibility():
-    """Local compatibility shim for Scrublet's ptp usage without mutating numpy."""
-    if not hasattr(np.ndarray, "ptp"):
-        # Scrublet internally calls arr.ptp() which was removed in NumPy 2.0.
-        # We set it only for the duration of the Scrublet call via a context-like
-        # pattern: set here, remove in a finally block inside _run_scrublet.
-        np.ndarray.ptp = np.ptp
-        return True
-    return False
+    """Return whether Scrublet may need NumPy compatibility handling."""
+    return not hasattr(np.ndarray, "ptp")
 
 
 def _run_scrublet(
@@ -47,6 +98,9 @@ def _run_scrublet(
         current_rate = 0.1
 
     # Data-quality guard: skip samples with too few features or too-low counts
+    if not _raw_count_guard(adata_view, sample_name=sample_name, method="Scrublet"):
+        return None, None
+
     if adata_view.n_vars < 100:
         log.warning(
             f"Skipping Scrublet for sample '{sample_name}': only {adata_view.n_vars} genes "
@@ -68,16 +122,27 @@ def _run_scrublet(
         import scrublet as scr
 
         scrub = scr.Scrublet(adata_view.X, expected_doublet_rate=current_rate)
-        scores, _ = scrub.scrub_doublets(n_prin_comps=actual_n_pcs, verbose=False)
-        predicted = scrub.call_doublets(verbose=False)
+        scores, predicted = scrub.scrub_doublets(n_prin_comps=actual_n_pcs, verbose=False)
 
         if predicted is None:
+            try:
+                predicted = scrub.call_doublets(verbose=False)
+            except Exception as e:
+                log.warning(f"Scrublet call_doublets failed for sample '{sample_name}': {e}")
+
+        if predicted is None and scores is not None:
+            threshold = np.quantile(scores, max(0.0, min(1.0, 1.0 - float(current_rate))))
             log.warning(
-                f"Scrublet call_doublets returned None for sample '{sample_name}' "
-                f"(simulated doublets may be too similar to real cells). "
-                f"Falling back to heuristic-only for this sample."
+                "Scrublet did not return binary predictions for sample '%s'; "
+                "falling back to expected-rate score quantile threshold %.4f.",
+                sample_name,
+                threshold,
             )
-            return scores, np.zeros(scores.shape, dtype=bool) if scores is not None else None
+            predicted = np.asarray(scores) > threshold
+
+        if predicted is None:
+            log.warning("Scrublet produced no usable scores or predictions for sample '%s'.", sample_name)
+            return None, None
 
         doublet_count = sum(predicted)
         doublet_rate = doublet_count / len(predicted)
@@ -104,8 +169,8 @@ def _run_scrublet(
         log.error(f"Scrublet failed for sample {sample_name}: {e}")
         return None, None
     finally:
-        if _patched and hasattr(np.ndarray, "ptp"):
-            delattr(np.ndarray, "ptp")
+        if _patched:
+            log.debug("Scrublet NumPy compatibility flag set; no global ndarray patch was applied.")
         gc.collect()
 
 
@@ -141,6 +206,9 @@ def _run_solo(
         adata_solo = adata_solo.raw.to_adata()
     else:
         log.info("  Using 'adata.X' for Solo.")
+
+    if not _raw_count_guard(adata_solo, sample_name=sample_name, method="Solo"):
+        return None, None
 
     log.info("  Setting up AnnData for scvi-tools model...")
     scvi.model.SCVI.setup_anndata(adata_solo)

@@ -20,20 +20,9 @@ from anndata import AnnData
 from matplotlib import get_backend
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
+from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
-
-
-def _is_interactive_backend() -> bool:
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
-
-
-def _show_or_close(fig: plt.Figure) -> None:
-    if _is_interactive_backend():
-        plt.show()
-    else:
-        plt.close(fig)
 
 
 def visualize_markers(

@@ -10,6 +10,7 @@ from scLucid.preprocess.scale import (
     _minmax_scale,
     _robust_scale,
     _robust_scale_sparse,
+    diagnose_cell_cycle_regression,
     regress_out,
     scale_data,
 )
@@ -246,6 +247,37 @@ class TestRegressOut:
                 ),
             )
         assert "not found" in caplog.text.lower() or "missing" in caplog.text.lower()
+
+    def test_cell_cycle_regression_diagnostic_flags_condition_confounding(self):
+        adata = AnnData(X=np.ones((20, 5)))
+        adata.var_names = ["MKI67", "TOP2A", "g1", "g2", "g3"]
+        adata.obs["condition"] = ["A"] * 10 + ["B"] * 10
+        adata.obs["S_score"] = np.r_[np.repeat(0.1, 10), np.repeat(2.0, 10)]
+        adata.obs["G2M_score"] = 0.0
+        adata.obs["phase"] = ["G1"] * 10 + ["S"] * 10
+
+        result = diagnose_cell_cycle_regression(
+            adata,
+            condition_key="condition",
+            tumor=True,
+        )
+
+        assert result["status"] == "review_required"
+        assert result["metrics"]["condition_eta2_cc_score"] > 0.15
+        assert result["warnings"]
+        assert "cell_cycle_regression_diagnostic" in adata.uns["sclucid"]["preprocess"]
+
+    def test_cell_cycle_regression_diagnostic_identifies_batch_candidate(self):
+        adata = AnnData(X=np.ones((20, 5)))
+        adata.obs["batch"] = ["b1"] * 10 + ["b2"] * 10
+        adata.obs["S_score"] = np.r_[np.repeat(0.1, 10), np.repeat(2.0, 10)]
+        adata.obs["G2M_score"] = 0.0
+        adata.obs["phase"] = ["G1"] * 10 + ["S"] * 10
+
+        result = diagnose_cell_cycle_regression(adata, batch_key="batch")
+
+        assert result["status"] == "technical_regression_candidate"
+        assert result["metrics"]["batch_eta2_cc_score"] > 0.2
 
 
 @pytest.mark.unit

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, Literal, Optional
+from typing import Any, Dict, Iterable, Literal, Mapping, Optional
 
 from anndata import AnnData
+
+from .sanitize import sanitize_for_hdf5
 
 SCHEMA_VERSION = "1.0"
 SCLUCID_ROOT = "sclucid"
@@ -67,6 +69,39 @@ class ObsmKeys:
     PCA = "X_pca"
     UMAP = "X_umap"
     SPATIAL = "spatial"
+
+
+class ModalityKeys:
+    """Canonical modality names."""
+
+    SCRNA = "scrna"
+    SPATIAL = "spatial"
+    PROTEIN = "protein"
+    ATAC = "atac"
+    MULTIOME = "multiome"
+
+
+class AssayKeys:
+    """Canonical assay hints."""
+
+    TENX_3P = "10x_3p"
+    TENX_5P = "10x_5p"
+    VISIUM = "visium"
+    CITESEQ = "citeseq"
+    MULTIOME = "multiome"
+    ATAC = "atac"
+
+
+class LayerSemanticKeys:
+    """Canonical matrix semantics."""
+
+    RAW_COUNTS = "raw_counts"
+    NORMALIZED = "normalized"
+    LOG_NORMALIZED = "log_normalized"
+    SCALED = "scaled"
+    RESIDUALS = "residuals"
+    PROTEIN_COUNTS = "protein_counts"
+    ATAC_COUNTS = "atac_counts"
 
 
 class UnsKeys:
@@ -253,6 +288,28 @@ class ContractValidationResult:
         }
 
 
+@dataclass
+class ModalityContractResult:
+    """Result for modality/layer semantics validation."""
+
+    valid: bool
+    modality: str
+    assay: Optional[str] = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    detected: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "valid": self.valid,
+            "modality": self.modality,
+            "assay": self.assay,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "detected": sanitize_for_hdf5(self.detected),
+        }
+
+
 class ContractError(ValueError):
     """Raised when an AnnData object violates a workflow contract."""
 
@@ -292,6 +349,134 @@ def _check_keys(
         if key not in available_set:
             errors.append(f"Missing required {container_label} key: {key!r}")
     return required_list
+
+
+def register_anndata_semantics(
+    adata: AnnData,
+    *,
+    modality: str = ModalityKeys.SCRNA,
+    assay: Optional[str] = None,
+    layer_semantics: Optional[Mapping[str, str]] = None,
+    spatial_key: str = ObsmKeys.SPATIAL,
+    protein_obsm_key: Optional[str] = None,
+    atac_layer: Optional[str] = None,
+    feature_type_key: Optional[str] = None,
+    details: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Record modality, assay, and layer semantics for downstream workflows."""
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "modality": modality,
+        "assay": assay,
+        "layer_semantics": dict(layer_semantics or {}),
+        "spatial_key": spatial_key,
+        "protein_obsm_key": protein_obsm_key,
+        "atac_layer": atac_layer,
+        "feature_type_key": feature_type_key,
+        "details": dict(details or {}),
+    }
+    root = ensure_sclucid_namespace(adata)
+    root["input_semantics"] = sanitize_for_hdf5(payload)
+    return root["input_semantics"]
+
+
+def infer_anndata_semantics(adata: AnnData) -> Dict[str, Any]:
+    """Infer minimal modality semantics from common AnnData fields."""
+    root = adata.uns.get(SCLUCID_ROOT, {})
+    stored = root.get("input_semantics", {}) if isinstance(root, dict) else {}
+    modality = stored.get("modality") or ModalityKeys.SCRNA
+    assay = stored.get("assay")
+    if ObsmKeys.SPATIAL in adata.obsm:
+        modality = ModalityKeys.SPATIAL if modality == ModalityKeys.SCRNA else modality
+        assay = assay or AssayKeys.VISIUM
+    if "protein_counts" in adata.obsm or "protein_counts" in adata.layers:
+        modality = ModalityKeys.MULTIOME if modality != ModalityKeys.PROTEIN else modality
+        assay = assay or AssayKeys.CITESEQ
+    if "atac_counts" in adata.layers or any(str(v).lower() == "peak" for v in adata.var.get("feature_types", [])):
+        modality = ModalityKeys.MULTIOME if modality != ModalityKeys.ATAC else modality
+        assay = assay or AssayKeys.MULTIOME
+
+    layer_semantics = dict(stored.get("layer_semantics", {}) or {})
+    if LayerKeys.COUNTS in adata.layers:
+        layer_semantics.setdefault(LayerKeys.COUNTS, LayerSemanticKeys.RAW_COUNTS)
+    if LayerKeys.NORMALIZED in adata.layers:
+        layer_semantics.setdefault(LayerKeys.NORMALIZED, LayerSemanticKeys.NORMALIZED)
+    if LayerKeys.SCALED in adata.layers:
+        layer_semantics.setdefault(LayerKeys.SCALED, LayerSemanticKeys.SCALED)
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "modality": modality,
+        "assay": assay,
+        "layer_semantics": layer_semantics,
+        "spatial_key": stored.get("spatial_key", ObsmKeys.SPATIAL),
+        "protein_obsm_key": stored.get("protein_obsm_key"),
+        "atac_layer": stored.get("atac_layer"),
+        "feature_type_key": stored.get("feature_type_key"),
+    }
+
+
+def validate_modality_contract(
+    adata: AnnData,
+    *,
+    modality: Optional[str] = None,
+    assay: Optional[str] = None,
+    require_raw_counts: bool = False,
+    require_spatial: bool = False,
+    require_protein: bool = False,
+    require_atac: bool = False,
+    record: bool = True,
+) -> ModalityContractResult:
+    """Validate lightweight multimodal/spatial AnnData input semantics."""
+    detected = infer_anndata_semantics(adata)
+    modality = modality or detected["modality"]
+    assay = assay or detected.get("assay")
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if adata.n_obs == 0 or adata.n_vars == 0:
+        errors.append(f"AnnData must be non-empty, got shape={adata.shape}.")
+
+    layer_semantics = detected.get("layer_semantics", {})
+    if require_raw_counts and LayerSemanticKeys.RAW_COUNTS not in set(layer_semantics.values()):
+        errors.append("No layer is registered with raw_counts semantics.")
+
+    spatial_key = detected.get("spatial_key") or ObsmKeys.SPATIAL
+    if require_spatial or modality == ModalityKeys.SPATIAL:
+        if spatial_key not in adata.obsm:
+            errors.append(f"Spatial modality requires adata.obsm[{spatial_key!r}].")
+        elif getattr(adata.obsm[spatial_key], "shape", (0, 0))[1] < 2:
+            errors.append(f"Spatial coordinates at obsm[{spatial_key!r}] must have >=2 columns.")
+
+    protein_key = detected.get("protein_obsm_key")
+    protein_available = bool(protein_key and protein_key in adata.obsm) or "protein_counts" in adata.obsm or "protein_counts" in adata.layers
+    if require_protein and not protein_available:
+        errors.append("Protein modality requires protein counts in obsm/layers or a registered protein_obsm_key.")
+
+    atac_layer = detected.get("atac_layer")
+    atac_available = bool(atac_layer and atac_layer in adata.layers) or "atac_counts" in adata.layers
+    if not atac_available and "feature_types" in adata.var:
+        atac_available = any(str(v).lower() in {"peak", "peaks", "atac"} for v in adata.var["feature_types"])
+    if require_atac and not atac_available:
+        errors.append("ATAC modality requires an atac_counts layer or peak feature annotations.")
+
+    if modality == ModalityKeys.SCRNA and ObsmKeys.SPATIAL in adata.obsm:
+        warnings.append("Spatial coordinates detected; consider modality='spatial'.")
+    if not layer_semantics:
+        warnings.append("No layer semantics registered; downstream methods may infer count/log/scale state heuristically.")
+
+    result = ModalityContractResult(
+        valid=len(errors) == 0,
+        modality=modality,
+        assay=assay,
+        errors=errors,
+        warnings=warnings,
+        detected=detected,
+    )
+    if record:
+        root = ensure_sclucid_namespace(adata)
+        root["input_semantics_validation"] = result.to_dict()
+    return result
 
 
 def validate_stage_contract(
@@ -416,6 +601,30 @@ def get_contract_spec() -> Dict[str, Any]:
         "api_layers": get_api_layer_spec(),
         "minimal_workflow": get_minimal_workflow_contract(),
         "canonical_keys": {
+            "modalities": {
+                "scrna": ModalityKeys.SCRNA,
+                "spatial": ModalityKeys.SPATIAL,
+                "protein": ModalityKeys.PROTEIN,
+                "atac": ModalityKeys.ATAC,
+                "multiome": ModalityKeys.MULTIOME,
+            },
+            "assays": {
+                "10x_3p": AssayKeys.TENX_3P,
+                "10x_5p": AssayKeys.TENX_5P,
+                "visium": AssayKeys.VISIUM,
+                "citeseq": AssayKeys.CITESEQ,
+                "multiome": AssayKeys.MULTIOME,
+                "atac": AssayKeys.ATAC,
+            },
+            "layer_semantics": {
+                "raw_counts": LayerSemanticKeys.RAW_COUNTS,
+                "normalized": LayerSemanticKeys.NORMALIZED,
+                "log_normalized": LayerSemanticKeys.LOG_NORMALIZED,
+                "scaled": LayerSemanticKeys.SCALED,
+                "residuals": LayerSemanticKeys.RESIDUALS,
+                "protein_counts": LayerSemanticKeys.PROTEIN_COUNTS,
+                "atac_counts": LayerSemanticKeys.ATAC_COUNTS,
+            },
             "layers": {
                 "counts": LayerKeys.COUNTS,
                 "normalized": LayerKeys.NORMALIZED,
@@ -498,6 +707,30 @@ def format_contract_error(result: ContractValidationResult) -> str:
     """Format a contract validation result as an actionable error message."""
     errors = "; ".join(result.errors) if result.errors else "unknown contract violation"
     return f"[{result.stage}:{result.when}] AnnData contract failed: {errors}"
+
+
+def _review_payload(summary: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the canonical review payload from flat or mirrored summaries."""
+    if not isinstance(summary, Mapping):
+        return {}
+    data = summary.get("data")
+    if isinstance(data, Mapping):
+        return data
+    return summary
+
+
+def _restore_review_sequences(value: Any) -> Any:
+    """Restore list-like review fields after HDF5 sanitization."""
+    if isinstance(value, dict):
+        if value and all(str(key).isdigit() for key in value):
+            ordered_keys = sorted(value, key=lambda key: int(str(key)))
+            expected_keys = [str(i) for i in range(len(ordered_keys))]
+            if [str(key) for key in ordered_keys] == expected_keys:
+                return [_restore_review_sequences(value[key]) for key in ordered_keys]
+        return {key: _restore_review_sequences(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_restore_review_sequences(item) for item in value]
+    return value
 
 
 def ensure_sclucid_namespace(adata: AnnData) -> Dict[str, Any]:
@@ -609,7 +842,7 @@ def normalize_review_summary(
     # nested artifacts/contract updates stay shared without creating recursion.
     if "data" not in normalized or not isinstance(normalized.get("data"), dict):
         normalized["data"] = {key: value for key, value in normalized.items() if key != "data"}
-    return normalized
+    return _restore_review_sequences(sanitize_for_hdf5(normalized))
 
 
 def validate_review_summary_schema(
@@ -700,13 +933,14 @@ def record_config_lineage(
     lineage: Dict[str, Any],
 ) -> None:
     """Store config lineage in the module namespace and review summary."""
+    sanitized = sanitize_for_hdf5(lineage)
     namespace = module_namespace(adata, module, create=True)
-    namespace[UnsKeys.CONFIG_LINEAGE] = lineage
+    namespace[UnsKeys.CONFIG_LINEAGE] = sanitized
     summary = namespace.get(UnsKeys.REVIEW_SUMMARY)
     if isinstance(summary, dict):
-        summary[UnsKeys.CONFIG_LINEAGE] = lineage
+        summary[UnsKeys.CONFIG_LINEAGE] = sanitized
         if isinstance(summary.get("data"), dict):
-            summary["data"][UnsKeys.CONFIG_LINEAGE] = lineage
+            summary["data"][UnsKeys.CONFIG_LINEAGE] = sanitized
 
 
 def record_artifact(

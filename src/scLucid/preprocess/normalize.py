@@ -20,6 +20,7 @@ from matplotlib import get_backend
 from .config import NormalizationConfig, apply_config_overrides
 from .utils import validate_matrix_input
 from importlib.metadata import PackageNotFoundError, version
+from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
@@ -27,18 +28,6 @@ __all__ = ["normalize_data", "plot_normalization_effect"]
 
 
 # --- Helper Functions ---
-def _is_interactive_backend() -> bool:
-    backend = get_backend().lower()
-    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
-
-
-def _show_or_close(fig: plt.Figure) -> None:
-    if _is_interactive_backend():
-        plt.show()
-    else:
-        plt.close(fig)
-
-
 def _get_matrix_from_input_layer(adata: AnnData, input_layer: str):
     """Resolve the configured input matrix with graceful fallback."""
     if input_layer == "X":
@@ -337,15 +326,13 @@ def normalize_data(
             sc.experimental.pp.normalize_pearson_residuals(temp_adata, inplace=True)
             method_is_log_transformed = True
         elif active_config.method == "clr":
-            log.info("Applying Centered Log-Ratio (CLR) normalization.")
-            sc.pp.normalize_total(temp_adata, target_sum=1, inplace=True)
-            sc.pp.log1p(temp_adata)
-            mean_logs = temp_adata.X.mean(axis=1)
-            if scipy.sparse.issparse(temp_adata.X):
-                mean_logs = np.array(mean_logs).flatten()
-                temp_adata.X = np.asarray(temp_adata.X.toarray() - mean_logs[:, None])
-            else:
-                temp_adata.X = temp_adata.X - mean_logs[:, np.newaxis]
+            log.info("Applying pseudocount Centered Log-Ratio (CLR) transformation.")
+            X = temp_adata.X.toarray() if scipy.sparse.issparse(temp_adata.X) else np.asarray(temp_adata.X)
+            if np.min(X) < 0:
+                raise ValueError("CLR requires non-negative count-like input.")
+            log_values = np.log(X + active_config.clr_pseudocount)
+            mean_logs = log_values.mean(axis=1)
+            temp_adata.X = log_values - mean_logs[:, np.newaxis]
             method_is_log_transformed = True
         else:
             valid_methods = ["standard", "scran", "pearson_residuals", "clr"]

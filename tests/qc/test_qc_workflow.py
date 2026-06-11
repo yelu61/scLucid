@@ -60,6 +60,8 @@ def test_standard_qc_workflow():
 
     # Check that QC/marking annotations exist.
     assert "outlier_count" in adata_qc.obs or "predicted_doublet" in adata_qc.obs
+    assert "ambient_rna_summary" in adata_qc.uns["sclucid"]["qc"]
+    assert "empty_droplet_summary" in adata_qc.uns["sclucid"]["qc"]
 
 
 def test_qc_with_adaptive_thresholds():

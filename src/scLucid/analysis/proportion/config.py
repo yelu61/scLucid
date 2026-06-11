@@ -23,6 +23,11 @@ class ProportionConfig(SclucidBaseConfig):
     auto_configure: bool = Field(default=True)
     test_method: Literal[
         "deseq2",
+        "clr-t-test",
+        "clr-wilcoxon",
+        "clr-paired-t-test",
+        "clr-paired-wilcoxon",
+        "clr-ols",
         "t-test",
         "wilcoxon",
         "anova",
@@ -30,7 +35,11 @@ class ProportionConfig(SclucidBaseConfig):
         "chi-square",
         "paired-t-test",
         "paired-wilcoxon",
-    ] = Field(default="wilcoxon")
+    ] = Field(default="clr-t-test")
+    composition_transform: Literal["clr", "none"] = Field(default="clr")
+    composition_pseudocount: float = Field(default=1e-6, gt=0)
+    require_biological_replicates: bool = Field(default=True)
+    min_samples_per_condition: int = Field(default=2, ge=1)
 
     # Plotting
     plot_types: List[str] = Field(

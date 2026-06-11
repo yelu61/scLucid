@@ -29,9 +29,10 @@ class ProportionMethod(str, Enum):
     Attributes:
     ----------
     PSEUDOBULK : str
-        Pseudo-bulk 方法：聚合到样本级别，使用传统统计检验（DESeq2, t-test, Wilcoxon等）
-        适用场景：样本量充足（每组 N≥5），无明显批次效应
-        优势：成熟稳定，统计功效高，易于解释
+        Pseudo-bulk 方法：聚合到样本级别，优先使用 CLR 转换后的组成数据检验或 DESeq2。
+        原始比例 t-test/Wilcoxon 仅保留为 legacy exploratory 路径。
+        适用场景：有 biological replicates，样本量充足，批次/配对信息清晰
+        优势：避免把细胞当独立样本，结果易审计
     SCCODA : str
         scCODA 方法：贝叶斯组成数据分析
         适用场景：样本量少（每组 N<5），存在批次效应
@@ -47,10 +48,10 @@ class ProportionMethod(str, Enum):
         return {
             cls.PSEUDOBULK: {
                 "name": "Pseudo-bulk Analysis",
-                "description": "聚合到样本级别，使用传统统计检验",
-                "best_for": "样本充足（N≥5/组），无批次效应",
+                "description": "聚合到样本级别，优先使用 CLR/DESeq2-style 组成数据检验",
+                "best_for": "有 biological replicates，需避免 cell-level pseudoreplication",
                 "output": "(prop_df, stat_df) 元组",
-                "ref": "Love et al., 2014 (DESeq2)",
+                "ref": "Aitchison CLR / Love et al., 2014 (DESeq2)",
             },
             cls.SCCODA: {
                 "name": "scCODA",

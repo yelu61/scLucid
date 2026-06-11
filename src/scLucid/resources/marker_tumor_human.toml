@@ -570,6 +570,72 @@ use_for_global_annotation = false
 use_for_state_annotation = true
 use_for_malignancy_interpretation = true
 
+[[cancer_state]]
+name = "Malignant ITH stemness state"
+color = "#7b3294"
+markers = ["SOX2", "PROM1", "NES", "CD44", "ALDH1A1", "SOX9", "ID1", "ID2"]
+negative_markers = ["PTPRC", "PECAM1"]
+
+[cancer_state.metadata]
+kind = "cancer_state"
+granularity = "state"
+category = "stemness"
+scope = "tumor_context"
+applies_to = ["Tumor"]
+source_collection = "Gavish 2023 transcriptional ITH hallmarks"
+source_ids = ["SRC0016"]
+zotero_item_key = "RNXMRWIT"
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+
+[[cancer_state]]
+name = "Malignant ITH interferon/MHC-II state"
+color = "#4393c3"
+markers = ["IFIT1", "ISG15", "STAT1", "IRF1", "CXCL10", "HLA-DRA", "HLA-DRB1", "CD74"]
+negative_markers = ["PTPRC"]
+
+[cancer_state.metadata]
+kind = "cancer_state"
+granularity = "state"
+category = "interferon_antigen_presentation"
+scope = "tumor_context"
+applies_to = ["Tumor", "Epithelial"]
+source_collection = "Gavish 2023 transcriptional ITH hallmarks"
+source_ids = ["SRC0016"]
+zotero_item_key = "RNXMRWIT"
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+
+[[cancer_state]]
+name = "Malignant ITH secretory/mucin state"
+color = "#d6604d"
+markers = ["MUC1", "MUC5AC", "MUC5B", "MUC13", "TFF1", "TFF2", "TFF3", "GCNT3", "AGR2"]
+negative_markers = ["PTPRC", "PECAM1"]
+
+[cancer_state.metadata]
+kind = "cancer_state"
+granularity = "state"
+category = "secretory_mucin"
+scope = "tumor_context"
+applies_to = ["Tumor", "Epithelial", "Pancreatic Cancer", "Lung Cancer"]
+source_collection = "Gavish 2023 transcriptional ITH hallmarks"
+source_ids = ["SRC0016"]
+zotero_item_key = "RNXMRWIT"
+evidence_tier = "atlas_supported"
+source_type = "pan_cancer_atlas"
+review_status = "needs_review"
+use_for_global_annotation = false
+use_for_state_annotation = true
+use_for_malignancy_interpretation = true
+
 # reference_anchor
 
 [[reference_anchor]]
