@@ -30,8 +30,174 @@ from scLucid.qc.doublet import (
     _run_heuristic,
     predict_doublets,
 )
-from scLucid.qc.doublet.algorithms import _raw_count_guard, _run_scrublet
+from scLucid.qc.doublet.algorithms import (
+    _raw_count_guard,
+    _run_scrublet,
+    _run_scdblfinder,
+)
 from scLucid.qc.doublet.ensemble import _merge_doublet_predictions
+from scLucid.qc.doublet._scrublet_compat import apply_scrublet_compatibility_shims
+
+
+# ---------------------------------------------------------------------------
+# Scrublet compatibility shims
+# ---------------------------------------------------------------------------
+
+
+class TestScrubletCompatibilityShims:
+    """Tests for runtime compatibility shims applied to the scrublet package."""
+
+    def test_shim_restores_sparse_A_attribute(self):
+        """The shim should make .A available on scipy sparse matrices if absent."""
+        import scipy.sparse
+
+        # Force-remove the attribute to simulate a modern SciPy environment.
+        original_A = getattr(scipy.sparse.spmatrix, "A", None)
+        try:
+            if hasattr(scipy.sparse.spmatrix, "A"):
+                delattr(scipy.sparse.spmatrix, "A")
+
+            # Re-apply shims (they are idempotent and use the module-level flag).
+            from scLucid.qc.doublet import _scrublet_compat as _compat
+
+            _compat._SCRUBLET_SHIMS_APPLIED = False
+            apply_scrublet_compatibility_shims()
+
+            mat = scipy.sparse.csr_matrix(np.array([[0, 1], [2, 0]]))
+            assert np.array_equal(mat.A, mat.toarray())
+        finally:
+            if original_A is not None:
+                scipy.sparse.spmatrix.A = original_A
+            elif hasattr(scipy.sparse.spmatrix, "A"):
+                delattr(scipy.sparse.spmatrix, "A")
+            _compat._SCRUBLET_SHIMS_APPLIED = False
+
+    def test_run_scrublet_uses_fallback_when_call_doublets_fails(self, monkeypatch):
+        """_run_scrublet should fall back to quantile thresholding when call_doublets raises."""
+
+        class FakeScrublet:
+            def __init__(self, counts, expected_doublet_rate=None):
+                self.counts = counts
+                self.expected_doublet_rate = expected_doublet_rate
+
+            def scrub_doublets(self, n_prin_comps=None, verbose=False):
+                scores = np.linspace(0.0, 1.0, self.counts.shape[0])
+                return scores, None
+
+            def call_doublets(self, verbose=False):
+                raise RuntimeError("threshold detection failed")
+
+        monkeypatch.setitem(sys.modules, "scrublet", SimpleNamespace(Scrublet=FakeScrublet))
+        rng = np.random.default_rng(7)
+        adata = AnnData(X=rng.poisson(3, size=(80, 120)).astype(np.float32))
+        scores, predicted = _run_scrublet(
+            adata,
+            sample_name="s1",
+            config=DoubletConfig(expected_doublet_rate=0.1, scr_n_pcs=10),
+        )
+
+        assert scores is not None
+        assert predicted is not None
+        # 10% highest scores should be flagged by the fallback threshold.
+        assert int(predicted.sum()) == 8
+
+
+# ---------------------------------------------------------------------------
+# scDblFinder
+# ---------------------------------------------------------------------------
+
+
+class TestScDblFinder:
+    """Tests for scDblFinder integration via pyscdblfinder."""
+
+    def test_config_accepts_scdblfinder(self):
+        """DoubletConfig should accept method='scdblfinder'."""
+        cfg = DoubletConfig(method="scdblfinder")
+        assert cfg.method == "scdblfinder"
+        assert cfg.scdblfinder_nfeatures == 1352
+        assert cfg.scdblfinder_dims == 20
+
+    def test_unknown_method_raises_at_config_level(self):
+        """Unknown method should be rejected by Pydantic config validation."""
+        with pytest.raises(Exception, match="scrublet|solo|doubletdetection|scdblfinder"):
+            DoubletConfig(method="unknown_method")
+
+    def test_run_scdblfinder_optional_dependency_missing(self, monkeypatch):
+        """When pyscdblfinder is missing, _run_scdblfinder should log and return None."""
+        monkeypatch.setitem(sys.modules, "pyscdblfinder", None)
+        rng = np.random.default_rng(7)
+        adata = AnnData(X=rng.poisson(3, size=(80, 120)).astype(np.float32))
+        scores, predicted = _run_scdblfinder(
+            adata,
+            sample_name="s1",
+            config=DoubletConfig(expected_doublet_rate=0.1, method="scdblfinder"),
+        )
+        assert scores is None
+        assert predicted is None
+
+    def test_predict_doublets_dispatches_scdblfinder(self, monkeypatch):
+        """predict_doublets should call the scDblFinder wrapper and write result columns."""
+        import scLucid.qc.doublet.ensemble as ensemble_module
+
+        adata = AnnData(X=np.ones((80, 6), dtype=float))
+        adata.obs_names = [f"cell{i}" for i in range(80)]
+        adata.var_names = [f"g{i}" for i in range(6)]
+        adata.obs["sampleID"] = "sample_1"
+
+        def fake_scdblfinder(data_view, sample, cfg):
+            n = data_view.n_obs
+            scores = pd.Series(np.linspace(0, 1, n), index=data_view.obs_names)
+            predicted = scores > 0.8
+            return scores, predicted
+
+        monkeypatch.setattr(ensemble_module, "_run_scdblfinder", fake_scdblfinder)
+
+        cfg = DoubletConfig(
+            method="scdblfinder",
+            run_algorithm=True,
+            use_heuristics=False,
+            expected_doublet_rate=0.1,
+            plot_summary=False,
+            export_stats=False,
+        )
+        out = predict_doublets(adata, config=cfg, sample_key="sampleID")
+
+        assert "scdblfinder_score" in out.obs.columns
+        assert "scdblfinder_predicted" in out.obs.columns
+        assert "predicted_doublet" in out.obs.columns
+
+    @pytest.mark.slow
+    @pytest.mark.optional
+    def test_scdblfinder_runs_on_synthetic_doublets(self, doublet_test_adata):
+        """End-to-end scDblFinder run on synthetic data with known doublets."""
+        pytest.importorskip("pyscdblfinder")
+
+        adata = doublet_test_adata.copy()
+        # Use integer raw counts and ensure a sample key.
+        adata.X = adata.layers["counts"].astype(int)
+        adata.obs["sampleID"] = "sample_1"
+
+        cfg = DoubletConfig(
+            method="scdblfinder",
+            run_algorithm=True,
+            use_heuristics=False,
+            expected_doublet_rate=0.1,
+            scdblfinder_dims=10,
+            scdblfinder_nfeatures=500,
+            plot_summary=False,
+            export_stats=False,
+        )
+        out = predict_doublets(adata, config=cfg, sample_key="sampleID")
+
+        assert "scdblfinder_score" in out.obs.columns
+        assert "scdblfinder_predicted" in out.obs.columns
+
+        if "is_doublet" in out.obs.columns:
+            from sklearn.metrics import roc_auc_score
+
+            auc = roc_auc_score(out.obs["is_doublet"], out.obs["scdblfinder_score"])
+            assert auc > 0.55, f"scDblFinder AUC {auc:.3f} is unexpectedly low"
+
 
 # ---------------------------------------------------------------------------
 # _run_heuristic

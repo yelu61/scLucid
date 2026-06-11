@@ -61,11 +61,12 @@ dependencies = [
 [project.optional-dependencies]
 # Core analysis: doublet detection, annotation, clustering
 analysis = [
-    "scrublet",   # For doublet detection in qc/doublet.py
-    "celltypist", # For run_celltypist in analysis/annotation.py
-    "cosg",       # For the 'cosg' method in analysis/differential.py
-    "hdbscan",    # For HDBSCAN clustering in analysis/cluster.py
-    "networkx",   # For merge_clusters in analysis/cluster.py
+    "scrublet",        # For doublet detection in qc/doublet.py
+    "pyscdblfinder",   # Pure-Python port of Bioconductor scDblFinder
+    "celltypist",      # For run_celltypist in analysis/annotation.py
+    "cosg",            # For the 'cosg' method in analysis/differential.py
+    "hdbscan",         # For HDBSCAN clustering in analysis/cluster.py
+    "networkx",        # For merge_clusters in analysis/cluster.py
 ]
 
 # Batch correction and integration methods

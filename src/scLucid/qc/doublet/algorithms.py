@@ -17,6 +17,7 @@ import scipy.sparse as sparse
 from anndata import AnnData
 
 from ..config import DoubletConfig
+from ._scrublet_compat import apply_scrublet_compatibility_shims
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +118,9 @@ def _run_scrublet(
         return None, None
 
     actual_n_pcs = min(config.scr_n_pcs, adata_view.n_obs - 1, adata_view.n_vars - 1)
+
+    # Apply compatibility shims for modern NumPy/SciPy/Matplotlib before importing scrublet.
+    apply_scrublet_compatibility_shims()
 
     try:
         import scrublet as scr
@@ -352,6 +356,90 @@ def _run_doubletdetection(
 
     except Exception as e:
         log.error(f"DoubletDetection failed for sample {sample_name}: {e}")
+        return None, None
+    finally:
+        gc.collect()
+
+
+def _run_scdblfinder(
+    adata_view: AnnData,
+    sample_name: str,
+    config: DoubletConfig,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Run scDblFinder (via the pure-Python port pyscdblfinder) on a single sample.
+
+    Parameters
+    ----------
+    adata_view : AnnData
+        Per-sample expression data. Raw counts are expected in ``.X`` or in the
+        layer configured by ``config.scdblfinder_use_raw``.
+    sample_name : str
+        Name of the sample being processed.
+    config : DoubletConfig
+        Configuration object; relevant fields are ``scdblfinder_*`` and
+        ``expected_doublet_rate``.
+
+    Returns
+    -------
+    Tuple of (scores, predicted) numpy arrays, or (None, None) on failure.
+    """
+    try:
+        from pyscdblfinder import ScDblFinder
+    except ImportError:
+        log.error(
+            "pyscdblfinder is not installed. Please install it to use the 'scdblfinder' method: "
+            "pip install pyscdblfinder"
+        )
+        return None, None
+
+    # Data-quality guard
+    adata_sdf = adata_view.copy()
+    if config.scdblfinder_use_raw and adata_sdf.raw:
+        log.info("  Using 'adata.raw' for scDblFinder as configured.")
+        adata_sdf = adata_sdf.raw.to_adata()
+    else:
+        log.info("  Using 'adata.X' for scDblFinder.")
+
+    if not _raw_count_guard(adata_sdf, sample_name=sample_name, method="scDblFinder"):
+        return None, None
+
+    if adata_sdf.n_vars < 100:
+        log.warning(
+            f"Skipping scDblFinder for sample '{sample_name}': only {adata_sdf.n_vars} genes "
+            f"(minimum 100 required for reliable doublet detection)."
+        )
+        return None, None
+
+    # Determine expected doublet rate. A dict from generate_doublet_rates is common.
+    expected_rate = config.expected_doublet_rate
+    if isinstance(expected_rate, dict):
+        expected_rate = expected_rate.get(sample_name)
+
+    try:
+        log.info(f"  Running scDblFinder for sample '{sample_name}'...")
+        finder = ScDblFinder(adata_sdf, random_state=config.random_state)
+        finder.run(
+            dbr=expected_rate,
+            n_features=config.scdblfinder_nfeatures,
+            dims=config.scdblfinder_dims,
+            k=config.scdblfinder_k,
+            include_pcs=config.scdblfinder_include_pcs,
+            iter=config.scdblfinder_iter,
+            verbose=False,
+        )
+
+        scores = adata_sdf.obs["scDblFinder_score"].to_numpy(dtype=float)
+        predicted = (adata_sdf.obs["scDblFinder_class"] == "doublet").to_numpy()
+
+        doublet_count = int(predicted.sum())
+        doublet_rate = doublet_count / len(predicted) if len(predicted) > 0 else 0.0
+        log.info(f"  Found {doublet_count} potential doublets via scDblFinder ({doublet_rate:.2%})")
+
+        return scores, predicted
+
+    except Exception as e:
+        log.error(f"scDblFinder failed for sample '{sample_name}': {e}")
         return None, None
     finally:
         gc.collect()

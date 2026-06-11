@@ -132,7 +132,7 @@ class DoubletConfig(SclucidBaseConfig):
         default=True,
         description="If False, skips algorithmic detection. Useful for heuristic-only runs.",
     )
-    method: Literal["scrublet", "solo", "doubletdetection"] = Field(
+    method: Literal["scrublet", "solo", "doubletdetection", "scdblfinder"] = Field(
         default="scrublet", description="Algorithm for doublet score calculation"
     )
     detection_group_key: Optional[str] = Field(
@@ -165,6 +165,34 @@ class DoubletConfig(SclucidBaseConfig):
     )
     dd_voter_thresh: float = Field(default=0.8, ge=0, le=1)
     dd_use_raw: bool = Field(default=True)
+
+    # --- scDblFinder Algorithm Specific Parameters ---
+    scdblfinder_nfeatures: int = Field(
+        default=1352, ge=100, description="Number of top-expressed genes used by scDblFinder."
+    )
+    scdblfinder_dims: int = Field(
+        default=20, ge=2, description="Number of PCA dimensions used by scDblFinder."
+    )
+    scdblfinder_iter: int = Field(
+        default=3, ge=1, description="Number of iterative training rounds for scDblFinder."
+    )
+    scdblfinder_dbr: Optional[float] = Field(
+        default=None,
+        ge=0,
+        lt=1,
+        description="Expected doublet rate for scDblFinder; None lets the method estimate.",
+    )
+    scdblfinder_k: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="k for kNN graph in scDblFinder; None uses automatic selection.",
+    )
+    scdblfinder_include_pcs: Optional[int] = Field(
+        default=19,
+        ge=0,
+        description="Number of PCs included as classifier features in scDblFinder.",
+    )
+    scdblfinder_use_raw: bool = Field(default=True)
 
     # --- Heuristic Analysis ---
     use_heuristics: bool = Field(
@@ -252,6 +280,14 @@ class DoubletConfig(SclucidBaseConfig):
             except ImportError:
                 logger.warning(
                     "doublet-detection not found. Install with: pip install doublet-detection"
+                )
+
+        elif self.method == "scdblfinder":
+            try:
+                import pyscdblfinder as _pf  # noqa: F401
+            except ImportError:
+                logger.warning(
+                    "pyscdblfinder not found. Install with: pip install pyscdblfinder"
                 )
 
         return self

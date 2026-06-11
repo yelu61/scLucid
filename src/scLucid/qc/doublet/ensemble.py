@@ -19,6 +19,7 @@ from ..config import DoubletConfig
 from .algorithms import (
     _run_doubletdetection,
     _run_scrublet,
+    _run_scdblfinder,
     _run_solo,
 )
 from .core import (
@@ -492,6 +493,7 @@ def predict_doublets(
         "scrublet": _run_scrublet,
         "solo": _run_solo,
         "doubletdetection": _run_doubletdetection,
+        "scdblfinder": _run_scdblfinder,
     }
     if cfg.method not in ALGORITHM_DISPATCHER:
         raise ValueError(

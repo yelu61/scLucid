@@ -11,6 +11,7 @@ from .ensemble import (  # noqa: F401
 from .algorithms import (  # noqa: F401
     _run_doubletdetection,
     _run_scrublet,
+    _run_scdblfinder,
     _run_solo,
 )
 from .core import (  # noqa: F401
