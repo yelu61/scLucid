@@ -19,8 +19,9 @@ from anndata import AnnData
 from scipy.optimize import nnls
 from scipy.stats import mannwhitneyu, pearsonr, spearmanr, ttest_ind
 
-from .pyBayesPrism import BayesPrismReference, PrismConfig
-from .pyDWLS import DWLS
+from ..pyBayesPrism import BayesPrismReference, PrismConfig
+from ..pyDWLS import DWLS
+from .config import BulkDeconvolutionConfig
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +111,19 @@ def deconvolve_bulk(
             "n_cell_types": len(adata_ref.obs[cell_type_key].unique()),
             "n_samples": bulk_data.shape[1],
         },
+    }
+
+    # New analysis namespace mirror
+    adata_ref.uns["sclucid"].setdefault("analysis", {}).setdefault("bulk", {})
+    adata_ref.uns["sclucid"]["analysis"]["bulk"]["deconvolution"] = {
+        "proportions": proportions_df,
+        "params": {
+            "method": method,
+            "n_genes": len(common_genes),
+            "n_cell_types": len(adata_ref.obs[cell_type_key].unique()),
+            "n_samples": bulk_data.shape[1],
+        },
+        "legacy_key": key_added,
     }
 
     log.info(

@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import squidpy as sq
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +50,12 @@ def run_spatial_analysis(
 
     # --- Spatial neighbors graph ---
     log.info("Calculating spatial neighbors...")
+    try:
+        import squidpy as sq
+    except ImportError as exc:
+        raise ImportError(
+            "run_spatial_analysis requires squidpy. Install with: pip install scLucid[spatial]"
+        ) from exc
     sq.gr.spatial_neighbors(
         adata, coord_type="generic", n_neigh=spatial_neighbors, key_added="spatial_neighbors"
     )
@@ -82,6 +87,12 @@ def run_spatial_analysis(
     # --- Moran's I spatial autocorrelation ---
     if compute_moran:
         log.info("Computing Moran's I spatial autocorrelation...")
+        try:
+            import squidpy as sq
+        except ImportError as exc:
+            raise ImportError(
+                "run_spatial_analysis requires squidpy. Install with: pip install scLucid[spatial]"
+            ) from exc
         sq.gr.spatial_autocorr(adata, mode="moran")
         moran_df = sq.gr.spatial_autocorr_results(adata, mode="moran")
         spat_uns["moran_top"] = moran_df.sort_values("I", ascending=False).head(marker_n_top)
@@ -124,6 +135,12 @@ def plot_spatial(
         os.makedirs(save_dir, exist_ok=True)
 
     log.info("Plotting spatial cluster map...")
+    try:
+        import squidpy as sq
+    except ImportError as exc:
+        raise ImportError(
+            "plot_spatial requires squidpy. Install with: pip install scLucid[spatial]"
+        ) from exc
     sq.pl.spatial_scatter(
         adata,
         color=color or cluster_key,

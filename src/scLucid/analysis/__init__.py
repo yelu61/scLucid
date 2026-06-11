@@ -202,3 +202,29 @@ _export(
     ],
     optional=True,
 )
+
+# Bulk RNA-seq analysis (canonical implementation moved to scLucid.tools.bulk;
+# this submodule is a backward-compatible shim)
+_export(
+    "bulk",
+    [
+        "diagnose_bulk_data_quality",
+        "normalize_bulk_counts",
+        "estimate_size_factors_median_ratio",
+        "run_bulk_de",
+        "deconvolve_bulk",
+        "run_bulk_abundance_test",
+        "correlate_abundance_with_clinical",
+        "deduplicate_var_names",
+        "filter_bulk_genes",
+        "build_bulk_review_summary",
+        "BulkDiagnosticsConfig",
+        "BulkNormalizationConfig",
+        "BulkDEConfig",
+        "BulkDeconvolutionConfig",
+        "BulkAbundanceConfig",
+        "BulkClinicalAssociationConfig",
+        "BulkTraitAssociationConfig",
+    ],
+    optional=True,
+)
