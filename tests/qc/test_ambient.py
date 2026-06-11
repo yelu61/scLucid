@@ -25,6 +25,13 @@ def test_diagnose_ambient_rna_returns_risk_summary():
     assert summary["diagnostic_only"] is True
     assert summary["method"] == "python_heuristic_low_count_enrichment"
     assert "no expression correction" in summary["method_note"]
+    assert summary["calibration_status"] == "heuristic_unvalidated"
+    assert summary["risk_score_weights"] == {
+        "top_gene_dominance": 0.4,
+        "low_count_enrichment": 0.4,
+        "enriched_gene_breadth": 0.2,
+    }
+    assert "not calibrated" in summary["risk_score_note"]
     assert summary["risk_level"] in {"low", "moderate", "high"}
     assert "top_genes" in summary
     assert summary["correction_status"]["corrected"] is False

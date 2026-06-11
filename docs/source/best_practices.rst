@@ -34,6 +34,18 @@ Optional enhancements:
 - heavier doublet methods such as SOLO or DoubletDetection when their optional
   dependencies are installed and the dataset size justifies them
 
+Review evidence, not automatic deletion:
+
+- ambient RNA and empty-droplet diagnostics are heuristic review prompts; they
+  do not replace CellBender/scAR/EmptyDrops-style project-level decisions
+- cell-cycle regression diagnostics report associations and group imbalance;
+  regression should be enabled only when the biology/technical tradeoff is
+  explicit
+- HVG biological protection can rescue marker/pathway/tumor genes, and any cap
+  on rescued genes is reported with a deterministic truncation policy
+- integration diagnostics, post-hoc QC cluster review, and doublet evidence
+  should guide manual review before removing cells or collapsing biology
+
 Removed from the recommended path:
 
 - ScDblFinder wrapper execution paths
@@ -90,6 +102,16 @@ Recommended stage handoff:
   annotation, and differential-expression review
 - use integrated embeddings for visualization/clustering only when justified;
   keep unintegrated normalized expression for marker and DE interpretation
+
+Analysis defaults:
+
+- treat cell-level marker tests as discovery/exploratory evidence
+- use sample-level pseudobulk for condition DE when biological replicates exist
+- use CLR sample-level tests for cell-type proportions; scLucid closes count,
+  proportion, percentage, and sub-composition inputs before CLR transformation
+- when using ``linear_model_logcpm`` for pseudobulk DE, the default covariance
+  estimator is HC3 robust standard error; set ``robust_cov_type="nonrobust"``
+  only for compatibility with ordinary OLS behavior
 
 Stage-Wise Uns Compaction
 -------------------------

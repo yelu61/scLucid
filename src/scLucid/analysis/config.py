@@ -201,6 +201,14 @@ class PseudobulkDEConfig(SclucidBaseConfig):
             "path, for example batch or patient identifiers."
         ),
     )
+    robust_cov_type: Literal["HC0", "HC1", "HC2", "HC3", "nonrobust"] = Field(
+        default="HC3",
+        description=(
+            "Covariance estimator for linear_model_logcpm. HC3 is the default "
+            "heteroscedasticity-robust standard error; use nonrobust to keep "
+            "ordinary OLS standard errors."
+        ),
+    )
     block_col: Optional[str] = Field(
         default=None,
         description=(

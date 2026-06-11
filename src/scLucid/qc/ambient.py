@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
-import pandas as pd
 import scipy.sparse as sparse
 from anndata import AnnData
 
@@ -34,6 +33,21 @@ def _col_sums(X) -> np.ndarray:
     return np.asarray(X.sum(axis=0)).ravel() if sparse.issparse(X) else np.asarray(X.sum(axis=0)).ravel()
 
 
+def _ambient_risk_method_metadata() -> Dict[str, Any]:
+    return {
+        "calibration_status": "heuristic_unvalidated",
+        "risk_score_weights": {
+            "top_gene_dominance": 0.4,
+            "low_count_enrichment": 0.4,
+            "enriched_gene_breadth": 0.2,
+        },
+        "risk_score_note": (
+            "Risk score is a Python-native diagnostic heuristic and is not calibrated "
+            "as a cross-tissue ambient RNA contamination probability."
+        ),
+    }
+
+
 def diagnose_ambient_rna(
     adata: AnnData,
     *,
@@ -54,6 +68,7 @@ def diagnose_ambient_rna(
         return {
             "available": False,
             "diagnostic_only": True,
+            **_ambient_risk_method_metadata(),
             "risk_level": "unknown",
             "risk_score": 0.0,
             "reason": "empty_adata",
@@ -67,6 +82,7 @@ def diagnose_ambient_rna(
         return {
             "available": False,
             "diagnostic_only": True,
+            **_ambient_risk_method_metadata(),
             "risk_level": "unknown",
             "risk_score": 0.0,
             "reason": "too_few_nonzero_cells",
@@ -81,6 +97,7 @@ def diagnose_ambient_rna(
         return {
             "available": False,
             "diagnostic_only": True,
+            **_ambient_risk_method_metadata(),
             "risk_level": "unknown",
             "risk_score": 0.0,
             "reason": "too_few_low_count_cells",
@@ -97,6 +114,7 @@ def diagnose_ambient_rna(
         return {
             "available": False,
             "diagnostic_only": True,
+            **_ambient_risk_method_metadata(),
             "risk_level": "unknown",
             "risk_score": 0.0,
             "reason": "zero_library_after_subset",
@@ -149,6 +167,7 @@ def diagnose_ambient_rna(
     return {
         "available": True,
         "diagnostic_only": True,
+        **_ambient_risk_method_metadata(),
         "method": "python_heuristic_low_count_enrichment",
         "method_note": "Ambient RNA diagnostic only; no expression correction was applied.",
         "layer": layer or "X",

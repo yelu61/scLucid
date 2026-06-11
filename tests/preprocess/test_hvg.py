@@ -17,6 +17,7 @@ from scLucid.preprocess.hvg import (
     select_hvg_sets,
     suggest_hvg_choice,
 )
+from scLucid.preprocess.hvg.core import _apply_hvg_biological_protection
 
 
 class TestGetHVGInputMatrix:
@@ -57,52 +58,73 @@ class TestGeneTypeDetection:
         vn = self._make_var_names("MT-ND1", "MT-CO1", "GAPDH", "ACTB")
         r = _gene_type_detection(vn, species="human")
         mt = r["mitochondrial"]
-        assert mt[0]; assert mt[1]; assert not mt[2]; assert not mt[3]
+        assert mt[0]
+        assert mt[1]
+        assert not mt[2]
+        assert not mt[3]
 
     def test_detects_mouse_mitochondrial(self):
         vn = self._make_var_names("mt-Nd1", "mt-Co1", "Gapdh", "Actb")
         r = _gene_type_detection(vn, species="mouse")
         mt = r["mitochondrial"]
-        assert mt[0]; assert mt[1]
+        assert mt[0]
+        assert mt[1]
 
     def test_detects_human_ribosomal(self):
         vn = self._make_var_names("RPS1", "RPL10", "MRPL3", "MRPS5", "GAPDH")
         r = _gene_type_detection(vn, species="human")
         rb = r["ribosomal"]
-        assert rb[0]; assert rb[1]; assert rb[2]; assert rb[3]; assert not rb[4]
+        assert rb[0]
+        assert rb[1]
+        assert rb[2]
+        assert rb[3]
+        assert not rb[4]
 
     def test_detects_mouse_ribosomal(self):
         vn = self._make_var_names("Rps1", "Rpl10a", "Mrpl3", "Mrps5", "Gapdh")
         r = _gene_type_detection(vn, species="mouse")
         rb = r["ribosomal"]
-        assert rb[0]; assert rb[1]; assert rb[2]; assert rb[3]
+        assert rb[0]
+        assert rb[1]
+        assert rb[2]
+        assert rb[3]
 
     def test_detects_hemoglobin(self):
         vn = self._make_var_names("HBA1", "HBB", "HBG1", "GAPDH")
         r = _gene_type_detection(vn, species="human")
-        assert r["hemoglobin"][0]; assert r["hemoglobin"][1]; assert r["hemoglobin"][2]
+        assert r["hemoglobin"][0]
+        assert r["hemoglobin"][1]
+        assert r["hemoglobin"][2]
 
     def test_detects_mouse_hemoglobin(self):
         vn = self._make_var_names("Hba-a1", "Hbb-bs", "Gapdh")
         r = _gene_type_detection(vn, species="mouse")
-        assert r["hemoglobin"][0]; assert r["hemoglobin"][1]
+        assert r["hemoglobin"][0]
+        assert r["hemoglobin"][1]
 
     def test_detects_heat_shock(self):
         vn = self._make_var_names("HSPA1A", "HSPB1", "DNAJA1", "GAPDH")
         r = _gene_type_detection(vn, species="human")
-        assert r["heat_shock"][0]; assert r["heat_shock"][1]; assert r["heat_shock"][2]
+        assert r["heat_shock"][0]
+        assert r["heat_shock"][1]
+        assert r["heat_shock"][2]
 
     def test_detects_immediate_early(self):
         vn = self._make_var_names("FOS", "JUN", "EGR1", "ATF3", "GAPDH")
         r = _gene_type_detection(vn, species="human")
         ieg = r["immediate_early"]
-        assert ieg[0]; assert ieg[1]; assert ieg[2]; assert ieg[3]
+        assert ieg[0]
+        assert ieg[1]
+        assert ieg[2]
+        assert ieg[3]
 
     def test_detects_mouse_immediate_early(self):
         vn = self._make_var_names("Fos", "Junb", "Egr1", "Nr4a1", "Gapdh")
         r = _gene_type_detection(vn, species="mouse")
         ieg = r["immediate_early"]
-        assert ieg[0]; assert ieg[1]; assert ieg[2]
+        assert ieg[0]
+        assert ieg[1]
+        assert ieg[2]
 
     def test_auto_detect_species(self):
         vn = self._make_var_names("MT-ND1", "GAPDH")
@@ -177,6 +199,34 @@ class TestExcludeGenes:
         )
         assert isinstance(counts, dict)
         assert 2 <= len(counts) <= 3
+
+
+class TestHVGBiologicalProtection:
+    def test_protection_cap_uses_stable_preset_order_and_reports_truncation(self):
+        adata = AnnData(X=np.ones((4, 6)))
+        adata.var_names = ["TRAC", "IL2", "FOXP3", "GeneA", "GeneB", "GeneC"]
+        hvg_mask = np.array([False, False, False, True, False, False])
+
+        updated, report = _apply_hvg_biological_protection(
+            adata,
+            hvg_mask,
+            presets=["immune_receptor", "cytokine", "transcription_factor"],
+            max_extra_genes=2,
+        )
+
+        assert report["truncated"] is True
+        assert report["n_rescued_before_cap"] == 3
+        assert report["rescued_genes"] == ["TRAC", "IL2"]
+        assert "preset order" in report["truncation_policy"]
+        assert updated.tolist() == [True, True, False, True, False, False]
+        assert adata.var["hvg_protection_rescued"].tolist() == [
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
+        ]
 
 
 class TestFindHVGs:

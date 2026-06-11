@@ -36,9 +36,29 @@ def composition_transform(
     if method != "clr":
         raise ValueError(f"Unknown composition transform: {method}")
     values = prop_df.astype(float).copy()
-    counts_like = values.max().max() > 1.0
-    if counts_like:
-        values = values.div(values.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
+    if not np.isfinite(values.to_numpy(dtype=float)).all():
+        raise ValueError("CLR composition transform requires finite values.")
+    if (values < 0).to_numpy(dtype=bool).any():
+        raise ValueError("CLR composition transform requires non-negative values.")
+
+    row_sums = values.sum(axis=1)
+    nonzero_rows = row_sums > 0
+    if not nonzero_rows.all():
+        log.warning(
+            "%d sample(s) have zero total composition; CLR values for those rows will be set to 0.",
+            int((~nonzero_rows).sum()),
+        )
+
+    positive_sums = row_sums[nonzero_rows]
+    if positive_sums.empty:
+        values.loc[:, :] = 0.0
+    elif np.allclose(positive_sums, 1.0, atol=0.01, rtol=0.0) and values.max().max() <= 1.01:
+        values.loc[nonzero_rows] = values.loc[nonzero_rows].div(positive_sums, axis=0)
+    elif np.allclose(positive_sums, 100.0, atol=1.0, rtol=0.0) and values.max().max() <= 100.0:
+        values.loc[nonzero_rows] = values.loc[nonzero_rows].div(100.0)
+    else:
+        values.loc[nonzero_rows] = values.loc[nonzero_rows].div(positive_sums, axis=0)
+    values.loc[~nonzero_rows] = 0.0
     transformed = np.log(values + float(pseudocount))
     transformed = transformed.sub(transformed.mean(axis=1), axis=0)
     return transformed

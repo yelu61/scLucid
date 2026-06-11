@@ -868,6 +868,7 @@ def _run_linear_model_logcpm_de(
     pseudocount: float,
     p_adjust_method: str,
     covariates: Optional[List[str]] = None,
+    robust_cov_type: str = "HC3",
 ) -> pd.DataFrame:
     """Run sample-level OLS on logCPM values with optional covariates."""
     try:
@@ -932,15 +933,22 @@ def _run_linear_model_logcpm_de(
         model_df["value"] = logcpm[gene].astype(float)
         try:
             fit = smf.ols(formula, data=model_df).fit()
+            result_fit = (
+                fit
+                if robust_cov_type == "nonrobust"
+                else fit.get_robustcov_results(cov_type=robust_cov_type)
+            )
         except Exception as exc:
             log.warning("Linear model failed for gene '%s': %s", gene, exc)
             continue
-        if term not in fit.params:
+        exog_names = list(getattr(result_fit.model, "exog_names", []))
+        if term not in exog_names:
             continue
-        coef = float(fit.params[term])
-        pval = float(fit.pvalues[term])
-        stat = float(fit.tvalues[term])
-        ci = fit.conf_int().loc[term]
+        term_idx = exog_names.index(term)
+        coef = float(np.asarray(result_fit.params)[term_idx])
+        pval = float(np.asarray(result_fit.pvalues)[term_idx])
+        stat = float(np.asarray(result_fit.tvalues)[term_idx])
+        ci = np.asarray(result_fit.conf_int())[term_idx]
         records.append(
             {
                 "names": gene,
@@ -951,8 +959,8 @@ def _run_linear_model_logcpm_de(
                 "statistic": stat,
                 "pvals": pval,
                 "pval": pval,
-                "ci_lower": float(ci.iloc[0]),
-                "ci_upper": float(ci.iloc[1]),
+                "ci_lower": float(ci[0]),
+                "ci_upper": float(ci[1]),
                 "mean_logcpm_condition1": float(
                     logcpm.loc[selected["__condition"].astype(str) == condition1, gene].mean()
                 ),
@@ -967,6 +975,7 @@ def _run_linear_model_logcpm_de(
                 "n_samples_condition1": n1,
                 "n_samples_condition2": n2,
                 "method": "linear_model_logcpm",
+                "covariance_type": robust_cov_type,
                 "design_formula": formula,
                 "design_covariates": ",".join(model_covariates),
             }
@@ -978,8 +987,9 @@ def _run_linear_model_logcpm_de(
     result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
     result["padj"] = result["pvals_adj"]
     result["model_warning"] = (
-        "Python OLS on sample-level logCPM values; use as replicate-aware inference "
-        "with explicit covariates, not as a replacement for full count-model validation."
+        "Python sample-level logCPM linear model with "
+        f"{robust_cov_type} covariance; use as replicate-aware inference "
+        "with explicit covariates, not as a replacement for full edgeR/limma/DESeq2 validation."
     )
     return result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(drop=True)
 
@@ -1314,6 +1324,7 @@ def run_pseudobulk_de(
                 pseudocount=active_config.pseudocount,
                 p_adjust_method=active_config.p_adjust_method,
                 covariates=design_covariates,
+                robust_cov_type=active_config.robust_cov_type,
             )
         elif should_try_deseq2:
             try:

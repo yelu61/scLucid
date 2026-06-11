@@ -9,7 +9,7 @@ gene-type exclusion, automatic reporting, and large data support.
 import logging
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,22 +17,16 @@ import pandas as pd
 import scanpy as sc
 import scipy
 import scipy.sparse
-import seaborn as sns
 from anndata import AnnData
-from matplotlib import get_backend
 
-try:
-    from matplotlib_venn import venn2, venn3
+HAS_VENN = find_spec("matplotlib_venn") is not None
 
-    HAS_VENN = True
-except ImportError:
-    HAS_VENN = False
+from scLucid.utils.helpers import _show_or_close
 
 from ...runtime import run_joblib_or_sequential
 from ...utils import use_layer_as_X
 from ..config import HVGConfig
 from .plotting import plot_hvg_metrics
-from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
@@ -375,12 +369,15 @@ def _apply_hvg_biological_protection(
 
     protected_mask = adata.var_names.isin(protected_genes)
     already_selected = protected_mask & hvg_mask
-    rescued_mask = protected_mask & ~hvg_mask
-    rescued_genes = adata.var_names[rescued_mask].astype(str).tolist()
+    selected_genes = set(adata.var_names[np.asarray(hvg_mask, dtype=bool)].astype(str))
+    rescued_genes_all = [gene for gene in protected_genes if gene not in selected_genes]
+    rescued_genes = list(rescued_genes_all)
+    truncated = False
 
     if max_extra_genes is not None and len(rescued_genes) > int(max_extra_genes):
         rescued_genes = rescued_genes[: int(max_extra_genes)]
-        rescued_mask = adata.var_names.isin(rescued_genes)
+        truncated = True
+    rescued_mask = adata.var_names.isin(rescued_genes)
 
     updated_mask = np.asarray(hvg_mask, dtype=bool).copy()
     updated_mask |= np.asarray(rescued_mask, dtype=bool)
@@ -403,8 +400,14 @@ def _apply_hvg_biological_protection(
         "n_protected_present": int(protected_mask.sum()),
         "n_already_selected": int(already_selected.sum()),
         "n_rescued": int(rescued_mask.sum()),
+        "n_rescued_before_cap": len(rescued_genes_all),
         "rescued_genes": rescued_genes,
         "max_extra_genes": max_extra_genes,
+        "truncated": truncated,
+        "truncation_policy": (
+            "Protected genes are ordered by protected preset order, custom set order, "
+            "then gene order within each set; protection_max_extra_genes keeps the first genes in that order."
+        ),
         "sets": preset_summary,
         "rationale": (
             "Protected genes are included to preserve interpretable immune, pathway, "
@@ -742,8 +745,6 @@ def _identify_sample_specific_genes_parallel(
         f"Identifying sample-specific genes across {n_samples} groups " f"using {method} test..."
     )
 
-    # Store original X
-    original_X = None
     temp_adata = adata
 
     try:
@@ -1034,7 +1035,7 @@ def adapt_n_top_genes(n_cells: int, method: str = "linear") -> int:
     method : str
         Scaling method: "linear" (default) or "log".
 
-    Returns
+    Returns:
     -------
     int
         Recommended number of HVGs.

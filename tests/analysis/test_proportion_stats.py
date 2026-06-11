@@ -134,6 +134,53 @@ def test_clr_ttest_reports_compositional_effect_ci_and_fdr():
     assert set(result["inference_level"]) == {"sample_level"}
 
 
+def test_composition_transform_closes_count_input():
+    count_df = pd.DataFrame({"T": [10, 5], "B": [30, 15], "NK": [10, 30]})
+
+    clr = composition_transform(count_df, pseudocount=0.01)
+    expected = composition_transform(
+        count_df.div(count_df.sum(axis=1), axis=0),
+        pseudocount=0.01,
+    )
+
+    pd.testing.assert_frame_equal(clr, expected)
+    assert clr.mean(axis=1).abs().max() < 1e-10
+
+
+def test_composition_transform_keeps_closed_proportions():
+    prop_df = pd.DataFrame({"T": [0.2, 0.5], "B": [0.3, 0.25], "NK": [0.5, 0.25]})
+
+    clr = composition_transform(prop_df, pseudocount=0.01)
+    manual = np.log(prop_df + 0.01)
+    manual = manual.sub(manual.mean(axis=1), axis=0)
+
+    pd.testing.assert_frame_equal(clr, manual)
+
+
+def test_composition_transform_converts_percent_input():
+    percent_df = pd.DataFrame({"T": [20.0, 50.0], "B": [30.0, 25.0], "NK": [50.0, 25.0]})
+    prop_df = percent_df / 100.0
+
+    clr = composition_transform(percent_df, pseudocount=0.01)
+    expected = composition_transform(prop_df, pseudocount=0.01)
+
+    pd.testing.assert_frame_equal(clr, expected)
+
+
+def test_composition_transform_closes_subcomposition_input():
+    sub_df = pd.DataFrame({"T": [0.2, 0.1], "B": [0.3, 0.2], "NK": [0.1, 0.2]})
+
+    clr = composition_transform(sub_df, pseudocount=0.01)
+    expected = composition_transform(sub_df.div(sub_df.sum(axis=1), axis=0), pseudocount=0.01)
+
+    pd.testing.assert_frame_equal(clr, expected)
+
+
+def test_composition_transform_rejects_negative_values():
+    with pytest.raises(ValueError, match="non-negative"):
+        composition_transform(pd.DataFrame({"T": [0.5], "B": [-0.1]}))
+
+
 def test_pseudobulk_single_replicate_proportion_marked_descriptive():
     adata = AnnData(X=np.ones((6, 1)))
     adata.obs["sample"] = ["s1", "s1", "s1", "s2", "s2", "s2"]

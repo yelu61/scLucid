@@ -122,6 +122,8 @@ class TestIntelligentQCRecommender:
         assert result.min_genes.threshold > 0
         assert result.max_mt_percent.threshold > 0
         assert result.n_counts.threshold > 0
+        assert "method_limitation" in result.min_genes.evidence
+        assert "threshold recommendation heuristic" in result.min_genes.evidence["method_limitation"]
 
         # Check confidence intervals
         assert 0 <= result.min_genes.ci_lower <= result.min_genes.threshold
@@ -296,9 +298,7 @@ class TestDataDrivenRecommendations:
         recommender = IntelligentQCRecommender()
 
         # Normal tissue
-        result_normal = recommender.recommend(
-            sample_adata_with_qc, tissue_type="normal", plot=False
-        )
+        recommender.recommend(sample_adata_with_qc, tissue_type="normal", plot=False)
 
         # Tumor tissue
         result_tumor = recommender.recommend(tumor_like_adata, tissue_type="lung_tumor", plot=False)
@@ -340,6 +340,7 @@ class TestTumorVsNormal:
             "tumor" in result_tumor.tumor_specific_considerations
             or len(result_tumor.tumor_specific_considerations) > 0
         )
+        assert result_standard.overall_strategy == StrategyType.STANDARD
 
     def test_tumor_considerations_generated(self, tumor_like_adata):
         """Test that tumor-specific considerations are generated."""
@@ -506,8 +507,6 @@ class TestPlotGeneration:
             sample_adata_with_qc, tissue_type="normal", plot=True, save_dir=temp_output_dir
         )
 
-        # Check that plot files were created
-        plot_file = temp_output_dir / "min_genes_recommendation.pdf"
         # Note: Plotting might fail in headless environments, so we just check
         # that the code doesn't crash
         assert isinstance(result, QCRecommendation)
@@ -529,6 +528,7 @@ class TestIntegration:
         result = recommend_intelligent_qc(
             sample_adata_with_qc, tissue_type="normal", save_dir=temp_output_dir
         )
+        assert isinstance(result, QCRecommendation)
 
         # Check JSON report was saved
         json_path = temp_output_dir / "qc_recommendation.json"
@@ -554,13 +554,11 @@ class TestIntegration:
         # Get intelligent recommendations
         result = recommend_intelligent_qc(sample_adata_with_qc, tissue_type="normal", plot=False)
 
-        # Traditional fixed thresholds
-        fixed_min_genes = 200
-        fixed_max_mt = 20.0
-
         # Intelligent recommendations
         intelligent_min_genes = result.min_genes.threshold
         intelligent_max_mt = result.max_mt_percent.threshold
+        assert np.isfinite(intelligent_min_genes)
+        assert np.isfinite(intelligent_max_mt)
 
         # They should differ (at least for some datasets)
         # The key is that intelligent recommendations are DATA-DRIVEN

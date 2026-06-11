@@ -667,6 +667,10 @@ class IntelligentQCRecommender:
             "n_bootstrap": n_bootstrap,
             "strategy": strategy.value,
             "method": "GMM + Bootstrap",
+            "method_limitation": (
+                "One-dimensional n_genes GMM is used as a threshold recommendation heuristic; "
+                "it should not be interpreted as a validated generative model of low-quality cells."
+            ),
         }
 
         if plot and save_dir:

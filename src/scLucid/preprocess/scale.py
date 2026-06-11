@@ -6,6 +6,7 @@ regressing out covariates, ensuring consistency with the scLucid workflow.
 """
 
 import logging
+from importlib.metadata import version
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -19,7 +20,6 @@ from anndata import AnnData
 
 from .config import ScalingConfig, apply_config_overrides
 from .utils import validate_matrix_input
-from importlib.metadata import PackageNotFoundError, version
 
 log = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ def diagnose_cell_cycle_regression(
         if "phase" in adata.obs.columns
         else float(((adata.obs["S_score"] > 0) | (adata.obs["G2M_score"] > 0)).mean())
     )
-    metrics: Dict[str, float] = {"cycling_fraction": float(cycling_fraction)}
+    metrics: Dict[str, object] = {"cycling_fraction": float(cycling_fraction)}
     warnings: List[str] = []
 
     for key_name, key in [
@@ -107,8 +107,24 @@ def diagnose_cell_cycle_regression(
         ("cell_type", cell_type_key),
     ]:
         if key and key in adata.obs.columns:
-            eta = _eta_squared_numeric_by_group(cc_score, adata.obs[key].astype(str))
+            groups = adata.obs[key].astype(str)
+            eta = _eta_squared_numeric_by_group(cc_score, groups)
             metrics[f"{key_name}_eta2_cc_score"] = eta
+            group_sizes = groups.value_counts(dropna=True).astype(int).to_dict()
+            if group_sizes:
+                min_group_size = min(group_sizes.values())
+                max_group_size = max(group_sizes.values())
+                imbalance_ratio = (
+                    float(max_group_size / min_group_size) if min_group_size > 0 else np.inf
+                )
+                metrics[f"{key_name}_group_sizes"] = {
+                    str(group): int(size) for group, size in group_sizes.items()
+                }
+                metrics[f"{key_name}_group_size_imbalance_ratio"] = imbalance_ratio
+                if imbalance_ratio >= 5.0:
+                    warnings.append(
+                        f"{key_name} groups are imbalanced; eta-squared should be treated as diagnostic evidence only."
+                    )
             if key_name in {"condition", "cell_type"} and eta >= confounding_threshold:
                 warnings.append(
                     f"Cell-cycle scores are associated with {key_name}; regression may remove biology."
@@ -358,8 +374,6 @@ def scale_data(
             log.info("regress_in_scale=True but no variables provided; skipping inline regression.")
 
     # --- 3. Scale the data ---
-    original_X = adata.X.copy()
-
     try:
         if active_config.scale_method == "zscore":
             sc.pp.scale(adata, max_value=active_config.max_value, zero_center=True)

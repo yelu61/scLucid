@@ -75,6 +75,11 @@ print(comparison[['method', 'overall_score', 'recommendation']])
 CLR 检验；在有 batch/patient 等设计因素时，可使用
 ``linear_model_logcpm`` 进行样本级协变量建模。
 
+``composition_transform(method="clr")`` 会先判断输入是否已经是闭合比例
+（行和约等于 1）、百分比（行和约等于 100）、原始 counts，或 0-1 范围但
+未闭合的子组成。除已闭合比例外，其余非负输入都会先按样本行闭合后再做
+CLR；负值或非有限值会报错，避免静默产生错误的组成数据结果。
+
 **优势**：
 - ✅ 成熟稳定，文献广泛接受
 - ✅ 统计功效高（样本级聚合）
@@ -141,10 +146,13 @@ config = PseudobulkDEConfig(
 
 de_df = run_pseudobulk_de(adata, config)
 
+# 默认 robust_cov_type="HC3"，使用异方差稳健标准误。
+# 如需复现普通 OLS 标准误，可显式设置 robust_cov_type="nonrobust"。
+
 # 正式结果应检查：
 # - inference_level == "sample_level"
 # - valid_for_publication_inference == True
-# - design_formula / design_covariates / block_col
+# - design_formula / design_covariates / block_col / covariance_type
 ```
 
 每组只有一个 biological sample 时，scLucid 默认返回

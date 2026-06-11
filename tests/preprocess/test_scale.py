@@ -279,6 +279,19 @@ class TestRegressOut:
         assert result["status"] == "technical_regression_candidate"
         assert result["metrics"]["batch_eta2_cc_score"] > 0.2
 
+    def test_cell_cycle_regression_diagnostic_warns_on_group_imbalance(self):
+        adata = AnnData(X=np.ones((30, 5)))
+        adata.obs["condition"] = ["A"] * 25 + ["B"] * 5
+        adata.obs["S_score"] = np.r_[np.repeat(0.1, 25), np.repeat(1.0, 5)]
+        adata.obs["G2M_score"] = 0.0
+        adata.obs["phase"] = ["G1"] * 25 + ["S"] * 5
+
+        result = diagnose_cell_cycle_regression(adata, condition_key="condition")
+
+        assert result["metrics"]["condition_group_sizes"] == {"A": 25, "B": 5}
+        assert result["metrics"]["condition_group_size_imbalance_ratio"] == 5.0
+        assert any("imbalanced" in warning for warning in result["warnings"])
+
 
 @pytest.mark.unit
 class TestScaleDataInlineRegression:

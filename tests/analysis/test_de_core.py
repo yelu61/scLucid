@@ -489,6 +489,37 @@ class TestRunPseudobulkDE:
         assert df["valid_for_publication_inference"].all()
         assert df["design_covariates"].str.contains("batch").all()
         assert df["design_formula"].str.contains("C\\(__condition\\)").all()
+        assert set(df["covariance_type"]) == {"HC3"}
+        assert df["model_warning"].str.contains("HC3 covariance").all()
+
+    def test_pseudobulk_de_linear_model_can_use_nonrobust_covariance(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+            robust_cov_type="nonrobust",
+        )
+
+        df = run_pseudobulk_de(adata, config)
+
+        assert not df.empty
+        assert set(df["covariance_type"]) == {"nonrobust"}
+
+    def test_pseudobulk_de_config_serializes_robust_covariance_type(self):
+        cfg = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            contrasts=[("ctrl", "treat")],
+            robust_cov_type="HC1",
+        )
+
+        assert cfg.model_dump()["robust_cov_type"] == "HC1"
 
     def test_pseudobulk_de_block_col_enters_linear_model(self):
         adata = self._make_pseudobulk_adata(n_reps=3)
