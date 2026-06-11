@@ -1,5 +1,5 @@
 """
-QC Step-by-Step — Simple API Layer Example
+QC Step-by-Step -- Simple API Layer Example
 
 Demonstrates composable QC functions for analysts who want to inspect
 or replace individual steps. Each step can be run independently, inspected,
@@ -16,6 +16,8 @@ ScDblFinder, and R bridges are not run here. Treat them as project-specific
 upstream or optional analyses when the dataset and environment justify them.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import scanpy as sc
@@ -25,130 +27,169 @@ import scLucid as scl
 
 DATA_PATH = Path("data/pbmc3k.h5ad")
 
-# Load raw data
-adata = sc.read_h5ad(DATA_PATH)
-if "counts" in adata.layers:
-    adata.X = adata.layers["counts"].copy()
-else:
-    adata.layers["counts"] = adata.X.copy()
 
-if "sampleID" not in adata.obs.columns:
-    adata.obs["sampleID"] = "pbmc3k"
+def main() -> None:
+    # Load raw data
+    adata = sc.read_h5ad(DATA_PATH)
+    if "counts" in adata.layers:
+        adata.X = adata.layers["counts"].copy()
+    else:
+        adata.layers["counts"] = adata.X.copy()
 
-print(f"Input: {adata.n_obs:,} cells × {adata.n_vars:,} genes")
+    if "sampleID" not in adata.obs.columns:
+        adata.obs["sampleID"] = "pbmc3k"
 
-# ---------------------------------------------------------------------------
-# Step 1: Calculate QC metrics
-# ---------------------------------------------------------------------------
-print("\n--- Step 1: QC Metrics ---")
-adata = scl.qc.calculate_qc_metric(
-    adata,
-    sample_key="sampleID",
-    calculate_cell_cycle=True,
-    cell_cycle_species="human",
-)
-print(f"Metrics added: n_genes_by_counts, total_counts, pct_counts_mt, phase, ...")
+    print(f"Input: {adata.n_obs:,} cells x {adata.n_vars:,} genes")
 
-# ---------------------------------------------------------------------------
-# Step 2: Intelligent threshold recommendations
-# ---------------------------------------------------------------------------
-print("\n--- Step 2: Intelligent Recommendations ---")
-rec = scl.qc.recommend_intelligent_qc(adata, tissue_type="pbmc_or_blood")
-print(f"Recommended min_genes: {rec.min_genes.threshold}")
-print(f"Recommended max_mt:    {rec.max_mt_percent.threshold}")
-print(f"Overall confidence:    {rec.overall_confidence:.2f}")
+    # ---------------------------------------------------------------------------
+    # Step 1: Calculate QC metrics
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 1: QC Metrics ---")
+    adata = scl.qc.calculate_qc_metric(
+        adata,
+        sample_key="sampleID",
+        calculate_cell_cycle=True,
+        cell_cycle_species="human",
+    )
+    print("Metrics added: n_genes_by_counts, total_counts, pct_counts_mt, phase, ...")
 
-# ---------------------------------------------------------------------------
-# Step 3: Doublet detection (ensemble)
-# ---------------------------------------------------------------------------
-print("\n--- Step 3: Doublet Detection ---")
-doublet_rates = scl.qc.generate_doublet_rates(adata, sample_key="sampleID")
-print(f"Expected doublet rates: {doublet_rates}")
+    # ---------------------------------------------------------------------------
+    # Step 2: Intelligent threshold recommendations
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 2: Intelligent Recommendations ---")
+    rec = scl.qc.recommend_intelligent_qc(adata, tissue_type="pbmc_or_blood")
+    print(f"Recommended min_genes: {rec.min_genes.threshold}")
+    print(f"Recommended max_mt:    {rec.max_mt_percent.threshold}")
+    print(f"Overall confidence:    {rec.overall_confidence:.2f}")
 
-adata = scl.qc.predict_doublets(
-    adata,
-    config=scl.qc.DoubletConfig(
-        method="scrublet",
-        expected_doublet_rate=doublet_rates,
-        use_heuristics=True,
-        merge_strategy="weighted_average",
-        # Note: ignore_coexpression_pairs defaults to empty.
-        # For tumor/EMT studies, explicitly set:
-        #   ignore_coexpression_pairs=[("Epithelial", "Mesenchymal")]
-    ),
-    sample_key="sampleID",
-)
-n_doublets = int(adata.obs["predicted_doublet"].sum())
-print(f"Predicted doublets: {n_doublets} ({n_doublets/adata.n_obs*100:.1f}%)")
+    # ---------------------------------------------------------------------------
+    # Step 3: Ambient RNA / empty-droplet diagnostics
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 3: Ambient RNA Diagnostics ---")
+    ambient = scl.qc.diagnose_ambient_rna(adata, layer="counts", top_n_genes=10)
+    print(
+        "Ambient RNA:",
+        f"available={ambient.get('available')}",
+        f"diagnostic_only={ambient.get('diagnostic_only')}",
+        f"risk={ambient.get('risk_level')}",
+    )
+    empty = scl.qc.diagnose_empty_droplets(
+        adata,
+        layer="counts",
+        min_barcodes=min(100, max(20, adata.n_obs // 2)),
+        top_n_genes=10,
+    )
+    print(
+        "Empty droplets:",
+        f"available={empty.get('available')}",
+        f"diagnostic_only={empty.get('diagnostic_only')}",
+        f"risk={empty.get('risk_level')}",
+    )
+    print("These diagnostics do not apply CellBender/SoupX/scAR correction.")
 
-# ---------------------------------------------------------------------------
-# Step 4: Suggest global thresholds (MAD-based)
-# ---------------------------------------------------------------------------
-print("\n--- Step 4: Global Thresholds ---")
-threshold_table, suggested = scl.qc.suggest_qc_thresholds(adata, method="mad")
-print("Suggested thresholds:")
-print(threshold_table.to_string())
+    # ---------------------------------------------------------------------------
+    # Step 4: Doublet detection (ensemble)
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 4: Doublet Detection ---")
+    doublet_rates = scl.qc.generate_doublet_rates(adata, sample_key="sampleID")
+    print(f"Expected doublet rates: {doublet_rates}")
 
-# ---------------------------------------------------------------------------
-# Step 5: Adaptive per-sample marking
-# ---------------------------------------------------------------------------
-print("\n--- Step 5: Adaptive Marking ---")
-adata = scl.qc.mark_low_quality_cells_adaptive(
-    adata,
-    batch_key="sampleID",
-    metrics=["n_genes_by_counts", "total_counts", "pct_counts_mt"],
-    method="hierarchical",
-)
-n_adaptive = int(adata.obs["outlier_n_genes_by_counts_adaptive"].sum())
-print(f"Adaptive outliers: {n_adaptive} cells")
-
-# ---------------------------------------------------------------------------
-# Step 6: Unified marking (combine all flags)
-# ---------------------------------------------------------------------------
-print("\n--- Step 6: Unified Marking ---")
-adata = scl.qc.mark_low_quality_cell(
-    adata,
-    config=scl.qc.MarkingConfig(
-        thresholds=scl.qc.QCThresholds(
-            min_genes=suggested.min_genes,
-            pc_mt=suggested.pc_mt,
+    adata = scl.qc.predict_doublets(
+        adata,
+        config=scl.qc.DoubletConfig(
+            method="scrublet",
+            expected_doublet_rate=doublet_rates,
+            use_heuristics=True,
+            merge_strategy="weighted_average",
+            # Note: ignore_coexpression_pairs defaults to empty.
+            # For tumor/EMT studies, explicitly set:
+            #   ignore_coexpression_pairs=(("Epithelial", "Mesenchymal"),)
         ),
-    ),
-)
+        sample_key="sampleID",
+    )
+    n_doublets = int(adata.obs["predicted_doublet"].sum())
+    print(f"Predicted doublets: {n_doublets} ({n_doublets/adata.n_obs*100:.1f}%)")
+    for col in ["algorithm_doublet_score", "heterotypic_doublet_risk", "homotypic_doublet_risk"]:
+        if col in adata.obs:
+            print(f"{col}: mean={adata.obs[col].mean():.3f}")
 
-# ---------------------------------------------------------------------------
-# Step 7: Filter cells
-# ---------------------------------------------------------------------------
-print("\n--- Step 7: Filtering ---")
-adata_filtered = scl.qc.filter_cells(
-    adata,
-    config=scl.qc.FilterConfig(
-        criteria_to_filter=[
-            "outlier_min_genes",
-            "outlier_mt",
-            "outlier_qc_metrics",
-            "predicted_doublet",
-        ],
-        combination_logic="threshold",
-        min_criteria_for_removal=2,
-    ),
-    copy=True,
-)
-print(f"Before: {adata.n_obs:,} cells → After: {adata_filtered.n_obs:,} cells")
-print(f"Retention: {adata_filtered.n_obs/adata.n_obs*100:.1f}%")
-print("Review doublet-heavy clusters before treating all doublet calls as hard failures.")
+    # ---------------------------------------------------------------------------
+    # Step 5: Suggest global thresholds (MAD-based)
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 5: Global Thresholds ---")
+    threshold_table, suggested = scl.qc.suggest_qc_thresholds(adata, method="mad")
+    print("Suggested thresholds:")
+    print(threshold_table.to_string())
 
-# ---------------------------------------------------------------------------
-# Step 8: Export QC report
-# ---------------------------------------------------------------------------
-print("\n--- Step 8: Report ---")
-scl.qc.generate_qc_report(
-    adata_filtered,
-    save_dir="results/qc_report",
-    sample_key="sampleID",
-    adata_before=adata,
-)
-print("QC report saved to results/qc_report/")
+    # ---------------------------------------------------------------------------
+    # Step 6: Adaptive per-sample marking
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 6: Adaptive Marking ---")
+    adata = scl.qc.mark_low_quality_cells_adaptive(
+        adata,
+        batch_key="sampleID",
+        metrics=["n_genes_by_counts", "total_counts", "pct_counts_mt"],
+        method="hierarchical",
+    )
+    n_adaptive = int(adata.obs["outlier_n_genes_by_counts_adaptive"].sum())
+    print(f"Adaptive outliers: {n_adaptive} cells")
 
-print("\n✅ QC complete!")
-print(f"Final: {adata_filtered.n_obs:,} cells × {adata_filtered.n_vars:,} genes")
+    # ---------------------------------------------------------------------------
+    # Step 7: Unified marking (combine all flags)
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 7: Unified Marking ---")
+    adata = scl.qc.mark_low_quality_cell(
+        adata,
+        config=scl.qc.MarkingConfig(
+            thresholds=scl.qc.QCThresholds(
+                min_genes=suggested.min_genes,
+                pc_mt=suggested.pc_mt,
+            ),
+        ),
+    )
+
+    # ---------------------------------------------------------------------------
+    # Step 8: Filter cells
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 8: Filtering ---")
+    adata_filtered = scl.qc.filter_cells(
+        adata,
+        config=scl.qc.FilterConfig(
+            criteria_to_filter=[
+                "outlier_min_genes",
+                "outlier_mt",
+                "outlier_qc_metrics",
+                "predicted_doublet",
+            ],
+            combination_logic="threshold",
+            min_criteria_for_removal=2,
+        ),
+        copy=True,
+    )
+    print(f"Before: {adata.n_obs:,} cells -> After: {adata_filtered.n_obs:,} cells")
+    print(f"Retention: {adata_filtered.n_obs/adata.n_obs*100:.1f}%")
+    print("Review doublet-heavy clusters before treating all doublet calls as hard failures.")
+
+    # ---------------------------------------------------------------------------
+    # Step 9: Export QC report
+    # ---------------------------------------------------------------------------
+    print("\n--- Step 9: Report ---")
+    scl.qc.generate_qc_report(
+        adata_filtered,
+        save_dir="results/qc_report",
+        sample_key="sampleID",
+        adata_before=adata,
+    )
+    print("QC report saved to results/qc_report/")
+
+    # Save for downstream preprocessing example
+    output_path = Path("results/qc_filtered.h5ad")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    adata_filtered.write_h5ad(output_path)
+    print(f"\nQC complete!")
+    print(f"Final: {adata_filtered.n_obs:,} cells x {adata_filtered.n_vars:,} genes")
+    print(f"Saved to: {output_path}")
+
+
+if __name__ == "__main__":
+    main()

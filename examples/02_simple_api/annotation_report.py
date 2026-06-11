@@ -1,11 +1,12 @@
 """Generate a publication-style annotation review report with scLucid."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import scanpy as sc
 
-from scLucid.analysis import AnnotationConfig, run_annotation
-from scLucid.plotting import export_annotation_report
+import scLucid as scl
 
 
 def main() -> None:
@@ -15,7 +16,7 @@ def main() -> None:
 
     adata = sc.read_h5ad(data_path)
 
-    config = AnnotationConfig(
+    config = scl.al.AnnotationConfig(
         cluster_key="leiden_clusters",
         marker_species="human",
         run_scoring=True,
@@ -26,9 +27,9 @@ def main() -> None:
         plot=False,
         report=True,
     )
-    adata = run_annotation(adata, config=config)
+    adata = scl.al.run_annotation(adata, config=config)
 
-    export_annotation_report(
+    scl.pl.export_annotation_report(
         adata,
         annotation_key="cell_type_hybrid",
         cluster_key="leiden_clusters",

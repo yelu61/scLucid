@@ -5,13 +5,13 @@ modules. It uses stage-level APIs instead of the unified pipeline so the user
 can inspect each stage's review summary before moving on.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import scanpy as sc
 
 import scLucid as scl
-from scLucid.preprocess import WorkflowConfig
-from scLucid.qc import QCWorkflowConfig
 
 
 DATA_PATH = Path("data/pbmc3k.h5ad")
@@ -40,7 +40,7 @@ def main() -> None:
     if "sampleID" not in adata.obs.columns:
         adata.obs["sampleID"] = "pbmc3k"
 
-    qc_config = QCWorkflowConfig(
+    qc_config = scl.qc.QCWorkflowConfig(
         save_dir=str(OUTPUT_DIR / "qc"),
         species="human",
         tissue_type="normal_tissue",
@@ -65,7 +65,7 @@ def main() -> None:
     print(f"QC readiness: {qc_compact['readiness_status']} ({qc_compact['readiness_score']})")
     print(f"QC retained cells: {qc_compact['final_cells']}")
 
-    preprocess_config = WorkflowConfig.quick(
+    preprocess_config = scl.pp.WorkflowConfig.quick(
         n_top_genes=1000,
         run_regression=False,
         run_integration=False,
@@ -98,7 +98,7 @@ def main() -> None:
     print(f"Step status counts: {pp_compact['step_status_counts']}")
     print(f"Review-required steps: {pp_compact['review_required_steps']}")
 
-    adata.write(OUTPUT_DIR / "pbmc3k_qc_preprocess_result.h5ad")
+    adata.write_h5ad(OUTPUT_DIR / "pbmc3k_qc_preprocess_result.h5ad")
     print(f"\nSaved reviewed QC/preprocessing result to: {OUTPUT_DIR}")
 
 

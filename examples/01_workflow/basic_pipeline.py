@@ -5,6 +5,8 @@ highest-level workflow API and relies on scLucid to record QC, preprocessing,
 analysis, contracts, and review summaries under ``adata.uns["sclucid"]``.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import scanpy as sc
@@ -27,18 +29,30 @@ def main() -> None:
     if "sampleID" not in adata.obs.columns:
         adata.obs["sampleID"] = "pbmc3k"
 
+    qc_config = scl.qc.QCWorkflowConfig(
+        save_dir=str(OUTPUT_DIR / "qc"),
+        species="human",
+        tissue_type="normal_tissue",
+    )
+    preprocess_config = scl.pp.PreprocessingWorkflowConfig(
+        save_dir=str(OUTPUT_DIR / "preprocess"),
+    )
+    analysis_config = scl.al.AnalysisWorkflowConfig(
+        save_dir=str(OUTPUT_DIR / "analysis"),
+    )
+
     adata = scl.run_pipeline(
         adata,
         stages=["qc", "preprocess", "analysis"],
         dataset_type="pbmc_or_blood",
         species="human",
-        qc_save_dir=str(OUTPUT_DIR / "qc"),
-        preprocess_save_dir=str(OUTPUT_DIR / "preprocess"),
-        analysis_save_dir=str(OUTPUT_DIR / "analysis"),
+        qc_config=qc_config,
+        preprocess_config=preprocess_config,
+        analysis_config=analysis_config,
         show_progress=True,
     )
 
-    adata.write(OUTPUT_DIR / "pbmc3k_workflow_result.h5ad")
+    adata.write_h5ad(OUTPUT_DIR / "pbmc3k_workflow_result.h5ad")
 
     qc_summary = adata.uns["sclucid"]["qc"]["review_summary"]
     preprocess_summary = adata.uns["sclucid"]["preprocess"]["review_summary"]
@@ -52,6 +66,11 @@ def main() -> None:
     analysis_compact = scl.al.summarize_analysis_review_summary(analysis_summary)
     print(f"Analysis readiness: {analysis_compact['readiness_status']}")
     print(f"Post-hoc QC review required: {analysis_compact['posthoc_qc_review_required']}")
+    annotation_ns = adata.uns.get("sclucid", {}).get("analysis", {}).get("annotation", {})
+    if "hierarchical_annotation_plan" in annotation_ns:
+        print("Hierarchical annotation plan recorded under analysis.annotation")
+    if "subset_annotation_refinement_reconciliation" in annotation_ns:
+        print("Subset annotation reconciliation is available for manual review")
     if analysis_compact.get("malignancy_enabled"):
         print(
             "Suspect/malignant fraction: "

@@ -1,11 +1,18 @@
 # 细胞比例分析方法选择指南
 
 本文档说明如何在三种细胞比例分析方法之间选择和使用：
-- **Pseudo-bulk**: 聚合到样本级别 + 传统统计
-- **scCODA**: 贝叶斯组成数据分析
-- **Milo**: 基于邻域的细胞水平分析
+- **Pseudo-bulk / CLR**: 聚合到 biological sample 级别，优先使用 CLR 转换后的组成数据检验
+- **Pseudo-bulk / covariate-aware logCPM**: 当存在 batch、patient、paired design 时，使用样本级线性模型
+- **scCODA**: 可选贝叶斯组成数据分析 backend
+- **Milo**: 基于邻域的细胞水平分析，当前仍为计划接口
 
 ## 快速开始
+
+.. warning::
+
+   细胞比例是 compositional data。原始比例上的 ``t-test`` / ``wilcoxon``
+   在 scLucid 中仅保留为 legacy exploratory 路径。正式解释应优先使用
+   sample-level CLR、DESeq2-style 计数模型或带协变量的样本级模型。
 
 ### 自动推荐方法
 
@@ -39,7 +46,7 @@ method = recommend_method(
 )
 
 print(f"推荐方法: {method.value}")
-# 输出: 'sccoda', 'pseudobulk', 或 'milo'
+# 输出: 'pseudobulk' 或 'sccoda'（Milo 仍为计划接口）
 ```
 
 ### 比较所有方法的适用性
@@ -64,21 +71,25 @@ print(comparison[['method', 'overall_score', 'recommendation']])
 
 ### 1. Pseudo-bulk 方法
 
-**原理**：聚合到样本级别，使用 bulk RNA-seq 统计方法（DESeq2, t-test, Wilcoxon等）
+**原理**：聚合到 biological sample 级别，默认使用 compositional-aware
+CLR 检验；在有 batch/patient 等设计因素时，可使用
+``linear_model_logcpm`` 进行样本级协变量建模。
 
 **优势**：
 - ✅ 成熟稳定，文献广泛接受
 - ✅ 统计功效高（样本级聚合）
-- ✅ DESeq2 对低丰度细胞类型稳健
+- ✅ 避免把 cell 当作独立 biological replicate
+- ✅ 支持 CLR、paired/batch-aware 路径和 FDR
 - ✅ 易于解释
 
 **劣势**：
 - ❌ 忽略细胞间异质性
 - ❌ 丢失单细胞分辨率信息
+- ❌ 原始比例检验不适合正式 compositional inference
 
 **适用场景**：
-- 每组 N ≥ 5 样本
-- 无明显批次效应
+- 每组至少有 biological replicates
+- 有明确 sample、condition、可选 batch/patient 元数据
 - 细胞类型注释完整
 - 关注细胞类型水平变化
 
@@ -89,7 +100,7 @@ from scLucid.analysis import analyze_celltype_proportion, ProportionConfig
 
 # 配置分析
 config = ProportionConfig(
-    test_method='wilcoxon',  # 统计方法
+    test_method='clr-t-test',  # 推荐：sample-level CLR 检验
     plot_types=['bar', 'box', 'volcano'],  # 可视化
     out_dir='./results'
 )
@@ -103,13 +114,50 @@ prop_df, stat_df = analyze_celltype_proportion(
 
 # 查看结果
 print(stat_df[stat_df['padj'] < 0.05])  # 显著的细胞类型
+
+# 结果表会包含 inference_level / compositional_data_warning 等审计字段。
 ```
+
+### Pseudo-bulk 条件 DE：带 batch/patient 的样本级模型
+
+当目标是基因层面的 condition DE，而不是细胞比例变化，请使用
+``run_pseudobulk_de``。如果存在 batch 或 patient blocking，优先使用
+纯 Python 的 ``linear_model_logcpm`` 路径：
+
+```python
+from scLucid.analysis import PseudobulkDEConfig, run_pseudobulk_de
+
+config = PseudobulkDEConfig(
+    sample_col="sampleID",
+    condition_key="condition",
+    groupby="cell_type_final",
+    group_names=["T cell", "B cell"],
+    contrasts=[("control", "treated")],
+    method="linear_model_logcpm",
+    design_covariates=["batch"],
+    block_col="patient_id",   # 可选；会作为 categorical covariate 进入模型
+    min_cells_per_sample=10,
+)
+
+de_df = run_pseudobulk_de(adata, config)
+
+# 正式结果应检查：
+# - inference_level == "sample_level"
+# - valid_for_publication_inference == True
+# - design_formula / design_covariates / block_col
+```
+
+每组只有一个 biological sample 时，scLucid 默认返回
+``descriptive_single_sample`` effect-size-only 结果，不给正式 p 值。
+强制 cell-level fallback 会被标记为 ``exploratory_cell_level``。
 
 ---
 
 ### 2. scCODA 方法
 
-**原理**：贝叶斯层次模型，专门为单细胞数据设计
+**原理**：贝叶斯组成数据模型，专门用于 compositional abundance
+变化。scLucid 中该路径是可选 backend；使用前需确认依赖、reference
+cell type 和采样参数。
 
 **优势**：
 - ✅ 处理批次效应
@@ -182,7 +230,8 @@ plot_sccoda_proportion_with_significance(
 
 ### 3. Milo 方法
 
-**状态**：⚠️ **尚未实现**（计划中）
+**状态**：⚠️ **尚未实现**（计划中）。不要把该接口作为当前
+production 分析路径。
 
 **原理**：在 UMAP/PCA 空间定义邻域，检验邻域细胞组成变化
 
@@ -225,8 +274,8 @@ adata_result = analyze_celltype_proportion(
 
 | 特性 | Pseudo-bulk | scCODA | Milo |
 |------|-------------|--------|------|
-| **样本要求** | N ≥ 5/组 | N < 5/组 | N ≥ 3/组 |
-| **批次效应** | ❌ 不适合 | ✅ 专门处理 | ⚠️ 部分处理 |
+| **样本要求** | biological replicates | 小样本可选 | N ≥ 3/组 |
+| **批次效应** | ✅ ``linear_model_logcpm`` 可显式建模 | ✅ 可建模 | ⚠️ 部分处理 |
 | **空间分辨率** | ❌ 无 | ❌ 无 | ✅ 保留 |
 | **计算速度** | ⚡⚡⚡ 快 | ⚡⚡ 中等 | ⚡ 慢 |
 | **统计功效** | ✅ 高 | ⚠️ 中等 | ⚠️ 中等 |
@@ -292,13 +341,13 @@ plt.savefig('./comparison/pval_correlation.pdf')
 
 ### 工作流 3: 大样本标准分析
 
-适合：大样本量（N≥10/组），无批次效应
+适合：大样本量（N≥10/组），批次/配对信息清楚
 
 ```python
 from scLucid.analysis import analyze_celltype_proportion, ProportionConfig
 
 config = ProportionConfig(
-    test_method='deseq2',  # DESeq2 对大样本效果好
+    test_method='clr-t-test',
     plot_types=['bar', 'box', 'heatmap', 'volcano']
 )
 
@@ -365,7 +414,7 @@ results = analyze_all_methods(
 
 **A**: 这是正常的，它们检测不同类型的变化：
 
-- **Pseudo-bulk**: 检测平均比例变化
+- **Pseudo-bulk/CLR**: 检测 sample-level 组成变化
 - **scCODA**: 检测组成变化（考虑组成性质）
 
 建议：

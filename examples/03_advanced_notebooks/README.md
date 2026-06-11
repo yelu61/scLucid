@@ -1,56 +1,28 @@
 # scLucid Advanced Notebooks
 
 This directory contains **complete advanced notebook workflows**. These are
-project-style templates, not short examples.
+project-style templates, not short examples. They are the reference for users
+who need manual checkpoints while preserving the same scLucid contracts used by
+workflow scripts.
 
 The intended split in this repository is:
 
-- `docs/`: stable explanations, API reference, recommended defaults
-- `examples/01_workflow/`: one-call workflow scripts
-- `examples/02_simple_api/`: composable stage-level scripts
-- `examples/03_advanced_notebooks/`: full analysis narratives with richer intermediate results
+- `docs/`: stable explanations, API reference, recommended defaults, and layer policy
+- `examples/01_workflow/`: one-call or stage-level workflow scripts
+- `examples/02_simple_api/`: composable stage-level scripts and teaching references
+- `examples/03_advanced_notebooks/`: full analysis narratives with richer intermediate review
 
 For a publication-oriented package, notebooks should be used to show:
 
 - real-data or project-style analyses
 - full QC → preprocess → analysis flows
 - reviewer-facing outputs and interpretation checkpoints
-- longer result narratives that would be too verbose for `docs/` or `examples/`
-- module maturity checks, compact audit summaries, and step-level evidence when
-  a notebook implements a benchmark-grade module path
+- longer result narratives that would be too verbose for `docs/` or short examples
+- module maturity checks, compact audit summaries, and step-level evidence when a notebook implements a benchmark-grade module path
 
-## Current Notebook Set
+## Recommended Product-Facing Sequence
 
-- `Step1A-QC_Audit.ipynb` - benchmark-grade QC audit notebook. It starts from
-  raw combined data and writes `data/processed/Step1-sce_cleaned.h5ad`.
-- `Step1B-Preprocessing_Audit.ipynb` - benchmark-grade preprocessing audit
-  notebook. It starts from `Step1-sce_cleaned.h5ad` and writes
-  `data/processed/Step2-sce_preprocessed.h5ad`.
-- `Step2-Annotation_and_Malignancy.ipynb` - evidence-first analysis acceptance
-  shell for clustering review, marker/CellTypist/LLM annotation evidence,
-  consensus labels, optional malignancy interpretation, and reviewable artifacts.
-  The analysis review summary should include post-hoc QC review flags for
-  doublet-heavy, high-mitochondrial, or stress-high clusters, plus optional
-  malignant/suspect fraction estimates when malignancy interpretation is run.
-  It starts from `Step2-sce_preprocessed.h5ad`, calls
-  `scripts/run_analysis_acceptance.py`, and writes
-  `data/processed/Step3-sce_annotated.h5ad`.
-- `Step3-Standard_Downstream.ipynb` - standard downstream composition,
-  proportion, differential expression, and enrichment analyses. It starts from
-  `Step3-sce_annotated.h5ad`.
-- `Step4-Signature_and_Target_Analysis.ipynb` - project-specific signatures,
-  focused cell-state analysis, and target-oriented exports. It starts from
-  `Step3-sce_annotated.h5ad`.
-- `Step1-QC_and_Preprocessing.ipynb` - legacy unsplit QC + preprocessing
-  reference retained for comparison.
-- `Step2-Celltype_annotation.ipynb` - legacy unsplit project notebook retained
-  for comparison.
-- `04_advanced_topics.ipynb`
-- `04_differential_expression.ipynb`
-- `05_trajectory_inference.ipynb`
-- `06_advanced_tools.ipynb`
-
-## Recommended Run Order
+Use this split sequence for new project templates:
 
 1. `Step1A-QC_Audit.ipynb`
 2. `Step1B-Preprocessing_Audit.ipynb`
@@ -58,16 +30,55 @@ For a publication-oriented package, notebooks should be used to show:
 4. `Step3-Standard_Downstream.ipynb`
 5. `Step4-Signature_and_Target_Analysis.ipynb`
 
-## Current Boundary
+The split Step1A/Step1B sequence is preferred over a single combined QC +
+preprocessing notebook because it creates a clean handoff between quality-control
+decisions and preprocessing decisions.
 
-Step1A and Step1B should now be treated as stable audit/handoff notebooks:
-they calculate, document, and review QC/preprocessing decisions using the
-light-dependency package defaults. They should not absorb project-specific
-ambient RNA correction, CellBender/SoupX/DecontX execution, ScDblFinder, or
-other R bridge workflows.
+## Current Notebook Set
 
-Tumor purity, malignancy evidence, CNV interpretation, stress-state biology,
-and doublet-heavy cluster interpretation belong in Step2 and the analysis/tumor
+| Notebook | Current role |
+|---|---|
+| `Step1A-QC_Audit.ipynb` | Canonical advanced QC audit notebook. It starts from raw combined data and writes `data/processed/Step1-sce_cleaned.h5ad`. |
+| `Step1B-Preprocessing_Audit.ipynb` | Canonical advanced preprocessing audit notebook. It starts from `Step1-sce_cleaned.h5ad` and writes `data/processed/Step2-sce_preprocessed.h5ad`. |
+| `Step2-Annotation_and_Malignancy.ipynb` | Evidence-first analysis acceptance shell. It calls `scripts/run_analysis_acceptance.py` and writes `data/processed/Step3-sce_annotated.h5ad`. |
+| `Step3-Standard_Downstream.ipynb` | Standard downstream composition, proportion, differential expression, and enrichment analyses. |
+| `Step4-Signature_and_Target_Analysis.ipynb` | Project-specific signatures, focused cell-state analysis, and target-oriented exports. |
+| `Step1-QC_and_Preprocessing.ipynb` | Legacy unsplit QC + preprocessing reference retained for comparison, not the recommended template. |
+| `Step2-Celltype_annotation.ipynb` | Legacy unsplit project notebook retained for comparison, not the recommended template. |
+| `04_advanced_topics.ipynb` | Advanced-topic reference. |
+| `04_differential_expression.ipynb` | Differential-expression reference. |
+| `05_trajectory_inference.ipynb` | Trajectory-analysis reference. |
+| `06_advanced_tools.ipynb` | Advanced-tools reference. |
+
+## Manual Review Contract
+
+Advanced notebooks may intentionally bypass one-call workflow functions so users
+can inspect thresholds, plots, handoff state, and biological assumptions. That is
+valid scLucid usage only if the notebook still writes the same module-level
+review contract as the workflow layer:
+
+```python
+adata.uns["sclucid"][module]["workflow_config"]
+adata.uns["sclucid"][module]["steps_executed"]
+adata.uns["sclucid"][module]["review_summary"]
+```
+
+Step1A and Step1B currently demonstrate this pattern with a notebook-local
+manual review finalizer. That finalizer should be treated as a reference pattern
+until package-level helpers are exposed. New project notebooks should not invent
+a separate review-summary schema.
+
+## Step Boundaries
+
+Step1A and Step1B are stable audit/handoff notebooks. They calculate, document,
+and review QC/preprocessing decisions using light-dependency package defaults.
+They should not absorb project-specific ambient RNA correction,
+CellBender/SoupX/DecontX execution, ScDblFinder, or other R bridge workflows.
+Those tools can be used upstream or in project-specific expert appendices when
+there is a clear rationale.
+
+Tumor purity, malignancy evidence, CNV interpretation, stress-state biology, and
+doublet-heavy cluster interpretation belong in Step2 and the analysis/tumor
 modules, where they can be reviewed with annotation and biological context.
 Step2 should treat these signals as review evidence first; automatic deletion
 belongs only after project-specific manual confirmation.
@@ -76,9 +87,9 @@ belongs only after project-specific manual confirmation.
 
 - keep notebooks narrative and result-oriented
 - keep package policy and recommended defaults in `docs/`, not only in notebooks
-- keep `examples/` short and script-like, and reserve notebooks for deeper walkthroughs
-- use real or representative datasets, and make the expected inputs explicit near the top of each notebook
-- when a notebook bypasses one-call workflow functions, still write the same
-  `adata.uns["sclucid"]` review contracts used by the package workflow layer
-- keep Step2 synchronized with `scripts/run_analysis_acceptance.py`; the notebook
-  should inspect acceptance artifacts rather than reimplement the workflow
+- keep short runnable scripts in `examples/01_workflow/` and `examples/02_simple_api/`
+- use real or representative datasets, and make expected inputs explicit near the top of each notebook
+- when a notebook bypasses one-call workflow functions, still write the same `adata.uns["sclucid"]` review contracts used by the package workflow layer
+- keep Step2 synchronized with `scripts/run_analysis_acceptance.py`; the notebook should inspect acceptance artifacts rather than reimplement the workflow
+- mark legacy notebooks as references when they are retained for comparison
+- do not let notebook-local helpers drift into de facto package APIs without moving them into `src/scLucid/`

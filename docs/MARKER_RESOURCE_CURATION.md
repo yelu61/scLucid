@@ -164,15 +164,99 @@ than pretending they are universal identifiers.
 
 1. Extract candidate marker evidence from a review, atlas table, figure legend,
    supplement, or author-provided annotation table.
-2. Normalize names to official gene symbols for the target species.
-3. Classify each candidate into one resource section and one biological role.
-4. Separate identity markers from state/program/artifact markers.
-5. Add scope, routing flags, source provenance, evidence tier, review status, and
+2. Register every batch-md source in `docs/marker_curation_literature_index.jsonl`
+   and link it to `resources/references.toml` when a stable DOI/source id exists.
+3. Normalize names to official gene symbols for the target species.
+4. Classify each candidate into one resource section and one biological role.
+5. Separate identity markers from state/program/artifact markers.
+6. Add scope, routing flags, source provenance, evidence tier, review status, and
    notes.
-6. Run resource validation and `Manager` view tests before committing the marker
+7. Run resource validation and `Manager` view tests before committing the marker
    change.
-7. Promote entries from `needs_review` to `reviewed` only after manual inspection
+8. Promote entries from `needs_review` to `reviewed` only after manual inspection
    against the source and basic marker specificity checks.
+
+## Resource Trust Audit
+
+The resource layer exposes a programmatic trust check through
+`scLucid.utils.build_resource_trust_report()` and
+`scLucid.utils.assert_trusted_resources()`. This is the common audit boundary for
+analysis, QC, tumor, scoring, plotting, and manual-review workflows that depend
+on marker or geneset resources.
+
+The audit checks:
+
+- active resources listed in `marker_resource_manifest.toml` exist and declare
+  workflow routing;
+- marker TOML resources parse through `Manager`, satisfy required routing
+  metadata, use valid gene symbols, and reference known `source_ids`;
+- manager views remain separated, so global annotation is not contaminated by
+  state, tumor, or program entries;
+- geneset JSON resources have valid categories, usage metadata, source
+  provenance, and gene symbols;
+- `docs/marker_curation_literature_index.jsonl` keeps all 12 curation batches
+  represented and records remaining queued literature;
+- `audit_marker_entry_quality()` reports curation debt such as thin marker sets,
+  missing effective negative markers, and entries still waiting for review.
+
+Use non-strict mode during active curation:
+
+```python
+from scLucid.utils import assert_trusted_resources
+
+report = assert_trusted_resources(strict=False)
+```
+
+Non-strict mode allows review-queue warnings, such as Zotero sources that still
+need manual closure. Use strict mode for release checks or before promoting the
+resource layer as fully reviewed:
+
+```python
+assert_trusted_resources(strict=True)
+```
+
+Run these tests after marker or geneset edits:
+
+```bash
+/Users/luye/micromamba/envs/scrna-env/bin/python -m pytest \
+  tests/utils/test_resource_audit.py tests/utils/test_manager.py \
+  tests/analysis/test_scoring.py tests/analysis/test_annotation.py \
+  tests/qc/test_doublet.py tests/tumor/test_malignancy.py -q --no-cov
+```
+
+Two machine-readable queues guide the next curation pass:
+
+- `docs/marker_curation_literature_index.jsonl`: source-level queue. Each row
+  records `resource_utility`, `target_resources`, `curation_priority`,
+  `fulltext_review_required`, and `extraction_status`.
+- `docs/marker_resource_quality_gaps.jsonl`: entry-level queue. Each row records
+  marker resource gaps such as `thin_marker_set` or
+  `missing_effective_negative_markers`.
+
+Negative marker quality is evaluated with inheritance. A subtype can inherit
+exclusion evidence from its lineage parent; only entries without direct or
+ancestor-level negative markers are flagged.
+
+## Source Integration Rules
+
+- Use `source_ids` for every curated marker or geneset that is supported by a
+  review, atlas, database, or paper listed in `resources/references.toml`.
+- Use `source_collection` to name the evidence framework, for example
+  `MSigDB Hallmark`, `Pan-cancer recurring programs`, `CancerSEA state atlas`, or
+  `scLucid cancer signatures seed`.
+- Use `evidence_role` to separate concise annotation evidence from wide scoring
+  modules:
+  - `identity_marker`: compact positive/negative evidence for cell annotation.
+  - `state_evidence`: compact state evidence, not a stable cell type.
+  - `program_scoring`: wide gene module for scoring/enrichment.
+  - `pathway_scoring`: pathway or hallmark module.
+  - `tumor_interpretation`: tumor-context evidence used with CNV/malignancy review.
+- For genesets, add `use_for` and `not_for`. Genesets should generally include
+  `program_scoring` or `pathway_enrichment` in `use_for`, and
+  `cell_identity_annotation` / `global_annotation` in `not_for`.
+- If multiple references disagree, keep a short `core_markers`-style entry in the
+  marker TOML only when there is consensus; route broad or conflicting evidence
+  to genesets or mark `review_status = "conflict"`.
 
 ## LLM Curation Prompt
 

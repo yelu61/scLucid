@@ -5,7 +5,13 @@ This script demonstrates a cleaner replacement for long notebook cells that mix:
 - marker/enrichment evidence generation
 - manual cluster-to-label mapping
 - downstream module scoring and composition plotting
+
+The marker-DE calls in this file are for annotation evidence and exploratory
+marker discovery. Formal condition DE should use sample-level pseudobulk via
+``scl.al.run_pseudobulk_de``.
 """
+
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -22,12 +28,18 @@ def main() -> None:
     adata = sc.read_h5ad(data_path)
 
     # 1) Cluster evidence: markers + enrichment + markdown summary
+    #    find_markers() is cell-level marker discovery, not publication-grade
+    #    condition DE. Its output carries inference_level metadata.
     de_config = scl.al.DifferentialConfig(
         groupby="leiden_clusters",
         use_raw=adata.raw is not None,
         pval_cutoff=0.05,
     )
-    scl.al.find_markers(adata, config=de_config)
+    marker_df = scl.al.find_markers(adata, config=de_config)
+    print(
+        "Marker discovery inference level:",
+        marker_df.get("inference_level", ["unknown"])[0] if not marker_df.empty else "empty",
+    )
 
     filter_cfg = scl.al.FilterMarkersConfig(
         key="rank_genes_groups",
@@ -78,10 +90,11 @@ def main() -> None:
         n_genes_per_group=4,
     )
 
-    # 3) Manual mapping should live in a sidecar table, not a huge notebook cell
+    # 3) First pass: conservative major-lineage mapping. Subtype/state labels
+    #    should be layered after lineage-gated subset refinement.
     manual_mapping = {
-        "0": "Naive T cells",
-        "1": "Activated T cells",
+        "0": "T cells",
+        "1": "T cells",
         "2": "NK cells",
         "3": "B cells",
     }
@@ -89,21 +102,56 @@ def main() -> None:
         adata,
         cluster_key="leiden_clusters",
         mapping=manual_mapping,
-        key_added="cell_type_curated",
+        key_added="lineage_curated",
     )
+    adata.obs["cell_type_curated"] = adata.obs["lineage_curated"].astype(str)
 
     # 4) Annotation review table for manual QC
     mgr = scl.ut.get_marker_manager(species="human", tissue="Blood")
     eval_df = scl.al.evaluate_annotation(
         adata,
         cluster_key="leiden_clusters",
-        annotation_key="cell_type_curated",
+        annotation_key="lineage_curated",
         marker_config=mgr,
         plot=False,
     )
     eval_df.to_csv(output_dir / "annotation_evaluation.csv", index=False)
 
-    # 5) Downstream state programs with the thin workflow wrapper
+    # 5) Hierarchical annotation: lineage-gated subset refinement.
+    #    The subset is extracted from raw/counts when available and reprocessed
+    #    independently. Do not write back automatically; review the reconciliation
+    #    table first, especially when subset labels conflict with global labels or
+    #    when subset review identifies cells to exclude.
+    plan = scl.al.build_hierarchical_annotation_plan(
+        adata,
+        cluster_key="leiden_clusters",
+        lineage_key="lineage_curated",
+        min_cells_per_lineage=50,
+        min_clusters_per_lineage=1,
+    )
+    plan.to_csv(output_dir / "hierarchical_annotation_plan.csv", index=False)
+
+    subtype_mgr = scl.ut.get_marker_manager(species="human", tissue="Blood", view="subtype_annotation")
+    subset_results = scl.al.run_subset_annotation_refinement(
+        adata,
+        lineage_key="lineage_curated",
+        plan=plan,
+        counts_layer="counts",
+        marker_config=subtype_mgr,
+        global_subtype_key="cell_type_curated",
+        write_back=False,
+        key_added="subset_annotation_refinement",
+    )
+    reconciliation = scl.al.build_subset_annotation_reconciliation(
+        adata,
+        subset_results,
+        lineage_key="lineage_curated",
+        global_subtype_key="cell_type_curated",
+        key_added="subset_annotation_refinement",
+    )
+    reconciliation.to_csv(output_dir / "subset_annotation_reconciliation.csv", index=False)
+
+    # 6) Downstream state programs with the thin workflow wrapper
     modules = {
         "T_memory": ["CCR7", "LEF1", "SELL", "LTB", "TCF7"],
         "T_activation": ["ICOS", "CD69", "BATF", "FOS", "JUNB"],
@@ -122,7 +170,9 @@ def main() -> None:
         index=False,
     )
 
-    # 6) Composition plots from pre-aggregated tables
+    # 7) Composition plots from pre-aggregated tables
+    #    These are visualization summaries. For statistical inference on cell
+    #    proportions, prefer sample-level CLR/compositional tests.
     count_df = (
         adata.obs.groupby(["group", "cell_type_curated"], observed=False)
         .size()
@@ -150,6 +200,54 @@ def main() -> None:
 
     scl.al.plot_grouped_proportion_bar(group_props, out_dir=str(output_dir))
     scl.al.plot_celltype_alluvial(group_props, out_dir=str(output_dir))
+
+    if {"sampleID", "group", "cell_type_curated"}.issubset(adata.obs.columns):
+        prop_config = scl.al.ProportionConfig(
+            celltype_col="cell_type_curated",
+            sample_col="sampleID",
+            condition_col="group",
+            test_method="clr-t-test",
+            out_dir=str(output_dir / "proportion_inference"),
+        )
+        try:
+            prop_df, stat_df = scl.al.analyze_celltype_proportion(
+                adata,
+                method="pseudobulk",
+                config=prop_config,
+            )
+        except Exception as exc:
+            print(f"Skipped proportion inference example: {exc}")
+        else:
+            stat_df.to_csv(output_dir / "celltype_proportion_clr_stats.csv", index=False)
+            if "inference_level" in stat_df:
+                print(
+                    "Proportion inference levels:",
+                    sorted(stat_df["inference_level"].dropna().unique()),
+                )
+
+    # 8) Optional formal condition DE with sample-level pseudobulk.
+    #    Add design_covariates/block_col when batch or paired patient metadata
+    #    exist. This is the preferred route for publication-grade condition DE.
+    if {"sampleID", "group", "cell_type_curated"}.issubset(adata.obs.columns):
+        de_pb_config = scl.al.PseudobulkDEConfig(
+            sample_col="sampleID",
+            condition_key="group",
+            groupby="cell_type_curated",
+            contrasts=[("control", "treated")],
+            min_cells_per_sample=10,
+            method="linear_model_logcpm" if "batch" in adata.obs.columns else "auto",
+            design_covariates=["batch"] if "batch" in adata.obs.columns else [],
+            block_col="patient_id" if "patient_id" in adata.obs.columns else None,
+            key_added="pseudobulk_condition_de",
+        )
+        try:
+            de_pb = scl.al.run_pseudobulk_de(adata, de_pb_config)
+        except Exception as exc:
+            print(f"Skipped pseudobulk condition DE example: {exc}")
+        else:
+            de_pb.to_csv(output_dir / "pseudobulk_condition_de.csv", index=False)
+            if not de_pb.empty:
+                print("Pseudobulk DE inference levels:", sorted(de_pb["inference_level"].unique()))
 
     adata.write_h5ad(output_dir / "annotated_curated.h5ad", compression="gzip")
 

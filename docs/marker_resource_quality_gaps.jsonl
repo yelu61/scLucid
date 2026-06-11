@@ -1,0 +1,114 @@
+{"resource":"marker_registry_human","entry":"Stem Cell","gap":"missing_effective_negative_markers","granularity":"lineage","parent":null}
+{"resource":"marker_registry_human","entry":"Hematopoietic Stem Cell","gap":"missing_effective_negative_markers","granularity":"subtype","parent":"Stem Cell"}
+{"resource":"marker_registry_human","entry":"Mesenchymal Stem Cell","gap":"missing_effective_negative_markers","granularity":"subtype","parent":"Stem Cell"}
+{"resource":"marker_registry_human","entry":"RBC","gap":"missing_effective_negative_markers","granularity":"lineage","parent":null}
+{"resource":"marker_registry_mouse","entry":"Hepatocytes","gap":"missing_effective_negative_markers","granularity":"subtype","parent":"Specialized"}
+{"resource":"marker_registry_mouse","entry":"Cardiomyocytes","gap":"missing_effective_negative_markers","granularity":"subtype","parent":"Specialized"}
+{"resource":"marker_registry_mouse","entry":"Adipocytes","gap":"missing_effective_negative_markers","granularity":"subtype","parent":"Specialized"}
+{"resource":"marker_registry_mouse","entry":"Erythrocytes","gap":"missing_effective_negative_markers","granularity":"subtype","parent":"Specialized"}
+{"resource":"marker_tissue_human","entry":"Corneal EpC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Basal EpC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Superficial EpC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Limbal Stem Cells","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Limbal EpC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Progenitors","gap":"thin_marker_set","granularity":"tissue_subtype","marker_count":2,"recommended_min":3}
+{"resource":"marker_tissue_human","entry":"Progenitors","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Corneal EndoC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Corneal Stromal","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Keratocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Limbal Stromal","gap":"thin_marker_set","granularity":"tissue_subtype","marker_count":2,"recommended_min":3}
+{"resource":"marker_tissue_human","entry":"Limbal Stromal","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Scleral Cells","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Iridocytes","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Corneal Nerve","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Cornea Tissue"}
+{"resource":"marker_tissue_human","entry":"Endocrine cells","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"Acinar cells","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"Ductal-like1","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"Ductal-like2","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"Alpha cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"Beta cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"Delta cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"PP cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Pancreas Tissue"}
+{"resource":"marker_tissue_human","entry":"AT1 cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"AT2 cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"Ciliated cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"Club cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"Lung Goblet cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"Basal cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"Pulmonary EC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"Pulmonary Fibroblast","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Lung Tissue"}
+{"resource":"marker_tissue_human","entry":"Hepatocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Liver Tissue"}
+{"resource":"marker_tissue_human","entry":"Cholangiocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Liver Tissue"}
+{"resource":"marker_tissue_human","entry":"Kupffer cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Liver Tissue"}
+{"resource":"marker_tissue_human","entry":"Hepatic stellate cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Liver Tissue"}
+{"resource":"marker_tissue_human","entry":"Liver EC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Liver Tissue"}
+{"resource":"marker_tissue_human","entry":"Proximal tubule cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Kidney Tissue"}
+{"resource":"marker_tissue_human","entry":"Distal tubule cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Kidney Tissue"}
+{"resource":"marker_tissue_human","entry":"Podocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Kidney Tissue"}
+{"resource":"marker_tissue_human","entry":"Collecting duct cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Kidney Tissue"}
+{"resource":"marker_tissue_human","entry":"Glomerular EC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Kidney Tissue"}
+{"resource":"marker_tissue_human","entry":"Mesangial cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Kidney Tissue"}
+{"resource":"marker_tissue_human","entry":"Excitatory neuron","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Inhibitory neuron","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Astrocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Oligodendrocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"OPC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Microglia","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Ependymal cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Brain EC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Brain Pericyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Brain Tissue"}
+{"resource":"marker_tissue_human","entry":"Cardiomyocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Heart Tissue"}
+{"resource":"marker_tissue_human","entry":"Cardiac Fibroblast","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Heart Tissue"}
+{"resource":"marker_tissue_human","entry":"Cardiac EC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Heart Tissue"}
+{"resource":"marker_tissue_human","entry":"Cardiac SMC","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Heart Tissue"}
+{"resource":"marker_tissue_human","entry":"Cardiac Conduction Cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Heart Tissue"}
+{"resource":"marker_tissue_human","entry":"Enterocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Intestinal Goblet cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Paneth cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Enteroendocrine cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Tuft cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Intestinal Stem Cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Intestinal TA Cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Intestinal Myofibroblast","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Intestine Tissue"}
+{"resource":"marker_tissue_human","entry":"Epidermal Keratinocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Basal Keratinocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Skin Melanocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Dermal Fibroblast","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Langerhans Cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Merkel Cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Sebaceous Gland Cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Sweat Gland Cell","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Skin Tissue"}
+{"resource":"marker_tissue_human","entry":"Osteoblast","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Bone Tissue"}
+{"resource":"marker_tissue_human","entry":"Osteocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Bone Tissue"}
+{"resource":"marker_tissue_human","entry":"Osteoclast","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Bone Tissue"}
+{"resource":"marker_tissue_human","entry":"Chondrocyte","gap":"missing_effective_negative_markers","granularity":"tissue_subtype","parent":"Bone Tissue"}
+{"resource":"marker_tumor_human","entry":"Lung Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"LUAD","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Lung Cancer"}
+{"resource":"marker_tumor_human","entry":"LUSC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Lung Cancer"}
+{"resource":"marker_tumor_human","entry":"SCLC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Lung Cancer"}
+{"resource":"marker_tumor_human","entry":"Breast Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"ER+","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Breast Cancer"}
+{"resource":"marker_tumor_human","entry":"HER2+","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Breast Cancer"}
+{"resource":"marker_tumor_human","entry":"TNBC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Breast Cancer"}
+{"resource":"marker_tumor_human","entry":"Colorectal Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"CMS1","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Colorectal Cancer"}
+{"resource":"marker_tumor_human","entry":"CMS2","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Colorectal Cancer"}
+{"resource":"marker_tumor_human","entry":"CMS3","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Colorectal Cancer"}
+{"resource":"marker_tumor_human","entry":"CMS4","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Colorectal Cancer"}
+{"resource":"marker_tumor_human","entry":"Liver Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"HCC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Liver Cancer"}
+{"resource":"marker_tumor_human","entry":"ICC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Liver Cancer"}
+{"resource":"marker_tumor_human","entry":"Gastric Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"EBV+","gap":"thin_marker_set","granularity":"cancer_subtype","marker_count":2,"recommended_min":3}
+{"resource":"marker_tumor_human","entry":"EBV+","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Gastric Cancer"}
+{"resource":"marker_tumor_human","entry":"MSI","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Gastric Cancer"}
+{"resource":"marker_tumor_human","entry":"CIN","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Gastric Cancer"}
+{"resource":"marker_tumor_human","entry":"GS","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Gastric Cancer"}
+{"resource":"marker_tumor_human","entry":"Prostate Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"Ovarian Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"HGSOC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Ovarian Cancer"}
+{"resource":"marker_tumor_human","entry":"LGSOC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Ovarian Cancer"}
+{"resource":"marker_tumor_human","entry":"Pancreatic Cancer","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"PDAC","gap":"missing_effective_negative_markers","granularity":"cancer_subtype","parent":"Pancreatic Cancer"}
+{"resource":"marker_tumor_human","entry":"Melanoma","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}
+{"resource":"marker_tumor_human","entry":"Glioblastoma","gap":"missing_effective_negative_markers","granularity":"tumor_type_hint","parent":null}

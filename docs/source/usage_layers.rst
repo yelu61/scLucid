@@ -25,6 +25,10 @@ Primary entrypoints:
 - ``scLucid.preprocess.run_preprocessing``
 - ``scLucid.analysis.run_standard_analysis``
 
+Canonical example:
+
+- ``examples/01_workflow/basic_pipeline.py``
+
 Expected output:
 
 - filtered and processed ``AnnData``
@@ -57,11 +61,39 @@ Primary entrypoints:
 - ``scLucid.preprocess.scale_data``
 - ``scLucid.preprocess.batch_correction``
 
+Canonical examples:
+
+- ``examples/02_simple_api/qc_preprocess_review.py`` for stage-level workflows
+  with review-summary inspection
+- ``examples/02_simple_api/qc_step_by_step.py`` and
+  ``examples/02_simple_api/preprocess_step_by_step.py`` for low-level teaching
+  examples that should be paired with manual review finalization before being
+  promoted to project templates
+
 Expected output:
 
 - the same AnnData conventions as the workflow layer
 - inspectable intermediate objects and tables
 - reviewer-facing reports for the decisions the user chose manually
+- a finalized review contract when the manual path becomes a handoff artifact
+
+Manual API Contract Rule
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Manual API calls are first-class scLucid usage, not a fallback. The requirement
+is that a manual path must not leave the package contract behind. If a notebook
+or script performs QC, preprocessing, or analysis manually, the final handoff
+must still write the same module-level keys used by the workflow layer:
+
+.. code-block:: python
+
+   adata.uns["sclucid"][module]["workflow_config"]
+   adata.uns["sclucid"][module]["steps_executed"]
+   adata.uns["sclucid"][module]["review_summary"]
+
+Until these helpers are exposed as package-level finalizers, the advanced
+notebooks are the reference implementation for normalizing, validating, and
+exporting manual review summaries.
 
 Layer 3: Advanced
 -----------------
@@ -91,6 +123,9 @@ Recommended product-facing notebook sequence:
 4. ``Step3-Standard_Downstream.ipynb``
 5. ``Step4-Signature_and_Target_Analysis.ipynb``
 
+Legacy unsplit notebooks may remain as references, but the split Step1A/Step1B
+sequence is the canonical advanced handoff for QC and preprocessing.
+
 Expected output:
 
 - final ``.h5ad``
@@ -119,7 +154,27 @@ A common project flow is:
 1. Run the workflow layer to get a baseline.
 2. Inspect QC and preprocessing review summaries.
 3. Drop into the simple API layer for the stage that needs adjustment.
-4. Promote the final decisions into an advanced notebook or golden-path script.
+4. Finalize the manual decisions into the same review contract.
+5. Promote the final decisions into an advanced notebook or golden-path script.
+
+Examples should make this layering explicit:
+
+- workflow examples demonstrate conservative defaults and review summaries
+- simple API examples may expose low-level functions, but must state when a
+  result is exploratory rather than publication-grade inference
+- advanced downstream notebooks should use sample-level pseudobulk and
+  compositional APIs for formal condition/proportion inference
+- cell-level differential expression belongs to marker discovery and annotation
+  evidence unless explicitly labelled as exploratory
+- ambient RNA and empty-droplet examples are diagnostic-only unless an external
+  correction result is registered in the QC namespace
+
+- workflow examples should prefer one-call or stage-level workflow APIs
+- simple API examples may call low-level functions, but should say whether they
+  are teaching examples or contract-preserving handoff examples
+- advanced notebooks may include rich manual review cells, but should keep
+  package policy in ``docs/`` and use the same review-summary schema as the
+  workflow layer
 
 Documentation Responsibilities
 ------------------------------
@@ -130,12 +185,14 @@ Documentation Responsibilities
 - which defaults are recommended
 - how review summaries should be interpreted
 - which features are stable versus experimental
+- what contract a manual API path must write before handoff
 
 ``examples/`` should show runnable usage:
 
 - one short script per supported layer or scenario
 - minimal assumptions near the top of the file
 - no hidden package policy that is absent from docs
+- explicit labels for canonical, teaching, legacy, or extension examples
 
 ``examples/03_advanced_notebooks/`` should show full analysis narratives:
 
@@ -157,3 +214,10 @@ A layer is considered product-ready only when:
 - the output follows the scLucid AnnData contract
 - failures produce actionable errors or review warnings
 - a lightweight or golden-path test protects the expected behavior
+
+An example is considered product-facing only when:
+
+- it runs against the installed package without ad hoc path edits
+- it does not imply unsupported plugin or registry behavior
+- it writes or inspects the expected review contract
+- it states optional heavy dependencies as opt-in enhancements, not defaults

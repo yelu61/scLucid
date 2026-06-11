@@ -38,7 +38,6 @@ def _make_marker_data(seed: int = 0):
 
     expression = []
     labels = []
-    rows_per_type = []
     for ct in cell_types:
         base = rng.poisson(1, size=(n_cells_per_type, len(all_markers))).astype(float)
         # Boost expression on this cell type's markers
@@ -47,7 +46,6 @@ def _make_marker_data(seed: int = 0):
             base[:, idx] += rng.poisson(10, size=n_cells_per_type)
         expression.append(base)
         labels.extend([ct] * n_cells_per_type)
-        rows_per_type.append(n_cells_per_type)
 
     X = np.vstack(expression)
     var = pd.DataFrame(index=all_markers)

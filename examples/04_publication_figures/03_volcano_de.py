@@ -1,10 +1,10 @@
-"""Volcano plot — differential expression between two conditions.
+"""Volcano plot -- sample-level pseudobulk differential expression.
 
-Synthesises bulk-aggregated single-cell expression for two conditions
-("treated" vs "control"), computes per-gene log2 fold-change and
-significance, and renders a volcano plot with top hits labeled. This is the
-standard differential-expression figure for tumor-vs-normal or
-responder-vs-non-responder comparisons.
+Synthesises sample-level pseudobulk differential-expression results for two
+conditions ("treated" vs "control") and renders a volcano plot with top hits
+labeled. Real projects should feed this script a table from
+``scLucid.analysis.run_pseudobulk_de``. Cell-level marker discovery tables are
+exploratory and should not be used as publication-grade condition DE volcanoes.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ OUTPUT_DIR = Path("results/publication_figures")
 
 
 def _simulate_de(seed: int = 0):
-    """Simulate per-gene mean expression in two conditions."""
+    """Simulate sample-level pseudobulk DE summary statistics."""
     rng = np.random.default_rng(seed)
     n_genes = 800
 
@@ -41,7 +41,7 @@ def _simulate_de(seed: int = 0):
     # Compute log2 fold change
     log2fc = np.log2((mean_treated + 1) / (mean_control + 1))
 
-    # P-value from a fake replicated mean using a small noise model
+    # P-value from simulated biological sample-level pseudobulk replicates.
     n_replicates = 6
     control_reps = rng.lognormal(np.log(mean_control + 1)[:, None], 0.18, (n_genes, n_replicates))
     treated_reps = rng.lognormal(np.log(mean_treated + 1)[:, None], 0.18, (n_genes, n_replicates))
@@ -101,7 +101,7 @@ def main() -> Path:
     ax.axvline(-fc_thresh, color="black", linestyle="--", linewidth=0.5)
     ax.axhline(-np.log10(p_thresh), color="black", linestyle="--", linewidth=0.5)
 
-    # Label the top 5 up- and down-regulated genes by p-value × |fc|
+    # Label the top 5 up- and down-regulated genes by |p-value| * |fc|
     sig_indices = np.where(significant_up | significant_down)[0]
     if sig_indices.size:
         priority = neg_log10_p[sig_indices] * np.abs(log2fc[sig_indices])
@@ -111,9 +111,9 @@ def main() -> Path:
         ]
         adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle="-", color="black", lw=0.3))
 
-    ax.set_xlabel("log$_2$ fold change (treated / control)")
+    ax.set_xlabel("sample-level log$_2$ fold change (treated / control)")
     ax.set_ylabel("$-\\log_{10}$ p-value")
-    ax.set_title("Differential expression: treated vs control")
+    ax.set_title("Pseudobulk differential expression: treated vs control")
     ax.legend(loc="upper left", frameon=False, fontsize=8)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)

@@ -8,12 +8,12 @@ The recommended defaults are defined in :doc:`quickstart` and :doc:`best_practic
 Current Example Set
 -------------------
 
+``examples/00_data_io/prepare_data.py``
+    Data I/O reference for loading 10x-style inputs, attaching metadata, and
+    ensuring ``adata.layers["counts"]`` is present before a workflow starts.
+
 ``examples/01_workflow/basic_pipeline.py``
     Minimal end-to-end QC -> preprocessing -> clustering -> annotation flow.
-
-``examples/01_workflow/prepare_data.py``
-    Loading 10x-style inputs, attaching metadata, and ensuring
-    ``adata.layers["counts"]`` is present.
 
 ``examples/01_workflow/plugin_development.py``
     Minimal plugin extension example for users who need custom steps.
@@ -54,8 +54,9 @@ Current Example Set
       acceptance via ``scripts/run_analysis_acceptance.py``: clustering review,
       annotation evidence, consensus labels, post-hoc QC cluster review,
       optional malignancy interpretation, and ``Step3-sce_annotated.h5ad``
-    - ``Step3-Standard_Downstream.ipynb`` - composition, proportion,
-      differential expression, and enrichment
+    - ``Step3-Standard_Downstream.ipynb`` - sample-level composition,
+      CLR/proportion summaries, pseudobulk differential expression,
+      covariate-aware downstream inference, and enrichment
     - ``Step4-Signature_and_Target_Analysis.ipynb`` - project-specific
       signatures, focused cell-state analysis, and target-oriented exports
 
@@ -86,3 +87,9 @@ How To Maintain Examples
 - each example should demonstrate one supported usage pattern clearly
 - examples should link back to the recommended path, not redefine it
 - if an example demonstrates an advanced or experimental route, say so explicitly
+- downstream examples must label cell-level marker discovery as exploratory and
+  use ``run_pseudobulk_de`` for formal condition DE
+- raw-proportion ``t-test`` / ``wilcoxon`` examples should be framed as legacy
+  exploratory summaries; prefer CLR sample-level proportion tests
+- ambient RNA and empty-droplet examples are diagnostics unless an external
+  correction result is explicitly registered
