@@ -98,6 +98,26 @@ cnv = [
     "infercnvpy",  # For CNV inference
 ]
 
+# Bulk RNA-seq analysis
+bulk = [
+    "pydeseq2",    # For DESeq2-based bulk DE testing
+    "gseapy",      # For ORA/GSEA enrichment on bulk DE
+    "requests",    # For external network APIs such as STRING
+]
+
+# Spatial transcriptomics
+spatial = [
+    "squidpy",     # For spatial statistics and plotting
+    "scikit-image", # For image processing in spatial workflows
+]
+
+# Spatial deep-learning models (heavy dependencies)
+spatial-deep = [
+    "scLucid[spatial]",
+    "torch",
+    "torch-geometric",
+]
+
 # Advanced tools bundle (includes velocity, cnv, proportion + extras)
 tools = [
     "scLucid[velocity]",
@@ -107,7 +127,6 @@ tools = [
     "loompy",      # Required for SCENIC data format
     "cellphonedb", # For CellPhoneDB analysis
     "triku",       # For Triku HVG selection
-    "squidpy",     # For spatial analysis functions
 ]
 
 # Install everything
@@ -115,6 +134,8 @@ all = [
     "scLucid[analysis]",
     "scLucid[integration]",
     "scLucid[de]",
+    "scLucid[bulk]",
+    "scLucid[spatial]",
     "scLucid[tools]",
 ]
 
