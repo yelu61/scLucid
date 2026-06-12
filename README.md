@@ -1,19 +1,39 @@
-# scLucid: Lucid Tumor Single-Cell Interpretation
+# scLucid: Lucid Tumor Single-Cell Interpretation System
 
 [![PyPI version](https://badge.fury.io/py/sclucid.svg)](https://badge.fury.io/py/sclucid)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/yelu61/scLucid/actions/workflows/build.yml/badge.svg)](https://github.com/yelu61/scLucid/actions)
 
-**scLucid** is a diagnostic-first, audit-ready Python framework for tumor
-single-cell RNA-seq interpretation. The name reflects the goal: make single-cell
-analysis **lucid**: clear in its assumptions, explicit in its inference
-boundaries, and reviewable from raw AnnData to biological interpretation.
+**scLucid** is a diagnostic-first, audit-ready Python framework evolving toward
+a tumor single-cell interpretation system. The name reflects the goal: make
+single-cell analysis **lucid**: clear in its assumptions, explicit in its
+inference boundaries, and reviewable from raw AnnData to biological
+interpretation.
 
 scLucid is not trying to replace Scanpy, Seurat, or the broader single-cell
 ecosystem. Instead, it builds a tumor-focused research system around them:
 adaptive QC, conservative preprocessing, evidence-based annotation, malignancy
 and TME interpretation, explicit inference semantics, and optional bulk/spatial
 evidence modules.
+
+### Scientific Vision
+
+The next decade of tumor single-cell biology is likely to move from cell-type
+cataloging toward cell-state, cell-community, ecosystem, and clinically
+interpretable phenotypes. scLucid is designed to evolve along the same
+hierarchy:
+
+> Gene -> Program -> Cell State -> Cell Community -> Ecotype -> Ecosystem -> Clinical Phenotype
+
+| Interpretation Level | Current Coverage | Role In scLucid |
+|----------------------|------------------|-----------------|
+| Gene | Strong | Marker and gene-level evidence |
+| Program | Active | Tumor and TME program scoring |
+| Cell State | Active | Annotation, state interpretation, malignancy evidence |
+| Cell Community | Emerging | Co-abundance and local ecosystem patterns |
+| Ecotype | Planned / prototype | Sample-level archetypes and stability-tested patterns |
+| Ecosystem | Planned | Integrated tumor microenvironment interpretation |
+| Clinical Phenotype | Long-term | Response or outcome association with explicit limitations |
 
 The core idea is simple:
 
@@ -26,6 +46,18 @@ The framework keeps `qc -> preprocess -> analysis -> tumor interpretation` as
 the core workflow spine, while bulk, spatial, and selected R/Python parity
 methods act as external evidence modules that feed the same audit contract.
 
+### Strategic Pillars
+
+| Pillar | Role |
+|--------|------|
+| **Core workflow** | Stabilize `qc -> preprocess -> analysis` as the compact single-cell workflow spine. |
+| **Validation and inference safety** | Prove decision quality, biological concordance, and inference boundaries against sensible baselines. |
+| **Tumor state interpretation** | Interpret malignancy, CNV evidence, tumor programs, TME states, and therapy-relevant signals. |
+| **Tumor ecosystem modeling** | Move from cell-level outputs to sample-level ecotypes, microenvironment archetypes, and patient stratification. |
+| **Knowledge infrastructure** | Unify markers, gene sets, atlas references, literature, ontology, therapy knowledge, and LLM evidence. |
+| **Engineering and scalability** | Keep the system lightweight, sparse-aware, reproducible, and usable on real tumor datasets. |
+| **Agent interface layer** | Long-term review interface over evidence bundles, not a primary analysis engine. |
+
 ### What Makes scLucid Different
 
 | Principle | What It Means In Practice |
@@ -33,7 +65,7 @@ methods act as external evidence modules that feed the same audit contract.
 | **Diagnostic-first** | QC, preprocessing, DE, proportion, bulk, and spatial utilities are paired with checks and warnings before results are trusted. |
 | **Audit-ready by default** | Decisions, parameters, warnings, and review summaries are stored under `adata.uns["sclucid"]` and can be exported to an HTML audit report. |
 | **Explicit inference semantics** | Results distinguish `sample_level`, `exploratory_cell_level`, `descriptive_sample_level`, and `exploratory_spatial` so exploratory signals are not overstated. |
-| **Tumor-centered interpretation** | Annotation, CNV/malignancy evidence, TME composition, therapy signatures, spatial niches, and ecosystem/ecotype-style concepts are first-class design targets. |
+| **Tumor ecosystem orientation** | Annotation, CNV/malignancy evidence, TME composition, therapy signatures, cell communities, and ecotype-style concepts are first-class design targets. |
 | **Ecosystem-aware, not ecosystem-replacing** | Mature Python/R tools can be wrapped or validated when useful, but scLucid keeps a lightweight core and records method-specific evidence. |
 
 ### 60-Second Quickstart
@@ -125,7 +157,7 @@ to evidence-backed tumor biological usefulness.
   `artifact_annotation`, `program_scoring`, and `tumor_interpretation`.
 - Treat LLM output as annotation evidence, not ground truth.
 
-**Phase 4 - Tumor-Aware Interpretation System**
+**Phase 4 - Tumor State Interpretation**
 
 - Keep `scLucid.tumor.malignancy.run_malignancy_interpretation` as a lightweight
   interpretation bridge, callable from the analysis workflow, that
@@ -141,10 +173,30 @@ to evidence-backed tumor biological usefulness.
   reasons, and review requirements.
 - Add common high-level tumor single-cell concepts as practical APIs and plots:
   tumor programs, EMT/hypoxia/proliferation/IFN response, immune exhaustion,
-  myeloid states, CAF subtypes, TME niches, tumor-stroma boundaries, therapy
-  response signatures, and ecosystem/ecotype-style summaries.
+  myeloid states, CAF subtypes, TME niches, tumor-stroma boundaries, and therapy
+  response signatures.
 
-**Phase 5 - Selective R/Python Parity**
+**Phase 5 - Tumor Ecosystem Modeling**
+
+- Aggregate cell-level annotation, tumor programs, TME states, malignancy
+  evidence, and optional bulk/spatial/clinical evidence into sample-level or
+  region-level ecosystem summaries.
+- Treat ecosystem/ecotype calls as reviewable, stability-tested interpretation
+  objects rather than automatic truth labels.
+- Build patient-level heatmaps, microenvironment archetype summaries, and
+  ecotype-style visualizations with explicit exploratory or sample-level
+  inference semantics.
+
+**Phase 6 - Knowledge And Evidence Infrastructure**
+
+- Continue upgrading marker resources, gene sets, atlas references, literature
+  knowledge, cell/tumor ontologies, therapy signatures, and LLM evidence into a
+  source-aware, versioned knowledge infrastructure.
+- Keep LLM output as evidence suggestions or review aids, not ground truth.
+- Route marker-, program-, and ontology-dependent analysis through auditable
+  resources rather than ad hoc lists.
+
+**Phase 7 - Selective R/Python Parity**
 
 - Pythonize or wrap mature R methods only when they are high-value for tumor
   single-cell work and Python lacks a strong replacement.
@@ -154,19 +206,7 @@ to evidence-backed tumor biological usefulness.
 - Maintain parity matrices, realistic fallbacks, and validation notebooks for
   each port or wrapper.
 
-**Phase 6 - Resource Curation And Validation**
-
-- Continue upgrading marker resources from “readable” to “routable,
-  reviewable, source-aware”.
-- Add mouse tissue/tumor marker parity after the human route stabilizes.
-- Add resource validation tests for required metadata, marker symbol hygiene,
-  view routing, negative markers, artifact exclusion, and tumor evidence
-  isolation.
-- Curate immune and tumor-state markers from pan-cancer atlases while keeping
-  broad pathway signatures in gene-set JSON/GMT resources rather than concise
-  annotation TOML files.
-
-**Phase 7 - Real-Data Acceptance Gates**
+**Phase 8 - Real-Data Acceptance Gates**
 
 - Maintain PBMC as the normal baseline.
 - Maintain PDAC as the first tumor acceptance workflow.
@@ -175,7 +215,7 @@ to evidence-backed tumor biological usefulness.
   cluster interpretability, annotation confidence, marker consistency,
   malignancy evidence, and report completeness.
 
-**Phase 8 - Engineering, Scale, And User Experience**
+**Phase 9 - Engineering, Scale, And User Experience**
 
 - Keep imports lightweight and dependencies optional.
 - Improve sparse-aware and memory-aware execution for large datasets.
@@ -186,14 +226,24 @@ to evidence-backed tumor biological usefulness.
   plotting functions.
 - Keep beginner workflow, simple API, and advanced expert routes synchronized.
 
+**Long-Term - Agent Interface Layer**
+
+- Keep a future path for Dataset Review Agent, Annotation Review Agent, Tumor
+  Interpretation Agent, and Tumor Board Report Agent.
+- Agents are evidence interfaces. They must consume scLucid evidence bundles and
+  review summaries; they should summarize, critique, and route evidence rather
+  than perform primary analysis or generate unsupported biological claims.
+
 ### Key Features
 
 * **End-to-End Auditable Workflows**: High-level functions like `run_standard_qc`, `run_preprocessing`, and `run_standard_analysis` move from raw AnnData to reviewable biological evidence.
 * **Diagnostic QC And Preprocessing**: Adaptive recommendations, layer contracts, tumor-aware warnings, and conservative defaults keep early decisions inspectable.
 * **Evidence-Based Annotation**: Marker resources, program scoring, reference evidence, CellTypist output, and optional LLM bundles are treated as evidence, not unquestioned labels.
 * **Explicit Inference Semantics**: DE, proportion, bulk, and spatial outputs state whether they are exploratory, descriptive, or valid for sample-level inference.
-* **Tumor Interpretation Layer**: CNV/malignancy evidence, TME composition, therapy signatures, heterogeneity, and ecosystem/ecotype-style summaries are core research targets.
-* **Bulk And Spatial Evidence Modules**: `scLucid.tools.bulk` and `scLucid.tools.spatial` provide lightweight, tumor-oriented utilities for deconvolution, bulk DE, bulk-pseudobulk concordance, spatial autocorrelation, SVGs, tissue zones, and spatial niches.
+* **Tumor Interpretation Layer**: CNV/malignancy evidence, TME composition, therapy signatures, heterogeneity, tumor programs, and TME states are core research targets.
+* **Tumor Ecosystem Modeling**: scLucid is designed to grow from cell-state interpretation toward cell-community, ecotype, microenvironment-archetype, and patient-stratification workflows.
+* **Knowledge Infrastructure**: Marker resources, gene sets, atlas references, literature-derived knowledge, ontology, therapy context, and LLM evidence are treated as source-aware infrastructure for auditable interpretation.
+* **Bulk And Spatial Evidence Modules**: `scLucid.tools.bulk` and `scLucid.tools.spatial` provide lightweight, tumor-oriented utilities for deconvolution, bulk DE, bulk-pseudobulk concordance, spatial autocorrelation, SVGs, tissue zones, and spatial niches. They support tumor interpretation rather than turning scLucid into a bulk or spatial platform.
 * **Selective R/Python Parity**: Mature R methods are wrapped or ported only when they add validated tumor single-cell value and can fit scLucid's audit contract.
 * **Publication-Oriented Visualization**: Plotting utilities and journal font styles support reproducible figures, with richer tumor-specific visual templates planned.
 * **Pydantic Configuration**: User-facing workflows use validated config objects so parameters can be serialized, inspected, and reproduced.
@@ -206,6 +256,7 @@ to evidence-backed tumor biological usefulness.
   Scanpy, Seurat, or specialist tools.
 - It is not a broad multi-omics platform that tries to cover every published
   method.
+- It is not a general spatial transcriptomics platform.
 - It is not a black-box automated annotation engine.
 
 scLucid's bet is narrower and more useful: make tumor single-cell workflows

@@ -1,693 +1,576 @@
-# scLucid 五方向战略梳理与实施计划
+# scLucid Strategic Implementation Plan
 
-**Status**: 当前战略总纲  
+**Status**: Current strategic master plan  
 **Updated**: 2026-06-12  
-**Scope**: 围绕 scLucid 作为 tumor single-cell interpretation system 的核心定位，整理后续 5 个推荐方向、实施路径、交付物和验证标准。
+**Scope**: Product strategy, academic moat, long-term differentiation, and phased priorities for scLucid as a tumor single-cell interpretation system.
 
-**Execution Playbook**: 投稿倒逼式的逐阶段执行细则见 `docs/roadmap/README.md`。本文档保留战略方向，roadmap 文档负责每个 phase 的准备、步骤、验收标准、交付物和风险控制。
+**Execution Playbook**: Phase-level execution details are maintained in `docs/roadmap/README.md`. This document defines the strategic architecture and priority system; roadmap documents define phase preparation, steps, acceptance standards, deliverables, and risk controls.
 
-## 0. 总定位
+## 0. Strategic Positioning
 
-scLucid 的差异化不应是“比 Scanpy/Seurat 多几个函数”，也不应是“复制 OmicVerse 式大而全生态”。更准确的定位是：
+scLucid should not become a Scanpy replacement, Seurat replacement, generic single-cell toolkit, general multi-omics platform, or OmicVerse-style large ecosystem. Its stronger and narrower role is:
 
-> scLucid 是一个 diagnostic-first、audit-ready、tumor-focused 的单细胞研究解释系统。它让肿瘤单细胞分析更 lucid：假设清楚、证据可追溯、推断边界明确、结果适合项目复查和论文级解释。
+> scLucid is a diagnostic-first, audit-ready, tumor-focused, evidence-driven interpretation system for tumor single-cell research.
 
-核心边界：
+## 1. Scientific Vision
 
-- `qc + preprocess + analysis` 是核心单细胞工作流主干。
-- `tumor` 是肿瘤解释层，消费 analysis 产物并整合 CNV、malignancy、TME、therapy、heterogeneity、ecosystem 等证据。
-- `tools.bulk` 和 `tools.spatial` 是外部证据增强模块，服务于肿瘤单细胞解释，不追求泛 multi-omics 全覆盖。
-- R/Python parity 只做精选成熟方法的 Python 接入或复现，并必须进入 scLucid 的 evidence/audit contract。
-- 工程化目标不是“功能最多”，而是轻依赖、可扩展、可验证、可复现、能处理真实大数据集。
+The next decade of tumor single-cell biology will progressively move from
+cataloging cell types toward interpreting cell states, cell communities,
+ecosystems, and clinically meaningful phenotypes. scLucid is designed to evolve
+along the same hierarchy:
 
-## 1. 方向一：核心 QC -> Preprocess -> Analysis 工作流打磨
+> Gene -> Program -> Cell State -> Cell Community -> Ecotype -> Ecosystem -> Clinical Phenotype
 
-### 目标
+Short-term:
 
-把 `qc + preprocess + analysis` 打磨成 scLucid 的稳定核心路径，使其可以在真实项目中提供可靠 handoff、清晰审计记录和保守可解释的结果。
+- Robust tumor cell-state interpretation.
+- Audit-ready QC, preprocessing, analysis, annotation, and malignancy evidence.
 
-这不是继续堆方法，而是让每个核心阶段都做到：
+Mid-term:
 
-- 输入输出契约清楚。
-- 默认路径轻依赖且稳定。
-- 每个关键决策有诊断依据。
-- 所有重要参数、警告和证据写入 `adata.uns["sclucid"]`。
-- 结果能被 audit report、notebook 和人工 review 复查。
+- Tumor ecosystem modeling.
+- Stable sample-level ecotype and microenvironment archetype prototypes.
 
-### 实施重点
+Long-term:
 
-#### 1.1 QC 模块
+- Ecosystem-aware clinical interpretation.
+- Patient/sample-level evidence summaries with explicit limitations.
 
-当前优势：
+This hierarchy is aspirational, not a claim that all levels are complete today.
+The current core is `qc -> preprocess -> analysis`; the long-term academic moat
+should come from connecting that core workflow to tumor state interpretation,
+tumor ecosystem modeling, and a source-aware knowledge infrastructure.
 
-- adaptive threshold 思路已经成型。
-- doublet heuristic、Scrublet optional evidence、tumor-aware warnings 已有基础。
-- review summary 和 audit report 方向明确。
+## 2. Strategic Guardrails
 
-下一步：
+### What scLucid Is
 
-- 梳理 QC 输出 contract：
-  - `adata.obs` 必需列。
-  - `adata.uns["sclucid"]["qc"]` 必需字段。
-  - filtering 前后统计。
-  - threshold rationale。
-- 强化 tumor-aware QC：
-  - 高 mitochondrial/stress 是否是坏细胞还是肿瘤状态。
-  - cell cycle 高表达是否提示增殖肿瘤群。
-  - doublet 的 tumor-normal 混合风险。
-- 建立 QC acceptance tests：
-  - PBMC baseline。
-  - PDAC tumor sample。
-  - 高线粒体、高 doublet、低质量边界样本。
+- A compact tumor single-cell workflow spine.
+- A diagnostic and audit layer around routine analysis decisions.
+- A tumor interpretation system that turns computational outputs into reviewable biological evidence.
+- A framework for explicit inference semantics: exploratory cell-level, descriptive sample-level, sample-level inference, spatial evidence, and external evidence.
+- A system that can consume validated bulk, spatial, clinical, R/Python, atlas, literature, and LLM evidence.
 
-交付物：
+### What scLucid Is Not
 
-- `docs/source/qc_preprocess_maturity.rst` 更新。
-- `tests/integration/test_qc_contract.py`。
-- `scripts/run_qc_acceptance.py`。
-- QC audit report 示例。
+- It is not a replacement for Scanpy or Seurat.
+- It is not a general-purpose single-cell toolkit that must implement every method.
+- It is not a general spatial transcriptomics platform.
+- It is not a broad multi-omics platform.
+- It is not a black-box automatic annotation engine.
+- It is not an LLM-first biological claim generator.
 
-#### 1.2 Preprocess 模块
+### Strategic Rule
 
-当前优势：
+Every new feature must answer:
 
-- counts/layers contract 已有基础。
-- normalization、HVG、PCA、neighbors、UMAP 路径完整。
-- batch correction 已经倾向显式 opt-in。
+1. Does it improve tumor interpretation?
+2. Does it strengthen evidence, auditability, or inference safety?
+3. Can it be validated against data, literature, or a mature reference method?
+4. Can it remain optional if it depends on heavy or specialized tooling?
 
-下一步：
+If the answer is no, the feature should be delayed, kept as an external adapter, or rejected.
 
-- 明确 preprocessing handoff contract：
-  - `layers["counts"]` 是否保留。
-  - `X` 当前代表什么。
-  - `raw` 是否设置。
-  - PCA/neighbors/UMAP key 命名。
-- 强化 HVG 解释：
-  - 标准 HVG。
-  - tumor-aware retained genes。
-  - marker/program genes 是否被保留。
-- 对 batch correction 做诊断优先：
-  - 不默认校正。
-  - 先评估 batch mixing 与 biological separation。
-  - 明确过度校正风险。
+## 3. Target Architecture
 
-交付物：
+```text
+Core Workflow Layer
+  QC -> Preprocess -> Analysis
 
-- `docs/source/data_contracts.rst` 增加 preprocessing contract。
-- HVG stability / tumor marker retention 测试。
-- `scripts/run_preprocess_acceptance.py`。
+Interpretation Layer
+  Annotation -> Malignancy -> Tumor Programs -> TME States -> Therapy Signals
 
-#### 1.3 Analysis 模块
+Tumor Ecosystem Layer
+  Cell Communities -> Ecotypes -> Ecosystem Archetypes -> Patient Stratification
 
-当前优势：
+Knowledge Infrastructure
+  Marker Manager, Gene Set Manager, Atlas Manager, Ontology Manager, Evidence Manager
 
-- clustering review、marker evidence、annotation evidence、consensus、posthoc QC review 已经形成闭环。
-- marker manager 和资源视图是 scLucid 的关键差异化。
+Audit Layer
+  Evidence Bundle, Review Summary, Inference Semantics, Reports, Limitations
 
-下一步：
+Support Evidence Modules
+  Bulk Evidence, Spatial Evidence, Clinical Evidence, Selected R/Python Parity
 
-- 继续把 analysis 做成第二个 benchmark module。
-- 强化 annotation evidence table：
-  - marker-based evidence。
-  - reference/CellTypist evidence。
-  - negative markers。
-  - artifact/stress/cell-cycle flags。
-  - confidence 与 review status。
-- DE/proportion 输出统一：
-  - `inference_level`。
-  - `valid_for_publication_inference`。
-  - sample-level vs exploratory cell-level。
-- 明确 first-pass annotation 策略：
-  - 先 major lineage / compartment。
-  - subtype/state 依赖 subset analysis 或用户显式请求。
+Long-Term Agent Interface Layer
+  Dataset Review, Annotation Review, Tumor Interpretation, Tumor Board Reporting
+```
 
-交付物：
+The audit layer is not a separate optional feature. It is the shared contract that connects all other layers through `adata.uns["sclucid"]`, exported review summaries, evidence bundles, reports, and reproducibility metadata.
 
-- `tests/integration/test_analysis_contract.py`。
-- `scripts/run_analysis_acceptance.py` 扩展。
-- analysis audit report 示例。
+## 4. P0: Core Workflow, Audit Contract, And Validation
 
-### 成功标准
+P0 is the current execution priority. It should receive most development attention until the core path is stable enough for real tumor projects and manuscript-grade benchmarks.
 
-- PBMC 和 PDAC golden path 可重复运行。
-- 核心输出在 `adata.uns["sclucid"]` 中可追溯。
-- 新用户能用 workflow API 跑通，专家能用 advanced notebook 复查每个决策。
-- 不因 optional heavy dependency 缺失导致 core import 失败。
+### Direction 1: Core Lucid Workflow
 
-## 2. 方向二：分层验证，而不是只证明跑通
+Goal:
 
-### 目标
+Stabilize `qc -> preprocess -> analysis` as the compact single-cell workflow spine.
 
-建立 scLucid 与 Scanpy/Seurat/成熟专用工具的分层验证框架。scLucid 不应直接宣称“更好更准”，而应证明：
+Scope:
 
-- 在哪些任务上结果等价。
-- 在哪些决策上更可解释。
-- 在哪些肿瘤场景中更安全。
-- 在哪些工作流中更省人工、更适合审计。
+- QC with adaptive thresholds, tumor-aware warnings, doublet evidence, and review summary.
+- Preprocessing with explicit layer semantics, sparse-aware operations, HVG/PCA/neighbors/UMAP evidence, and batch-correction cautions.
+- Analysis with clustering review, marker evidence, annotation evidence, consensus labels, post-hoc QC review, DE/proportion inference semantics, and optional malignancy bridge.
 
-### 分层验证框架
+Acceptance standards:
 
-#### Level 1: Execution Parity
+- PBMC and PDAC golden paths can run reproducibly.
+- Core outputs remain traceable in `adata.uns["sclucid"]`.
+- Missing optional heavy dependencies do not break core import or core workflow.
+- Major decisions produce reviewable evidence, not just output columns.
 
-问题：同样的数据，scLucid 是否能稳定产生 Scanpy/Seurat 可比的基础结果？
+What not to do:
 
-指标：
+- Do not expand the core into every specialist method.
+- Do not make bulk, spatial, clinical, or R parity part of mandatory execution.
+- Do not over-optimize for UMAP appearance at the cost of evidence quality.
 
-- cell retention rate。
-- detected genes / counts distributions。
-- HVG overlap。
-- PCA/UMAP neighborhood preservation。
-- clustering resolution 可比性。
-- major cell type annotation 一致性。
+### Direction 2: Evidence And Audit Contract
 
-交付物：
+Goal:
 
-- `validation_outputs/parity_scanpy/`。
-- Scanpy baseline script。
-- Seurat baseline notebook 或 R script。
+Make auditability the central product and academic differentiator.
 
-#### Level 2: Decision Quality
+Core objects:
 
-问题：scLucid 的自动建议是否更容易解释和复查？
+- Review summary.
+- Evidence bundle.
+- Decision table.
+- Inference semantics.
+- Reproducibility manifest.
+- Warning and limitation records.
+- Method-specific evidence tables.
 
-指标：
+Acceptance standards:
 
-- QC threshold rationale 是否完整。
-- batch correction 是否有诊断依据。
-- clustering resolution 是否有 stability/marker evidence。
-- annotation 是否有多证据表。
+- Every core module writes a structured review summary.
+- Every major user-facing result has a source, confidence, limitation, and inference level.
+- Reports can explain why a decision was made and what evidence supported it.
+- Evidence structures are machine-readable enough to support future review agents.
 
-交付物：
+Strategic value:
 
-- human-review checklist。
-- decision audit score。
-- `docs/VALIDATION_DECISION_QUALITY.md`。
+This is the layer that prevents scLucid from being perceived as another toolkit. It turns the package into a research review system.
 
-#### Level 3: Biological Concordance
+### Direction 3: Layered Validation
 
-问题：scLucid 的结果是否符合已知生物学和文献？
+Goal:
 
-指标：
+Prove scLucid is not merely runnable but reliable, interpretable, and safer in tumor single-cell workflows.
 
-- PBMC major lineage 期望结构。
-- PDAC malignant epithelial / CAF / myeloid / T/NK / endothelial compartment 是否合理。
-- canonical marker expression 是否匹配。
-- tumor program / TME signature 是否符合文献。
+Validation levels:
 
-交付物：
+1. **Execution parity**: scLucid produces reasonable Scanpy/Seurat-comparable baseline outputs.
+2. **Decision quality**: recommendations and warnings are easier to inspect than ad hoc workflows.
+3. **Biological concordance**: major lineages, tumor compartments, and markers match known biology.
+4. **Inference safety**: outputs avoid common cell-level and sample-level overclaims.
+5. **Usability and engineering**: fewer hidden parameters, clearer failure modes, reproducible artifacts.
 
-- `docs/VALIDATION_BIOLOGICAL_CONCORDANCE.md`。
-- curated expected marker panels。
-- dataset-specific acceptance reports。
+Acceptance standards:
 
-#### Level 4: Inference Safety
+- README claims have validation material behind them.
+- Benchmarks record where scLucid is better, equivalent, or weaker.
+- At least PBMC, PDAC, and one second tumor type are used as acceptance gates.
+- Validation produces figure-ready tables, not just notebooks.
 
-问题：scLucid 是否减少常见统计误用？
+## 5. P1: Tumor Interpretation, Ecosystem Modeling, And Scale
 
-重点：
+P1 is the main academic differentiation phase. It should start once the P0 core is sufficiently stable.
 
-- cell-level DE 不冒充 biological replicate inference。
-- pseudobulk / sample-level DE 明确标注。
-- proportion analysis 区分 descriptive、exploratory、sample_level。
-- bulk/spatial 结果默认保守标注。
+### Direction 4: Tumor State Interpretation
 
-交付物：
+Goal:
 
-- inference semantics test suite。
-- example notebook: bad practice vs scLucid guarded workflow。
+Convert core analysis outputs into tumor-specific biological interpretation.
 
-#### Level 5: Usability And Engineering
+Scope:
 
-问题：scLucid 是否真的更方便、更可复现？
+- Malignant vs non-malignant evidence.
+- CNV or CopyKAT/inferCNV-style evidence consumption.
+- Tumor programs: proliferation, EMT, hypoxia, IFN response, antigen presentation, stress, apoptosis, stemness, metabolism.
+- TME states: exhaustion, cytotoxicity, suppressive myeloid, inflammatory myeloid, CAF states, endothelial states, B/plasma states.
+- Therapy signatures and response-associated programs where evidence is available.
 
-指标：
+Acceptance standards:
 
-- 完成同一 workflow 的代码行数。
-- 需要人工记录的参数数量。
-- audit report 完整性。
-- runtime / memory。
-- failure message clarity。
+- Each interpretation output has input requirements, method notes, evidence sources, confidence, limitations, and inference semantics.
+- Normal epithelial annotation is separated from malignant-cell interpretation.
+- Tumor interpretation can consume stable analysis outputs without forcing all tumor algorithms into the core workflow.
 
-交付物：
+### Direction 5: Tumor Ecosystem Modeling
 
-- `docs/VALIDATION_USABILITY_ENGINEERING.md`。
-- benchmark table。
+Goal:
 
-### 成功标准
+Move scLucid from cell-level annotation toward sample-level or region-level tumor ecosystem interpretation.
 
-- README 中的差异化声明都有验证材料支持。
-- 每个 benchmark dataset 都有 manifest、final h5ad、figures、audit report、acceptance summary。
-- 对 Scanpy/Seurat 的比较措辞严谨：better / equivalent / weaker 都记录。
+Definition:
 
-## 3. 方向三：精选 R/Python Parity 与成熟方法接入
+Tumor ecosystem modeling aggregates malignant programs, TME states, cell type composition, CNV/malignancy confidence, optional spatial zones, optional bulk concordance, and optional clinical metadata into interpretable sample-level or region-level patterns.
 
-### 目标
+Core concepts:
 
-打通 Python/R 语言壁垒，但不做“为了 port 而 port”。只选择肿瘤单细胞研究中高频、成熟、Python 生态缺口明显、可验证的方法。
+- Cell communities.
+- Ecotypes.
+- Microenvironment archetypes.
+- Sample-level tumor states.
+- Patient stratification.
+- Clinical or therapy-associated ecosystem patterns.
 
-### 方法选择标准
+Recommended architecture:
 
-纳入前必须回答：
+```text
+Cell-level evidence
+  annotations, programs, TME states, malignancy calls
 
-1. 这个方法是否在高水平肿瘤单细胞研究中常见？
-2. Python 生态是否已有可靠替代？
-3. 结果是否能进入 scLucid 的 evidence/audit contract？
-4. 是否有 benchmark 或可复现预期结果？
-5. 依赖是否能隔离为 optional extra？
-6. license 是否允许包装或复现？
+Sample/region aggregation
+  composition, program averages, state abundance, spatial zones
 
-### 优先级
+Stability and interpretation
+  clustering, NMF, consensus, marker/program explanation
 
-#### P0：直接影响推断安全和肿瘤解释
+Ecosystem output
+  ecotype assignment, confidence, signature, clinical association, review summary
+```
 
-- pseudobulk/sample-level DE：
-  - DESeq2。
-  - edgeR。
-  - limma-voom。
-  - muscat。
-- CNV / malignancy evidence：
-  - inferCNV-like evidence。
-  - CopyKAT-like calls。
-- doublet evidence：
-  - ScDblFinder parity or wrapper。
-- bulk deconvolution：
-  - BayesPrism/DWLS 当前已内置 Python 版本。
-  - 后续只做精选补充。
+Acceptance standards:
 
-#### P1：高频研究模块
+- Ecotype and ecosystem outputs are marked as exploratory unless validated at sample or cohort level.
+- Results include stability analysis and explanation of dominant programs/states.
+- At least one tumor case study demonstrates ecosystem summaries beyond standard UMAP plots.
 
-- cell-cell communication：
-  - CellChat。
-  - NicheNet。
-  - CellPhoneDB。
-- compositional analysis：
-  - scCODA。
-  - propeller / Milo-like ideas。
-- pathway/program scoring：
-  - AUCell/GSVA/ssGSEA 等可验证路线。
+Ecosystem acceptance datasets:
 
-#### P2：复杂但有潜力
+- **PDAC ecosystem**: CAF/myeloid/TME-rich case for malignant-stromal-immune ecosystem interpretation.
+- **NSCLC ecosystem**: immune-infiltration and exhaustion-focused case for TME archetypes.
+- **CRC ecosystem**: epithelial state, inflammation, and stromal/immune co-abundance case.
 
-- trajectory / lineage：
-  - Monocle3 parity。
-  - Slingshot-like workflows。
-- spatial methods：
-  - Tangram。
-  - cell2location。
-  - RCTD。
-  - STAGATE / STAligner 等 deep spatial methods 延后。
+Ecosystem validation criteria:
 
-### 实施方式
+- Ecotype stability under resampling and feature perturbation.
+- Sample-level archetype reproducibility across cohorts or subsets.
+- Program/state co-occurrence consistency.
+- Patient-level separability when metadata support it.
+- Concordance with literature or original-study interpretations.
+- Optional support from spatial, bulk, or clinical evidence.
 
-三类实现模式：
+Strategic value:
 
-1. **Optional wrapper**
-   - 调用原工具或成熟 Python/R bridge。
-   - 记录版本、参数、命令、输入输出。
-2. **Clean-room reimplementation**
-   - 只针对公开公式、通用统计或基础算法。
-   - 不复制 GPL 或不兼容 license 代码。
-3. **Parity adapter**
-   - 将外部结果标准化为 scLucid evidence table。
-   - 不重写方法本身。
+This direction is the likely source of scLucid's long-term academic moat. Core workflow improvements are useful but easier to replicate; tumor ecosystem modeling plus audit evidence is much harder to copy.
 
-### 验证标准
+### Direction 6: Engineering, Scale, And Productization
 
-- 每个 port/wrapper 必须有 parity matrix。
-- 至少一个 synthetic test。
-- 至少一个 real-data smoke test。
-- 记录与原工具的差异：
-  - 输入限制。
-  - 输出字段差异。
-  - 不支持功能。
-  - 推荐使用场景。
+Goal:
 
-交付物：
+Make scLucid reliable enough for real tumor projects, large datasets, and reproducible handoff.
 
-- `docs/source/r_parity.rst` 持续更新。
-- `docs/R_PARITY_SELECTION_MATRIX.md`。
-- `tests/tools/test_r_parity_contracts.py`。
-- method-specific validation notebooks。
+Scope:
 
-## 4. 方向四：加强肿瘤单细胞高水平研究概念、图表和解释层
+- Lightweight import and dependency hygiene.
+- Optional extras for heavy methods.
+- Sparse-aware computation.
+- Memory and runtime benchmarks.
+- Clear error messages.
+- Manifest files and compact project outputs.
+- HTML and markdown audit reports.
+- Publication-oriented figure templates.
 
-### 目标
+Acceptance standards:
 
-scLucid 的核心特色应该是 tumor research system，而不仅是标准 scRNA workflow。需要系统引入肿瘤单细胞论文中常见的研究对象、概念、可视化和解释模板。
+- Large workflows avoid unnecessary `.toarray()`.
+- Missing optional dependencies produce actionable messages and graceful fallback.
+- Runtime and memory are benchmarked against sensible Scanpy baselines.
+- Project outputs can be handed to another analyst and understood without hidden state.
 
-### 核心概念层
+## 6. P2: Knowledge Infrastructure, Selected Parity, Clinical Evidence, And Agent Interfaces
 
-#### 4.1 Malignant vs Non-malignant
+P2 contains long-term compounding assets. These should be designed early but implemented selectively, after the core and tumor interpretation layers are stable.
 
-功能：
+### Direction 7: Knowledge And Evidence Infrastructure
 
-- malignant epithelial identification。
-- CNV evidence integration。
-- tumor marker evidence。
-- normal epithelial vs malignant epithelial separation。
-- suspect/unresolved status。
+Goal:
 
-输出：
+Unify marker resources, gene sets, atlas references, literature knowledge, ontology, therapy knowledge, and LLM evidence into source-aware, versioned, auditable knowledge infrastructure.
 
-- malignancy evidence table。
-- malignant call confidence。
-- reason strings。
-- review-required flags。
+Scope:
 
-#### 4.2 Tumor Programs
+- Marker Manager: positive markers, negative markers, artifact markers, lineage/subtype/state/program/tumor views.
+- Gene Set Manager: tumor programs, TME states, therapy signatures, pathway modules.
+- Atlas Manager: cell type and tumor state references with version and context.
+- Literature Evidence Manager: curated statements, citation links, scope notes.
+- Ontology Manager: cell ontology, tumor ontology, tissue/cancer naming rules.
+- Therapy Knowledge Manager: ICI response, resistance, targeted therapy signatures, if supported.
+- LLM Evidence Manager: suggestions, summaries, and review aids, never ground truth.
 
-常见 programs：
+Acceptance standards:
 
-- proliferation。
-- EMT。
-- hypoxia。
-- interferon response。
-- stress。
-- apoptosis。
-- stemness。
-- antigen presentation。
-- metabolic rewiring。
+- Every knowledge item has source, version, species, tissue/cancer context, evidence level, limitations, and review date where possible.
+- Knowledge resources are routable by task: annotation, program scoring, tumor interpretation, artifact review, therapy interpretation.
+- LLM output is stored as evidence suggestion with provenance and limitations.
 
-输出：
+Strategic value:
 
-- program score matrix。
-- tumor program heatmap。
-- program-by-cluster summary。
-- program vs clinical response association。
+This infrastructure makes scLucid interpretation durable. Without it, annotation, tumor programs, therapy signatures, ecotypes, and agent interfaces become ad hoc.
 
-#### 4.3 TME Composition And States
+### Direction 8: Selected R/Python Parity
 
-重点细胞群：
+Goal:
 
-- T/NK exhaustion and cytotoxicity。
-- macrophage / monocyte / DC states。
-- neutrophil states。
-- CAF subtypes。
-- endothelial states。
-- B/plasma states。
+Bridge mature R methods into Python only when they improve tumor interpretation and can be validated.
 
-输出：
+Priority:
 
-- compartment summary。
-- cell type proportion shift。
-- state score plots。
-- patient-level TME profile。
+- P0/P1 method evidence: scDblFinder parity, CNV/malignancy evidence, pseudobulk/sample-level DE, selected annotation/reference evidence, selected program scoring.
+- Later optional evidence: communication methods, compositional analysis, selected deconvolution.
+- Defer or avoid: broad trajectory parity, general spatial deep wrappers, and method ports that do not strengthen tumor interpretation.
 
-#### 4.4 Tumor Ecosystem / Ecotype
+Implementation modes:
 
-生态型是 scLucid 可以形成特色的高级方向。
+1. Optional wrapper.
+2. Clean-room reimplementation.
+3. Parity adapter that consumes external results.
 
-定义建议：
+Acceptance standards:
 
-> Ecosystem/ecotype 是由 malignant programs、immune states、stromal states、spatial zones、clinical phenotype 共同构成的样本或区域级肿瘤微环境模式。
+- Every port or wrapper has a parity matrix.
+- At least one synthetic and one real-data validation example are available.
+- License boundaries are respected.
+- Claims match the implementation level: wrapped, ported, approximated, or consumed.
 
-实施路线：
+### Direction 9: Clinical Evidence Integration
 
-- 从 cell-level annotation 聚合到 sample-level / region-level。
-- 输入：
-  - malignant program scores。
-  - TME proportions。
-  - immune exhaustion / myeloid / CAF states。
-  - CNV/malignancy confidence。
-  - optional spatial zones。
-  - optional clinical metadata。
-- 方法：
-  - NMF / clustering / consensus clustering。
-  - stability analysis。
-  - marker/program interpretation。
-- 输出：
-  - ecotype assignment。
-  - ecotype signature。
-  - ecotype composition heatmap。
-  - ecotype clinical association。
-  - review summary。
+Goal:
 
-建议模块：
+Prepare scLucid to connect tumor ecosystem outputs with clinical context without overclaiming.
 
-- `src/scLucid/tumor/microenvironment/ecosystem.py`
-- `src/scLucid/tumor/heterogeneity/programs.py`
-- `src/scLucid/plotting/tumor_ecosystem.py`
+Scope:
 
-#### 4.5 Spatial Tumor Concepts
+- Patient metadata.
+- Therapy response.
+- Survival or outcome association.
+- Clinical subtype.
+- Pathology context.
+- Sample-level tumor ecosystem features.
 
-结合 `tools.spatial`：
+Acceptance standards:
 
-- tumor-stroma boundary。
-- immune infiltration score。
-- spatial niches。
-- tissue zones。
-- malignant program spatial distribution。
-- ICI response signature spatial enrichment。
+- Clinical analysis remains optional and sample-level.
+- Outputs distinguish association from prediction.
+- Clinical evidence is never inferred from cell-level data alone.
+- Missing clinical metadata does not weaken core workflow.
 
-输出：
+### Direction 10: Long-Term Agent Interface Layer
 
-- spatial niche map。
-- boundary score。
-- infiltration gradient。
-- zone-by-program heatmap。
+Goal:
 
-### 可视化模板
+Reserve a future interface layer for agents that summarize and critique evidence once the evidence contract is stable.
 
-优先添加：
+Potential agents:
 
-- tumor compartment UMAP。
-- malignancy evidence heatmap。
-- CNV score violin / heatmap。
-- TME composition stacked bar。
-- patient-level TME heatmap。
-- tumor program dotplot。
-- ecotype composition heatmap。
-- ecotype Sankey/alluvial。
-- spatial niche plot。
-- tumor-stroma boundary plot。
-- bulk-pseudobulk concordance scatter。
+- Dataset Review Agent: reviews QC/preprocess evidence and flags dataset risks.
+- Annotation Review Agent: compares marker, reference, ontology, and artifact evidence.
+- Tumor Interpretation Agent: summarizes malignancy, TME, programs, and ecosystem evidence.
+- Tumor Board Report Agent: generates patient/sample-level interpretation summaries with explicit limitations.
+- Hypothesis Generation Agent: proposes follow-up analyses, not final conclusions.
 
-### 成功标准
+Guardrail:
 
-- 用户可以从一个 tumor AnnData 直接生成：
-  - major annotation。
-  - malignancy evidence。
-  - TME composition。
-  - tumor programs。
-  - optional ecotype summary。
-  - audit report。
-- 每个高级概念都有“输入、方法、输出、限制、推断语义”说明。
-- 不把 exploratory programs/ecotypes 过度包装成 causal conclusion。
+Agents are interfaces over evidence, not primary analysis engines. They must consume evidence bundles and review summaries. They should summarize, critique, and route evidence; they must not generate unsupported biological claims.
 
-## 5. 方向五：工程化、性能和大数据能力
+Current priority:
 
-### 目标
+Design only. Do not make agent features central until P0/P1 evidence and validation layers are mature.
 
-scLucid 要在真实大数据项目中可靠、可复现、方便交付。工程化不是附属项，而是 scLucid 能否成为研究系统的关键。
+## 7. Support Evidence Modules
 
-### 工程原则
+Support layers are important, but they must not become the product center.
 
-- Core import must be lightweight。
-- Optional dependencies must be isolated。
-- Sparse matrices should stay sparse whenever possible。
-- Large data workflows should avoid unnecessary `.toarray()`。
-- Every workflow should be reproducible from config。
-- Errors should teach the user what to fix。
-- Reports and manifests should make project handoff easy。
+### Bulk Evidence
 
-### 实施重点
+Role:
 
-#### 5.1 Dependency And Import Hygiene
+- Pseudobulk validation.
+- Bulk deconvolution.
+- Bulk-pseudobulk concordance.
+- Sample-level DE support.
 
-- core package 不依赖 heavy spatial/deep/R packages。
-- `tools.bulk` / `tools.spatial` 可以 import，但 heavy backend 函数内 lazy import。
-- optional extras：
-  - `analysis`
-  - `bulk`
-  - `spatial`
-  - `tools`
-  - `spatial-deep`
-  - future `r-parity`
+Boundary:
 
-交付物：
+scLucid should not become a bulk RNA-seq platform. Bulk methods exist to strengthen tumor single-cell interpretation.
 
-- import smoke tests。
-- optional dependency missing tests。
+### Spatial Evidence
 
-#### 5.2 Sparse And Memory Awareness
+Role:
 
-重点排查：
+- Validate spatial organization of tumor programs and TME states.
+- Support immune infiltration/exclusion interpretation.
+- Support tumor-stroma boundary and niche evidence.
+- Provide region-level evidence for ecosystem hypotheses.
 
-- `.toarray()` 使用点。
-- 大矩阵复制。
-- DataFrame 转换。
-- all-gene operations。
+Boundary:
 
-策略：
+scLucid should not become a general spatial transcriptomics platform. Spatial utilities should remain evidence modules for tumor interpretation.
 
-- 对大数据默认使用 sparse-aware 计算。
-- 对需要 dense 的函数增加 warning 或 chunking。
-- 对 plotting 函数限制默认 features。
+Deferred:
 
-交付物：
+- General spatial alignment platforms.
+- Image segmentation platforms.
+- Broad deep spatial method wrappers.
+- Full spatial ecosystem replacement.
 
-- `docs/PERFORMANCE_MEMORY_GUIDE.md`。
-- memory benchmark scripts。
+### Clinical Evidence
 
-#### 5.3 Runtime Benchmarks
+Role:
 
-基线：
+- Connect sample-level tumor ecosystem features with clinical metadata.
+- Support response or outcome association when data are available.
+- Enable translational interpretation reports.
 
-- Scanpy standard pipeline。
-- scLucid workflow pipeline。
+Boundary:
 
-数据：
+Clinical outputs must remain association-level unless validated predictive modeling is explicitly performed with appropriate sample size and held-out testing.
 
-- PBMC3k。
-- 10k / 50k / 100k simulated or real subset。
-- PDAC tumor dataset。
+## 8. Priority System
 
-指标：
+### P0: Current Priority
 
-- runtime。
-- peak memory。
-- output artifact size。
-- failure rate。
+- Core workflow contract.
+- Evidence and audit contract.
+- Layered validation.
+- QC/preprocess/analysis acceptance gates.
+- Inference semantics.
+- PBMC, PDAC, and second tumor golden paths.
 
-交付物：
+### P1: Main Differentiation
 
-- `benchmarks/` scripts。
-- `docs/PERFORMANCE_BENCHMARKS.md`。
+- Tumor state interpretation.
+- Tumor ecosystem modeling.
+- Tumor-focused visualization templates.
+- Engineering and scale.
+- Knowledge infrastructure v1.
+- Selected method parity only where it supports doublet, CNV, annotation, or program evidence.
 
-#### 5.4 User Experience
+### P2: Long-Term Assets
 
-目标：
+- Knowledge infrastructure expansion.
+- Advanced R/Python parity.
+- Clinical evidence integration.
+- Spatial evidence expansion.
+- Agent interface roadmap.
+- More tumor types and larger validation cohorts.
 
-- 新手可用 workflow API。
-- 项目分析者可用 simple API。
-- 高级用户可用 advanced notebooks。
+### Deprioritize Or Avoid
 
-重点：
+- General spatial platform development.
+- General multi-omics platform expansion.
+- Broad trajectory/lineage parity unless required by a tumor case study.
+- Cell-cell communication wrappers unless tied to tumor ecosystem evidence.
+- Heavy deep spatial methods unless used as optional external evidence.
+- LLM-first interpretation without evidence contract.
 
-- clear error messages。
-- progress display。
-- manifest files。
-- HTML audit report。
-- compact project outputs。
+## 9. Milestones
 
-交付物：
+### Milestone A: Core Lucid Workflow
 
-- updated examples。
-- workflow templates。
-- report templates。
+Time estimate: 2-4 weeks.
 
-## 6. 总体优先级建议
+Deliverables:
 
-### P0：当前最应该做
+- PBMC golden path.
+- PDAC golden path.
+- QC/preprocess/analysis contracts.
+- Audit report examples.
+- README positioning and framework graphic.
 
-1. 固化 `qc -> preprocess -> analysis` handoff contract。
-2. 建立 PBMC + PDAC real-data acceptance gates。
-3. 完成 analysis evidence/annotation review loop。
-4. 明确 README 和 docs 中的 scLucid 定位。
-5. 修正 bulk/spatial/tools 的 namespace 与 optional dependency hygiene。
+Acceptance:
 
-### P1：下一阶段主攻
+- Core workflow is reproducible.
+- Audit summaries are complete.
+- Optional heavy dependencies do not break import.
 
-1. 分层验证框架。
-2. tumor interpretation API 和 plots。
-3. selected R/Python parity matrix。
-4. bulk-pseudobulk-spatial concordance。
-5. memory/runtime benchmark。
+### Milestone B: Layered Validation
 
-### P2：长期增强
+Time estimate: 4-8 weeks.
 
-1. ecotype/ecosystem 高级解释层。
-2. spatial deep wrappers。
-3. second/third tumor type acceptance workflows。
-4. clinical response association。
-5. polished publication figure templates。
+Deliverables:
 
-## 7. 推荐里程碑
+- Scanpy baseline comparison.
+- Seurat baseline comparison.
+- Decision quality checklist.
+- Inference safety suite.
+- Biological concordance report.
 
-### Milestone A：Core Lucid Workflow
+Acceptance:
 
-时间建议：2-4 周。
+- At least 3 datasets complete validation.
+- Results record better/equivalent/weaker relative performance.
 
-交付：
+### Milestone C: Tumor Interpretation System
 
-- PBMC golden path。
-- PDAC golden path。
-- QC/preprocess/analysis contracts。
-- audit report examples。
-- README 定位更新。
+Time estimate: 6-10 weeks.
 
-验收：
+Deliverables:
 
-- 核心 workflow 可重复运行。
-- audit summary 完整。
-- optional heavy deps 缺失不影响 core import。
+- Malignancy evidence table.
+- Tumor program scoring.
+- TME composition and state summaries.
+- Therapy signature skeleton.
+- Tumor-specific plots.
 
-### Milestone B：Layered Validation
+Acceptance:
 
-时间建议：4-6 周。
+- PDAC workflow can output a complete tumor interpretation report.
+- A second tumor type demonstrates generalization.
 
-交付：
+### Milestone D: Tumor Ecosystem Modeling
 
-- Scanpy baseline comparison。
-- Seurat baseline comparison。
-- decision quality checklist。
-- inference safety test suite。
+Time estimate: 8-12 weeks.
 
-验收：
+Deliverables:
 
-- 至少 2 个数据集完成分层验证。
-- 有明确 better/equivalent/weaker 记录。
+- Sample-level ecosystem feature matrix.
+- Ecotype or microenvironment archetype prototype.
+- Stability and confidence summaries.
+- Patient-level visualization templates.
 
-### Milestone C：Tumor Interpretation System
+Acceptance:
 
-时间建议：6-10 周。
+- At least one case study produces ecosystem summaries with reviewable evidence and explicit exploratory status.
 
-交付：
+### Milestone E: Knowledge And Evidence Infrastructure
 
-- malignancy evidence table。
-- tumor program scoring。
-- TME composition summary。
-- therapy/ICI signature skeleton。
-- tumor-specific plots。
+Time estimate: continuous, start after core contracts stabilize.
 
-验收：
+Deliverables:
 
-- PDAC workflow 可以输出完整 tumor interpretation report。
+- Source-aware marker and gene-set schema.
+- Atlas/reference evidence adapters.
+- Literature and ontology evidence schema.
+- Therapy knowledge schema.
+- LLM evidence guardrails.
 
-### Milestone D：Evidence Modules And R Parity
+Acceptance:
 
-时间建议：持续推进。
+- Knowledge infrastructure can be routed by task and cited in review summaries.
 
-交付：
+### Milestone F: Release And Manuscript Package
 
-- bulk evidence module validation。
-- spatial evidence module validation。
-- selected R parity matrix。
-- method-specific validation notebooks。
+Time estimate: 2-3 months after P0/P1 validation.
 
-验收：
+Deliverables:
 
-- 每个接入方法都有 parity/validation 说明。
-- 没有 unvalidated method 被推荐为默认结论。
+- Release tag.
+- Zenodo DOI.
+- Documentation site.
+- Reproducible benchmark scripts.
+- Main figures and source data.
+- Manuscript draft.
 
-### Milestone E：Scale And Productization
+Acceptance:
 
-时间建议：长期。
+- The work is ready for Genome Biology / Nature Communications / Nature Computational Science-level review, while being built to Nature Methods-style validation standards.
 
-交付：
+## 10. One-Sentence Strategy
 
-- memory/runtime benchmarks。
-- large dataset guide。
-- project templates。
-- polished reports。
-
-验收：
-
-- 真实大数据集可控运行。
-- 项目交付物结构稳定。
-
-## 8. 一句话战略
-
-scLucid 的下一阶段不应追求“功能最多”，而应追求：
-
-> 在肿瘤单细胞研究中，把最常见、最容易误判、最需要复查的分析环节，做成诊断优先、证据可追溯、推断边界清楚、工程上可靠的 lucid workflow。
+scLucid should become the evidence-audited interpretation layer for tumor single-cell research: compact in workflow, conservative in inference, rich in tumor knowledge, and extensible through validated evidence modules.

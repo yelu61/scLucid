@@ -1,4 +1,4 @@
-# Phase 6: Release、Manuscript 与投稿包
+# Phase 8: Release、Manuscript 与投稿包
 
 **Recommended duration**: 2-3 个月  
 **Primary output**: manuscript-ready release package  
@@ -6,7 +6,7 @@
 
 ## 目标
 
-把前 5 个 phase 的工程、验证和生物学案例收敛成投稿资产：
+把前 7 个 phase 的工程、验证和生物学案例收敛成投稿资产：
 
 - release tag。
 - Zenodo DOI。
@@ -66,7 +66,9 @@ validation/
   qc/
   preprocess_analysis/
   tumor_case_studies/
-  r_python_parity/
+  tumor_ecosystem/
+  knowledge_evidence/
+  support_evidence/
   figures/
   tables/
 ```
@@ -86,8 +88,9 @@ validation/
 - Figure 1: scLucid framework overview。
 - Figure 2: QC evidence benchmark。
 - Figure 3: preprocess/analysis stability。
-- Figure 4: tumor interpretation case studies。
-- Figure 5: engineering, reproducibility, and scalability。
+- Figure 4: tumor state interpretation case studies。
+- Figure 5: tumor ecosystem modeling and patient-level archetypes。
+- Figure 6: engineering, reproducibility, and scalability。
 
 补充图：
 
@@ -111,7 +114,8 @@ validation/
    - framework overview。
    - QC benchmark。
    - preprocess/analysis validation。
-   - tumor case studies。
+   - tumor state case studies。
+   - ecosystem modeling and support evidence。
    - engineering/reproducibility。
 3. Discussion
    - scope and limitations。
@@ -149,7 +153,7 @@ validation/
 
 ## 完成标准
 
-Phase 6 通过条件：
+Phase 8 通过条件：
 
 - release tag 创建。
 - DOI 可引用。
@@ -186,4 +190,3 @@ Phase 6 通过条件：
 | case study 太弱 | 像软件说明书 | 至少 3 个 tumor datasets，提炼 biological insight |
 | benchmark 不够公平 | 审稿人质疑 | baseline scripts 开源，参数透明 |
 | 复现困难 | 审稿人跑不动 | 最小数据、Docker/conda、cached outputs |
-
