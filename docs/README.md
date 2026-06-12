@@ -8,6 +8,7 @@ scLucid. User-facing Sphinx documentation lives under `docs/source/`.
 | File | Purpose |
 |------|---------|
 | `SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md` | Current five-direction strategic plan and implementation milestones. |
+| `roadmap/README.md` | Phase-level execution playbook for building scLucid toward Nature Methods-level standards and Genome Biology / Nature Communications / Nature Computational Science submission readiness. |
 | `BULK_SPATIAL_DESIGN.md` | Canonical design for `scLucid.tools.bulk` and `scLucid.tools.spatial`. |
 | `OMICVERSE_FEATURE_AUDIT.md` | GPL-aware feature audit used to avoid direct OmicVerse code copying. |
 | `DATA_USAGE_GUIDE.md` | Current local data fixture roles and handling rules. |
@@ -27,5 +28,17 @@ for provenance. They are not the current implementation plan.
 | `docs/archive/design_notes/` | Early strategy, QC, and analysis design notes superseded by current docs. |
 | `docs/archive/marker_curation/` | Batch marker curation notes and historical coverage summaries. |
 
-When adding new documentation, prefer updating the current documents above
-instead of creating another parallel roadmap.
+When adding new planning documentation, update either the strategic plan above
+or the phase playbook below instead of creating another parallel roadmap.
+
+## Phase Playbook
+
+The `docs/roadmap/` directory expands the strategic plan into six execution
+phases:
+
+- Phase 1: Core API and evidence contracts.
+- Phase 2: QC evidence benchmark.
+- Phase 3: Preprocess and analysis validation.
+- Phase 4: Tumor interpretation case studies.
+- Phase 5: R/Python parity and method ports.
+- Phase 6: Release, manuscript, and submission package.

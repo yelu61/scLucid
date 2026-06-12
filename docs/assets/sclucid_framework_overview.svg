@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
+  <title id="title">scLucid framework overview</title>
+  <desc id="desc">A publication-style schematic of scLucid as a diagnostic-first, evidence-audited tumor single-cell interpretation framework.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1f2937"/>
+    </marker>
+    <filter id="softShadow" x="-10%" y="-16%" width="120%" height="132%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#111827" flood-opacity="0.10"/>
+    </filter>
+    <style>
+      .bg { fill: #fbfcfd; }
+      .title { font-family: Arial, Helvetica, sans-serif; font-size: 42px; font-weight: 700; fill: #111827; letter-spacing: 0; }
+      .subtitle { font-family: Arial, Helvetica, sans-serif; font-size: 18px; fill: #475569; letter-spacing: 0; }
+      .panel-label { font-family: Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 700; fill: #334155; letter-spacing: 0.6px; }
+      .card-title { font-family: Arial, Helvetica, sans-serif; font-size: 19px; font-weight: 700; fill: #111827; letter-spacing: 0; }
+      .card-text { font-family: Arial, Helvetica, sans-serif; font-size: 14px; fill: #475569; letter-spacing: 0; }
+      .mini-title { font-family: Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 700; fill: #111827; letter-spacing: 0; }
+      .mini-text { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #475569; letter-spacing: 0; }
+      .white-title { font-family: Arial, Helvetica, sans-serif; font-size: 20px; font-weight: 700; fill: #ffffff; letter-spacing: 0; }
+      .white-text { font-family: Arial, Helvetica, sans-serif; font-size: 14px; fill: #eef8f7; letter-spacing: 0; }
+      .caption { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #64748b; letter-spacing: 0; }
+      .flow-line { stroke: #1f2937; stroke-width: 2.4; fill: none; marker-end: url(#arrow); }
+      .thin-line { stroke: #64748b; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .dashed-line { stroke: #94a3b8; stroke-width: 1.7; fill: none; stroke-dasharray: 6 6; marker-end: url(#arrow); }
+      .input-card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.4; rx: 10; filter: url(#softShadow); }
+      .core-card { fill: #ffffff; stroke: #b7d2cd; stroke-width: 1.6; rx: 10; filter: url(#softShadow); }
+      .tumor-card { fill: #ffffff; stroke: #ddb1ba; stroke-width: 1.6; rx: 10; filter: url(#softShadow); }
+      .evidence-card { fill: #ffffff; stroke: #dac48a; stroke-width: 1.5; rx: 10; filter: url(#softShadow); }
+      .output-card { fill: #ffffff; stroke: #b7c6df; stroke-width: 1.5; rx: 10; filter: url(#softShadow); }
+      .chip { rx: 18; }
+      .chip-text { font-family: Arial, Helvetica, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1400" height="820"/>
+
+  <text x="66" y="70" class="title">scLucid</text>
+  <text x="225" y="70" class="subtitle">diagnostic-first tumor single-cell interpretation</text>
+  <text x="68" y="103" class="caption">A framework for turning single-cell analysis into auditable, evidence-backed biological decisions.</text>
+
+  <rect x="1030" y="42" width="276" height="42" fill="#edf7f4" stroke="#9acdc2" stroke-width="1.2" class="chip"/>
+  <text x="1055" y="69" class="chip-text" fill="#0f766e">Core unit: evidence, not just output</text>
+
+  <text x="68" y="162" class="panel-label">A. DATA CONTEXT</text>
+  <rect x="68" y="184" width="236" height="154" class="input-card"/>
+  <circle cx="107" cy="224" r="18" fill="#e2e8f0"/>
+  <path d="M96 225h22M107 214v22" stroke="#334155" stroke-width="2.2"/>
+  <text x="138" y="222" class="card-title">Input AnnData</text>
+  <text x="138" y="247" class="card-text">raw counts, layers</text>
+  <text x="138" y="269" class="card-text">sample and patient metadata</text>
+  <text x="138" y="291" class="card-text">species, tissue, cancer context</text>
+
+  <text x="390" y="162" class="panel-label">B. CORE WORKFLOW SPINE</text>
+
+  <rect x="390" y="184" width="170" height="154" class="core-card"/>
+  <rect x="390" y="184" width="170" height="8" fill="#208a8a" rx="4"/>
+  <text x="420" y="224" class="card-title">QC</text>
+  <text x="420" y="251" class="card-text">adaptive thresholds</text>
+  <text x="420" y="273" class="card-text">tumor-aware warnings</text>
+  <text x="420" y="295" class="card-text">doublet evidence</text>
+
+  <rect x="610" y="184" width="170" height="154" class="core-card"/>
+  <rect x="610" y="184" width="170" height="8" fill="#2a9d8f" rx="4"/>
+  <text x="640" y="224" class="card-title">Preprocess</text>
+  <text x="640" y="251" class="card-text">layer contracts</text>
+  <text x="640" y="273" class="card-text">HVG, PCA, graph</text>
+  <text x="640" y="295" class="card-text">batch diagnostics</text>
+
+  <rect x="830" y="184" width="170" height="154" class="core-card"/>
+  <rect x="830" y="184" width="170" height="8" fill="#56b4a7" rx="4"/>
+  <text x="860" y="224" class="card-title">Analysis</text>
+  <text x="860" y="251" class="card-text">cluster review</text>
+  <text x="860" y="273" class="card-text">marker evidence</text>
+  <text x="860" y="295" class="card-text">consensus labels</text>
+
+  <rect x="1050" y="184" width="240" height="154" class="tumor-card"/>
+  <rect x="1050" y="184" width="240" height="8" fill="#c04a63" rx="4"/>
+  <text x="1080" y="224" class="card-title">Tumor Interpretation</text>
+  <text x="1080" y="251" class="card-text">malignancy and CNV evidence</text>
+  <text x="1080" y="273" class="card-text">TME states and programs</text>
+  <text x="1080" y="295" class="card-text">ecotype-style summaries</text>
+
+  <path d="M304 261 H378" class="flow-line"/>
+  <path d="M560 261 H598" class="flow-line"/>
+  <path d="M780 261 H818" class="flow-line"/>
+  <path d="M1000 261 H1038" class="flow-line"/>
+
+  <text x="68" y="420" class="panel-label">C. EXTERNAL EVIDENCE MODULES</text>
+  <rect x="68" y="442" width="270" height="80" class="output-card"/>
+  <text x="96" y="476" class="mini-title">tools.bulk</text>
+  <text x="96" y="500" class="mini-text">pseudobulk, deconvolution, bulk concordance</text>
+
+  <rect x="68" y="546" width="270" height="80" class="output-card"/>
+  <text x="96" y="580" class="mini-title">tools.spatial</text>
+  <text x="96" y="604" class="mini-text">spatial genes, niches, tissue zones</text>
+
+  <rect x="68" y="650" width="270" height="80" class="output-card"/>
+  <text x="96" y="684" class="mini-title">R / Python parity</text>
+  <text x="96" y="708" class="mini-text">selected mature methods with validation</text>
+
+  <text x="420" y="420" class="panel-label">D. SHARED AUDIT CONTRACT</text>
+  <rect x="420" y="442" width="870" height="106" fill="#173b46" rx="12" filter="url(#softShadow)"/>
+  <text x="456" y="482" class="white-title">adata.uns["sclucid"]</text>
+  <text x="456" y="512" class="white-text">decisions, parameters, warnings, inference level, limitations, provenance, and review requirements</text>
+  <rect x="1058" y="468" width="170" height="36" fill="#265c66" stroke="#4a8791" stroke-width="1" rx="18"/>
+  <text x="1082" y="491" class="white-text">evidence bundle</text>
+
+  <path d="M475 338 V430" class="dashed-line"/>
+  <path d="M695 338 V430" class="dashed-line"/>
+  <path d="M915 338 V430" class="dashed-line"/>
+  <path d="M1170 338 V430" class="dashed-line"/>
+  <path d="M338 482 H408" class="dashed-line"/>
+  <path d="M338 586 C380 586 378 496 408 496" class="dashed-line"/>
+  <path d="M338 690 C384 690 376 510 408 510" class="dashed-line"/>
+
+  <text x="420" y="622" class="panel-label">E. VALIDATION AND OUTPUTS</text>
+  <rect x="420" y="650" width="250" height="82" class="evidence-card"/>
+  <text x="448" y="684" class="mini-title">Layered benchmarks</text>
+  <text x="448" y="708" class="mini-text">Scanpy, Seurat, specialist baselines</text>
+
+  <rect x="730" y="650" width="250" height="82" class="evidence-card"/>
+  <text x="758" y="684" class="mini-title">Tumor case studies</text>
+  <text x="758" y="708" class="mini-text">signal preservation and TME interpretation</text>
+
+  <rect x="1040" y="650" width="250" height="82" class="evidence-card"/>
+  <text x="1068" y="684" class="mini-title">Reviewable reports</text>
+  <text x="1068" y="708" class="mini-text">HTML audit trails and figure-ready tables</text>
+
+  <path d="M545 548 V638" class="thin-line"/>
+  <path d="M855 548 V638" class="thin-line"/>
+  <path d="M1165 548 V638" class="thin-line"/>
+  <path d="M670 691 H718" class="flow-line"/>
+  <path d="M980 691 H1028" class="flow-line"/>
+
+  <line x1="68" y1="778" x2="1290" y2="778" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="68" y="803" class="caption">Design principle: keep the core workflow compact, attach external evidence selectively, and make each biological claim inspectable.</text>
+</svg>

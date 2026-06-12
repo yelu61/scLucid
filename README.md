@@ -20,6 +20,12 @@ The core idea is simple:
 > Do not just run an analysis. Diagnose the data, record the evidence, state the
 > inference level, and make the biological interpretation inspectable.
 
+![scLucid framework overview](docs/assets/sclucid_framework_overview.svg)
+
+The framework keeps `qc -> preprocess -> analysis -> tumor interpretation` as
+the core workflow spine, while bulk, spatial, and selected R/Python parity
+methods act as external evidence modules that feed the same audit contract.
+
 ### What Makes scLucid Different
 
 | Principle | What It Means In Practice |

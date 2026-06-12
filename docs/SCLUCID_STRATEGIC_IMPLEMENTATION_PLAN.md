@@ -4,6 +4,8 @@
 **Updated**: 2026-06-12  
 **Scope**: 围绕 scLucid 作为 tumor single-cell interpretation system 的核心定位，整理后续 5 个推荐方向、实施路径、交付物和验证标准。
 
+**Execution Playbook**: 投稿倒逼式的逐阶段执行细则见 `docs/roadmap/README.md`。本文档保留战略方向，roadmap 文档负责每个 phase 的准备、步骤、验收标准、交付物和风险控制。
+
 ## 0. 总定位
 
 scLucid 的差异化不应是“比 Scanpy/Seurat 多几个函数”，也不应是“复制 OmicVerse 式大而全生态”。更准确的定位是：
@@ -689,4 +691,3 @@ scLucid 要在真实大数据项目中可靠、可复现、方便交付。工程
 scLucid 的下一阶段不应追求“功能最多”，而应追求：
 
 > 在肿瘤单细胞研究中，把最常见、最容易误判、最需要复查的分析环节，做成诊断优先、证据可追溯、推断边界清楚、工程上可靠的 lucid workflow。
-
