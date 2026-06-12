@@ -12,7 +12,6 @@ from scipy import stats
 
 from .config import BulkDEConfig
 from .diagnostics import diagnose_bulk_data_quality
-from .normalize import normalize_bulk_counts
 
 log = logging.getLogger(__name__)
 
@@ -199,7 +198,7 @@ def run_bulk_de(
     **kwargs
         Overrides for config fields.
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         DE result table with ``log2fc``, ``pvals``, ``pvals_adj``, and inference tags.
@@ -219,10 +218,15 @@ def run_bulk_de(
     if config.condition2 not in cond_series.values:
         raise ValueError(f"Condition '{config.condition2}' not found in column '{condition_col}'")
 
-    # Diagnostics
-    diag = diagnose_bulk_data_quality(adata, condition_col=condition_col)
+    compare_mask = cond_series.isin([config.condition1, config.condition2])
+    adata_compare = adata[compare_mask].copy()
+    cond_series = adata_compare.obs[condition_col].astype(str)
 
-    X = adata.X
+    # Diagnostics are scoped to the requested two-condition contrast, so unrelated
+    # condition levels cannot affect replicate counts or DE inputs.
+    diag = diagnose_bulk_data_quality(adata_compare, condition_col=condition_col)
+
+    X = adata_compare.X
     if hasattr(X, "toarray"):
         X = X.toarray()
     counts = np.asarray(X, dtype=float)
@@ -235,13 +239,13 @@ def run_bulk_de(
         config.min_samples_expressing,
     )
     counts = counts[:, keep_genes]
-    gene_names = adata.var_names[keep_genes]
+    gene_names = adata_compare.var_names[keep_genes]
 
     condition_mask = cond_series == config.condition1
     n1 = int((cond_series == config.condition1).sum())
     n2 = int((cond_series == config.condition2).sum())
 
-    has_replicates = n1 >= config.min_samples_expressing and n2 >= config.min_samples_expressing
+    has_replicates = n1 >= config.min_samples_per_condition and n2 >= config.min_samples_per_condition
     if not has_replicates and not config.fallback_to_descriptive:
         raise ValueError(
             f"Insufficient replicates for DE ({n1} vs {n2}). "
@@ -263,7 +267,7 @@ def run_bulk_de(
         valid_for_publication = n1 >= 2 and n2 >= 2
         result_warning = None
     elif config.method == "pydeseq2":
-        result = _run_pydeseq2_de(adata[keep_genes], config)
+        result = _run_pydeseq2_de(adata_compare[:, keep_genes].copy(), config)
         inference_level = "sample_level"
         valid_for_publication = n1 >= 2 and n2 >= 2
         result_warning = None
@@ -285,6 +289,23 @@ def run_bulk_de(
     result["n_samples_condition2"] = n2
     result["method"] = config.method
     result["result_warning"] = result_warning
+
+    bulk_ns = adata.uns.setdefault("sclucid", {}).setdefault("tools", {}).setdefault("bulk", {})
+    bulk_ns["diagnostics"] = diag
+    bulk_ns["de"] = {
+        "params": config.to_dict(),
+        "n_genes_tested": int(result.shape[0]),
+        "n_samples_condition1": n1,
+        "n_samples_condition2": n2,
+        "condition1": config.condition1,
+        "condition2": config.condition2,
+        "method": config.method,
+        "diagnostic_status": "passed" if diag["passed"] else "warning",
+        "inference_level": inference_level,
+        "valid_for_publication_inference": bool(valid_for_publication),
+        "replicate_requirement_met": bool(has_replicates),
+        "result_warning": result_warning,
+    }
 
     return result
 

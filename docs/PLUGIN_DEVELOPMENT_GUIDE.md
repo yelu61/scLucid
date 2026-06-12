@@ -1,4 +1,9 @@
-# 抽象基类插件开发 - 可视化指南
+# scLucid Plugin Development Guide
+
+> This guide describes extension points for custom scLucid analysis steps. It is
+> a developer-facing document, not the primary project roadmap. For current
+> product positioning and implementation priorities, see
+> `docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md`.
 
 ## 🤔 什么是插件开发？
 

@@ -259,7 +259,7 @@ def evaluate_qc_benchmark(
         },
         "retention": retention,
         "marker_fidelity": marker_fidelity,
-        "checks": checks,
+        "checks": list(checks.values()),
         "assessment": assessment,
         "status": assessment["status"],
     }
@@ -292,23 +292,25 @@ def build_qc_benchmark_assessment(
         status = "pass"
         risk_level = "low"
 
-    recommendations = {
-        f"rec_{i}": {
+    recommendations = [
+        {
             "priority": _priority_for_severity(str(check.get("severity", "moderate"))),
             "action": str(check.get("recommendation")),
             "rationale": str(check.get("interpretation") or ""),
             "evidence_key": f"benchmark_summary.checks.{check.get('name')}",
         }
-        for i, check in enumerate(failed)
+        for check in failed
         if check.get("recommendation")
-    }
+    ]
     if not recommendations and status == "pass":
-        recommendations["rec_0"] = {
-            "priority": "optional",
-            "action": "Archive QC benchmark outputs with the analysis record.",
-            "rationale": "All configured benchmark checks passed for the inferred profile.",
-            "evidence_key": "benchmark_summary.assessment",
-        }
+        recommendations.append(
+            {
+                "priority": "optional",
+                "action": "Archive QC benchmark outputs with the analysis record.",
+                "rationale": "All configured benchmark checks passed for the inferred profile.",
+                "evidence_key": "benchmark_summary.assessment",
+            }
+        )
 
     return _json_ready(
         {
@@ -353,6 +355,15 @@ def export_qc_benchmark_report(
     return {"json": str(json_path), "markdown": str(md_path)}
 
 
+def _iter_review_records(records: Any) -> list[Mapping[str, Any]]:
+    """Return record lists from either list-style or legacy dict-style payloads."""
+    if isinstance(records, Mapping):
+        return [item for item in records.values() if isinstance(item, Mapping)]
+    if isinstance(records, list):
+        return [item for item in records if isinstance(item, Mapping)]
+    return []
+
+
 def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
     """Render a human-reviewable QC benchmark summary."""
     retention = benchmark.get("retention", {})
@@ -376,7 +387,7 @@ def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
         "| Priority | Action | Rationale |",
         "|----------|--------|-----------|",
     ]
-    for item in assessment.get("recommendations", {}).values():
+    for item in _iter_review_records(assessment.get("recommendations", [])):
         lines.append(
             f"| {item.get('priority')} | {item.get('action')} | {item.get('rationale')} |"
         )
@@ -392,7 +403,7 @@ def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
             "|-------|--------|----------|-------|-----------|----------------|",
         ]
     )
-    for check in benchmark.get("checks", {}).values():
+    for check in _iter_review_records(benchmark.get("checks", [])):
         lines.append(
             f"| {check.get('name')} | {check.get('passed')} | "
             f"{check.get('severity', 'review')} | {check.get('value')} | "
@@ -427,7 +438,7 @@ def render_qc_benchmark_compact_markdown(benchmark: Mapping[str, Any]) -> str:
         "Action items:",
         "",
     ]
-    for item in assessment.get("recommendations", {}).values():
+    for item in _iter_review_records(assessment.get("recommendations", [])):
         lines.append(f"- [{item.get('priority')}] {item.get('action')}")
     if not assessment.get("recommendations"):
         lines.append("- [optional] No benchmark action required.")

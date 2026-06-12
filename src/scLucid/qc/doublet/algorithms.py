@@ -380,7 +380,7 @@ def _run_scdblfinder(
         Configuration object; relevant fields are ``scdblfinder_*`` and
         ``expected_doublet_rate``.
 
-    Returns
+    Returns:
     -------
     Tuple of (scores, predicted) numpy arrays, or (None, None) on failure.
     """
@@ -395,7 +395,7 @@ def _run_scdblfinder(
 
     # Data-quality guard
     adata_sdf = adata_view.copy()
-    if config.scdblfinder_use_raw and adata_sdf.raw:
+    if config.scdblfinder_use_raw and adata_sdf.raw is not None:
         log.info("  Using 'adata.raw' for scDblFinder as configured.")
         adata_sdf = adata_sdf.raw.to_adata()
     else:
@@ -411,8 +411,13 @@ def _run_scdblfinder(
         )
         return None, None
 
-    # Determine expected doublet rate. A dict from generate_doublet_rates is common.
-    expected_rate = config.expected_doublet_rate
+    # Determine expected doublet rate. scDblFinder-specific dbr takes priority
+    # over the workflow-level expected rate when provided.
+    expected_rate = (
+        config.scdblfinder_dbr
+        if config.scdblfinder_dbr is not None
+        else config.expected_doublet_rate
+    )
     if isinstance(expected_rate, dict):
         expected_rate = expected_rate.get(sample_name)
 
@@ -429,8 +434,29 @@ def _run_scdblfinder(
             verbose=False,
         )
 
-        scores = adata_sdf.obs["scDblFinder_score"].to_numpy(dtype=float)
-        predicted = (adata_sdf.obs["scDblFinder_class"] == "doublet").to_numpy()
+        score_col = next(
+            (
+                col
+                for col in ("scDblFinder_score", "scDblFinder.score", "scdblfinder_score")
+                if col in adata_sdf.obs
+            ),
+            None,
+        )
+        class_col = next(
+            (
+                col
+                for col in ("scDblFinder_class", "scDblFinder.class", "scdblfinder_class")
+                if col in adata_sdf.obs
+            ),
+            None,
+        )
+        if score_col is None or class_col is None:
+            raise KeyError(
+                "pyscdblfinder did not add expected score/class columns to adata.obs"
+            )
+
+        scores = adata_sdf.obs[score_col].to_numpy(dtype=float)
+        predicted = adata_sdf.obs[class_col].astype(str).str.lower().eq("doublet").to_numpy()
 
         doublet_count = int(predicted.sum())
         doublet_rate = doublet_count / len(predicted) if len(predicted) > 0 else 0.0

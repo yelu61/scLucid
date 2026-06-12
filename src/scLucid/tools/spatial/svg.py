@@ -29,7 +29,7 @@ def find_spatially_variable_genes(
     config
         SVG configuration.
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Per-gene Moran's I, p-value, and adjusted p-value.
@@ -82,7 +82,12 @@ def find_spatially_variable_genes(
     df["valid_for_publication_inference"] = False
     df["method"] = config.method
 
-    adata.var[config.key_added] = df.set_index("gene").loc[adata.var_names, "spatially_variable"].fillna(False).values
+    spatial_flags = (
+        df.set_index("gene")["spatially_variable"]
+        .reindex(adata.var_names, fill_value=False)
+        .astype(bool)
+    )
+    adata.var[config.key_added] = spatial_flags.values
     adata.uns.setdefault("sclucid", {}).setdefault("tools", {}).setdefault("spatial", {})
     adata.uns["sclucid"]["tools"]["spatial"]["svg"] = df.to_dict(orient="records")
 

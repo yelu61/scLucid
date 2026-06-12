@@ -30,14 +30,13 @@ from scLucid.qc.doublet import (
     _run_heuristic,
     predict_doublets,
 )
+from scLucid.qc.doublet._scrublet_compat import apply_scrublet_compatibility_shims
 from scLucid.qc.doublet.algorithms import (
     _raw_count_guard,
-    _run_scrublet,
     _run_scdblfinder,
+    _run_scrublet,
 )
 from scLucid.qc.doublet.ensemble import _merge_doublet_predictions
-from scLucid.qc.doublet._scrublet_compat import apply_scrublet_compatibility_shims
-
 
 # ---------------------------------------------------------------------------
 # Scrublet compatibility shims
@@ -134,6 +133,45 @@ class TestScDblFinder:
         )
         assert scores is None
         assert predicted is None
+
+    def test_run_scdblfinder_prefers_method_specific_dbr_and_dot_columns(self, monkeypatch):
+        """scdblfinder_dbr should override the workflow rate and dot-style obs names."""
+        seen = {}
+
+        class FakeScDblFinder:
+            def __init__(self, adata, random_state=None):
+                self.adata = adata
+                seen["random_state"] = random_state
+
+            def run(self, **kwargs):
+                seen.update(kwargs)
+                n = self.adata.n_obs
+                self.adata.obs["scDblFinder.score"] = np.linspace(0, 1, n)
+                self.adata.obs["scDblFinder.class"] = [
+                    "doublet" if i >= n - 5 else "singlet" for i in range(n)
+                ]
+
+        fake_module = SimpleNamespace(ScDblFinder=FakeScDblFinder)
+        monkeypatch.setitem(sys.modules, "pyscdblfinder", fake_module)
+        rng = np.random.default_rng(8)
+        adata = AnnData(X=rng.poisson(0.6, size=(80, 120)).astype(np.float32))
+
+        scores, predicted = _run_scdblfinder(
+            adata,
+            sample_name="s1",
+            config=DoubletConfig(
+                method="scdblfinder",
+                expected_doublet_rate=0.1,
+                scdblfinder_dbr=0.2,
+                random_state=11,
+            ),
+        )
+
+        assert seen["dbr"] == 0.2
+        assert seen["random_state"] == 11
+        assert scores is not None
+        assert predicted is not None
+        assert int(predicted.sum()) == 5
 
     def test_predict_doublets_dispatches_scdblfinder(self, monkeypatch):
         """predict_doublets should call the scDblFinder wrapper and write result columns."""

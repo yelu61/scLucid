@@ -22,10 +22,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-import numpy as np
 from anndata import AnnData
 
-from .contracts import SCHEMA_VERSION, SCLUCID_ROOT, Modules, UnsKeys, module_namespace, record_artifact
+from .contracts import (
+    SCHEMA_VERSION,
+    SCLUCID_ROOT,
+    Modules,
+    UnsKeys,
+    _restore_review_sequences,
+    module_namespace,
+    record_artifact,
+)
 from .sanitize import sanitize_for_hdf5
 
 log = logging.getLogger(__name__)
@@ -115,7 +122,10 @@ def save_result(
         UnsKeys.ERRORS,
     }
     if key in canonical_direct_keys:
-        storage[key] = sanitize_for_hdf5(data)
+        sanitized = sanitize_for_hdf5(data)
+        if key == UnsKeys.REVIEW_SUMMARY:
+            sanitized = _restore_review_sequences(sanitized)
+        storage[key] = sanitized
         log.debug(f"Saved canonical result '{key}' to {module} storage")
         return
 

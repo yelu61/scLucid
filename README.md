@@ -1,16 +1,38 @@
-# scLucid: A Comprehensive System for Single-Cell Analysis
+# scLucid: Lucid Tumor Single-Cell Interpretation
 
 [![PyPI version](https://badge.fury.io/py/sclucid.svg)](https://badge.fury.io/py/sclucid)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/yelu61/scLucid/actions/workflows/build.yml/badge.svg)](https://github.com/yelu61/scLucid/actions)
 
-**scLucid** is a powerful and flexible Python toolkit for the analysis of single-cell RNA-sequencing data. It is designed to be more than just a wrapper; it's a complete **analysis system** that guides researchers from raw data to deep biological insights.
+**scLucid** is a diagnostic-first, audit-ready Python framework for tumor
+single-cell RNA-seq interpretation. The name reflects the goal: make single-cell
+analysis **lucid**: clear in its assumptions, explicit in its inference
+boundaries, and reviewable from raw AnnData to biological interpretation.
 
-The toolkit's philosophy is to balance ease-of-use for standard workflows with deep customizability for advanced, exploratory research. It achieves this through a modular architecture, high-level workflow functions, and a unique, biology-aware marker management system.
+scLucid is not trying to replace Scanpy, Seurat, or the broader single-cell
+ecosystem. Instead, it builds a tumor-focused research system around them:
+adaptive QC, conservative preprocessing, evidence-based annotation, malignancy
+and TME interpretation, explicit inference semantics, and optional bulk/spatial
+evidence modules.
+
+The core idea is simple:
+
+> Do not just run an analysis. Diagnose the data, record the evidence, state the
+> inference level, and make the biological interpretation inspectable.
+
+### What Makes scLucid Different
+
+| Principle | What It Means In Practice |
+|-----------|---------------------------|
+| **Diagnostic-first** | QC, preprocessing, DE, proportion, bulk, and spatial utilities are paired with checks and warnings before results are trusted. |
+| **Audit-ready by default** | Decisions, parameters, warnings, and review summaries are stored under `adata.uns["sclucid"]` and can be exported to an HTML audit report. |
+| **Explicit inference semantics** | Results distinguish `sample_level`, `exploratory_cell_level`, `descriptive_sample_level`, and `exploratory_spatial` so exploratory signals are not overstated. |
+| **Tumor-centered interpretation** | Annotation, CNV/malignancy evidence, TME composition, therapy signatures, spatial niches, and ecosystem/ecotype-style concepts are first-class design targets. |
+| **Ecosystem-aware, not ecosystem-replacing** | Mature Python/R tools can be wrapped or validated when useful, but scLucid keeps a lightweight core and records method-specific evidence. |
 
 ### 60-Second Quickstart
 
-From a Cell Ranger output to a clustered, annotated AnnData with a shareable HTML audit trail — four lines:
+From a Cell Ranger output to a clustered, annotated AnnData with a shareable HTML audit trail in four lines:
 
 ```python
 import scLucid as scl
@@ -25,7 +47,7 @@ scl.export_audit_report(adata, "report.html")
 ### Project Status
 
 scLucid is in active development and is best described as an **evidence-driven
-single-cell workflow system in late prototype / early hardening stage**.
+tumor single-cell workflow system in late prototype / early hardening stage**.
 
 The package has moved beyond a collection of wrappers. It already contains
 stable workflow entrypoints, AnnData contracts, review summaries, marker-resource
@@ -40,11 +62,12 @@ QC cluster review, optional malignancy interpretation, and analysis
 review-summary maturity contracts.
 
 The current development boundary is important: scLucid can already provide a
-traceable, biologically informed workflow, but it should not yet claim broad
+traceable, biologically informed workflow, but it does **not** claim broad
 scientific superiority over Scanpy, Seurat, scran, inferCNV, CopyKAT, CellTypist,
-or other mature tools. The next stage is real-data workflow hardening: run the
-same auditable path on PBMC, PDAC, and active tumor projects; compare outputs to
-standard workflows; and turn those results into documented acceptance criteria.
+or other mature tools. The next stage is layered validation: prove not merely
+that scLucid runs, but that its decisions are inspectable, biologically
+concordant, safer in their inference claims, and convenient in real tumor
+projects.
 
 ### Current Maturity Assessment
 
@@ -56,15 +79,32 @@ standard workflows; and turn those results into documented acceptance criteria.
 | Marker Resources | Strong architectural direction | Unified `Manager`, human/mouse registry resources, tissue/tumor marker views, artifact/program/tumor routing, curation SOP | Source provenance at scale, mouse tissue/tumor parity, atlas-derived marker review |
 | Tumor Module | Feature-rich but needs integration hardening | CNV, malignancy scoring/classification, TME, therapy, heterogeneity, workflow scaffolds | Consume stable analysis outputs more tightly, store tumor-stage review summaries, validate on tumor datasets |
 | Plotting | Useful foundation | Publication-style themes and domain plots | Top-journal figure templates, richer multi-panel reports, visual regression checks |
-| Tools / R Parity | Broad wrapper coverage | Python-facing wrappers for mature ecosystem methods | Dependency isolation, parity matrices, realistic fallbacks, method-specific validation |
+| Tools / Evidence Modules | Expanding tumor support | Python-facing wrappers, bulk deconvolution, bulk/spatial clean-room utilities, R parity scaffolds | Selective method validation, dependency isolation, bulk/spatial tumor use cases |
 | Documentation / Examples | Good skeleton | Three usage layers, advanced notebooks, golden-path scripts | Keep docs synchronized with maturity contracts and real-data acceptance results |
 
 ### Development Roadmap
 
-The roadmap is intentionally staged so the package matures from traceable
-execution to evidence-backed biological usefulness.
+The roadmap is intentionally staged so scLucid matures from traceable execution
+to evidence-backed tumor biological usefulness.
 
-**Phase 1 — Finish Analysis As The Second Benchmark Module**
+**Phase 1 - Harden The Core QC -> Preprocess -> Analysis Path**
+
+- Keep QC, preprocessing, and analysis as the core single-cell workflow spine.
+- Use real PBMC, PDAC, and active tumor projects to harden handoff contracts:
+  counts/layers, embeddings, clustering, annotation evidence, DE/proportion
+  outputs, and audit summaries.
+- Favor robust defaults and clear diagnostics over adding more methods.
+
+**Phase 2 - Validate, Do Not Just Run**
+
+- Compare against Scanpy/Seurat-style baselines at multiple layers:
+  execution parity, decision quality, biological concordance, inference safety,
+  and user effort.
+- Convert validation into explicit acceptance criteria rather than anecdotal
+  "works on my data" claims.
+- Track where scLucid is better, equivalent, or weaker.
+
+**Phase 3 - Finish Analysis As The Second Benchmark Module**
 
 - Harden the evidence-first `run_standard_analysis` path:
   clustering-resolution evidence, marker discovery, marker-manager annotation
@@ -79,7 +119,7 @@ execution to evidence-backed biological usefulness.
   `artifact_annotation`, `program_scoring`, and `tumor_interpretation`.
 - Treat LLM output as annotation evidence, not ground truth.
 
-**Phase 2 — Tumor-Aware Interpretation Contract**
+**Phase 4 - Tumor-Aware Interpretation System**
 
 - Keep `scLucid.tumor.malignancy.run_malignancy_interpretation` as a lightweight
   interpretation bridge, callable from the analysis workflow, that
@@ -93,8 +133,22 @@ execution to evidence-backed biological usefulness.
   output, CopyKAT-like calls, malignancy signatures, and manual evidence.
 - Store malignant/non-malignant/suspect/unresolved calls with confidence,
   reasons, and review requirements.
+- Add common high-level tumor single-cell concepts as practical APIs and plots:
+  tumor programs, EMT/hypoxia/proliferation/IFN response, immune exhaustion,
+  myeloid states, CAF subtypes, TME niches, tumor-stroma boundaries, therapy
+  response signatures, and ecosystem/ecotype-style summaries.
 
-**Phase 3 — Resource Curation And Validation**
+**Phase 5 - Selective R/Python Parity**
+
+- Pythonize or wrap mature R methods only when they are high-value for tumor
+  single-cell work and Python lacks a strong replacement.
+- Prioritize methods whose outputs can enter scLucid's evidence/audit contract:
+  CNV evidence, doublet evidence, pseudobulk/sample-level inference,
+  communication analysis, and selected deconvolution workflows.
+- Maintain parity matrices, realistic fallbacks, and validation notebooks for
+  each port or wrapper.
+
+**Phase 6 - Resource Curation And Validation**
 
 - Continue upgrading marker resources from “readable” to “routable,
   reviewable, source-aware”.
@@ -106,7 +160,7 @@ execution to evidence-backed biological usefulness.
   broad pathway signatures in gene-set JSON/GMT resources rather than concise
   annotation TOML files.
 
-**Phase 4 — Real-Data Acceptance Gates**
+**Phase 7 - Real-Data Acceptance Gates**
 
 - Maintain PBMC as the normal baseline.
 - Maintain PDAC as the first tumor acceptance workflow.
@@ -115,8 +169,11 @@ execution to evidence-backed biological usefulness.
   cluster interpretability, annotation confidence, marker consistency,
   malignancy evidence, and report completeness.
 
-**Phase 5 — Publication Output And User Experience**
+**Phase 8 - Engineering, Scale, And User Experience**
 
+- Keep imports lightweight and dependencies optional.
+- Improve sparse-aware and memory-aware execution for large datasets.
+- Add time/memory benchmarks against sensible Scanpy baselines.
 - Convert advanced notebooks into polished, reproducible workflow narratives.
 - Expand audit reports to include analysis and tumor interpretation maturity.
 - Add top-journal figure templates and visual regression checks for important
@@ -125,21 +182,29 @@ execution to evidence-backed biological usefulness.
 
 ### Key Features
 
-* **🧪 End-to-End Workflows**: High-level functions like `run_standard_qc` and `run_preprocessing` to go from raw data to a clustered UMAP with just a few lines of code.
-* **🧠 Intelligent QC**: Advanced doublet detection using a combination of `scrublet` and a novel, marker co-expression heuristic.
-* **🧬 Biology-Aware Analysis**: A unified `Manager`/resource system routes curated markers and gene sets into compartment, lineage, subtype, state, artifact, program-scoring, and tumor-interpretation views.
-* **🔬 Multi-Evidence Annotation**: A complete suite of tools to annotate cell types using automated methods (`CellTypist`), gene scoring, and evidence-gathering functions (`characterize_clusters`).
-* **🔧 Advanced Tools Module**: Seamlessly integrated wrappers for specialized analyses, including:
-    * RNA Velocity (`scVelo`)
-    * CNV Inference (`infercnvpy`, `CopyKAT`)
-    * Trajectory Inference (`PAGA`, `Monocle3`)
-    * Cell-Cell Communication (`CellChat`, `CellPhoneDB`)
-    * Bulk Deconvolution (`BayesPrism`, `DWLS`)
-* **📊 Publication-Quality Visualizations**: A rich plotting library to generate stunning and informative figures for every step of the analysis.
-* **🎨 Academic Journal Font Styles**: Pre-configured font styles for top journals - Nature (Arial), Cell (Helvetica), and Traditional (Times New Roman).
-* **🔄 Reproducible Science**: A configuration-driven approach using **Pydantic** ensures automatic validation, type safety, and reproducibility with JSON serialization.
-* **📝 Auditable Reports**: `scl.export_audit_report(adata, "report.html")` renders every recommendation rationale, applied threshold, configuration lineage, and contract validation result into one self-contained HTML page — review-ready out of the box.
-* **🔌 Extensible Plugin Architecture**: Abstract base classes and factory pattern allow you to create custom analysis plugins without modifying core code. See [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md) for details.
+* **End-to-End Auditable Workflows**: High-level functions like `run_standard_qc`, `run_preprocessing`, and `run_standard_analysis` move from raw AnnData to reviewable biological evidence.
+* **Diagnostic QC And Preprocessing**: Adaptive recommendations, layer contracts, tumor-aware warnings, and conservative defaults keep early decisions inspectable.
+* **Evidence-Based Annotation**: Marker resources, program scoring, reference evidence, CellTypist output, and optional LLM bundles are treated as evidence, not unquestioned labels.
+* **Explicit Inference Semantics**: DE, proportion, bulk, and spatial outputs state whether they are exploratory, descriptive, or valid for sample-level inference.
+* **Tumor Interpretation Layer**: CNV/malignancy evidence, TME composition, therapy signatures, heterogeneity, and ecosystem/ecotype-style summaries are core research targets.
+* **Bulk And Spatial Evidence Modules**: `scLucid.tools.bulk` and `scLucid.tools.spatial` provide lightweight, tumor-oriented utilities for deconvolution, bulk DE, bulk-pseudobulk concordance, spatial autocorrelation, SVGs, tissue zones, and spatial niches.
+* **Selective R/Python Parity**: Mature R methods are wrapped or ported only when they add validated tumor single-cell value and can fit scLucid's audit contract.
+* **Publication-Oriented Visualization**: Plotting utilities and journal font styles support reproducible figures, with richer tumor-specific visual templates planned.
+* **Pydantic Configuration**: User-facing workflows use validated config objects so parameters can be serialized, inspected, and reproduced.
+* **HTML Audit Reports**: `scl.export_audit_report(adata, "report.html")` renders recommendation rationale, applied thresholds, configuration lineage, and contract validation into one self-contained report.
+* **Extensible Plugin Architecture**: Abstract base classes and factory patterns support custom analysis plugins without modifying core code. See [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT_GUIDE.md).
+
+### What scLucid Is Not
+
+- It is not a claim that every scLucid result is automatically better than
+  Scanpy, Seurat, or specialist tools.
+- It is not a broad multi-omics platform that tries to cover every published
+  method.
+- It is not a black-box automated annotation engine.
+
+scLucid's bet is narrower and more useful: make tumor single-cell workflows
+clearer, safer to interpret, easier to audit, and easier to connect with bulk,
+spatial, clinical, and mature ecosystem evidence.
 
 ### Choose Your Analysis Mode
 
@@ -147,9 +212,9 @@ scLucid offers **three user-facing layers** designed for different levels of con
 
 | Your Goal | Recommended Layer | Entry Point | Best For |
 |-----------|-------------------|-------------|----------|
-| **One-line analysis** — load data and run the full pipeline | **Workflow** | `scl.run_pipeline()` | Beginners, standard projects, reproducible pipelines |
-| **Composable steps** — inspect or replace individual stages | **Simple API** | `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, etc. | Analysts who need parameter control |
-| **Full transparency** — every threshold, diagnostic, and override visible | **Advanced** | `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb` | Real exploratory projects, review-grade audits |
+| **One-line analysis** - load data and run the full pipeline | **Workflow** | `scl.run_pipeline()` | Beginners, standard projects, reproducible pipelines |
+| **Composable steps** - inspect or replace individual stages | **Simple API** | `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, etc. | Analysts who need parameter control |
+| **Full transparency** - every threshold, diagnostic, and override visible | **Advanced** | `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb` | Real exploratory projects, review-grade audits |
 
 > **💡 How to choose**: If you just want results, use **Workflow**. If you need to tweak parameters, use **Simple API**. If you are doing research where every decision must be auditable, use **Advanced**.
 
@@ -171,6 +236,12 @@ pip install "sclucid[analysis]"
 
 # To include advanced optional tools (scVelo, infercnvpy, scVI-related workflows, etc.)
 pip install "sclucid[tools]"
+
+# To include bulk RNA-seq evidence modules (pydeseq2/gseapy-backed options)
+pip install "sclucid[bulk]"
+
+# To include spatial transcriptomics evidence modules (Squidpy/image helpers)
+pip install "sclucid[spatial]"
 
 # To install everything
 pip install "sclucid[all]"

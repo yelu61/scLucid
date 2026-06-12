@@ -93,7 +93,10 @@ def _patch_tot_counts_norm() -> None:
                     frac = (wtmp * E).tocsr()
                     included = np.asarray(~((frac > exclude_dominant_frac).sum(axis=0) > 0)).ravel()
                     tots_use = E[:, included].sum(axis=1)
-                    print("Excluded %i genes from normalization" % (np.sum(~included)))
+                    log.debug(
+                        "scrublet normalization excluded %i dominant genes",
+                        int(np.sum(~included)),
+                    )
             else:
                 tots_use = E[:, included].sum(axis=1)
         else:
@@ -187,7 +190,21 @@ def _patch_call_doublets() -> None:
 
     def call_doublets(self: Any, threshold: Any = None, verbose: bool = True) -> Any:
         try:
+            if threshold is None:
+                return original_call_doublets(self, verbose=verbose)
             return original_call_doublets(self, threshold=threshold, verbose=verbose)
+        except TypeError as exc:
+            try:
+                return original_call_doublets(self, verbose=verbose)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception:
+                log.debug(
+                    "scrublet.call_doublets signature fallback failed after %s; returning None",
+                    type(exc).__name__,
+                )
+                self.predicted_doublets_ = None
+                return None
         except (KeyboardInterrupt, SystemExit):
             raise
         except Exception as exc:

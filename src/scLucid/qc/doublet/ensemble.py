@@ -18,8 +18,8 @@ from anndata import AnnData
 from ..config import DoubletConfig
 from .algorithms import (
     _run_doubletdetection,
-    _run_scrublet,
     _run_scdblfinder,
+    _run_scrublet,
     _run_solo,
 )
 from .core import (

@@ -4,10 +4,10 @@ import numpy as np
 from anndata import AnnData
 
 from scLucid.tools.spatial import (
+    SpatialNeighborsConfig,
     build_spatial_neighbors,
     compute_moran_i,
     find_spatially_variable_genes,
-    SpatialNeighborsConfig,
 )
 
 
@@ -43,3 +43,21 @@ def test_find_spatially_variable_genes():
     moran_gene0 = result.loc[result["gene"] == "gene0", "moran_i"].iloc[0]
     moran_gene1 = result.loc[result["gene"] == "gene1", "moran_i"].iloc[0]
     assert moran_gene0 > moran_gene1
+
+
+def test_find_spatially_variable_genes_handles_constant_genes():
+    n_spots = 20
+    coords = np.column_stack([np.arange(n_spots), np.zeros(n_spots)])
+    expr = np.zeros((n_spots, 3))
+    expr[:, 0] = np.arange(n_spots)
+    expr[:, 1] = 5.0
+    expr[:, 2] = np.random.poisson(5, size=n_spots)
+    adata = AnnData(X=expr)
+    adata.var_names = ["patterned", "constant", "random"]
+    adata.obsm["spatial"] = coords
+
+    result = find_spatially_variable_genes(adata)
+
+    assert "constant" not in set(result["gene"])
+    assert "spatially_variable" in adata.var
+    assert bool(adata.var.loc["constant", "spatially_variable"]) is False

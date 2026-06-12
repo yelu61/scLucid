@@ -47,6 +47,7 @@ class BulkDEConfig(SclucidBaseConfig):
     condition2: str = Field(description="Test condition.")
     method: Literal["ttest", "welch", "pydeseq2", "limma"] = Field(default="welch")
     covariates: List[str] = Field(default_factory=list)
+    min_samples_per_condition: int = Field(default=2, ge=1)
     min_counts_per_gene: int = Field(default=10, ge=0)
     min_samples_expressing: int = Field(default=2, ge=1)
     p_adjust_method: Literal["fdr_bh", "bonferroni"] = Field(default="fdr_bh")

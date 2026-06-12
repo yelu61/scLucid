@@ -1,12 +1,13 @@
 # Contributing to scLucid
 
 Thanks for considering a contribution! scLucid is a single-cell RNA-seq analysis
-toolkit focused on tumor-aware workflows, traceable parameter selection, and
-honest Python ports of mature R bioinformatics packages.
+framework focused on tumor-aware interpretation, traceable parameter selection,
+explicit inference semantics, and audit-ready workflow outputs.
 
 This document covers the practical mechanics. The architectural philosophy
-lives in `docs/source/usage_layers.rst`, `docs/source/data_contracts.rst`, and
-`docs/source/qc_preprocess_maturity.rst` — read those before proposing a major
+lives in `README.md`, `docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md`,
+`docs/source/usage_layers.rst`, `docs/source/data_contracts.rst`, and
+`docs/source/qc_preprocess_maturity.rst`. Read those before proposing a major
 change.
 
 ---
@@ -40,8 +41,9 @@ src/scLucid/
   analysis/       clustering, annotation, differential expression, proportion
   tumor/          CNV, malignancy, microenvironment, evolution, therapy
   recommendation/ cross-stage parameter recommendation engine
-  tools/          R-package ports (pyBayesPrism, pyMonocle3, pyCellChat, pyDWLS)
-                  + lightweight wrappers (pySCENIC, cellphonedb, infercnv, spatial)
+  tools/          evidence modules and ecosystem adapters:
+                  bulk, spatial, pyBayesPrism, pyDWLS, pyMonocle3, pyCellChat,
+                  pySCENIC, cellphonedb, infercnv
   plotting/       publication themes + embedding/marker/feature plots
   utils/          contracts, context, validation, storage, profiling
 ```
@@ -57,13 +59,36 @@ note about which layer it intentionally skips).
 
 ---
 
+## Product boundaries
+
+scLucid is not a broad multi-omics toolbox and it is not a claim that every
+result is automatically better than Scanpy, Seurat, or specialist tools. New
+contributions should strengthen one of these routes:
+
+- the core `qc -> preprocess -> analysis` single-cell workflow;
+- tumor interpretation (`malignancy`, CNV evidence, TME, therapy, heterogeneity,
+  ecosystem/ecotype summaries);
+- evidence modules under `scLucid.tools` such as bulk/spatial utilities;
+- selective R/Python parity with validation and dependency isolation;
+- engineering quality: lightweight imports, sparse-aware execution, reports,
+  benchmarks, and clear error messages.
+
+Avoid adding a method merely because it exists upstream. It must fit a real
+tumor single-cell workflow need and have a validation story.
+
+---
+
 ## Required reading before a substantial change
 
+- `docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md` — current five-direction
+  strategic plan and implementation milestones.
 - `docs/source/data_contracts.rst` — the stable AnnData and review-summary
   conventions. Most contributions should preserve them; if you change them,
   bump `SCHEMA_VERSION` in `src/scLucid/utils/contracts.py`.
 - `docs/source/workflow_hardening.rst` — how real-data validation works
   (PBMC + PDAC golden paths).
+- `docs/BULK_SPATIAL_DESIGN.md` — namespace and storage contract for
+  `scLucid.tools.bulk` and `scLucid.tools.spatial`.
 - `docs/PLUGIN_DEVELOPMENT_GUIDE.md` — extension points for custom
   scoring/annotation/filter methods.
 
@@ -130,6 +155,9 @@ implementations — that creates "green CI, broken code" debt.
   regressing.
 - Files in `src/scLucid/utils/` should target 90%+ (they are core contracts).
 
+Generated coverage artifacts (`coverage.xml`, `htmlcov/`, `.coverage*`) should
+not be committed.
+
 ---
 
 ## Pull request checklist
@@ -142,6 +170,8 @@ Before opening a PR:
 - [ ] Updated relevant documentation (`docs/source/*.rst`, examples, README)
 - [ ] Added an entry under "Unreleased" in the changelog if user-facing
 - [ ] Confirmed `import scLucid` produces zero `ImportWarning`
+- [ ] Confirmed no generated artifacts are included (`htmlcov/`, `coverage.xml`,
+      ad-hoc output directories)
 
 When the PR touches a workflow contract, the AnnData layout, or a public API:
 
@@ -149,6 +179,14 @@ When the PR touches a workflow contract, the AnnData layout, or a public API:
 - [ ] Updated `docs/source/data_contracts.rst`
 - [ ] Verified PBMC golden path still runs:
       `scripts/run_pbmc_golden_path.py --n-cells 300 --output-dir /tmp/pbmc_check --overwrite`
+
+When the PR adds or wraps an external method:
+
+- [ ] Dependency is optional or already core by design
+- [ ] Missing dependency path has a clear error message
+- [ ] Method version/parameters are recorded in `adata.uns["sclucid"]`
+- [ ] Output includes inference-level semantics where relevant
+- [ ] Validation/parity limitations are documented
 
 ---
 

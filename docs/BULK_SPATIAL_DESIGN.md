@@ -1,7 +1,27 @@
 # Bulk and Spatial Design for scLucid
 
-**Status**: Design document for Phase 0  
-**Scope**: Define the API shape, storage contracts, diagnostics, and inference semantics for the new `scLucid.analysis.bulk` and `scLucid.tools.spatial` modules.
+**Status**: Current design contract for bulk/spatial evidence modules  
+**Scope**: Define the API shape, storage contracts, diagnostics, and inference semantics for the new `scLucid.tools.bulk` and `scLucid.tools.spatial` modules.
+
+## Positioning
+
+scLucid remains a tumor single-cell analysis framework. The completed
+`qc`, `preprocess`, and core `analysis` modules are the primary single-cell
+workflow layer and should not be reshaped to imitate a broad multi-omics
+toolbox.
+
+Bulk RNA-seq and spatial transcriptomics support belongs in `scLucid.tools`
+as evidence-enhancing submodules:
+
+- `scLucid.tools.bulk` provides bulk RNA-seq normalization, DE, deconvolution,
+  TME abundance, clinical association, and bulk-vs-pseudobulk concordance
+  utilities.
+- `scLucid.tools.spatial` provides spatial neighbors, spatial autocorrelation,
+  SVG detection, tissue zones, tumor-stroma boundary analysis, immune
+  infiltration, and spatial TME niche utilities.
+
+The goal is **basic, reliable functionality plus tumor-focused interpretation**,
+not a complete OmicVerse replacement.
 
 ## Design Principles
 
@@ -16,21 +36,28 @@ All new bulk and spatial functionality must follow scLucid's existing philosophy
 
 ## Namespace and Storage Contract
 
-### Bulk Analysis
+### Bulk Tools
 
-Primary storage: `adata.uns["sclucid"]["analysis"]["bulk"]`
+Primary implementation: `scLucid.tools.bulk`
+
+Primary storage: `adata.uns["sclucid"]["tools"]["bulk"]`
+
+Compatibility import surface: `scLucid.analysis.bulk` may re-export stable
+bulk names, but it is not the canonical implementation namespace.
 
 | Output | Storage Path | Type |
 |--------|-------------|------|
-| Diagnostics | `adata.uns["sclucid"]["analysis"]["bulk"]["diagnostics"]` | dict |
-| Normalization | `adata.uns["sclucid"]["analysis"]["bulk"]["normalization"]` | dict |
-| DE results | `adata.uns["sclucid"]["analysis"]["bulk"]["de"]` or returned DataFrame | DataFrame / dict |
-| Deconvolution | `adata.uns["sclucid"]["analysis"]["bulk"]["deconvolution"]` | dict |
-| Abundance tests | `adata.uns["sclucid"]["analysis"]["bulk"]["abundance"]` | dict |
-| Clinical association | `adata.uns["sclucid"]["analysis"]["bulk"]["clinical"]` | dict |
-| Trace/review | `adata.uns["sclucid"]["analysis"]["bulk"]["review_summary"]` | dict |
+| Diagnostics | `adata.uns["sclucid"]["tools"]["bulk"]["diagnostics"]` | dict |
+| Normalization | `adata.uns["sclucid"]["tools"]["bulk"]["normalization"]` | dict |
+| DE results | `adata.uns["sclucid"]["tools"]["bulk"]["de"]` or returned DataFrame | DataFrame / dict |
+| Deconvolution | `adata.uns["sclucid"]["tools"]["bulk"]["deconvolution"]` | dict |
+| Abundance tests | `adata.uns["sclucid"]["tools"]["bulk"]["abundance"]` | dict |
+| Clinical association | `adata.uns["sclucid"]["tools"]["bulk"]["clinical"]` | dict |
+| Trace/review | `adata.uns["sclucid"]["tools"]["bulk"]["review_summary"]` | dict |
 
-Backward compatibility: legacy calls through `scLucid.tools.bulk.deconvolve_bulk` continue to write to `adata.uns["sclucid"]["tools"][key_added]`, and additionally mirror a normalized trace into `adata.uns["sclucid"]["analysis"]["bulk"]["deconvolution"]`.
+Backward compatibility: legacy calls through `scLucid.tools.bulk.deconvolve_bulk`
+continue to write to `adata.uns["sclucid"]["tools"][key_added]`, and should
+also mirror a normalized trace into `adata.uns["sclucid"]["tools"]["bulk"]`.
 
 ### Spatial Tools
 
@@ -90,6 +117,7 @@ class BulkDEConfig(SclucidBaseConfig):
     condition1: str
     condition2: str
     covariates: List[str] = Field(default_factory=list)
+    min_samples_per_condition: int = Field(default=2, ge=1)
     min_counts_per_gene: int = Field(default=10, ge=0)
     min_samples_expressing: int = Field(default=2, ge=1)
     p_adjust_method: Literal["fdr_bh", "bonferroni"] = "fdr_bh"
@@ -169,18 +197,18 @@ class VisiumIOConfig(SclucidBaseConfig):
 ### Bulk
 
 ```python
-from scLucid.analysis.bulk import (
+from scLucid.tools.bulk import (
     diagnose_bulk_data_quality,
     normalize_bulk_counts,
     estimate_size_factors_median_ratio,
     run_bulk_de,
-    run_bulk_trait_association,
-    run_bulk_timecourse,
-    run_bulk_ora,
-    run_bulk_gsea,
     deconvolve_bulk,
     run_bulk_abundance_test,
     correlate_abundance_with_clinical,
+    deconvolve_tumor_tme,
+    estimate_tumor_purity_from_bulk,
+    bulk_immune_landscape,
+    associate_tme_with_response,
 )
 ```
 
@@ -231,7 +259,7 @@ Returns:
     "min_replicates": int,
     "max_replicates": int,
     "library_size_cv": float,
-    "zero_gene_fraction": float,
+    "zero_sample_fraction": float,  # legacy key may remain as zero_gene_fraction
     "recommended_method": str,
 }
 ```
@@ -279,9 +307,13 @@ No optional package is imported at module load time.
 
 ## Backward Compatibility
 
-- `src/scLucid/tools/bulk.py` remains importable and keeps all public names as thin re-exports or wrappers around `scLucid.analysis.bulk`.
+- `scLucid.tools.bulk` is the canonical bulk namespace.
+- `scLucid.analysis.bulk` remains importable as a compatibility shim for stable
+  public bulk names.
 - `src/scLucid/tools/spatial.py` becomes a package; `scLucid.tools.spatial.run_spatial_analysis` and other public names continue to work.
-- Legacy storage paths continue to be populated for old API calls, with normalized traces mirrored into the new namespaces.
+- Legacy storage paths continue to be populated for old API calls, with
+  normalized traces mirrored into `adata.uns["sclucid"]["tools"]["bulk"]` or
+  `adata.uns["sclucid"]["tools"]["spatial"]`.
 
 ## Verification
 
@@ -289,10 +321,10 @@ After implementation, the following must succeed:
 
 ```bash
 # Core import without optional extras
-python -c "import scLucid; import scLucid.analysis.bulk; import scLucid.tools.spatial"
+python -c "import scLucid; import scLucid.tools.bulk; import scLucid.tools.spatial"
 
 # Unit tests
-pytest tests/analysis/bulk -v --tb=short
+pytest tests/tools/bulk -v --tb=short
 pytest tests/tools/spatial -v --tb=short
 pytest tests/analysis/differential_expression/test_de_validation.py -v --tb=short
 
