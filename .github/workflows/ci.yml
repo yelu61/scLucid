@@ -112,6 +112,20 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  api-inventory:
+    name: API Inventory Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check API inventory is up to date
+        run: python scripts/audit_public_api.py --check
+
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
