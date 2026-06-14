@@ -67,5 +67,11 @@ figures/
 docs/_build/
 docs/source/_build/
 
+# Local data fixtures
+# These are downloaded or generated during tests/golden-path runs and should
+# not be committed. See docs/DATA_USAGE_GUIDE.md for data handling rules.
+data/pbmc3k_raw.h5ad
+data/processed/
+
 # Local editor / tool caches
 .claude/
