@@ -29,7 +29,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
   script with `--write`.
 
 <!-- AUTO-GENERATED INVENTORY START -->
-<!-- Generated: 2026-06-13 21:51:28 by scripts/audit_public_api.py -->
+<!-- Generated: 2026-06-13 23:34:00 by scripts/audit_public_api.py -->
 <!-- Total public symbols: 961 -->
 
 ## scLucid
