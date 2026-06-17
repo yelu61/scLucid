@@ -719,17 +719,46 @@ def _review_payload(summary: Mapping[str, Any]) -> Mapping[str, Any]:
     return summary
 
 
-def _restore_review_sequences(value: Any) -> Any:
-    """Restore list-like review fields after HDF5 sanitization."""
+_REVIEW_SEQUENCE_KEYS = {
+    "steps_executed",
+    "steps",
+    "evidence_chain",
+    "warnings",
+    "review_action_items",
+    "action_items",
+    "required_keys",
+    "decision_table",
+    "recommendations",
+    "decisions",
+}
+
+
+def _restore_review_sequences(value: Any, *, key: Optional[str] = None) -> Any:
+    """Restore known list-like review fields after HDF5 sanitization.
+
+    Generic list-of-dict evidence is intentionally kept as a dict-of-dicts so
+    AnnData/HDF5 does not coerce heterogeneous records into invalid string
+    arrays.
+    """
     if isinstance(value, dict):
-        if value and all(str(key).isdigit() for key in value):
-            ordered_keys = sorted(value, key=lambda key: int(str(key)))
+        if (
+            key in _REVIEW_SEQUENCE_KEYS
+            and value
+            and all(str(item_key).isdigit() for item_key in value)
+        ):
+            ordered_keys = sorted(value, key=lambda item_key: int(str(item_key)))
             expected_keys = [str(i) for i in range(len(ordered_keys))]
-            if [str(key) for key in ordered_keys] == expected_keys:
-                return [_restore_review_sequences(value[key]) for key in ordered_keys]
-        return {key: _restore_review_sequences(item) for key, item in value.items()}
+            if [str(item_key) for item_key in ordered_keys] == expected_keys:
+                return [
+                    _restore_review_sequences(value[item_key], key=key)
+                    for item_key in ordered_keys
+                ]
+        return {
+            item_key: _restore_review_sequences(item, key=str(item_key))
+            for item_key, item in value.items()
+        }
     if isinstance(value, list):
-        return [_restore_review_sequences(item) for item in value]
+        return [_restore_review_sequences(item, key=key) for item in value]
     return value
 
 

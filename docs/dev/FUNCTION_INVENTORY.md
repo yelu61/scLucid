@@ -29,8 +29,8 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
   script with `--write`.
 
 <!-- AUTO-GENERATED INVENTORY START -->
-<!-- Generated: 2026-06-13 23:34:00 by scripts/audit_public_api.py -->
-<!-- Total public symbols: 961 -->
+<!-- Generated: 2026-06-17 18:54:52 by scripts/audit_public_api.py -->
+<!-- Total public symbols: 978 -->
 
 ## scLucid
 
@@ -40,7 +40,6 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
-| `run_advanced_qc` | Workflow Orchestrator | `src/scLucid/__init__.py` | [W] dynamically resolved from submodule workflow |
 | `run_annotation` | Workflow Orchestrator | `src/scLucid/__init__.py` | [W] dynamically resolved from submodule workflow |
 | `run_custom_analysis` | Workflow Orchestrator | `src/scLucid/__init__.py` | [W] dynamically resolved from submodule workflow |
 | `run_pipeline` | Workflow Orchestrator | `src/scLucid/__init__.py` | [W] |
@@ -107,9 +106,13 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-*No flagged symbols.*
+#### Deprecated
 
-**Summary:** 49 symbols (49 stable, 0 flagged). workflow=7, config=0, class=0, function=22, alias=17, constant=3, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_advanced_qc` | Deprecated | `src/scLucid/__init__.py` | [D] dynamically resolved from submodule workflow |
+
+**Summary:** 49 symbols (48 stable, 1 flagged). workflow=6, config=0, class=0, function=22, alias=17, constant=3, trace=0, deprecated=1, uncertain=0, private_but_exposed=0.
 
 ## scLucid.analysis
 
@@ -454,6 +457,9 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
+| `apply_theme` | Function | `src/scLucid/plotting/__init__.py` |  |
+| `build_color_palette` | Function | `src/scLucid/plotting/__init__.py` |  |
+| `build_obs_palette` | Function | `src/scLucid/plotting/__init__.py` |  |
 | `export_annotation_report` | Function | `src/scLucid/plotting/__init__.py` |  |
 | `plot_annotation_evidence_panel` | Function | `src/scLucid/plotting/__init__.py` |  |
 | `plot_coexpression` | Function | `src/scLucid/plotting/__init__.py` |  |
@@ -474,7 +480,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 *No flagged symbols.*
 
-**Summary:** 15 symbols (15 stable, 0 flagged). workflow=0, config=0, class=0, function=15, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+**Summary:** 18 symbols (18 stable, 0 flagged). workflow=0, config=0, class=0, function=18, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.preprocess
 
@@ -513,6 +519,8 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `build_qc_input_context` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `build_step_evidence_summary` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `DataProfile` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `decide_integration` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `detect_integration_confounding` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `diagnose_cell_cycle_regression` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `diagnose_integration_risk` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `estimate_cell_size_factors` | Function | `src/scLucid/preprocess/__init__.py` |  |
@@ -547,6 +555,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `run_intelligent_preprocessing` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `scale_data` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `ScanpyBackend` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `select_and_audit_hvgs` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `select_hvg_sets` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `set_backend` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `suggest_hvg_choice` | Function | `src/scLucid/preprocess/__init__.py` |  |
@@ -575,9 +584,13 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-*No flagged symbols.*
+#### Deprecated
 
-**Summary:** 68 symbols (68 stable, 0 flagged). workflow=1, config=10, class=0, function=46, alias=0, constant=1, trace=10, deprecated=0, uncertain=0, private_but_exposed=0.
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_embedding_workflow` | Deprecated | `src/scLucid/preprocess/__init__.py` | [D] |
+
+**Summary:** 72 symbols (71 stable, 1 flagged). workflow=1, config=10, class=0, function=49, alias=0, constant=1, trace=10, deprecated=1, uncertain=0, private_but_exposed=0.
 
 ## scLucid.preprocess.intelligent
 
@@ -618,7 +631,6 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
-| `run_advanced_qc` | Workflow Orchestrator | `src/scLucid/qc/__init__.py` | [W] from `workflow` |
 | `run_standard_qc` | Workflow Orchestrator | `src/scLucid/qc/__init__.py` | [W] from `workflow` |
 
 #### Config Class
@@ -637,6 +649,8 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
 | `AdaptiveThresholdLearner` | Function | `src/scLucid/qc/__init__.py` | [O] from `adaptive_threshold`; optional |
+| `audit_doublets` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
+| `audit_filtering` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
 | `build_qc_benchmark_assessment` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
 | `build_qc_decision_table` | Function | `src/scLucid/qc/__init__.py` | from `trace` |
 | `calculate_qc_metric` | Function | `src/scLucid/qc/__init__.py` | from `metrics` |
@@ -668,6 +682,8 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `register_external_ambient_result` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
 | `render_qc_benchmark_compact_markdown` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
 | `render_qc_benchmark_markdown` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
+| `resolve_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
+| `run_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
 | `score_cell_cycle` | Function | `src/scLucid/qc/__init__.py` | from `cycle` |
 | `StrategyType` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
 | `suggest_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
@@ -698,9 +714,14 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-*No flagged symbols.*
+#### Deprecated
 
-**Summary:** 57 symbols (57 stable, 0 flagged). workflow=2, config=6, class=0, function=36, alias=0, constant=1, trace=12, deprecated=0, uncertain=0, private_but_exposed=0.
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_advanced_qc` | Deprecated | `src/scLucid/qc/__init__.py` | [D] from `workflow` |
+| `run_qc_decision_workflow` | Deprecated | `src/scLucid/qc/__init__.py` | [D] from `filtering` |
+
+**Summary:** 62 symbols (60 stable, 2 flagged). workflow=1, config=6, class=0, function=40, alias=0, constant=1, trace=12, deprecated=2, uncertain=0, private_but_exposed=0.
 
 ## scLucid.recommendation
 
@@ -1206,7 +1227,6 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `query_cancer_gene_census` | Function | `src/scLucid/tumor/__init__.py` |  |
 | `root_tree` | Function | `src/scLucid/tumor/__init__.py` |  |
 | `run_cnv_analysis` | Function | `src/scLucid/tumor/__init__.py` |  |
-| `run_malignancy_interpretation` | Function | `src/scLucid/tumor/__init__.py` |  |
 | `score_drug_resistance` | Function | `src/scLucid/tumor/__init__.py` |  |
 | `score_immune_interactions` | Function | `src/scLucid/tumor/__init__.py` |  |
 | `score_malignancy` | Function | `src/scLucid/tumor/__init__.py` |  |
@@ -1237,9 +1257,13 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-*No flagged symbols.*
+#### Deprecated
 
-**Summary:** 76 symbols (76 stable, 0 flagged). workflow=0, config=0, class=0, function=68, alias=1, constant=0, trace=7, deprecated=0, uncertain=0, private_but_exposed=0.
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_malignancy_interpretation` | Deprecated | `src/scLucid/tumor/__init__.py` | [D] |
+
+**Summary:** 76 symbols (75 stable, 1 flagged). workflow=0, config=0, class=0, function=67, alias=1, constant=0, trace=7, deprecated=1, uncertain=0, private_but_exposed=0.
 
 ## scLucid.tumor.cnv
 
@@ -1343,16 +1367,19 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `identify_cancer_stem_cells` | Function | `src/scLucid/tumor/malignancy/__init__.py` |  |
 | `MalignancyClassifier` | Function | `src/scLucid/tumor/malignancy/__init__.py` |  |
 | `MalignancyScorer` | Function | `src/scLucid/tumor/malignancy/__init__.py` |  |
-| `run_malignancy_interpretation` | Function | `src/scLucid/tumor/malignancy/__init__.py` |  |
 | `score_malignancy` | Function | `src/scLucid/tumor/malignancy/__init__.py` |  |
 | `score_malignancy_potential` | Function | `src/scLucid/tumor/malignancy/__init__.py` |  |
 | `StemnessAnalyzer` | Function | `src/scLucid/tumor/malignancy/__init__.py` |  |
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-*No flagged symbols.*
+#### Deprecated
 
-**Summary:** 12 symbols (12 stable, 0 flagged). workflow=0, config=0, class=0, function=12, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_malignancy_interpretation` | Deprecated | `src/scLucid/tumor/malignancy/__init__.py` | [D] |
+
+**Summary:** 12 symbols (11 stable, 1 flagged). workflow=0, config=0, class=0, function=11, alias=0, constant=0, trace=0, deprecated=1, uncertain=0, private_but_exposed=0.
 
 ## scLucid.tumor.microenvironment
 
@@ -1455,6 +1482,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `BaseWorkflow` | Function | `src/scLucid/utils/__init__.py` |  |
 | `BenchmarkRunner` | Function | `src/scLucid/utils/__init__.py` |  |
 | `build_config_lineage` | Function | `src/scLucid/utils/__init__.py` |  |
+| `build_metadata_dicts` | Function | `src/scLucid/utils/__init__.py` |  |
 | `build_qc_preprocess_validation` | Function | `src/scLucid/utils/__init__.py` |  |
 | `build_resource_trust_report` | Function | `src/scLucid/utils/__init__.py` |  |
 | `canonicalize_marker_label` | Function | `src/scLucid/utils/__init__.py` |  |
@@ -1497,6 +1525,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `infer_dataset_profile` | Function | `src/scLucid/utils/__init__.py` |  |
 | `is_ci_environment` | Function | `src/scLucid/utils/__init__.py` |  |
 | `is_multi_sample_hint` | Function | `src/scLucid/utils/__init__.py` |  |
+| `is_raw_count_matrix` | Function | `src/scLucid/utils/__init__.py` |  |
 | `LayerKeys` | Function | `src/scLucid/utils/__init__.py` |  |
 | `LayerSemanticKeys` | Function | `src/scLucid/utils/__init__.py` |  |
 | `list_results` | Function | `src/scLucid/utils/__init__.py` |  |
@@ -1533,6 +1562,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `PerformanceProfiler` | Function | `src/scLucid/utils/__init__.py` |  |
 | `PerformanceStats` | Function | `src/scLucid/utils/__init__.py` |  |
 | `print_dataset_summary` | Function | `src/scLucid/utils/__init__.py` |  |
+| `print_sample_crosstab` | Function | `src/scLucid/utils/__init__.py` |  |
 | `profile_function` | Function | `src/scLucid/utils/__init__.py` |  |
 | `profile_performance` | Function | `src/scLucid/utils/__init__.py` |  |
 | `progress_decorator` | Function | `src/scLucid/utils/__init__.py` |  |
@@ -1570,6 +1600,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `WorkflowCheckpoint` | Function | `src/scLucid/utils/__init__.py` |  |
 | `WorkflowError` | Function | `src/scLucid/utils/__init__.py` |  |
 | `WorkflowStepIterator` | Function | `src/scLucid/utils/__init__.py` |  |
+| `write_h5ad_safe` | Function | `src/scLucid/utils/__init__.py` |  |
 | `write_validation_outputs` | Function | `src/scLucid/utils/__init__.py` |  |
 
 #### Constant
@@ -1607,6 +1638,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `validate_modality_contract` | Trace / Contract | `src/scLucid/utils/__init__.py` | [T] |
 | `validate_review_summary_schema` | Trace / Contract | `src/scLucid/utils/__init__.py` | [T] |
 | `validate_stage_contract` | Trace / Contract | `src/scLucid/utils/__init__.py` | [T] |
+| `validate_workflow_contract` | Trace / Contract | `src/scLucid/utils/__init__.py` | [T] |
 | `VALIDATION_SCAFFOLD_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/utils/__init__.py` | [T] |
 
 ### Deprecated / Uncertain / Private-but-Exposed
@@ -1617,22 +1649,22 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 |--------|------|--------|-------|
 | `_get_cancer_markers` | Private-but-Exposed | `src/scLucid/utils/__init__.py` | [P] |
 
-**Summary:** 160 symbols (159 stable, 1 flagged). workflow=0, config=0, class=0, function=132, alias=0, constant=11, trace=16, deprecated=0, uncertain=0, private_but_exposed=1.
+**Summary:** 165 symbols (164 stable, 1 flagged). workflow=0, config=0, class=0, function=136, alias=0, constant=11, trace=17, deprecated=0, uncertain=0, private_but_exposed=1.
 
 ## Global Summary
 
 | Kind | Count |
 |------|-------|
-| Workflow Orchestrator | 14 |
+| Workflow Orchestrator | 12 |
 | Config Class | 81 |
 | Class | 0 |
-| Function | 760 |
+| Function | 772 |
 | Alias | 21 |
 | Constant | 18 |
-| Trace / Contract | 65 |
-| Deprecated | 1 |
+| Trace / Contract | 66 |
+| Deprecated | 7 |
 | Uncertain | 0 |
 | Private-but-Exposed | 1 |
-| **Total** | **961** |
+| **Total** | **978** |
 
 <!-- AUTO-GENERATED INVENTORY END -->

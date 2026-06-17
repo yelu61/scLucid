@@ -31,6 +31,13 @@ from .embedding_plots import (
     plot_faceted_embedding,
 )
 
+# Theme helpers
+from .theme import (
+    apply_theme,
+    build_color_palette,
+    build_obs_palette,
+)
+
 # Feature/gene expression plots
 from .feature_plots import (
     plot_dotplot,
@@ -64,4 +71,7 @@ __all__ = [
     "plot_differential_abundance",
     "plot_annotation_evidence_panel",
     "export_annotation_report",
+    "apply_theme",
+    "build_color_palette",
+    "build_obs_palette",
 ]

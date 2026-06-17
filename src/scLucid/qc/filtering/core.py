@@ -5,22 +5,20 @@ This module provides marking, filtering, and reporting functions for low-quality
 cells, doublets, and custom outliers, with flexible logic and clear outputs.
 """
 
-import json
 import logging
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from matplotlib import get_backend
 from scipy import stats
 
+from scLucid.utils.helpers import _is_interactive_backend
+
 from ..adaptive_threshold import compute_mad_bounds
-from ..config import FilterConfig, MarkingConfig, QCThresholds
-from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
+from ..config import FilterConfig, MarkingConfig
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +27,71 @@ __all__ = [
     "mark_low_quality_cell",
     "mark_low_quality_cells_adaptive",
     "filter_cells",
+    "audit_filtering",
 ]
+
+
+def audit_filtering(
+    adata_before: AnnData,
+    adata_after: AnnData,
+    sample_key: str,
+    group_key: Optional[str] = None,
+) -> Dict[str, pd.DataFrame]:
+    """Audit cell retention after filtering.
+
+    Computes per-sample before/after counts, number removed, and retention rate.
+    If ``group_key`` is provided, also computes a per-group summary.
+
+    Parameters
+    ----------
+    adata_before, adata_after
+        AnnData objects before and after filtering. ``adata_after`` should be a
+        subset of ``adata_before``.
+    sample_key
+        Column in ``.obs`` identifying samples.
+    group_key
+        Optional column in ``.obs`` for a biological group summary.
+
+    Returns:
+    -------
+    Dict[str, pd.DataFrame]
+        ``{"sample": sample_df, "group": group_df}``. ``group`` is only present
+        when ``group_key`` is provided.
+
+    Examples:
+    --------
+    >>> audit = scl.qc.audit_filtering(
+    ...     adata_before, adata_after, sample_key="sampleID", group_key="group"
+    ... )
+    >>> print(audit["sample"])
+    """
+    if sample_key not in adata_before.obs.columns:
+        raise ValueError(f"sample_key '{sample_key}' not found in adata_before.obs")
+    if sample_key not in adata_after.obs.columns:
+        raise ValueError(f"sample_key '{sample_key}' not found in adata_after.obs")
+
+    before = adata_before.obs.groupby(sample_key, observed=True).size()
+    after = adata_after.obs.groupby(sample_key, observed=True).size()
+    sample_audit = pd.DataFrame({"before": before, "after": after}).fillna(0).astype(int)
+    sample_audit["removed"] = sample_audit["before"] - sample_audit["after"]
+    sample_audit["retention_rate"] = (sample_audit["after"] / sample_audit["before"]).round(3)
+
+    print("=== Retention by sample ===")
+    print(sample_audit.reset_index().to_string(index=False))
+
+    result: Dict[str, pd.DataFrame] = {"sample": sample_audit.reset_index()}
+
+    if group_key and group_key in adata_before.obs.columns and group_key in adata_after.obs.columns:
+        before_g = adata_before.obs.groupby(group_key, observed=True).size()
+        after_g = adata_after.obs.groupby(group_key, observed=True).size()
+        group_audit = pd.DataFrame({"before": before_g, "after": after_g}).fillna(0).astype(int)
+        group_audit["removed"] = group_audit["before"] - group_audit["after"]
+        group_audit["retention_rate"] = (group_audit["after"] / group_audit["before"]).round(3)
+        print("=== Retention by group ===")
+        print(group_audit.reset_index().to_string(index=False))
+        result["group"] = group_audit.reset_index()
+
+    return result
 
 
 class AdaptiveThresholdCalculator:

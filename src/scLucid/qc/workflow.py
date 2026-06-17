@@ -7,6 +7,7 @@ quality control analysis using all components of the package.
 
 import json
 import logging
+import warnings
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
@@ -36,6 +37,7 @@ from .filtering import (
     filter_cells,
     generate_qc_report,
     mark_low_quality_cell,
+    resolve_qc_thresholds,
 )
 from .metrics import calculate_qc_metric
 from .trace import enrich_qc_review_summary, validate_qc_review_summary
@@ -409,35 +411,33 @@ def _apply_qc_recommendations(
     def _is_user_set(obj, field_name: str) -> bool:
         return field_name in getattr(obj, "model_fields_set", set())
 
-    # min_genes -> marking_config.thresholds.min_genes
-    min_genes_rec = rec_dict.get("min_genes")
-    if isinstance(min_genes_rec, dict) and min_genes_rec.get("threshold") is not None:
-        if not (
-            _is_user_set(applied, "marking_config")
-            and _is_user_set(applied.marking_config, "thresholds")
-            and _is_user_set(applied.marking_config.thresholds, "min_genes")
-        ):
-            applied.marking_config.thresholds.min_genes = int(min_genes_rec["threshold"])
+    intelligent_thresholds: Dict[str, Any] = {}
+    threshold_map = {
+        "min_genes": "min_genes",
+        "max_mt_percent": "pc_mt",
+        "n_counts": "min_counts",
+    }
+    for rec_key, threshold_key in threshold_map.items():
+        rec_value = rec_dict.get(rec_key)
+        if isinstance(rec_value, dict) and rec_value.get("threshold") is not None:
+            intelligent_thresholds[threshold_key] = rec_value["threshold"]
 
-    # max_mt_percent -> marking_config.thresholds.pc_mt
-    mt_rec = rec_dict.get("max_mt_percent")
-    if isinstance(mt_rec, dict) and mt_rec.get("threshold") is not None:
-        if not (
-            _is_user_set(applied, "marking_config")
-            and _is_user_set(applied.marking_config, "thresholds")
-            and _is_user_set(applied.marking_config.thresholds, "pc_mt")
-        ):
-            applied.marking_config.thresholds.pc_mt = float(mt_rec["threshold"])
+    manual_thresholds: Dict[str, Any] = {}
+    if _is_user_set(config, "marking_config") and _is_user_set(
+        config.marking_config, "thresholds"
+    ):
+        for field_name in config.marking_config.thresholds.model_fields_set:
+            manual_thresholds[field_name] = getattr(config.marking_config.thresholds, field_name)
 
-    # n_counts -> marking_config.thresholds.min_counts
-    counts_rec = rec_dict.get("n_counts")
-    if isinstance(counts_rec, dict) and counts_rec.get("threshold") is not None:
-        if not (
-            _is_user_set(applied, "marking_config")
-            and _is_user_set(applied.marking_config, "thresholds")
-            and _is_user_set(applied.marking_config.thresholds, "min_counts")
-        ):
-            applied.marking_config.thresholds.min_counts = int(counts_rec["threshold"])
+    if intelligent_thresholds or manual_thresholds:
+        # Thresholds the user set explicitly (tracked via model_fields_set) are
+        # authoritative and must survive recommendations verbatim, so use the
+        # manual_override policy rather than treating them as floor/ceiling bounds.
+        applied.marking_config.thresholds = resolve_qc_thresholds(
+            intelligent=intelligent_thresholds,
+            manual=manual_thresholds,
+            policy="manual_override",
+        )
 
     # doublet_threshold -> doublet_config.score_threshold
     doublet_rec = rec_dict.get("doublet_threshold")
@@ -1581,6 +1581,11 @@ def run_advanced_qc(
     """
     Run an advanced, fully configurable single-cell RNA-seq QC workflow.
 
+    .. deprecated::
+        ``run_advanced_qc`` is a thin compatibility wrapper around
+        :func:`run_standard_qc`. Pass a fully populated ``QCWorkflowConfig`` to
+        ``run_standard_qc`` instead; this alias will be removed in a future release.
+
     This workflow is entirely controlled by the provided QCWorkflowConfig object,
     allowing fine-grained control over every step.
 
@@ -1611,156 +1616,25 @@ def run_advanced_qc(
     Returns:
         Filtered AnnData object after QC.
     """
-    runtime_config = _prepare_runtime_qc_config(config, tissue_type)
-
-    # Validate error recovery settings
-    if error_recovery and on_error == "save" and not recovery_save_dir:
-        raise ValueError(
-            "recovery_save_dir is required when error_recovery=True and on_error='save'"
-        )
-
-    # Handle resume from checkpoint
-    completed_steps: List[str] = []
-    if resume_from:
-        manager = PartialResultManager(resume_from)
-        adata, checkpoint, _ = manager.load()
-        completed_steps = checkpoint.completed_steps
-        log.info(f"Resumed from checkpoint. Completed steps: {completed_steps}")
-    else:
-        adata = adata_in.copy()
-
-    adata, results_path = _setup_workflow(adata, runtime_config.save_dir, overwrite)
-
-    log.info("=" * 60)
-    log.info("=== Starting Advanced QC Workflow ===")
-    log.info("=" * 60)
-    if results_path is not None:
-        log.info(f"Results will be saved in: {results_path}")
-    else:
-        log.info("Running without file output")
-    log.info(f"Error recovery: {error_recovery}")
-
-    # Resolve steps
-    steps_to_run = _resolve_qc_steps(steps, skip_steps, completed_steps)
-    log.info(f"Steps to run: {steps_to_run}")
-
-    # Track execution
-    successful_steps: List[str] = []
-    current_step = None
-
-    try:
-        # --- Step 1: QC Metrics ---
-        if "qc_metrics" in steps_to_run:
-            current_step = "qc_metrics"
-            log.info("Step: QC Metrics Calculation")
-            (
-                adata,
-                applied_config,
-                recommendation,
-                sample_thresholds,
-                qc_warnings,
-                original_config,
-            ) = _run_qc_workflow(adata, runtime_config, results_path, show_progress=show_progress)
-            _add_tumor_aware_flags(adata, applied_config.tissue_type or tissue_type)
-            successful_steps.append("qc_metrics")
-        else:
-            log.info("Step: QC Metrics (skipped)")
-            applied_config = runtime_config
-            recommendation = None
-            sample_thresholds = {}
-            qc_warnings = []
-            original_config = runtime_config.model_copy(deep=True)
-
-        # --- Step 2: Filtering ---
-        if "filtering" in steps_to_run:
-            current_step = "filtering"
-            log.info("Step: Cell Filtering")
-            adata_filtered = filter_cells(adata, config=applied_config.filter_config, copy=True)
-            successful_steps.append("filtering")
-        else:
-            log.info("Step: Filtering (skipped)")
-            adata_filtered = adata
-
-        filtering_summary = (
-            adata_filtered.uns.get("sclucid", {}).get("qc", {}).get("filtering_results", {})
-        )
-        review_summary = _store_qc_trace(
-            adata_filtered,
-            applied_config,
-            original_config,
-            recommendation,
-            sample_thresholds,
-            filtering_summary,
-            qc_warnings,
-            steps_executed=successful_steps,
-            adata_before_filtering=adata,
-        )
-        if results_path is not None:
-            _export_qc_review_summary(review_summary, results_path, adata_filtered)
-            benchmark_summary = review_summary.get("benchmark_summary")
-            if isinstance(benchmark_summary, dict):
-                export_qc_benchmark_report(benchmark_summary, results_path)
-
-        # --- Step 3: Reporting ---
-        if results_path is not None and "reporting" in steps_to_run:
-            current_step = "reporting"
-            log.info("Step: Report Generation")
-            generate_qc_report(
-                adata_filtered,
-                save_dir=results_path / "report",
-                sample_key=applied_config.sample_key,
-                adata_before=adata,
-            )
-            successful_steps.append("reporting")
-
-    except Exception as e:
-        error_msg = f"Advanced QC workflow failed at step '{current_step}': {str(e)}"
-        log.error(error_msg)
-        import traceback
-
-        log.error(traceback.format_exc())
-
-        if error_recovery and on_error in ["raise", "save"]:
-            # Save partial results
-            save_dir = recovery_save_dir or (
-                str(results_path / "recovery") if results_path else "./recovery"
-            )
-            manager = PartialResultManager(save_dir)
-            checkpoint = WorkflowCheckpoint(
-                completed_steps=successful_steps,
-                failed_step=current_step,
-                error_message=str(e),
-            )
-            manager.save(
-                adata,
-                checkpoint,
-                applied_config if "applied_config" in locals() else runtime_config,
-            )
-
-            if on_error == "save":
-                log.warning(f"QC failed but partial results saved to: {save_dir}")
-                log.warning(
-                    f"To resume, use: run_advanced_qc(adata, config, resume_from='{save_dir}')"
-                )
-                return adata
-
-        raise WorkflowError(error_msg, step_name=current_step or "unknown", original_error=e)
-
-    # Save workflow result using standardized storage
-    save_workflow_result(
-        adata_filtered,
-        module="qc",
-        workflow_name="advanced",
-        steps=successful_steps,
-        config=applied_config.to_dict(),
+    warnings.warn(
+        "run_advanced_qc is a compatibility wrapper; use run_standard_qc with "
+        "QCWorkflowConfig for the maintained QC workflow.",
+        FutureWarning,
+        stacklevel=2,
     )
-
-    log.info("=" * 60)
-    log.info("=== Advanced QC Workflow Complete! ===")
-    log.info(f"Completed steps: {successful_steps}")
-    log.info("=" * 60)
-
-    return adata_filtered
+    return run_standard_qc(
+        adata_in,
+        config=config,
+        overwrite=overwrite,
+        tissue_type=tissue_type,
+        show_progress=show_progress,
+        steps=steps,
+        skip_steps=skip_steps,
+        error_recovery=error_recovery,
+        recovery_save_dir=recovery_save_dir,
+        on_error=on_error,
+        resume_from=resume_from,
+    )
 
 
 __all__ = [

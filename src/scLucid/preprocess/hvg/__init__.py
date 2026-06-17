@@ -13,5 +13,5 @@ from .core import (  # noqa: F401
     find_hvgs,
 )
 from .plotting import plot_hvg_metrics  # noqa: F401
-from .selection import select_hvg_sets, suggest_hvg_choice  # noqa: F401
+from .selection import select_and_audit_hvgs, select_hvg_sets, suggest_hvg_choice  # noqa: F401
 from .stability import evaluate_hvg_stability  # noqa: F401

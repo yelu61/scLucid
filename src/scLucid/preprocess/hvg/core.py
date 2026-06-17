@@ -207,12 +207,17 @@ def _diagnose_input_for_hvg(X, max_n=10000):
 
 
 def _matrix_looks_like_counts(X) -> bool:
-    """Lightweight check for raw-count-like non-negative integer data."""
-    values = X.data if scipy.sparse.issparse(X) else np.asarray(X)
-    if values.size == 0:
-        return True
-    sample = values[: min(values.size, 10000)]
-    return bool(np.all(sample >= 0) and np.allclose(sample, np.round(sample)))
+    """Internal bool compatibility shim around the canonical raw-count check."""
+    from ...utils.validation import is_raw_count_matrix
+
+    raw_like, _ = is_raw_count_matrix(
+        X,
+        max_cells=256,
+        max_genes=1024,
+        zero_fraction_threshold=0.0,
+        min_max_value=0.0,
+    )
+    return bool(raw_like)
 
 
 def _resolve_hvg_flavor(flavor: str, input_layer: str, X) -> tuple[str, list[str]]:

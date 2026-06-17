@@ -41,7 +41,11 @@ class NormalizationConfig(SclucidBaseConfig):
     )
     input_layer: str = Field(default="counts", description="Input layer name")
     output_layer: str = Field(default="normalized", description="Output layer name")
-    update_X: bool = Field(default=True, description="Update adata.X with normalized data")
+    update_X: bool = Field(default=True, description="Update adata.X with normalized data")  # noqa: N815
+    set_raw: bool = Field(
+        default=False,
+        description="Store a full-gene copy of the normalized AnnData in adata.raw before downstream filtering.",
+    )
 
     @field_validator("output_layer")
     @classmethod
@@ -187,6 +191,18 @@ class IntegrationConfig(SclucidBaseConfig):
         description="Additional kwargs passed directly to the underlying integration method. "
         "These override any values in harmony_params / scvi_params / scanvi_params.",
     )
+    auto_decide: bool = Field(
+        default=False,
+        description="If True, run integration only when decide_integration(auto) approves it.",
+    )
+    evaluate: bool = Field(
+        default=False,
+        description="If True, evaluate integration quality after successful correction.",
+    )
+    condition_key: Optional[str] = Field(default=None)
+    biology_columns: List[str] = Field(default_factory=list)
+    label_key: Optional[str] = Field(default=None)
+    tumor: bool = Field(default=False)
 
 
 class NeighborsConfig(SclucidBaseConfig):

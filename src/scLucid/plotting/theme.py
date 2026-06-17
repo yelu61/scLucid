@@ -1,6 +1,6 @@
 """Publication-ready plotting themes."""
 
-from typing import Dict
+from typing import Dict, Iterable, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -68,6 +68,93 @@ SCIENCE_COLORS = {
     ],
     "cmap": "viridis",
 }
+
+
+def build_color_palette(
+    keys,
+    color_maps: Optional[Dict[str, Dict[str, str]]] = None,
+    fallback_palette: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
+    """Build a combined color palette by looking up keys across color maps.
+
+    Searches each key in the provided color maps in order and falls back to
+    ``fallback_palette`` if none of the maps define the key.
+
+    Parameters
+    ----------
+    keys
+        Iterable of keys to resolve (e.g. sample IDs, group names).
+    color_maps
+        Ordered mapping ``{"map_name": {key: color}}``. Later maps override
+        earlier maps when a key appears in multiple maps. If None, defaults to
+        empty dict.
+    fallback_palette
+        Optional final fallback dict used when a key is not found in any
+        ``color_maps``.
+
+    Returns:
+    -------
+    Dict[str, str]
+        Resolved palette with one color per key.
+
+    Examples:
+    --------
+    >>> palette = build_color_palette(
+    ...     ["sample_A", "group_1"],
+    ...     color_maps={
+    ...         "samples": {"sample_A": "#1E688D"},
+    ...         "groups": {"group_1": "#55E08A"},
+    ...     },
+    ... )
+    """
+    color_maps = color_maps or {}
+    palette: Dict[str, str] = {}
+    for key in keys:
+        for color_map in color_maps.values():
+            if key in color_map:
+                palette[key] = color_map[key]
+                break
+        else:
+            if fallback_palette and key in fallback_palette:
+                palette[key] = fallback_palette[key]
+    return palette
+
+
+def build_obs_palette(
+    adata,
+    color_keys: Sequence[str],
+    color_maps: Optional[Dict[str, Dict[str, str]]] = None,
+    fallback_palette: Optional[Iterable[str]] = None,
+) -> Dict[str, str]:
+    """Build a Scanpy palette for categorical values in ``adata.obs`` columns.
+
+    ``scanpy.pl.embedding(..., color=[...], palette=...)`` expects colors keyed by
+    category values, not by obs column names. This helper collects the displayed
+    categories from each requested obs column and resolves them against project
+    color maps, filling any missing values with a deterministic fallback palette.
+    """
+    color_maps = color_maps or {}
+    fallback_colors = list(fallback_palette or sns.color_palette("tab20", 20).as_hex())
+    palette: Dict[str, str] = {}
+    fallback_i = 0
+
+    categories = []
+    for key in color_keys:
+        if key not in adata.obs.columns:
+            continue
+        values = adata.obs[key].dropna().astype(str).unique().tolist()
+        categories.extend(values)
+
+    for category in dict.fromkeys(categories):
+        for color_map in color_maps.values():
+            if category in color_map:
+                palette[category] = color_map[category]
+                break
+        else:
+            palette[category] = fallback_colors[fallback_i % len(fallback_colors)]
+            fallback_i += 1
+
+    return palette
 
 
 def apply_theme(theme: str = "nature") -> Dict:

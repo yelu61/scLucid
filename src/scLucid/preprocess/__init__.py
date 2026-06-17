@@ -46,10 +46,17 @@ from .hvg import (
     evaluate_hvg_stability,
     find_hvgs,
     plot_hvg_metrics,
+    select_and_audit_hvgs,
     select_hvg_sets,
     suggest_hvg_choice,
 )
-from .integrate import batch_correction, diagnose_integration_risk, evaluate_integration
+from .integrate import (
+    batch_correction,
+    decide_integration,
+    diagnose_integration_risk,
+    detect_integration_confounding,
+    evaluate_integration,
+)
 
 # --- Intelligent Preprocessing ---
 from .intelligent import (
@@ -65,15 +72,15 @@ from .intelligent import (
     recommend_intelligent_preprocessing,
     run_intelligent_preprocessing,
 )
-from .neighbors import optimize_neighbors_pcs
+from .neighbors import optimize_neighbors_pcs, run_embedding_workflow
 
 # --- Core Functions ---
 # --- Plotting & Evaluation Functions ---
 from .normalize import normalize_data, plot_normalization_effect
 from .scale import diagnose_cell_cycle_regression, plot_scaling_effect, regress_out, scale_data
 from .trace import (
-    PREPROCESS_REQUIRED_REVIEW_SECTIONS,
     PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION,
+    PREPROCESS_REQUIRED_REVIEW_SECTIONS,
     PREPROCESS_STABLE_ENTRYPOINTS,
     PREPROCESS_TRACE_SCHEMA_VERSION,
     build_preprocess_module_maturity_assessment,
@@ -127,11 +134,14 @@ __all__ = [
     "normalize_data",
     "regress_out",
     "find_hvgs",
+    "select_and_audit_hvgs",
     "select_hvg_sets",
     "scale_data",
     "diagnose_cell_cycle_regression",
     "batch_correction",
     "diagnose_integration_risk",
+    "detect_integration_confounding",
+    "decide_integration",
     "annotate_gene_biotypes",
     "filter_genes_by_biotype",
     "get_biotype_statistics",
@@ -154,6 +164,7 @@ __all__ = [
     "evaluate_hvg_stability",
     "evaluate_integration",
     "optimize_neighbors_pcs",
+    "run_embedding_workflow",
     # Intelligent Preprocessing
     "IntelligentPreprocessConfig",
     "IntelligentPreprocessRecommender",

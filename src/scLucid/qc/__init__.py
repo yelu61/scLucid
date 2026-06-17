@@ -61,6 +61,7 @@ _export(
         "create_custom_marker_dict",
         "predict_doublets",
         "predict_doublets_with_profiling",
+        "audit_doublets",
     ],
 )
 _export(
@@ -72,6 +73,10 @@ _export(
         "mark_low_quality_cell",
         "mark_low_quality_cells_adaptive",
         "filter_cells",
+        "audit_filtering",
+        "resolve_qc_thresholds",
+        "run_qc_threshold_decision",
+        "run_qc_decision_workflow",
     ],
 )
 

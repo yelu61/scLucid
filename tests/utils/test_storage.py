@@ -23,6 +23,7 @@ from scLucid.utils.storage import (
     migrate_legacy_storage,
     save_result,
     save_workflow_result,
+    write_h5ad_safe,
 )
 
 
@@ -342,6 +343,46 @@ class TestWorkflowResultHelpers:
 
         assert empty_adata.uns[STORAGE_ROOT]["qc"]["review_summary"] == summary
         assert load_result(empty_adata, "qc", "review_summary") == summary
+
+    def test_write_h5ad_safe_handles_nested_review_records(self, empty_adata, tmp_path):
+        """Nested list-of-dict review evidence should not break h5ad writing."""
+        empty_adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["review_summary"] = {
+            "schema_version": "1.0",
+            "module": "qc",
+            "workflow_name": "manual",
+            "steps_executed": ["empty_droplets"],
+            "data_shape": {"n_cells": empty_adata.n_obs, "n_genes": empty_adata.n_vars},
+            "empty_droplet_summary": {
+                "top_background_genes": [
+                    {"gene": "mt-Co3", "background_fraction": 0.1},
+                    {"gene": "mt-Atp6", "background_fraction": 0.2},
+                ]
+            },
+        }
+
+        path = write_h5ad_safe(empty_adata, tmp_path / "safe.h5ad")
+
+        assert path.exists()
+
+    def test_write_h5ad_safe_lightweight_drops_working_layers(self, empty_adata, tmp_path):
+        """Lightweight mode should drop dense working layers while preserving normalized data."""
+        import scanpy as sc
+
+        empty_adata.layers["normalized"] = empty_adata.X.copy()
+        empty_adata.layers["regressed"] = empty_adata.X.copy()
+        empty_adata.layers["scaled"] = empty_adata.X.copy()
+
+        path = write_h5ad_safe(
+            empty_adata,
+            tmp_path / "light.h5ad",
+            lightweight=True,
+            x_layer="normalized",
+        )
+        result = sc.read_h5ad(path)
+
+        assert "normalized" in result.layers
+        assert "regressed" not in result.layers
+        assert "scaled" not in result.layers
 
     def test_load_workflow_result_none(self, empty_adata):
         """Test load_workflow_result with no result."""

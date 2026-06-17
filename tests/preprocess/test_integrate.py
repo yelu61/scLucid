@@ -7,6 +7,7 @@ from anndata import AnnData
 from scLucid.preprocess.config import IntegrationConfig
 from scLucid.preprocess.integrate import (
     batch_correction,
+    decide_integration,
     diagnose_integration_risk,
     evaluate_integration,
 )
@@ -45,6 +46,58 @@ class TestBatchCorrection:
         assert result["warnings"]
         assert "integration_risk" in adata.uns["sclucid"]["preprocess"]["integration"]
 
+    def test_diagnose_integration_risk_detects_biology_confounding(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["b1", "b2"] * (adata.n_obs // 2)
+        adata.obs["group"] = ["g1", "g2"] * (adata.n_obs // 2)
+
+        result = diagnose_integration_risk(
+            adata,
+            batch_key="batch",
+            biology_columns=["group"],
+        )
+
+        assert result["risk_level"] in {"moderate", "high"}
+        assert any("one-to-one" in w for w in result["warnings"])
+
+    def test_decide_integration_auto_skips_when_confounded(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["b1", "b2"] * (adata.n_obs // 2)
+        adata.obs["group"] = ["g1", "g2"] * (adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+
+        run, warnings, risk = decide_integration(
+            adata,
+            batch_key="batch",
+            run_integration="auto",
+            biology_columns=["group"],
+        )
+
+        assert run is False
+        assert any("one-to-one" in w for w in warnings)
+
+    def test_decide_integration_forced_true(self, minimal_adata):
+        adata = minimal_adata.copy()
+        run, warnings, risk = decide_integration(
+            adata,
+            batch_key="batch",
+            run_integration=True,
+        )
+        assert run is True
+        assert warnings == []
+        assert risk is None
+
+    def test_decide_integration_forced_false(self, minimal_adata):
+        adata = minimal_adata.copy()
+        run, warnings, risk = decide_integration(
+            adata,
+            batch_key="batch",
+            run_integration=False,
+        )
+        assert run is False
+        assert "disabled by user" in warnings[0]
+        assert risk is None
+
     def test_harmony_integration_mock(self, monkeypatch, minimal_adata):
         import scLucid.preprocess.integrate as integrate_module
 
@@ -81,6 +134,38 @@ class TestBatchCorrection:
         assert "harmony" in integration_meta
         assert integration_meta["workflow"]["method"] == "harmony"
         assert integration_meta["workflow"]["output_key"] == "X_harmony"
+
+    def test_auto_decide_success_preserves_decision_trace(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 5))
+
+        def fake_harmony(adata, covariate_keys, basis, embedding_key, **kwargs):
+            adata.obsm[embedding_key] = adata.obsm[basis].copy()
+            return adata
+
+        monkeypatch.setattr(integrate_module, "_integrate_harmony", fake_harmony)
+
+        result = batch_correction(
+            adata,
+            config=IntegrationConfig(
+                method="harmony",
+                batch_key="batch",
+                use_rep="X_pca",
+                auto_decide=True,
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+        )
+
+        workflow = result.uns["sclucid"]["preprocess"]["integration"]["workflow"]
+        assert workflow["auto_decide"] is True
+        assert workflow["decision"]["run"] is True
+        assert workflow["decision"]["risk"]["risk_level"] == "low"
+        assert workflow["risk"] == workflow["decision"]["risk"]
 
     def test_harmony_low_level_default_max_iter_matches_config(self, monkeypatch, minimal_adata):
         import scLucid.preprocess.integrate as integrate_module
@@ -323,7 +408,7 @@ class TestBatchCorrection:
         monkeypatch.setattr(integrate_module, "_integrate_harmony", fake_harmony)
 
         # Without force: should return early (harmony already exists)
-        result = batch_correction(
+        batch_correction(
             adata,
             config=IntegrationConfig(
                 method="harmony",
@@ -338,7 +423,7 @@ class TestBatchCorrection:
         assert call_count[0] == 0  # never called
 
         # With force: should re-run
-        result = batch_correction(
+        batch_correction(
             adata,
             config=IntegrationConfig(
                 method="harmony",
@@ -403,6 +488,8 @@ class TestEvaluateIntegration:
         assert "method" in result
         assert "n_batches" in result
         assert result["n_batches"] == 2
+        assert result["interpretation"]["status"] in {"acceptable", "review"}
+        assert "evaluation" in adata.uns["sclucid"]["preprocess"]["integration"]
 
     def test_evaluate_integration_missing_batch_key(self, minimal_adata):
         adata = minimal_adata.copy()

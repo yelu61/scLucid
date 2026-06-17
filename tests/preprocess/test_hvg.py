@@ -426,9 +426,29 @@ class TestSelectHVGSets:
         )
         assert result is not None
 
+    def test_select_and_audit_hvgs(self, minimal_adata):
+        from scLucid.preprocess.config import HVGConfig
+        from scLucid.preprocess.hvg.selection import select_and_audit_hvgs
+
+        adata = minimal_adata.copy()
+        find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
+                  force=True, input_layer="counts")
+
+        result, audit = select_and_audit_hvgs(
+            adata,
+            hvg_keys=["highly_variable_scanpy_seurat"],
+            mode="direct",
+            subset=False,
+            keep_raw=True,
+        )
+
+        assert result is not None
+        assert audit["n_selected"] > 0
+        assert "hvg_selection_audit" in result.uns["sclucid"]["preprocess"]
+
 
 class TestSuggestHVGChoice:
-    def test_suggest_does_not_crash(self, minimal_adata, capsys):
+    def test_suggest_returns_structured_guidance(self, minimal_adata):
         from scLucid.preprocess.config import HVGConfig
 
         adata = minimal_adata.copy()
@@ -437,13 +457,15 @@ class TestSuggestHVGChoice:
         find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat_v3", n_top_genes=100),
                   force=True, input_layer="counts")
 
-        suggest_hvg_choice(
+        suggestion = suggest_hvg_choice(
             adata,
             hvg_keys=["highly_variable_scanpy_seurat", "highly_variable_scanpy_seurat_v3"],
-            mode="standard",
+            mode="auto",
         )
-        captured = capsys.readouterr()
-        assert len(captured.out) > 0 or len(captured.err) > 0
+        assert suggestion["requested_mode"] == "auto"
+        assert suggestion["recommended_mode"] in {"union", "intersection"}
+        assert 0 <= suggestion["jaccard_index"] <= 1
+        assert suggestion["messages"]
 
 
 class TestEdgeCases:

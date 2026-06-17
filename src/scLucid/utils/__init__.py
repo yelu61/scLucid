@@ -99,8 +99,11 @@ from .evidence import (
     model_to_dict,
 )
 from .helpers import (
+    build_metadata_dicts,
+    is_raw_count_matrix,
     load_10x_data,
     merge_obs_metadata,
+    print_sample_crosstab,
     read_10x,
     sanitize_for_hdf5,
     subset_adata,
@@ -183,6 +186,7 @@ from .storage import (
     migrate_legacy_storage,
     save_result,
     save_workflow_result,
+    write_h5ad_safe,
 )
 
 # Import validation utilities
@@ -195,6 +199,7 @@ from .validation import (
     validate_adata,
     validate_analysis_results,
     validate_config,
+    validate_workflow_contract,
 )
 from .validation_scaffold import (
     COMPARATIVE_READINESS_LABEL,
@@ -239,6 +244,18 @@ except ImportError:
 
 # Define what should be accessible when importing from this module
 __all__ = [
+    # Validation
+    "ValidationError",
+    "validate_adata",
+    "validate_config",
+    "validate_analysis_results",
+    "check_layer_consistency",
+    "is_raw_count_matrix",
+    "assert_qc_ready",
+    "assert_preprocessing_ready",
+    "assert_analysis_ready",
+    "validate_workflow_contract",
+    "write_h5ad_safe",
     # Helper functions
     "load_10x_data",
     "use_layer_as_X",
@@ -246,6 +263,7 @@ __all__ = [
     "subset_adata",
     "subset_from_annotations",
     "merge_obs_metadata",
+    "build_metadata_dicts",
     "AnalysisContext",
     "DatasetProfile",
     "DatasetType",
@@ -391,6 +409,9 @@ __all__ = [
     # Data loading
     "read_10x",
     "read_h5ad",
+    "build_metadata_dicts",
+    "print_sample_crosstab",
+    "is_raw_count_matrix",
     # Profiling utilities
     "PerformanceStats",
     "PerformanceProfiler",

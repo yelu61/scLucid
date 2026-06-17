@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Sequence, Union
 from anndata import AnnData
 
 from .contracts import normalize_review_summary, validate_review_summary_schema
+from .sanitize import sanitize_for_hdf5
 from .storage import export_review_summary, save_result
 
 
@@ -88,6 +89,8 @@ def finalize_manual_review_summary(
         save_result(adata, module, "workflow_config", config_dict)
     save_result(adata, module, "steps_executed", steps_executed)
     save_result(adata, module, "review_summary", review_summary)
+    module_ns = adata.uns["sclucid"][module]
+    review_summary = module_ns["review_summary"]
 
     if save_dir is not None:
         export_review_summary(
@@ -97,6 +100,7 @@ def finalize_manual_review_summary(
             title=title,
             adata=adata,
         )
+        review_summary = module_ns["review_summary"]
 
     return review_summary
 

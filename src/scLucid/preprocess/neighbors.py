@@ -4,6 +4,7 @@ with silhouette score and visualization for single-cell analysis.
 """
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -19,7 +20,7 @@ from .config import NeighborsConfig, apply_config_overrides
 
 log = logging.getLogger(__name__)
 
-__all__ = ["optimize_neighbors_pcs"]
+__all__ = ["optimize_neighbors_pcs", "run_embedding_workflow"]
 
 
 # --- Helper Functions ---#
@@ -240,3 +241,73 @@ def optimize_neighbors_pcs(
         plt.show()
 
     return df_results
+
+
+def _run_embedding_pipeline(
+    adata: AnnData,
+    *,
+    use_rep: str = "X_pca",
+    config: Optional[NeighborsConfig] = None,
+    optimize: bool = True,
+    default_n_neighbors: int = 15,
+    default_n_pcs: Optional[int] = 50,
+    umap_key: Optional[str] = None,
+    min_dist: float = 0.3,
+    copy: bool = False,
+    **kwargs,
+) -> tuple[AnnData, pd.DataFrame]:
+    """Optimize neighbors, build the graph, and compute a named UMAP embedding.
+
+    This is a small workflow wrapper around ``optimize_neighbors_pcs``,
+    ``sc.pp.neighbors`` and ``sc.tl.umap``. It keeps the selected parameters and
+    final UMAP key in ``adata.uns['sclucid']['preprocess']['embedding_workflow']``.
+    """
+    result = adata.copy() if copy else adata
+    if use_rep not in result.obsm:
+        raise ValueError(f"Representation '{use_rep}' not found in adata.obsm.")
+
+    active_config = config or NeighborsConfig(use_rep=use_rep)
+    active_config = apply_config_overrides(active_config, use_rep=use_rep, **kwargs)
+
+    optimization_results = pd.DataFrame()
+    n_neighbors = int(default_n_neighbors)
+    rep_dims = int(result.obsm[use_rep].shape[1])
+    n_pcs = min(default_n_pcs or rep_dims, rep_dims)
+
+    if optimize:
+        optimization_results = optimize_neighbors_pcs(result, config=active_config)
+        if not optimization_results.empty:
+            best = optimization_results.loc[optimization_results["silhouette_score"].idxmax()]
+            n_neighbors = int(best["n_neighbors"])
+            n_pcs = int(best["n_pcs"])
+
+    sc.pp.neighbors(result, use_rep=use_rep, n_neighbors=n_neighbors, n_pcs=n_pcs)
+    sc.tl.umap(result, min_dist=min_dist)
+
+    if umap_key is None:
+        suffix = use_rep.replace("X_", "").lower()
+        umap_key = f"X_umap_{suffix}"
+    result.obsm[umap_key] = result.obsm["X_umap"].copy()
+
+    result.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "embedding_workflow"
+    ] = {
+        "use_rep": use_rep,
+        "umap_key": umap_key,
+        "optimized": bool(optimize),
+        "n_neighbors": n_neighbors,
+        "n_pcs": n_pcs,
+        "min_dist": float(min_dist),
+    }
+    return result, optimization_results
+
+
+def run_embedding_workflow(*args, **kwargs) -> tuple[AnnData, pd.DataFrame]:
+    """Compatibility alias for the private embedding pipeline helper."""
+    warnings.warn(
+        "run_embedding_workflow is a transitional compatibility alias; "
+        "prefer explicit optimize_neighbors_pcs + sc.pp.neighbors/sc.tl.umap in public notebooks.",
+        FutureWarning,
+        stacklevel=2,
+    )
+    return _run_embedding_pipeline(*args, **kwargs)

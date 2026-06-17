@@ -28,10 +28,12 @@ from scLucid.qc.doublet import (
     DoubletEvidenceProfiler,
     _export_doublet_stats,
     _run_heuristic,
+    audit_doublets,
     predict_doublets,
 )
 from scLucid.qc.doublet._scrublet_compat import apply_scrublet_compatibility_shims
 from scLucid.qc.doublet.algorithms import (
+    _plot_scrublet_embedding_fallback,
     _raw_count_guard,
     _run_scdblfinder,
     _run_scrublet,
@@ -72,7 +74,7 @@ class TestScrubletCompatibilityShims:
             _compat._SCRUBLET_SHIMS_APPLIED = False
 
     def test_run_scrublet_uses_fallback_when_call_doublets_fails(self, monkeypatch):
-        """_run_scrublet should fall back to quantile thresholding when call_doublets raises."""
+        """_run_scrublet should fall back to expected-rate top scores when call_doublets raises."""
 
         class FakeScrublet:
             def __init__(self, counts, expected_doublet_rate=None):
@@ -99,6 +101,124 @@ class TestScrubletCompatibilityShims:
         assert predicted is not None
         # 10% highest scores should be flagged by the fallback threshold.
         assert int(predicted.sum()) == 8
+
+    def test_run_scrublet_fallback_handles_tied_scores(self, monkeypatch):
+        """Fallback should not return zero doublets when quantile ties at the max score."""
+
+        class FakeScrublet:
+            def __init__(self, counts, expected_doublet_rate=None):
+                self.counts = counts
+                self.expected_doublet_rate = expected_doublet_rate
+
+            def scrub_doublets(self, n_prin_comps=None, verbose=False):
+                scores = np.zeros(self.counts.shape[0], dtype=float)
+                scores[-20:] = 0.0003
+                return scores, None
+
+            def call_doublets(self, verbose=False):
+                return None
+
+        monkeypatch.setitem(sys.modules, "scrublet", SimpleNamespace(Scrublet=FakeScrublet))
+        rng = np.random.default_rng(7)
+        adata = AnnData(X=rng.poisson(3, size=(80, 120)).astype(np.float32))
+        scores, predicted = _run_scrublet(
+            adata,
+            sample_name="s1",
+            config=DoubletConfig(expected_doublet_rate=0.1, scr_n_pcs=10),
+        )
+
+        assert scores is not None
+        assert predicted is not None
+        assert int(predicted.sum()) == 8
+        assert predicted[-8:].all()
+
+    def test_run_scrublet_reruns_exact_neighbors_when_approx_scores_degenerate(
+        self, monkeypatch
+    ):
+        """Degenerate approximate-neighbor Scrublet scores should trigger exact rerun."""
+
+        calls = []
+
+        class FakeScrublet:
+            def __init__(self, counts, expected_doublet_rate=None):
+                self.counts = counts
+                self.expected_doublet_rate = expected_doublet_rate
+
+            def scrub_doublets(
+                self,
+                n_prin_comps=None,
+                verbose=False,
+                use_approx_neighbors=True,
+            ):
+                calls.append(use_approx_neighbors)
+                if use_approx_neighbors:
+                    scores = np.repeat(0.0003, self.counts.shape[0])
+                    return scores, None
+                scores = np.linspace(0.0, 1.0, self.counts.shape[0])
+                return scores, scores > 0.9
+
+            def call_doublets(self, verbose=False):
+                return None
+
+        monkeypatch.setitem(sys.modules, "scrublet", SimpleNamespace(Scrublet=FakeScrublet))
+        rng = np.random.default_rng(7)
+        adata = AnnData(X=rng.poisson(3, size=(80, 120)).astype(np.float32))
+        scores, predicted = _run_scrublet(
+            adata,
+            sample_name="s1",
+            config=DoubletConfig(expected_doublet_rate=0.1, scr_n_pcs=10),
+        )
+
+        assert calls == [True, False]
+        assert scores is not None
+        assert predicted is not None
+        assert int(predicted.sum()) == 8
+
+    def test_run_scrublet_recovers_predictions_from_object_attribute(self, monkeypatch):
+        """Some Scrublet versions populate predicted_doublets_ without returning it."""
+
+        class FakeScrublet:
+            def __init__(self, counts, expected_doublet_rate=None):
+                self.counts = counts
+                self.expected_doublet_rate = expected_doublet_rate
+                self.predicted_doublets_ = None
+                self.doublet_scores_obs_ = None
+
+            def scrub_doublets(self, n_prin_comps=None, verbose=False):
+                self.doublet_scores_obs_ = np.linspace(0.0, 1.0, self.counts.shape[0])
+                self.predicted_doublets_ = self.doublet_scores_obs_ > 0.9
+                return self.doublet_scores_obs_, None
+
+            def call_doublets(self, verbose=False):
+                return None
+
+        monkeypatch.setitem(sys.modules, "scrublet", SimpleNamespace(Scrublet=FakeScrublet))
+        rng = np.random.default_rng(7)
+        adata = AnnData(X=rng.poisson(3, size=(80, 120)).astype(np.float32))
+        scores, predicted = _run_scrublet(
+            adata,
+            sample_name="s1",
+            config=DoubletConfig(expected_doublet_rate=0.1, scr_n_pcs=10),
+        )
+
+        assert scores is not None
+        assert predicted is not None
+        assert int(predicted.sum()) == 8
+
+    def test_fallback_embedding_plotter_handles_numpy2_ptp_removal(self):
+        embedding = np.column_stack([np.linspace(0, 1, 20), np.linspace(1, 0, 20)])
+        scores = np.linspace(0, 1, 20)
+        predicted = scores > 0.8
+
+        fig = _plot_scrublet_embedding_fallback(
+            embedding,
+            scores,
+            predicted,
+            title="test scrublet fallback",
+        )
+
+        assert fig is not None
+        assert len(fig.axes) >= 2
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +452,25 @@ class TestRunHeuristic:
         meta = adata.uns["sclucid"]["qc"]["doublet_params"]["heuristic_allowlist"]
         assert meta["applied_before_thresholding"] is True
         assert meta["n_cells_score_zeroed"] == adata.n_obs
+
+
+class TestAuditDoublets:
+    def test_summarizes_predictions_and_scores(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["predicted_doublet"] = [True, False] * (adata.n_obs // 2)
+        adata.obs["doublet_score"] = np.linspace(0, 1, adata.n_obs)
+        summary = audit_doublets(adata)
+        assert "predictions" in summary
+        assert "scores" in summary
+        assert summary["predictions"]["predicted_doublet"]["count"] == adata.n_obs // 2
+        assert "doublet_score" in summary["scores"]
+
+    def test_warns_on_remaining_predicted_doublets(self, minimal_adata, capsys):
+        adata = minimal_adata.copy()
+        adata.obs["predicted_doublet"] = True
+        audit_doublets(adata)
+        captured = capsys.readouterr()
+        assert "predicted doublets remain" in captured.out
 
 
 # ---------------------------------------------------------------------------

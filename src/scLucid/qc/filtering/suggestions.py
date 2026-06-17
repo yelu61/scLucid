@@ -14,10 +14,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import scanpy as sc
-import seaborn as sns
 from anndata import AnnData
-from scipy import stats
 
 from ..adaptive_threshold import compute_mad_bounds
 from ..config import QCThresholds
@@ -328,6 +325,120 @@ def suggest_qc_thresholds(
 
     return suggested_thresholds_df, default_thresholds_obj
 
+
+
+def resolve_qc_thresholds(
+    *,
+    intelligent: Optional[Dict[str, Any]] = None,
+    mad: Optional[Dict[str, Any]] = None,
+    manual: Optional[Dict[str, Any]] = None,
+    policy: Literal["intelligent_then_mad", "mad_then_intelligent", "manual_override"] = "intelligent_then_mad",
+) -> QCThresholds:
+    """Merge QC threshold sources into a single ``QCThresholds`` object.
+
+    This is the canonical helper for combining data-driven suggestions (Intelligent
+    QC, MAD) with manual project overrides. Manual overrides are treated as
+    safety bounds:
+
+    - ``manual.min_genes`` / ``manual.min_counts`` act as floors.
+    - ``manual.max_genes`` / ``manual.max_counts`` / ``manual.pc_mt`` act as
+      ceilings.
+
+    Parameters
+    ----------
+    intelligent
+        Threshold dict from ``recommend_intelligent_qc`` (keys like ``min_genes``,
+        ``min_counts``, ``pc_mt``).
+    mad
+        Threshold dict from ``suggest_qc_thresholds`` (a ``QCThresholds.to_dict()``).
+    manual
+        Manual overrides. Missing keys are ignored.
+    policy
+        Which data-driven source takes priority when both are provided.
+
+    Returns:
+    -------
+    QCThresholds
+        Resolved thresholds.
+
+    Examples:
+    --------
+    >>> thresholds = resolve_qc_thresholds(
+    ...     intelligent={"min_genes": 300, "pc_mt": 8.0},
+    ...     mad={"min_genes": 200, "max_genes": 8000, "pc_mt": 10.0},
+    ...     manual={"min_genes": 500, "pc_mt": 12.0},
+    ... )
+    """
+    intelligent = intelligent or {}
+    mad = mad or {}
+    manual = manual or {}
+
+    def _pick_data(key: str) -> Any:
+        i_val = intelligent.get(key)
+        m_val = mad.get(key)
+        if policy == "manual_override":
+            return manual.get(key) if manual.get(key) is not None else (i_val if i_val is not None else m_val)
+        if policy == "intelligent_then_mad":
+            return i_val if i_val is not None else m_val
+        # mad_then_intelligent
+        return m_val if m_val is not None else i_val
+
+    min_genes = _pick_data("min_genes")
+    max_genes = _pick_data("max_genes")
+    min_counts = _pick_data("min_counts")
+    max_counts = _pick_data("max_counts")
+    pc_mt = _pick_data("pc_mt")
+    pc_hb = _pick_data("pc_hb")
+    pc_top_genes = _pick_data("pc_top_genes") or {}
+
+    # Manual overrides as floors/ceilings
+    if manual.get("min_genes") is not None and min_genes is not None:
+        min_genes = max(min_genes, manual["min_genes"])
+    elif manual.get("min_genes") is not None:
+        min_genes = manual["min_genes"]
+
+    if manual.get("min_counts") is not None and min_counts is not None:
+        min_counts = max(min_counts, manual["min_counts"])
+    elif manual.get("min_counts") is not None:
+        min_counts = manual["min_counts"]
+
+    if manual.get("max_genes") is not None and max_genes is not None:
+        max_genes = min(max_genes, manual["max_genes"])
+    elif manual.get("max_genes") is not None:
+        max_genes = manual["max_genes"]
+
+    if manual.get("max_counts") is not None and max_counts is not None:
+        max_counts = min(max_counts, manual["max_counts"])
+    elif manual.get("max_counts") is not None:
+        max_counts = manual["max_counts"]
+
+    if manual.get("pc_mt") is not None and pc_mt is not None:
+        pc_mt = min(pc_mt, manual["pc_mt"])
+    elif manual.get("pc_mt") is not None:
+        pc_mt = manual["pc_mt"]
+
+    if manual.get("pc_hb") is not None and pc_hb is not None:
+        pc_hb = min(pc_hb, manual["pc_hb"])
+    elif manual.get("pc_hb") is not None:
+        pc_hb = manual["pc_hb"]
+
+    kwargs: Dict[str, Any] = {}
+    if min_genes is not None:
+        kwargs["min_genes"] = min_genes
+    if max_genes is not None:
+        kwargs["max_genes"] = max_genes
+    if min_counts is not None:
+        kwargs["min_counts"] = min_counts
+    if max_counts is not None:
+        kwargs["max_counts"] = max_counts
+    if pc_mt is not None:
+        kwargs["pc_mt"] = pc_mt
+    if pc_hb is not None:
+        kwargs["pc_hb"] = pc_hb
+    if pc_top_genes:
+        kwargs["pc_top_genes"] = pc_top_genes
+
+    return QCThresholds(**kwargs)
 
 
 def generate_qc_report(

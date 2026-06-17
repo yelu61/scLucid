@@ -14,13 +14,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import anndata
-import numpy as np
 import pandas as pd
 from anndata import AnnData
 from scipy import io
 
-from .contracts import LayerKeys, SCLUCID_ROOT, UnsKeys, ensure_sclucid_namespace
+from .contracts import SCLUCID_ROOT, LayerKeys, UnsKeys, ensure_sclucid_namespace
 from .sanitize import sanitize_for_hdf5
+from .validation import is_raw_count_matrix
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,94 @@ __all__ = [
     "subset_adata",
     "subset_from_annotations",
     "merge_obs_metadata",
+    "build_metadata_dicts",
+    "is_raw_count_matrix",
+    "print_sample_crosstab",
 ]
+
+
+def print_sample_crosstab(
+    adata: AnnData,
+    sample_key: str = "sampleID",
+    group_key: Optional[str] = None,
+) -> Optional[pd.DataFrame]:
+    """Print a crosstab of samples by biological group.
+
+    Useful for quick project overviews before QC or when auditing sample
+    balance after filtering.
+
+    Parameters
+    ----------
+    adata
+        AnnData object.
+    sample_key
+        Column in ``.obs`` identifying samples.
+    group_key
+        Optional column in ``.obs`` for a biological group. If provided,
+        a sample x group crosstab with margins is printed; otherwise the
+        per-sample cell counts are printed.
+
+    Returns:
+    -------
+    pd.DataFrame or None
+        The printed crosstab DataFrame.
+    """
+    if sample_key not in adata.obs.columns:
+        raise ValueError(f"sample_key '{sample_key}' not found in adata.obs")
+
+    if group_key and group_key in adata.obs.columns:
+        ctab = pd.crosstab(
+            adata.obs[sample_key],
+            adata.obs[group_key],
+            margins=True,
+        )
+    else:
+        ctab = pd.DataFrame(adata.obs[sample_key].value_counts())
+        ctab.columns = ["n_cells"]
+
+    print(ctab)
+    return ctab
+
+
+def build_metadata_dicts(
+    samples: List[str],
+    *,
+    group_dict: Optional[Dict[str, Any]] = None,
+    batch_dict: Optional[Dict[str, Any]] = None,
+    group_key: str = "group",
+    batch_key: str = "batch",
+    extra_dicts: Optional[Dict[str, Dict[str, Any]]] = None,
+    strict: bool = False,
+    default_value: Any = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Build a ``metadata_dicts`` mapping for ``read_10x`` / ``load_10x_data``.
+
+    ``group_dict`` and ``batch_dict`` preserve the historical convenience API.
+    ``extra_dicts`` accepts arbitrary sample-level metadata shaped as
+    ``{column_name: {sample_id: value}}``. Missing sample values are filled with
+    ``default_value`` unless ``strict=True``.
+    """
+    metadata_dicts: Dict[str, Dict[str, Any]] = {}
+    sample_list = list(samples)
+
+    def _build_column(column: str, mapping: Dict[str, Any]) -> None:
+        missing = [sample for sample in sample_list if sample not in mapping]
+        if strict and missing:
+            raise KeyError(
+                f"Metadata column '{column}' is missing values for samples: {missing}"
+            )
+        metadata_dicts[column] = {
+            sample: mapping.get(sample, default_value) for sample in sample_list
+        }
+
+    if group_dict is not None and group_key:
+        _build_column(group_key, group_dict)
+    if batch_dict is not None and batch_key:
+        _build_column(batch_key, batch_dict)
+    for column, mapping in (extra_dicts or {}).items():
+        _build_column(str(column), mapping)
+
+    return metadata_dicts
 
 
 def read_10x(
@@ -442,19 +529,20 @@ def _attach_counts_layer(adata: AnnData) -> None:
 
 
 def _looks_like_counts(matrix) -> bool:
-    """Return True if ``matrix`` appears to hold non-negative integer counts."""
+    """Internal fast-path bool check for count-like data.
+
+    This heuristic is used only to auto-populate ``layers['counts']``. Use the
+    public :func:`is_raw_count_matrix` for user-facing diagnostics.
+    """
     try:
-        if hasattr(matrix, "dtype") and np.issubdtype(matrix.dtype, np.integer):
-            return True
-        sample = matrix[:64] if hasattr(matrix, "__getitem__") else matrix
-        if hasattr(sample, "toarray"):
-            sample = sample.toarray()
-        sample = np.asarray(sample)
-        if sample.size == 0:
-            return False
-        if np.any(sample < 0):
-            return False
-        return bool(np.all(sample == sample.astype(int)))
+        raw_like, _ = is_raw_count_matrix(
+            matrix,
+            max_cells=64,
+            max_genes=512,
+            zero_fraction_threshold=0.0,
+            min_max_value=0.0,
+        )
+        return bool(raw_like)
     except Exception:
         return False
 

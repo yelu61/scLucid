@@ -130,37 +130,72 @@ def _extract_str_list(node: ast.AST) -> List[str]:
     return values
 
 
+def _is_deprecation_warn_call(call: ast.Call) -> bool:
+    """Return True if a call is ``warnings.warn(..., FutureWarning/DeprecationWarning)``.
+
+    Also matches a warn call whose message string contains "deprecated".
+    """
+    if not isinstance(call, ast.Call):
+        return False
+    is_warn = (
+        isinstance(call.func, ast.Attribute)
+        and call.func.attr == "warn"
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "warnings"
+    )
+    if not is_warn:
+        return False
+    for arg in call.args:
+        if isinstance(arg, ast.Name) and arg.id in ("FutureWarning", "DeprecationWarning"):
+            return True
+        if isinstance(arg, ast.Attribute) and arg.attr in (
+            "FutureWarning",
+            "DeprecationWarning",
+        ):
+            return True
+        s = _extract_constant_str(arg)
+        if s and "deprecated" in s.lower():
+            return True
+    return False
+
+
 def _find_deprecated_functions(node: ast.AST) -> Set[str]:
-    """Find function/class definitions that emit deprecation warnings."""
+    """Find function/class definitions that are themselves deprecated.
+
+    A symbol is considered deprecated only when it emits a deprecation warning
+    as a *direct, unconditional* statement in its own body (the pattern used by
+    compatibility wrappers). Warnings buried in nested control flow (e.g. a
+    deprecated *step* inside a still-supported workflow) or inside nested
+    function definitions are intentionally ignored to avoid false positives.
+    """
     deprecated: Set[str] = set()
     for child in ast.walk(node):
-        if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        for stmt in ast.walk(child):
-            if not isinstance(stmt, ast.Call):
-                continue
-            # warnings.warn(..., FutureWarning/DeprecationWarning)
-            if isinstance(stmt.func, ast.Attribute) and stmt.func.attr == "warn":
-                if isinstance(stmt.func.value, ast.Name) and stmt.func.value.id == "warnings":
-                    for arg in stmt.args:
-                        if isinstance(arg, ast.Name) and arg.id in (
-                            "FutureWarning",
-                            "DeprecationWarning",
-                        ):
-                            deprecated.add(child.name)
-                            break
-                        if isinstance(arg, ast.Attribute) and arg.attr in (
-                            "FutureWarning",
-                            "DeprecationWarning",
-                        ):
-                            deprecated.add(child.name)
-                            break
-            # String literal containing "deprecated" anywhere in warn args
-            for arg in stmt.args:
-                s = _extract_constant_str(arg)
-                if s and "deprecated" in s.lower():
-                    deprecated.add(child.name)
-                    break
+        for stmt in child.body:
+            if isinstance(stmt, ast.Expr) and _is_deprecation_warn_call(stmt.value):
+                deprecated.add(child.name)
+                break
+    return deprecated
+
+
+def _scan_global_deprecated() -> Set[str]:
+    """Scan every source module for functions/classes that emit deprecation warnings.
+
+    Deprecated wrappers are frequently defined in a sibling module (e.g.
+    ``workflow.py``) and merely re-exported from ``__init__.py``. Scanning only
+    the ``__init__`` files would miss them, so this collects deprecated symbol
+    names across the whole package and is unioned with the per-init local scan.
+    """
+    deprecated: Set[str] = set()
+    if not SRC_ROOT.exists():
+        return deprecated
+    for py_path in SRC_ROOT.rglob("*.py"):
+        try:
+            tree = ast.parse(py_path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        deprecated |= _find_deprecated_functions(tree)
     return deprecated
 
 
@@ -372,7 +407,11 @@ def _discover_subpackages() -> List[Tuple[str, Path]]:
     return subpackages
 
 
-def _parse_init(module_path: str, init_path: Path) -> List[Symbol]:
+def _parse_init(
+    module_path: str,
+    init_path: Path,
+    global_deprecated: Optional[Set[str]] = None,
+) -> List[Symbol]:
     text = init_path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(text)
@@ -382,6 +421,8 @@ def _parse_init(module_path: str, init_path: Path) -> List[Symbol]:
 
     all_names = _extract_all_names(tree)
     deprecated_local = _find_deprecated_functions(tree)
+    if global_deprecated:
+        deprecated_local = deprecated_local | global_deprecated
     export_calls, name_to_export_module = _extract_export_calls(tree)
     simple_aliases = _extract_simple_aliases(tree)
     import_aliases = _extract_import_aliases(tree)
@@ -715,9 +756,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     subpackages = _discover_subpackages()
+    global_deprecated = _scan_global_deprecated()
     all_symbols: List[Symbol] = []
     for module_path, init_path in subpackages:
-        all_symbols.extend(_parse_init(module_path, init_path))
+        all_symbols.extend(_parse_init(module_path, init_path, global_deprecated))
 
     generated = _generate_inventory(all_symbols)
 

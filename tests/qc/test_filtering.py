@@ -1,15 +1,19 @@
 """Tests for QC filtering functions."""
 
-from anndata import AnnData
 import pandas as pd
 import pytest
+from anndata import AnnData
 
 from scLucid.qc.config import FilterConfig
 from scLucid.qc.filtering import (
+    audit_filtering,
     filter_cells,
     generate_qc_report,
     identify_outliers,
     mark_low_quality_cell,
+    resolve_qc_thresholds,
+    run_qc_decision_workflow,
+    run_qc_threshold_decision,
     suggest_qc_thresholds,
 )
 
@@ -181,6 +185,90 @@ class TestFilterCells:
                 combination_logic="custom",
                 custom_logic_expr=None,
             )
+
+
+class TestResolveQCThresholds:
+    def test_intelligent_then_mad_policy(self):
+        thresholds = resolve_qc_thresholds(
+            intelligent={"min_genes": 300, "pc_mt": 8.0},
+            mad={"min_genes": 200, "max_genes": 8000, "pc_mt": 10.0},
+        )
+        assert thresholds.min_genes == 300
+        assert thresholds.max_genes == 8000
+        assert thresholds.pc_mt == 8.0
+
+    def test_manual_floor_and_ceiling(self):
+        thresholds = resolve_qc_thresholds(
+            intelligent={"min_genes": 300, "pc_mt": 8.0},
+            mad={"min_genes": 200, "pc_mt": 10.0},
+            manual={"min_genes": 500, "pc_mt": 12.0},
+        )
+        assert thresholds.min_genes == 500  # floor
+        assert thresholds.pc_mt == 8.0  # ceiling
+
+    def test_manual_override_policy(self):
+        thresholds = resolve_qc_thresholds(
+            intelligent={"min_genes": 300},
+            mad={"min_genes": 200},
+            manual={"min_genes": 500},
+            policy="manual_override",
+        )
+        assert thresholds.min_genes == 500
+
+    def test_mad_then_intelligent_policy(self):
+        thresholds = resolve_qc_thresholds(
+            intelligent={"min_genes": 300},
+            mad={"min_genes": 200},
+            policy="mad_then_intelligent",
+        )
+        assert thresholds.min_genes == 200
+
+
+class TestQCDecisionWorkflow:
+    def test_runs_threshold_resolution_and_marking(self, qc_test_adata):
+        result = run_qc_decision_workflow(
+            qc_test_adata.copy(),
+            intelligent_thresholds={"min_genes": 100, "pc_mt": 20.0},
+            manual_thresholds={"min_genes": 50},
+            plot_distributions=False,
+            filter_cells_result=False,
+        )
+
+        assert "adata" in result
+        assert result["resolved_thresholds"].min_genes == 100
+        assert "qc_threshold_decision" in result["adata"].uns["sclucid"]["qc"]
+        assert "qc_decision_workflow" in result["adata"].uns["sclucid"]["qc"]
+
+    def test_new_threshold_decision_entrypoint(self, qc_test_adata):
+        result = run_qc_threshold_decision(
+            qc_test_adata.copy(),
+            intelligent_thresholds={"min_genes": 100, "pc_mt": 20.0},
+            plot_distributions=False,
+            filter_cells_result=False,
+        )
+
+        assert result["resolved_thresholds"].min_genes == 100
+        assert "qc_threshold_decision" in result["adata"].uns["sclucid"]["qc"]
+
+
+class TestAuditFiltering:
+    def test_per_sample_retention(self, qc_test_adata):
+        before = qc_test_adata.copy()
+        after = before[: before.n_obs // 2].copy()
+        result = audit_filtering(before, after, sample_key="sampleID")
+        assert "sample" in result
+        assert all(
+            col in result["sample"].columns
+            for col in ["sampleID", "before", "after", "removed", "retention_rate"]
+        )
+
+    def test_group_retention(self, qc_test_adata):
+        before = qc_test_adata.copy()
+        before.obs["group"] = ["g1", "g2"] * (before.n_obs // 2)
+        after = before[: before.n_obs // 2].copy()
+        result = audit_filtering(before, after, sample_key="sampleID", group_key="group")
+        assert "sample" in result
+        assert "group" in result
 
 
 class TestGenerateQCReport:

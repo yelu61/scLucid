@@ -5,19 +5,13 @@ Extracted for maintainability.
 
 from __future__ import annotations
 
-import gc
 import logging
 import math
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Union
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-import scanpy as sc
-import seaborn as sns
 from anndata import AnnData
-from upsetplot import plot as upset_plot
 
 from ...utils import get_marker_manager
 from ..config import DoubletConfig, MarkerConfig
@@ -41,7 +35,88 @@ EXPECTED_HOMOTYPIC_RATE_COL = "expected_homotypic_doublet_rate"
 __all__ = [
     "generate_doublet_rates",
     "create_custom_marker_dict",
+    "audit_doublets",
 ]
+
+
+def audit_doublets(
+    adata: AnnData,
+    prediction_cols: Optional[List[str]] = None,
+    score_cols: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Audit doublet predictions and scores remaining in ``adata``.
+
+    Useful after filtering to confirm that predicted doublets were removed, or to
+    inspect residual doublet signal.
+
+    Parameters
+    ----------
+    adata
+        AnnData object (typically after QC filtering).
+    prediction_cols
+        Boolean ``.obs`` columns to summarize. Defaults to common scLucid doublet
+        prediction columns.
+    score_cols
+        Numeric ``.obs`` columns to summarize. Defaults to common scLucid doublet
+        score columns.
+
+    Returns:
+    -------
+    Dict[str, Any]
+        Summary with ``predictions`` and ``scores`` sub-dicts.
+
+    Examples:
+    --------
+    >>> summary = scl.qc.audit_doublets(adata_filtered)
+    >>> print(summary["predictions"]["predicted_doublet"])
+    """
+    if prediction_cols is None:
+        prediction_cols = [
+            "predicted_doublet",
+            "scrublet_predicted",
+            "doubletdetection_predicted",
+            "heuristic_predicted",
+        ]
+    if score_cols is None:
+        score_cols = [
+            "algorithm_doublet_score",
+            "doublet_score",
+            "heterotypic_doublet_risk",
+            "homotypic_doublet_risk",
+        ]
+
+    predictions = {}
+    for col in prediction_cols:
+        if col not in adata.obs.columns:
+            continue
+        n = int(adata.obs[col].sum()) if adata.obs[col].dtype == bool else None
+        pct = (n / adata.n_obs * 100) if n is not None else None
+        predictions[col] = {"count": n, "percent": pct}
+        if n is not None:
+            print(f"  {col}: {n} cells ({pct:.2f}%)")
+            if col == "predicted_doublet" and n > 0:
+                print(
+                    f"    NOTE: {n} predicted doublets remain after filtering — "
+                    "review FilterConfig criteria."
+                )
+
+    scores = {}
+    for col in score_cols:
+        if col not in adata.obs.columns:
+            continue
+        vals = pd.to_numeric(adata.obs[col], errors="coerce")
+        scores[col] = {
+            "median": float(vals.median()),
+            "p95": float(vals.quantile(0.95)),
+            "max": float(vals.max()),
+        }
+        print(
+            f"  {col}: median={vals.median():.3f}, "
+            f"p95={vals.quantile(0.95):.3f}, max={vals.max():.3f}"
+        )
+
+    return {"predictions": predictions, "scores": scores}
+
 
 def _create_doublet_marker_config_from_manager(
     adata: AnnData, cfg: DoubletConfig

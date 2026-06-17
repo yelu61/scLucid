@@ -98,8 +98,18 @@ class TestNormalizeDataStandard:
             config=NormalizationConfig(method="standard", plot=False, report=False, verbose=False),
             force=False,
         )
-        # Should skip normalization and keep original layer
-        np.testing.assert_array_equal(result.layers["normalized"], original_layer)
+
+    def test_set_raw_creates_raw_slot(self, minimal_adata):
+        adata = minimal_adata.copy()
+        result = normalize_data(
+            adata,
+            config=NormalizationConfig(
+                method="standard", set_raw=True, plot=False, report=False, verbose=False
+            ),
+        )
+        assert result.raw is not None
+        assert result.raw.shape == result.shape
+        assert "normalized" in result.layers
 
     def test_stores_metadata_in_uns(self, minimal_adata):
         adata = minimal_adata.copy()

@@ -16,6 +16,7 @@ from scLucid.utils.validation import (
     assert_preprocessing_ready,
     assert_qc_ready,
     check_layer_consistency,
+    is_raw_count_matrix,
     validate_adata,
     validate_analysis_results,
     validate_config,
@@ -150,6 +151,8 @@ class TestValidateConfig:
     """Test validate_config function."""
 
     class DummyConfig:
+        """Small config object used for validation tests."""
+
         def __init__(self, **kwargs):
             for k, v in kwargs.items():
                 setattr(self, k, v)
@@ -346,6 +349,8 @@ class TestValidateConfigBranches:
     """Cover the raise_on_error and missing-value paths of validate_config."""
 
     class DummyConfig:
+        """Small config object used for validation tests."""
+
         def __init__(self, **kwargs):
             for k, v in kwargs.items():
                 setattr(self, k, v)
@@ -481,3 +486,50 @@ class TestAssertHelperErrorTranslation:
         adata = AnnData(np.random.rand(10, 5))
         with pytest.raises(ValidationError):
             assert_analysis_ready(adata)
+
+
+class TestIsRawCountMatrix:
+    def test_raw_dense_counts_are_raw(self):
+        x = np.zeros((50, 20), dtype=float)
+        x[:25, :10] = np.random.poisson(5, size=(25, 10))
+        x[25:, 10:] = np.random.poisson(3, size=(25, 10))
+        is_raw, info = is_raw_count_matrix(x)
+        assert is_raw is True
+        assert info["has_negative"] is False
+        assert info["zero_fraction"] >= 0.20
+        assert info["max_value"] > 10
+
+    def test_normalized_matrix_is_not_raw(self):
+        x = np.random.rand(50, 20)  # continuous, no zeros
+        is_raw, info = is_raw_count_matrix(x)
+        assert is_raw is False
+        assert info["fractional_positive_rate"] > 0.01
+
+    def test_negative_values_are_not_raw(self):
+        x = np.random.poisson(3, size=(50, 20)).astype(float)
+        x[0, 0] = -1
+        is_raw, info = is_raw_count_matrix(x)
+        assert is_raw is False
+        assert info["has_negative"] is True
+
+    def test_sparse_raw_counts_are_raw(self):
+        rng = np.random.default_rng(0)
+        x = sp.random(100, 50, density=0.1, format="csr", random_state=rng)
+        x.data = np.abs(rng.poisson(5, size=x.data.size).astype(float))
+        x.data[x.data == 0] = 1
+        is_raw, info = is_raw_count_matrix(x)
+        assert is_raw is True
+        assert info["has_negative"] is False
+        assert info["zero_fraction"] >= 0.20
+
+    def test_helper_reexport_and_hvg_internal_check_are_consistent(self):
+        from scLucid.preprocess.hvg.core import _matrix_looks_like_counts
+        from scLucid.utils.helpers import is_raw_count_matrix as helper_is_raw_count_matrix
+
+        counts = np.random.poisson(3, size=(80, 40)).astype(float)
+        normalized = np.random.random((80, 40))
+
+        assert helper_is_raw_count_matrix(counts)[0] == is_raw_count_matrix(counts)[0]
+        assert _matrix_looks_like_counts(counts) is True
+        assert helper_is_raw_count_matrix(normalized)[0] == is_raw_count_matrix(normalized)[0]
+        assert _matrix_looks_like_counts(normalized) is False

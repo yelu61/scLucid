@@ -20,7 +20,7 @@ Usage:
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Iterable, Optional, Union
 
 from anndata import AnnData
 
@@ -449,6 +449,81 @@ def export_review_summary(
     return artifacts
 
 
+def write_h5ad_safe(
+    adata: AnnData,
+    path: Union[str, Path],
+    *,
+    compression: Optional[str] = "gzip",
+    sanitize_uns: bool = True,
+    atomic: bool = True,
+    lightweight: bool = False,
+    drop_layers: Iterable[str] = ("regressed", "scaled"),
+    x_layer: Optional[str] = None,
+) -> Path:
+    """Write an AnnData object with scLucid-safe provenance handling.
+
+    Parameters
+    ----------
+    adata
+        Object to save.
+    path
+        Output ``.h5ad`` path.
+    compression
+        Compression passed to ``AnnData.write_h5ad``.
+    sanitize_uns
+        Sanitize ``adata.uns['sclucid']`` before writing so nested provenance
+        records are HDF5-compatible.
+    atomic
+        Write to a temporary file in the same directory and rename on success.
+    lightweight
+        Save a copy with selected dense working layers removed.
+    drop_layers
+        Layers to remove when ``lightweight=True``.
+    x_layer
+        Optional layer to copy into ``.X`` before writing the lightweight copy.
+
+    Returns
+    -------
+    pathlib.Path
+        Final written path.
+    """
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    adata_to_write = adata.copy() if lightweight else adata
+
+    if sanitize_uns and "sclucid" in adata_to_write.uns:
+        adata_to_write.uns["sclucid"] = sanitize_for_hdf5(adata_to_write.uns["sclucid"])
+
+    if lightweight:
+        for layer in drop_layers:
+            if layer in adata_to_write.layers:
+                del adata_to_write.layers[layer]
+        if x_layer is not None:
+            if x_layer not in adata_to_write.layers:
+                raise KeyError(f"x_layer '{x_layer}' not found in adata.layers")
+            adata_to_write.X = adata_to_write.layers[x_layer].copy()
+
+    write_path = output_path
+    temp_path: Optional[Path] = None
+    if atomic:
+        temp_path = output_path.with_name(f".{output_path.name}.tmp")
+        write_path = temp_path
+        if temp_path.exists():
+            temp_path.unlink()
+
+    try:
+        adata_to_write.write_h5ad(write_path, compression=compression)
+        if temp_path is not None:
+            temp_path.replace(output_path)
+    except Exception:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+        raise
+
+    return output_path
+
+
 __all__ = [
     # Core storage functions
     "get_storage",
@@ -463,6 +538,7 @@ __all__ = [
     "save_workflow_result",
     "load_workflow_result",
     "export_review_summary",
+    "write_h5ad_safe",
     # Constants
     "STORAGE_ROOT",
     "VALID_MODULES",

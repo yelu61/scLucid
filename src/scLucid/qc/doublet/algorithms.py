@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 import numpy as np
 import pandas as pd
 import scipy.sparse as sparse
@@ -81,6 +82,158 @@ def _ensure_scrublet_compatibility():
     return not hasattr(np.ndarray, "ptp")
 
 
+def _coerce_scrublet_array(values, *, expected_len: int, name: str, sample_name: str):
+    """Return a 1-D numpy array when a Scrublet output has the expected length."""
+    if values is None:
+        return None
+
+    arr = np.asarray(values).ravel()
+    if arr.shape[0] != expected_len:
+        log.warning(
+            "Ignoring Scrublet %s for sample '%s': expected %d values, got %d.",
+            name,
+            sample_name,
+            expected_len,
+            arr.shape[0],
+        )
+        return None
+    return arr
+
+
+def _expected_rate_topk_predictions(scores, expected_rate: float) -> Tuple[np.ndarray, float]:
+    """Flag the top expected-rate cells by score, robust to tied quantiles."""
+    scores = np.asarray(scores, dtype=float).ravel()
+    finite_mask = np.isfinite(scores)
+    predicted = np.zeros(scores.shape[0], dtype=bool)
+    if scores.size == 0 or not np.any(finite_mask):
+        return predicted, float("nan")
+
+    rate = max(0.0, min(1.0, float(expected_rate)))
+    n_expected = int(np.ceil(rate * scores.size))
+    if rate > 0 and n_expected == 0:
+        n_expected = 1
+    n_expected = min(n_expected, int(np.sum(finite_mask)))
+    if n_expected <= 0:
+        return predicted, float(np.nanmax(scores[finite_mask]))
+
+    finite_indices = np.flatnonzero(finite_mask)
+    finite_scores = scores[finite_mask]
+    order = np.argsort(finite_scores, kind="mergesort")
+    selected = finite_indices[order[-n_expected:]]
+    predicted[selected] = True
+    threshold = float(np.min(scores[selected]))
+    return predicted, threshold
+
+
+def _scrublet_scores_degenerate(scores) -> bool:
+    """Return True when Scrublet scores carry no usable ranking signal."""
+    if scores is None:
+        return False
+    arr = np.asarray(scores, dtype=float).ravel()
+    finite = arr[np.isfinite(arr)]
+    if finite.size < 2:
+        return True
+    return bool(np.nanmax(finite) - np.nanmin(finite) <= 1e-12)
+
+
+def _scrub_doublets(scrub, *, n_prin_comps: int, use_approx_neighbors: bool):
+    """Call scrub_doublets with exact/approx neighbor control when supported."""
+    try:
+        return scrub.scrub_doublets(
+            n_prin_comps=n_prin_comps,
+            verbose=False,
+            use_approx_neighbors=use_approx_neighbors,
+        )
+    except TypeError:
+        return scrub.scrub_doublets(n_prin_comps=n_prin_comps, verbose=False)
+
+
+def _plot_scrublet_embedding_fallback(
+    embedding: np.ndarray,
+    scores: np.ndarray,
+    predicted: np.ndarray,
+    *,
+    title: str,
+):
+    """Plot Scrublet embedding without relying on scrublet's NumPy-1.x plotting code."""
+    embedding = np.asarray(embedding)
+    scores = np.asarray(scores, dtype=float).ravel()
+    predicted = np.asarray(predicted, dtype=bool).ravel()
+
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+    x = embedding[:, 0]
+    y = embedding[:, 1]
+    x_range = float(np.max(x) - np.min(x)) if x.size else 0.0
+    y_range = float(np.max(y) - np.min(y)) if y.size else 0.0
+    x_pad = x_range * 0.05
+    y_pad = y_range * 0.05
+    xlim = (float(np.min(x)) - x_pad, float(np.max(x)) + x_pad)
+    ylim = (float(np.min(y)) - y_pad, float(np.max(y)) + y_pad)
+    order = np.argsort(scores)
+
+    axes[0].scatter(
+        x[order],
+        y[order],
+        s=5,
+        c=predicted[order],
+        cmap=ListedColormap(["#BDBDBD", "#000000"]),
+        edgecolors="none",
+    )
+    axes[0].set_title("Predicted doublets")
+
+    scatter = axes[1].scatter(
+        x[order],
+        y[order],
+        s=5,
+        c=scores[order],
+        cmap="Reds",
+        edgecolors="none",
+    )
+    axes[1].set_title("Doublet score")
+    fig.colorbar(scatter, ax=axes[1])
+
+    for ax in axes:
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
+    fig.suptitle(title)
+    fig.tight_layout()
+    return fig
+
+
+def _compute_scrublet_umap_embedding(manifold_obs: np.ndarray, random_state: int = 61):
+    """Compute a UMAP embedding from scrublet's manifold observations.
+
+    Falls back to a direct ``umap.UMAP`` call when scrublet's ``get_umap`` is
+    unavailable or incompatible with the installed NumPy version.
+    """
+    try:
+        import scrublet as scr
+
+        embedding = scr.get_umap(manifold_obs, 10, min_dist=0.3)
+        if embedding is not None and embedding.shape[0] == manifold_obs.shape[0]:
+            return np.asarray(embedding)
+    except Exception as exc:
+        log.debug("scrublet.get_umap failed (%s); falling back to umap-learn.", exc)
+
+    try:
+        import umap
+
+        reducer = umap.UMAP(
+            n_neighbors=10,
+            min_dist=0.3,
+            n_components=2,
+            random_state=random_state,
+        )
+        return reducer.fit_transform(np.asarray(manifold_obs))
+    except Exception as exc:
+        log.warning("Could not compute UMAP embedding via umap-learn: %s", exc)
+        raise
+
+
 def _run_scrublet(
     adata_view: AnnData,
     sample_name: str,
@@ -126,27 +279,90 @@ def _run_scrublet(
         import scrublet as scr
 
         scrub = scr.Scrublet(adata_view.X, expected_doublet_rate=current_rate)
-        scores, predicted = scrub.scrub_doublets(n_prin_comps=actual_n_pcs, verbose=False)
+        scores, predicted = _scrub_doublets(
+            scrub,
+            n_prin_comps=actual_n_pcs,
+            use_approx_neighbors=True,
+        )
+        scores = _coerce_scrublet_array(
+            scores,
+            expected_len=adata_view.n_obs,
+            name="scores",
+            sample_name=sample_name,
+        )
+        predicted = _coerce_scrublet_array(
+            predicted,
+            expected_len=adata_view.n_obs,
+            name="predictions",
+            sample_name=sample_name,
+        )
+
+        if _scrublet_scores_degenerate(scores):
+            log.warning(
+                "Scrublet approximate-neighbor scores are degenerate for sample '%s'; "
+                "rerunning with exact nearest neighbors.",
+                sample_name,
+            )
+            scrub = scr.Scrublet(adata_view.X, expected_doublet_rate=current_rate)
+            scores, predicted = _scrub_doublets(
+                scrub,
+                n_prin_comps=actual_n_pcs,
+                use_approx_neighbors=False,
+            )
+            scores = _coerce_scrublet_array(
+                scores,
+                expected_len=adata_view.n_obs,
+                name="exact-neighbor scores",
+                sample_name=sample_name,
+            )
+            predicted = _coerce_scrublet_array(
+                predicted,
+                expected_len=adata_view.n_obs,
+                name="exact-neighbor predictions",
+                sample_name=sample_name,
+            )
 
         if predicted is None:
             try:
                 predicted = scrub.call_doublets(verbose=False)
             except Exception as e:
                 log.warning(f"Scrublet call_doublets failed for sample '{sample_name}': {e}")
+            predicted = _coerce_scrublet_array(
+                predicted,
+                expected_len=adata_view.n_obs,
+                name="call_doublets predictions",
+                sample_name=sample_name,
+            )
+
+        if scores is None:
+            scores = _coerce_scrublet_array(
+                getattr(scrub, "doublet_scores_obs_", None),
+                expected_len=adata_view.n_obs,
+                name="doublet_scores_obs_",
+                sample_name=sample_name,
+            )
+
+        if predicted is None:
+            predicted = _coerce_scrublet_array(
+                getattr(scrub, "predicted_doublets_", None),
+                expected_len=adata_view.n_obs,
+                name="predicted_doublets_",
+                sample_name=sample_name,
+            )
 
         if predicted is None and scores is not None:
-            threshold = np.quantile(scores, max(0.0, min(1.0, 1.0 - float(current_rate))))
+            predicted, threshold = _expected_rate_topk_predictions(scores, float(current_rate))
             log.warning(
                 "Scrublet did not return binary predictions for sample '%s'; "
-                "falling back to expected-rate score quantile threshold %.4f.",
+                "falling back to expected-rate top-score threshold %.4f.",
                 sample_name,
                 threshold,
             )
-            predicted = np.asarray(scores) > threshold
 
         if predicted is None:
             log.warning("Scrublet produced no usable scores or predictions for sample '%s'.", sample_name)
             return None, None
+        predicted = np.asarray(predicted, dtype=bool).ravel()
 
         doublet_count = sum(predicted)
         doublet_rate = doublet_count / len(predicted)
@@ -154,18 +370,41 @@ def _run_scrublet(
 
         if config.scr_plot_umap:
             try:
-                scrub.set_embedding("UMAP", scr.get_umap(scrub.manifold_obs_, 10, min_dist=0.3))
-                fig, ax = scrub.plot_embedding("UMAP", order_points=True)
+                embedding = _compute_scrublet_umap_embedding(
+                    np.asarray(scrub.manifold_obs_),
+                    random_state=config.random_state,
+                )
+                scrub.set_embedding("UMAP", embedding)
+                try:
+                    before_figs = set(plt.get_fignums())
+                    fig, ax = scrub.plot_embedding("UMAP", order_points=True)
+                except Exception as plot_exc:
+                    for fig_num in set(plt.get_fignums()) - before_figs:
+                        plt.close(fig_num)
+                    log.warning(
+                        "Scrublet native embedding plot failed for sample %s (%s); "
+                        "using scLucid fallback plotter.",
+                        sample_name,
+                        plot_exc,
+                    )
+                    fig = _plot_scrublet_embedding_fallback(
+                        scrub._embeddings["UMAP"],
+                        scores,
+                        predicted,
+                        title=f"{sample_name} Scrublet doublets",
+                    )
                 if config.save_dir:
-                    save_path = Path(config.save_dir) / f"{sample_name}_doublets_umap.png"
-                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    umap_dir = Path(config.save_dir) / "doublet_umaps"
+                    umap_dir.mkdir(parents=True, exist_ok=True)
+                    save_path = umap_dir / f"{sample_name}_doublets_umap.png"
                     fig.savefig(save_path, dpi=300, bbox_inches="tight")
+                    log.info("Saved Scrublet UMAP for sample '%s' to %s", sample_name, save_path)
                 if config.show_plots:
                     plt.show()
                 else:
                     plt.close(fig)
             except Exception as e:
-                log.warning(f"Could not generate UMAP for sample {sample_name}: {e}")
+                log.warning("Could not generate UMAP for sample %s: %s", sample_name, e)
 
         return scores, predicted
 

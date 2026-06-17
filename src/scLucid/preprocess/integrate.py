@@ -10,7 +10,7 @@ import logging
 
 logging.getLogger("harmonypy").setLevel(logging.ERROR)
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import harmonypy as hm
 import matplotlib.pyplot as plt
@@ -18,17 +18,19 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
-from matplotlib import get_backend
+
+from scLucid.utils.helpers import _show_or_close
 
 from .config import IntegrationConfig, apply_config_overrides
-from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 # Logging config
 log = logging.getLogger(__name__)
 
 __all__ = [
     "batch_correction",
+    "decide_integration",
     "diagnose_integration_risk",
+    "detect_integration_confounding",
     "evaluate_integration",
 ]
 
@@ -46,11 +48,157 @@ def _cramers_v(x: pd.Series, y: pd.Series) -> float:
     return float(np.sqrt(phi2 / max(1, min(k - 1, r - 1))))
 
 
+def _silhouette_score(
+    adata: AnnData,
+    *,
+    rep: Optional[str],
+    labels: pd.Series,
+    metric: str = "euclidean",
+    sample_size: Optional[int] = None,
+    random_state: int = 42,
+) -> float:
+    """Shared sampled silhouette helper for integration diagnostics."""
+    from sklearn.metrics import silhouette_score
+
+    if rep is None:
+        X = adata.X
+        if hasattr(X, "toarray"):
+            X = X.toarray()
+    else:
+        if rep not in adata.obsm:
+            raise KeyError(f"Representation '{rep}' not found in adata.obsm")
+        X = adata.obsm[rep]
+    labels = labels.astype(str)
+    if labels.nunique() < 2:
+        raise ValueError("Silhouette requires at least two label groups")
+    active_sample_size = sample_size or min(adata.n_obs, max(100, min(5000, adata.n_obs)))
+    return float(
+        silhouette_score(
+            X,
+            labels,
+            metric=metric,
+            sample_size=min(active_sample_size, adata.n_obs),
+            random_state=random_state,
+        )
+    )
+
+
+def _interpret_integration_evaluation(results: Dict[str, Any]) -> Dict[str, Any]:
+    """Translate integration metrics into a compact reviewer-facing summary."""
+    warnings: List[str] = []
+    strengths: List[str] = []
+
+    batch_sil = results.get("batch_silhouette")
+    if batch_sil is not None:
+        if batch_sil >= -0.05:
+            strengths.append("Batch silhouette suggests acceptable batch mixing.")
+        elif batch_sil < -0.25:
+            warnings.append("Batch silhouette remains strongly separated; inspect residual batch effects.")
+        else:
+            warnings.append("Batch silhouette is intermediate; compare integrated and unintegrated embeddings.")
+
+    kbet = results.get("kbet_acceptance")
+    if kbet is not None:
+        if kbet >= 0.7:
+            strengths.append("kBET acceptance suggests local batch mixing is acceptable.")
+        elif kbet < 0.3:
+            warnings.append("kBET acceptance is low; local neighborhoods may still be batch-biased.")
+        else:
+            warnings.append("kBET acceptance is intermediate; review local batch mixing visually.")
+
+    label_sil = results.get("label_silhouette")
+    if label_sil is not None:
+        if label_sil >= 0.15:
+            strengths.append("Label silhouette suggests biological labels remain separated.")
+        elif label_sil < 0.05:
+            warnings.append("Label silhouette is low; check for overcorrection or loss of biological structure.")
+
+    graph_connectivity = results.get("graph_connectivity")
+    if graph_connectivity is not None:
+        if graph_connectivity >= 0.8:
+            strengths.append("Graph connectivity suggests labels remain connected after integration.")
+        elif graph_connectivity < 0.5:
+            warnings.append("Graph connectivity is low; label neighborhoods may be fragmented.")
+
+    if warnings:
+        status = "review"
+        recommendation = "Review integration with unintegrated controls and biological marker preservation."
+    else:
+        status = "acceptable"
+        recommendation = "Integration metrics do not show obvious problems; still validate marker preservation."
+
+    return {
+        "status": status,
+        "warnings": warnings,
+        "strengths": strengths,
+        "recommendation": recommendation,
+        "metric_notes": {
+            "batch_silhouette": "Stored as negative silhouette; values closer to 0 are generally better for batch mixing.",
+            "kbet_acceptance": "Higher values indicate better local batch mixing.",
+            "label_silhouette": "Higher values indicate better preservation of biological labels.",
+            "graph_connectivity": "Higher values indicate better within-label graph connectivity.",
+        },
+    }
+
+
+def detect_integration_confounding(
+    adata: AnnData,
+    batch_key: str,
+    biology_columns: List[str],
+    *,
+    association_threshold: float = 0.8,
+) -> List[str]:
+    """Check whether ``batch_key`` is confounded with biology columns.
+
+    Strong batch-biology association can cause integration to remove biological
+    signal. One-to-one mappings are reported explicitly because they are the
+    clearest high-risk case.
+
+    Parameters
+    ----------
+    adata
+        AnnData object.
+    batch_key
+        Column in ``.obs`` used for batch correction.
+    biology_columns
+        Columns representing biological signal that should not be removed.
+
+    Returns:
+    -------
+    List[str]
+        Problem descriptions. Empty list if no confounding is detected.
+    """
+    problems = []
+    if batch_key not in adata.obs.columns:
+        return [f"batch_key '{batch_key}' not in adata.obs"]
+
+    for col in biology_columns:
+        if col not in adata.obs.columns:
+            continue
+        association = _cramers_v(adata.obs[batch_key], adata.obs[col])
+        if association >= association_threshold:
+            problems.append(
+                f"{batch_key} is strongly associated with {col} "
+                f"(Cramer's V={association:.2f}); integration may remove biological signal"
+            )
+        mapping = adata.obs[[batch_key, col]].dropna().drop_duplicates()
+        per_batch = mapping.groupby(batch_key)[col].nunique()
+        if len(per_batch) > 0 and (per_batch <= 1).all():
+            n_batch = adata.obs[batch_key].nunique()
+            n_col = adata.obs[col].nunique()
+            if n_batch == n_col:
+                problems.append(
+                    f"{batch_key} is one-to-one with {col} — integration would remove biological signal"
+                )
+    return problems
+
+
 def diagnose_integration_risk(
     adata: AnnData,
     *,
     batch_key: str,
     condition_key: Optional[str] = None,
+    biology_columns: Optional[List[str]] = None,
     label_key: Optional[str] = None,
     tumor: bool = False,
     clone_key: Optional[str] = None,
@@ -78,23 +226,21 @@ def diagnose_integration_risk(
             )
             risk_score += 0.4
 
+    for problem in detect_integration_confounding(
+        adata, batch_key, biology_columns or []
+    ):
+        warnings.append(problem)
+        risk_score += 0.4
+
     if label_key and label_key in adata.obs.columns and before_rep in adata.obsm and after_rep in adata.obsm:
         try:
-            import sklearn.metrics as skm
-
             labels = adata.obs[label_key].astype(str)
             sample_size = min(adata.n_obs, max(100, min(5000, adata.n_obs)))
-            before_sil = skm.silhouette_score(
-                adata.obsm[before_rep],
-                labels,
-                sample_size=sample_size,
-                random_state=42,
+            before_sil = _silhouette_score(
+                adata, rep=before_rep, labels=labels, sample_size=sample_size
             )
-            after_sil = skm.silhouette_score(
-                adata.obsm[after_rep],
-                labels,
-                sample_size=sample_size,
-                random_state=42,
+            after_sil = _silhouette_score(
+                adata, rep=after_rep, labels=labels, sample_size=sample_size
             )
             drop = float(before_sil - after_sil)
             metrics["label_silhouette_before"] = float(before_sil)
@@ -130,6 +276,7 @@ def diagnose_integration_risk(
         "risk_score": float(min(1.0, risk_score)),
         "batch_key": batch_key,
         "condition_key": condition_key,
+        "biology_columns": biology_columns or [],
         "label_key": label_key,
         "before_rep": before_rep,
         "after_rep": after_rep,
@@ -141,6 +288,95 @@ def diagnose_integration_risk(
         key_added
     ] = result
     return result
+
+
+def decide_integration(
+    adata: AnnData,
+    *,
+    batch_key: str,
+    run_integration: Union[bool, Literal["auto"]] = "auto",
+    biology_columns: Optional[List[str]] = None,
+    condition_key: Optional[str] = None,
+    tumor: bool = False,
+    before_rep: str = "X_pca",
+    low_risk_only: bool = True,
+) -> Tuple[bool, List[str], Optional[Dict[str, Any]]]:
+    """Decide whether to run batch integration.
+
+    Parameters
+    ----------
+    adata
+        AnnData object with PCA already computed.
+    batch_key
+        Column in ``.obs`` identifying batches.
+    run_integration
+        ``True``/``False`` forces the decision. ``"auto"`` uses
+        ``diagnose_integration_risk`` and biology-confounding checks.
+    biology_columns
+        Columns representing biological signal that should not be removed by
+        integration.
+    condition_key
+        Optional condition column checked for confounding.
+    tumor
+        Whether the data is tumor tissue (raises integration caution).
+    before_rep
+        Embedding key used for risk diagnosis.
+    low_risk_only
+        In ``"auto"`` mode, only run integration when risk is ``"low"``.
+
+    Returns:
+    -------
+    (run, warnings, risk_dict)
+        ``run`` is the boolean decision, ``warnings`` explains the decision, and
+        ``risk_dict`` is the full risk assessment (None when ``run_integration``
+        is a plain bool).
+
+    Examples:
+    --------
+    >>> run, warnings, risk = decide_integration(
+    ...     adata, batch_key="batch", biology_columns=["group"], run_integration="auto"
+    ... )
+    """
+    if run_integration is False:
+        return False, ["disabled by user"], None
+
+    if run_integration is True:
+        return True, [], None
+
+    # auto mode
+    warnings: List[str] = []
+
+    if batch_key not in adata.obs.columns:
+        return False, [f"batch_key '{batch_key}' not found in adata.obs"], None
+
+    if adata.obs[batch_key].nunique() < 2:
+        return False, [f"single technical batch in '{batch_key}' — no integration needed"], None
+
+    biology_columns = biology_columns or []
+    risk = diagnose_integration_risk(
+        adata,
+        batch_key=batch_key,
+        condition_key=condition_key,
+        biology_columns=biology_columns,
+        tumor=tumor,
+        before_rep=before_rep,
+    )
+
+    risk_level = risk.get("risk_level", "high")
+    warnings.extend(risk.get("warnings", []))
+    if low_risk_only and risk_level != "low":
+        warnings.append(
+            f"Integration risk level is '{risk_level}'; skipping integration in low_risk_only mode."
+        )
+        return False, warnings, risk
+
+    if risk_level == "high":
+        warnings.append(
+            "Integration risk is high; run only with explicit biological-preservation checks."
+        )
+        return False, warnings, risk
+
+    return True, warnings, risk
 
 
 # ==============================================================================
@@ -726,10 +962,8 @@ def _compute_kbet_score(
     if n_cells > n_sample_cells:
         sample_idx = rng.choice(n_cells, n_sample_cells, replace=False)
         X_sample = X[sample_idx]
-        batch_sample = batch_labels.iloc[sample_idx]
     else:
         X_sample = X
-        batch_sample = batch_labels
 
     # Build k-NN graph
     nn = NearestNeighbors(n_neighbors=n_neighbors + 1)  # +1 to exclude self
@@ -866,6 +1100,49 @@ def batch_correction(
         log.info(f"Integration result '{output_key}' already exists. Use force=True to rerun.")
         return adata
 
+    integration_meta = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("preprocess", {})
+        .setdefault("integration", {})
+    )
+
+    decision_record = None
+    if active_config.auto_decide:
+        decision_batch_key = batch_key[0] if isinstance(batch_key, list) else batch_key
+        run, decision_warnings, risk = decide_integration(
+            adata,
+            batch_key=decision_batch_key,
+            run_integration="auto",
+            biology_columns=active_config.biology_columns,
+            condition_key=active_config.condition_key,
+            tumor=active_config.tumor,
+            before_rep=use_rep,
+        )
+        decision_record = {
+            "run": bool(run),
+            "warnings": decision_warnings,
+            "risk": risk,
+        }
+        integration_meta["workflow"] = {
+            "params": active_config.to_dict(),
+            "method": method,
+            "batch_key": batch_key,
+            "use_rep": use_rep,
+            "output_key": output_key,
+            "auto_decide": True,
+            "decision": decision_record,
+            "decision_warnings": decision_warnings,
+            "risk": risk,
+        }
+        if not run:
+            integration_meta["workflow"]["skipped"] = True
+            integration_meta["workflow"]["skip_reason"] = "; ".join(decision_warnings)
+            log.warning(
+                "Skipping integration after auto decision: %s",
+                integration_meta["workflow"]["skip_reason"],
+            )
+            return adata
+
     # --- 4. Plot before state (if requested) ---
     if plot:
         adata_before = adata.copy()
@@ -935,20 +1212,33 @@ def batch_correction(
         )
 
     # --- 6. Store metadata and plot after state ---
-    integration_meta = (
-        adata.uns.setdefault("sclucid", {})
-        .setdefault("preprocess", {})
-        .setdefault("integration", {})
-    )
     integration_meta["workflow"] = {
         "params": active_config.to_dict(),
         "method": method,
         "batch_key": batch_key,
         "use_rep": use_rep,
         "output_key": output_key,
+        "auto_decide": bool(active_config.auto_decide),
+        "skipped": False,
     }
+    if decision_record is not None:
+        integration_meta["workflow"]["decision"] = decision_record
+        integration_meta["workflow"]["decision_warnings"] = decision_record["warnings"]
+        integration_meta["workflow"]["risk"] = decision_record["risk"]
 
     log.info(f"Integration complete. Result stored in: adata.obsm['{output_key}']")
+
+    if active_config.evaluate:
+        eval_batch_key = batch_key[0] if isinstance(batch_key, list) else batch_key
+        eval_rep = output_key if output_key in adata.obsm else use_rep
+        integration_meta["evaluation"] = evaluate_integration(
+            adata,
+            batch_key=eval_batch_key,
+            label_key=active_config.label_key,
+            integration_method=method,
+            use_rep=eval_rep,
+            plot=False,
+        )
 
     if plot:
         if method != "bbknn":
@@ -1013,8 +1303,6 @@ def evaluate_integration(
     Returns:
         Dict of scores (higher is better).
     """
-    import sklearn.metrics as skm
-
     if batch_key not in adata.obs:
         raise ValueError(f"batch_key '{batch_key}' not in adata.obs")
     if label_key and label_key not in adata.obs:
@@ -1050,21 +1338,21 @@ def evaluate_integration(
             # Data-adaptive sample size: at least 5k, up to 20k for large datasets,
             # but never more than the full dataset.
             sil_sample_size = min(adata.n_obs, max(5000, min(20000, adata.n_obs // 5)))
-            batch_sil = skm.silhouette_score(
-                X,
-                adata.obs[batch_key],
+            batch_sil = _silhouette_score(
+                adata,
+                rep=use_rep,
+                labels=adata.obs[batch_key],
                 metric=metric,
                 sample_size=sil_sample_size,
-                random_state=42,
             )
             results["batch_silhouette"] = -batch_sil
             if label_key:
-                label_sil = skm.silhouette_score(
-                    X,
-                    adata.obs[label_key],
+                label_sil = _silhouette_score(
+                    adata,
+                    rep=use_rep,
+                    labels=adata.obs[label_key],
                     metric=metric,
                     sample_size=sil_sample_size,
-                    random_state=42,
                 )
                 results["label_silhouette"] = label_sil
                 results["overall_silhouette"] = (results["batch_silhouette"] + label_sil) / 2
@@ -1209,12 +1497,20 @@ def evaluate_integration(
         except Exception as e:
             log.warning(f"Failed to compute batch ASW: {str(e)}")
 
+    results["interpretation"] = _interpret_integration_evaluation(results)
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
+        "evaluation"
+    ] = results
+
     # Plot
     if plot and results:
         import matplotlib.pyplot as plt
 
         plot_metrics = [
-            k for k in results if k not in ["method", "n_batches", "n_cells", "n_labels"]
+            k
+            for k, value in results.items()
+            if k not in ["method", "n_batches", "n_cells", "n_labels", "interpretation"]
+            and isinstance(value, (int, float, np.integer, np.floating))
         ]
         if plot_metrics:
             fig, axes = plt.subplots(1, len(plot_metrics), figsize=(4 * len(plot_metrics), 5))

@@ -175,6 +175,32 @@ def test_review_summary_schema_is_backwards_compatible():
     assert validate_review_summary_schema(summary, module="qc").valid is True
 
 
+def test_review_summary_list_of_dict_evidence_is_h5ad_safe(tmp_path):
+    from scLucid.utils.contracts import normalize_review_summary
+
+    adata = _adata()
+    summary = normalize_review_summary(
+        {
+            "empty_droplet_summary": {
+                "top_background_genes": [
+                    {"gene": "mt-Co3", "background_fraction": 0.1},
+                    {"gene": "mt-Atp6", "background_fraction": 0.2},
+                ]
+            }
+        },
+        module="qc",
+        workflow_name="standard",
+        adata=adata,
+        steps_executed=["diagnose_empty_droplets"],
+    )
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["review_summary"] = summary
+
+    path = tmp_path / "review_summary_safe.h5ad"
+    adata.write_h5ad(path)
+
+    assert path.exists()
+
+
 def test_namespace_helpers_add_metadata_and_stage_records():
     from scLucid.utils.contracts import (
         UnsKeys,

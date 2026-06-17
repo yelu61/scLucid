@@ -10,12 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import scanpy as sc
-import seaborn as sns
 from anndata import AnnData
-from matplotlib import get_backend
 
 try:
     from matplotlib_venn import venn2, venn3
@@ -23,85 +18,78 @@ try:
 except ImportError:
     HAS_VENN = False
 
-from ...utils import use_layer_as_X
-from ..config import HVGConfig
-from .core import find_hvgs
-from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
+from scLucid.utils.helpers import _is_interactive_backend
 
 log = logging.getLogger(__name__)
 
 
-def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str) -> None:
-    """
-    Provides data-driven guidance for HVG set selection by analyzing overlap.
-    """
+def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str = "auto") -> Dict[str, object]:
+    """Return structured guidance for choosing an HVG set operation."""
     if len(hvg_keys) < 2:
-        log.info("Guidance is most useful when comparing 2 or more HVG sets.")
-        return
+        return {
+            "requested_mode": mode,
+            "recommended_mode": mode if mode != "auto" else "direct",
+            "jaccard_index": 1.0,
+            "overlap_level": "single",
+            "risk": "low",
+            "n_genes_per_set": {hvg_keys[0]: int(adata.var[hvg_keys[0]].sum())} if hvg_keys else {},
+            "messages": ["HVG guidance is most useful when comparing two or more masks."],
+        }
 
     sets = [set(adata.var_names[adata.var[key]]) for key in hvg_keys]
-
-    # --- Quantitative Analysis ---
     intersection_set = set.intersection(*sets)
     union_set = set.union(*sets)
-    jaccard_index = len(intersection_set) / len(union_set) if len(union_set) > 0 else 0
+    jaccard_index = len(intersection_set) / len(union_set) if union_set else 0.0
 
-    # --- Build Report ---
-    msg = ["=" * 50, "==== HVG Selection Guidance ====", "=" * 50]
-    msg.append(f"Comparing {len(hvg_keys)} HVG sets: {', '.join(hvg_keys)}")
-    for i, key in enumerate(hvg_keys):
-        msg.append(f"- Set '{key}': {len(sets[i])} genes")
-
-    msg.append("\n--- Overlap Analysis ---")
-    msg.append(f"- Intersection (genes in all sets): {len(intersection_set)} genes")
-    msg.append(f"- Union (genes in any set): {len(union_set)} genes")
-    msg.append(f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)")
-
-    msg.append(f"\n--- Recommendation for your chosen mode ('{mode}') ---")
-
-    # --- Generate Tailored Advice ---
     if jaccard_index > 0.7:
-        msg.append("Data-driven verdict: **High Overlap**.")
-        msg.append("Both methods identify a very similar core set of variable genes.")
-        if mode == "intersection":
-            msg.append(
-                "Your choice of 'intersection' is a safe and robust strategy. You will get a high-confidence set of HVGs."
-            )
-        elif mode == "union":
-            msg.append(
-                "Your choice of 'union' is also reasonable. It will add a few extra genes without a high risk of introducing noise."
-            )
+        overlap_level = "high"
+        recommended_mode = "union"
+        risk = "low"
+    elif jaccard_index >= 0.4:
+        overlap_level = "moderate"
+        recommended_mode = "intersection"
+        risk = "moderate"
+    else:
+        overlap_level = "low"
+        recommended_mode = "intersection"
+        risk = "high"
 
-    elif 0.4 <= jaccard_index <= 0.7:
-        msg.append("Data-driven verdict: **Moderate Overlap**.")
-        msg.append("The methods agree on a core set of genes but also identify unique ones.")
-        if mode == "intersection":
-            msg.append(
-                "Your choice of 'intersection' is the most conservative and reproducible option. You will get a high-confidence set but may miss some subtle biological signals."
-            )
-        elif mode == "union":
-            msg.append(
-                "Your choice of 'union' is more inclusive and better for discovery, but may introduce noise. Be sure to check for over-clustering in downstream analysis."
-            )
-
-    else:  # Low overlap
-        msg.append("Data-driven verdict: **Low Overlap**.")
-        msg.append(
-            "⚠️ **Warning:** The selected methods are identifying very different sets of genes. This could be due to strong batch effects or fundamental differences in the algorithms."
-        )
-        if mode == "intersection":
-            msg.append(
-                f"Your choice of 'intersection' will result in a very small set of {len(intersection_set)} genes. This may not be enough for stable downstream analysis. Please verify."
-            )
-        elif mode == "union":
-            msg.append(
-                "Your choice of 'union' will combine two very different gene lists, which could be risky. It is highly recommended to first visualize the UMAPs from each HVG set individually to understand why they differ so much."
-            )
-        msg.append(
-            "\n**Suggestion:** The 'custom' method is often more robust for multi-sample datasets than the standard 'scanpy' method. Consider trusting the 'custom' set or investigating potential batch effects further."
+    effective_mode = recommended_mode if mode == "auto" else mode
+    messages = [
+        "=" * 50,
+        "==== HVG Selection Guidance ====",
+        "=" * 50,
+        f"Comparing {len(hvg_keys)} HVG sets: {', '.join(hvg_keys)}",
+    ]
+    for key, genes in zip(hvg_keys, sets):
+        messages.append(f"- Set '{key}': {len(genes)} genes")
+    messages.extend([
+        "",
+        "--- Overlap Analysis ---",
+        f"- Intersection (genes in all sets): {len(intersection_set)} genes",
+        f"- Union (genes in any set): {len(union_set)} genes",
+        f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)",
+        "",
+        f"Recommended mode: {recommended_mode} (overlap={overlap_level}, risk={risk})",
+        f"Requested/effective mode: {mode} -> {effective_mode}",
+    ])
+    if risk == "high":
+        messages.append(
+            "Warning: HVG methods disagree strongly; inspect batch effects and consider conservative intersection."
         )
 
-    print("\n".join(msg))
+    return {
+        "requested_mode": mode,
+        "recommended_mode": recommended_mode,
+        "effective_mode": effective_mode,
+        "jaccard_index": float(jaccard_index),
+        "overlap_level": overlap_level,
+        "risk": risk,
+        "n_genes_per_set": {key: len(genes) for key, genes in zip(hvg_keys, sets)},
+        "n_intersection": len(intersection_set),
+        "n_union": len(union_set),
+        "messages": messages,
+    }
 
 
 def select_hvg_sets(
@@ -129,8 +117,8 @@ def select_hvg_sets(
 
     # --- Suggestion for HVG set choice ---
     if show_suggestion:
-        # Call the new, data-driven guidance function
-        suggest_hvg_choice(adata, hvg_keys, mode)
+        suggestion = suggest_hvg_choice(adata, hvg_keys, mode)
+        print("\n".join(suggestion.get("messages", [])))
 
     hvg_sets = [set(adata.var_names[adata.var[k]]) for k in hvg_keys]
     set_names = hvg_keys
@@ -223,3 +211,104 @@ def select_hvg_sets(
 
     return adata
 
+
+def select_and_audit_hvgs(
+    adata: AnnData,
+    *,
+    hvg_keys: Union[str, List[str]],
+    mode: Literal["auto", "direct", "intersection", "union", "difference"] = "union",
+    subset: bool = True,
+    keep_raw: bool = False,
+    output_key: str = "highly_variable_selected",
+    evaluate_stability: bool = False,
+    stability_key: Optional[str] = None,
+    stability_kwargs: Optional[Dict] = None,
+    save_dir: Optional[str] = None,
+    **kwargs,
+) -> tuple[AnnData, Dict[str, object]]:
+    """Select final HVGs and store a compact audit summary.
+
+    This wrapper intentionally assumes HVG masks already exist in ``adata.var``.
+    Use ``find_hvgs`` for method-specific detection, then this function for the
+    set-operation decision and optional stability check.
+    """
+    if isinstance(hvg_keys, str):
+        hvg_key_list = [hvg_keys]
+    else:
+        hvg_key_list = list(hvg_keys)
+
+    suggestion = suggest_hvg_choice(adata, hvg_key_list, mode) if len(hvg_key_list) >= 2 else None
+    effective_mode = (
+        suggestion.get("recommended_mode", "direct")
+        if mode == "auto" and isinstance(suggestion, dict)
+        else mode
+    )
+
+    audit: Dict[str, object] = {
+        "hvg_keys": hvg_key_list,
+        "mode": mode,
+        "effective_mode": effective_mode,
+        "subset": bool(subset),
+        "output_key": output_key,
+    }
+
+    if suggestion is not None:
+        audit["suggestion"] = suggestion
+        if suggestion.get("messages"):
+            print("\n".join(suggestion["messages"]))
+        if suggestion.get("risk") == "high":
+            audit.setdefault("warnings", []).append(
+                "HVG methods have low overlap; selected conservative intersection in auto mode."
+                if mode == "auto"
+                else "HVG methods have low overlap; inspect selected mode carefully."
+            )
+
+    stability_result = None
+    if evaluate_stability:
+        try:
+            from .stability import evaluate_hvg_stability
+
+            key_for_stability = stability_key or hvg_key_list[0]
+            stability_result = evaluate_hvg_stability(
+                adata,
+                hvg_key=key_for_stability,
+                **(stability_kwargs or {}),
+            )
+            audit["stability_key"] = key_for_stability
+            audit["stability_available"] = True
+            stability_summary = (
+                adata.uns.get("sclucid", {})
+                .get("preprocess", {})
+                .get("hvg_stability", {})
+            )
+            audit["stability_summary"] = stability_summary
+            if stability_summary.get("overall_score", 1.0) < 0.5:
+                audit.setdefault("warnings", []).append(
+                    "HVG stability is low; consider increasing n_top_genes or comparing methods."
+                )
+        except Exception as exc:
+            log.warning("HVG stability evaluation failed: %s", exc)
+            audit["stability_available"] = False
+            audit["stability_error"] = str(exc)
+
+    result = select_hvg_sets(
+        adata,
+        hvg_keys=hvg_key_list,
+        mode=effective_mode,
+        subset=subset,
+        keep_raw=keep_raw,
+        output_key=output_key,
+        save_dir=save_dir,
+        show_suggestion=kwargs.pop("show_suggestion", False),
+        **kwargs,
+    )
+
+    selected_count = int(result.var[output_key].sum()) if output_key in result.var else result.n_vars
+    audit["n_selected"] = selected_count
+    if stability_result is not None:
+        audit["stability_result_type"] = type(stability_result).__name__
+
+    result.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "hvg_selection_audit"
+    ] = audit
+    return result, audit

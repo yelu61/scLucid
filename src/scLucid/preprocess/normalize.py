@@ -6,6 +6,7 @@ unwanted sources of variation, preparing the data for downstream analysis.
 """
 
 import logging
+from importlib.metadata import version
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -15,12 +16,11 @@ import scanpy as sc
 import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
-from matplotlib import get_backend
+
+from scLucid.utils.helpers import _show_or_close
 
 from .config import NormalizationConfig, apply_config_overrides
 from .utils import validate_matrix_input
-from importlib.metadata import PackageNotFoundError, version
-from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
@@ -356,6 +356,10 @@ def normalize_data(
     adata.layers[output_layer] = temp_adata.X.copy()
     if active_config.update_X:
         adata.X = adata.layers[output_layer].copy()
+
+    if active_config.set_raw:
+        log.info("Storing normalized full-gene expression in adata.raw before downstream filtering.")
+        adata.raw = adata.copy()
 
     stats_after = _diagnose_matrix(adata.layers[output_layer], name="normalized")
 

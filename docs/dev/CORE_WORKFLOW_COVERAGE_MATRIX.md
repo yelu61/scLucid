@@ -26,18 +26,23 @@ or reorganizing modules.
 
 ### Entry Functions
 - [`run_standard_qc`](FUNCTION_INVENTORY.md#scLucidqc) — Standard QC workflow
-- [`run_advanced_qc`](FUNCTION_INVENTORY.md#scLucidqc) — Advanced QC with adaptive thresholds
+- [`run_qc_threshold_decision`](FUNCTION_INVENTORY.md#scLucidqc) — Reusable threshold decision / marking / optional filtering layer for interactive QC
+- [`run_advanced_qc`](FUNCTION_INVENTORY.md#scLucidqc) — Advanced QC with adaptive thresholds *(deprecated alias for `run_standard_qc` with a full config)*
 
 ### Key Supporting Functions
 
 | Function | Role | Status |
 |----------|------|--------|
 | `calculate_qc_metric` | Core metric computation | Stable |
-| `suggest_qc_thresholds` | Threshold recommendation | Stable |
+| `suggest_qc_thresholds` | Distribution-based threshold recommendation | Stable |
+| `resolve_qc_thresholds` | Merge intelligent / MAD / manual thresholds | Stable |
 | `predict_doublets` | Doublet detection | Stable |
+| `audit_doublets` | Post-filter doublet audit | Stable |
 | `diagnose_ambient_rna` | Ambient RNA diagnosis | Stable |
-| `filter_cells` | Final filtering | Stable |
+| `mark_low_quality_cell` | Low-quality marking (single-threshold) | Stable |
 | `mark_low_quality_cells_adaptive` | Adaptive low-quality marking | Stable |
+| `filter_cells` | Final filtering | Stable |
+| `audit_filtering` | Retention audit before/after filtering | Stable |
 | `generate_qc_report` | QC report generation | Stable |
 
 ### Config Classes
@@ -56,9 +61,9 @@ or reorganizing modules.
 - `validate_qc_module_completeness`
 
 ### Gaps / TODO
-- [ ] No dedicated `run_qc_review` workflow orchestrator (review is currently manual).
+- [x] No dedicated `run_qc_review` workflow orchestrator (review is currently manual). *Addressed by `run_qc_threshold_decision` for threshold/marking decisions; full review summary is automated.*
 - [ ] Benchmark utilities (`build_qc_benchmark_assessment`) are public but not integrated into `run_standard_qc`.
-- [ ] Intelligent QC (`recommend_intelligent_qc`) is optional and may be promoted to a core workflow step.
+- [x] Intelligent QC (`recommend_intelligent_qc`) is optional and may be promoted to a core workflow step. *Addressed by `resolve_qc_thresholds` being wired into threshold application when no explicit thresholds are provided.*
 
 ---
 
@@ -73,20 +78,30 @@ or reorganizing modules.
 |----------|------|--------|
 | `normalize_data` | Normalization | Stable |
 | `find_hvgs` | HVG selection | Stable |
+| `select_hvg_sets` | HVG set operations (intersection/union/difference) | Stable |
+| `select_and_audit_hvgs` | HVG selection + stability + audit | Stable |
 | `scale_data` | Scaling | Stable |
 | `batch_correction` | Batch correction | Stable |
+| `detect_integration_confounding` | Batch-biology confounding check | Stable |
+| `diagnose_integration_risk` | Pre-integration risk assessment | Stable |
+| `decide_integration` | Auto/skip integration decision | Stable |
+| `evaluate_integration` | Post-integration quality metrics | Stable |
 | `regress_out` | Covariate regression | Stable |
-| `select_hvg_sets` | HVG set selection | Stable |
 | `optimize_neighbors_pcs` | Neighbor/PCA optimization | Stable |
+| `is_raw_count_matrix` | Raw-count semantic guard | Stable |
+| `build_metadata_dicts` | Build `metadata_dicts` for multi-sample loaders | Stable |
 
 ### Config Classes
 - `PreprocessingWorkflowConfig`
 - `NormalizationConfig`
+- `AdaptiveNormalizationConfig`
 - `HVGConfig`
 - `IntegrationConfig`
 - `ScalingConfig`
 - `NeighborsConfig`
 - `GraphConfig`
+- `IntelligentPreprocessConfig`
+- `PreprocessingStrategy`
 
 ### Review / Trace Functions
 - `enrich_preprocessing_review_summary`
@@ -97,7 +112,8 @@ or reorganizing modules.
 ### Gaps / TODO
 - [ ] `run_intelligent_preprocessing` is public but not wired into `run_preprocessing`.
 - [ ] Backend abstraction (`PreprocessingBackend`, `ScanpyBackend`, `RapidsBackend`) is public but under-documented.
-- [ ] Gene biotype helpers are stable but optional in many workflows.
+- [x] Gene biotype helpers are stable but optional in many workflows. *Stable helpers (`annotate_gene_biotypes`, `filter_genes_by_biotype`) exist; not yet default in `run_preprocessing`.*
+- [x] Integration risk diagnostics are public but not wired into `run_preprocessing`. *Addressed by `IntegrationConfig.auto_decide` and `.evaluate`, which `batch_correction` honors.*
 
 ---
 
