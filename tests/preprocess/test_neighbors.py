@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 
 from scLucid.preprocess.config import NeighborsConfig
-from scLucid.preprocess.neighbors import optimize_neighbors_pcs, run_embedding_workflow
+from scLucid.preprocess.neighbors import (
+    optimize_neighbors_pcs,
+    run_embedding_pipeline,
+    run_embedding_workflow,
+)
 
 
 @pytest.mark.unit
@@ -106,11 +110,11 @@ class TestOptimizeNeighborsPcs:
         optimize_neighbors_pcs(adata, config=config)
         assert config.to_dict() == original_dict
 
-    def test_run_embedding_workflow(self, minimal_adata):
+    def test_run_embedding_pipeline(self, minimal_adata):
         adata = minimal_adata.copy()
         adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 10))
 
-        result, optimization = run_embedding_workflow(
+        result, optimization = run_embedding_pipeline(
             adata,
             use_rep="X_pca",
             optimize=False,
@@ -122,3 +126,19 @@ class TestOptimizeNeighborsPcs:
         assert optimization.empty
         assert "X_umap_test" in result.obsm
         assert result.uns["sclucid"]["preprocess"]["embedding_workflow"]["n_neighbors"] == 5
+
+    def test_run_embedding_workflow_alias_warns(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 10))
+
+        with pytest.warns(FutureWarning, match="run_embedding_pipeline"):
+            result, _ = run_embedding_workflow(
+                adata,
+                use_rep="X_pca",
+                optimize=False,
+                default_n_neighbors=5,
+                default_n_pcs=5,
+                umap_key="X_umap_alias",
+            )
+
+        assert "X_umap_alias" in result.obsm

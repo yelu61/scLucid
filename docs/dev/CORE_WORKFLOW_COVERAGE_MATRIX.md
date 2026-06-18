@@ -88,6 +88,7 @@ or reorganizing modules.
 | `evaluate_integration` | Post-integration quality metrics | Stable |
 | `regress_out` | Covariate regression | Stable |
 | `optimize_neighbors_pcs` | Neighbor/PCA optimization | Stable |
+| `run_embedding_pipeline` | Optimized graph + named UMAP generation | Stable |
 | `is_raw_count_matrix` | Raw-count semantic guard | Stable |
 | `build_metadata_dicts` | Build `metadata_dicts` for multi-sample loaders | Stable |
 

@@ -29,8 +29,8 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
   script with `--write`.
 
 <!-- AUTO-GENERATED INVENTORY START -->
-<!-- Generated: 2026-06-17 18:54:52 by scripts/audit_public_api.py -->
-<!-- Total public symbols: 978 -->
+<!-- Generated: 2026-06-18 05:27:29 by scripts/audit_public_api.py -->
+<!-- Total public symbols: 979 -->
 
 ## scLucid
 
@@ -552,6 +552,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `recommend_intelligent_preprocessing` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `regress_out` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `ResolutionRecommendation` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `run_embedding_pipeline` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `run_intelligent_preprocessing` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `scale_data` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `ScanpyBackend` | Function | `src/scLucid/preprocess/__init__.py` |  |
@@ -590,7 +591,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 |--------|------|--------|-------|
 | `run_embedding_workflow` | Deprecated | `src/scLucid/preprocess/__init__.py` | [D] |
 
-**Summary:** 72 symbols (71 stable, 1 flagged). workflow=1, config=10, class=0, function=49, alias=0, constant=1, trace=10, deprecated=1, uncertain=0, private_but_exposed=0.
+**Summary:** 73 symbols (72 stable, 1 flagged). workflow=1, config=10, class=0, function=50, alias=0, constant=1, trace=10, deprecated=1, uncertain=0, private_but_exposed=0.
 
 ## scLucid.preprocess.intelligent
 
@@ -1658,13 +1659,13 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | Workflow Orchestrator | 12 |
 | Config Class | 81 |
 | Class | 0 |
-| Function | 772 |
+| Function | 773 |
 | Alias | 21 |
 | Constant | 18 |
 | Trace / Contract | 66 |
 | Deprecated | 7 |
 | Uncertain | 0 |
 | Private-but-Exposed | 1 |
-| **Total** | **978** |
+| **Total** | **979** |
 
 <!-- AUTO-GENERATED INVENTORY END -->

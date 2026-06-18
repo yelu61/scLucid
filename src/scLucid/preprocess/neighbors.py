@@ -20,7 +20,7 @@ from .config import NeighborsConfig, apply_config_overrides
 
 log = logging.getLogger(__name__)
 
-__all__ = ["optimize_neighbors_pcs", "run_embedding_workflow"]
+__all__ = ["optimize_neighbors_pcs", "run_embedding_pipeline", "run_embedding_workflow"]
 
 
 # --- Helper Functions ---#
@@ -243,7 +243,7 @@ def optimize_neighbors_pcs(
     return df_results
 
 
-def _run_embedding_pipeline(
+def run_embedding_pipeline(
     adata: AnnData,
     *,
     use_rep: str = "X_pca",
@@ -258,9 +258,10 @@ def _run_embedding_pipeline(
 ) -> tuple[AnnData, pd.DataFrame]:
     """Optimize neighbors, build the graph, and compute a named UMAP embedding.
 
-    This is a small workflow wrapper around ``optimize_neighbors_pcs``,
-    ``sc.pp.neighbors`` and ``sc.tl.umap``. It keeps the selected parameters and
-    final UMAP key in ``adata.uns['sclucid']['preprocess']['embedding_workflow']``.
+    This is the stable convenience API for a common post-PCA/post-integration
+    analysis step: choose graph parameters, run ``sc.pp.neighbors``, compute
+    UMAP, and store a named UMAP copy. It is intentionally narrower than
+    ``run_preprocessing`` and broader than ``optimize_neighbors_pcs``.
     """
     result = adata.copy() if copy else adata
     if use_rep not in result.obsm:
@@ -303,11 +304,10 @@ def _run_embedding_pipeline(
 
 
 def run_embedding_workflow(*args, **kwargs) -> tuple[AnnData, pd.DataFrame]:
-    """Compatibility alias for the private embedding pipeline helper."""
+    """Compatibility alias for :func:`run_embedding_pipeline`."""
     warnings.warn(
-        "run_embedding_workflow is a transitional compatibility alias; "
-        "prefer explicit optimize_neighbors_pcs + sc.pp.neighbors/sc.tl.umap in public notebooks.",
+        "run_embedding_workflow is deprecated; use run_embedding_pipeline.",
         FutureWarning,
         stacklevel=2,
     )
-    return _run_embedding_pipeline(*args, **kwargs)
+    return run_embedding_pipeline(*args, **kwargs)

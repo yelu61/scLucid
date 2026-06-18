@@ -76,6 +76,50 @@ class TestBatchCorrection:
         assert run is False
         assert any("one-to-one" in w for w in warnings)
 
+    def test_decide_integration_consumes_precomputed_risk(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["b1", "b2"] * (adata.n_obs // 2)
+
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("diagnose_integration_risk should not be called")
+
+        monkeypatch.setattr(integrate_module, "diagnose_integration_risk", fail_if_called)
+
+        risk = {"risk_level": "low", "warnings": [], "metrics": {}}
+        run, warnings, returned_risk = decide_integration(
+            adata,
+            batch_key="batch",
+            run_integration="auto",
+            risk=risk,
+        )
+
+        assert run is True
+        assert warnings == []
+        assert returned_risk is risk
+
+    def test_decide_integration_precomputed_risk_can_skip(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["b1", "b2"] * (adata.n_obs // 2)
+
+        risk = {
+            "risk_level": "moderate",
+            "warnings": ["batch and biology are partially confounded"],
+            "metrics": {},
+        }
+        run, warnings, returned_risk = decide_integration(
+            adata,
+            batch_key="batch",
+            run_integration="auto",
+            risk=risk,
+        )
+
+        assert run is False
+        assert returned_risk is risk
+        assert "partially confounded" in warnings[0]
+        assert any("low_risk_only" in w for w in warnings)
+
     def test_decide_integration_forced_true(self, minimal_adata):
         adata = minimal_adata.copy()
         run, warnings, risk = decide_integration(

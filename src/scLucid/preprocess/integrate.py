@@ -295,6 +295,7 @@ def decide_integration(
     *,
     batch_key: str,
     run_integration: Union[bool, Literal["auto"]] = "auto",
+    risk: Optional[Dict[str, Any]] = None,
     biology_columns: Optional[List[str]] = None,
     condition_key: Optional[str] = None,
     tumor: bool = False,
@@ -311,7 +312,10 @@ def decide_integration(
         Column in ``.obs`` identifying batches.
     run_integration
         ``True``/``False`` forces the decision. ``"auto"`` uses
-        ``diagnose_integration_risk`` and biology-confounding checks.
+        ``risk`` when provided, otherwise runs ``diagnose_integration_risk``.
+    risk
+        Optional precomputed result from ``diagnose_integration_risk``. Passing
+        this keeps diagnosis and decision explicitly separated.
     biology_columns
         Columns representing biological signal that should not be removed by
         integration.
@@ -353,14 +357,15 @@ def decide_integration(
         return False, [f"single technical batch in '{batch_key}' — no integration needed"], None
 
     biology_columns = biology_columns or []
-    risk = diagnose_integration_risk(
-        adata,
-        batch_key=batch_key,
-        condition_key=condition_key,
-        biology_columns=biology_columns,
-        tumor=tumor,
-        before_rep=before_rep,
-    )
+    if risk is None:
+        risk = diagnose_integration_risk(
+            adata,
+            batch_key=batch_key,
+            condition_key=condition_key,
+            biology_columns=biology_columns,
+            tumor=tumor,
+            before_rep=before_rep,
+        )
 
     risk_level = risk.get("risk_level", "high")
     warnings.extend(risk.get("warnings", []))

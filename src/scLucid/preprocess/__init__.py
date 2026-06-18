@@ -53,8 +53,8 @@ from .hvg import (
 from .integrate import (
     batch_correction,
     decide_integration,
-    diagnose_integration_risk,
     detect_integration_confounding,
+    diagnose_integration_risk,
     evaluate_integration,
 )
 
@@ -72,7 +72,7 @@ from .intelligent import (
     recommend_intelligent_preprocessing,
     run_intelligent_preprocessing,
 )
-from .neighbors import optimize_neighbors_pcs, run_embedding_workflow
+from .neighbors import optimize_neighbors_pcs, run_embedding_pipeline, run_embedding_workflow
 
 # --- Core Functions ---
 # --- Plotting & Evaluation Functions ---
@@ -164,6 +164,7 @@ __all__ = [
     "evaluate_hvg_stability",
     "evaluate_integration",
     "optimize_neighbors_pcs",
+    "run_embedding_pipeline",
     "run_embedding_workflow",
     # Intelligent Preprocessing
     "IntelligentPreprocessConfig",

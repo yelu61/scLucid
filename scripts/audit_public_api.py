@@ -725,7 +725,14 @@ def _check_inventory(path: Path, generated: str) -> int:
         print("ERROR: auto-generated delimiters not found in inventory file.", file=sys.stderr)
         return 1
     existing = content[start_idx + len(GEN_START) : end_idx].strip()
-    if existing == generated.strip():
+
+    def _without_generated_timestamp(text: str) -> str:
+        lines = text.strip().splitlines()
+        if lines and lines[0].startswith("<!-- Generated: "):
+            return "\n".join(lines[1:])
+        return "\n".join(lines)
+
+    if _without_generated_timestamp(existing) == _without_generated_timestamp(generated):
         print("OK: API inventory is up to date.")
         return 0
     print(
