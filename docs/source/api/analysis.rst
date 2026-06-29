@@ -21,6 +21,17 @@ contains:
 
 * ``preprocess_input_context``: PCA, neighbors, UMAP, normalized layer, and HVG
   handoff status from preprocessing.
+* ``analysis_inference_policy``: conservative claim boundaries for clustering
+  review, marker discovery, condition DE, and exploratory cell-level
+  comparisons. Condition DE is directed to sample-level pseudobulk; cell-level
+  comparisons are explicitly marked exploratory.
+* ``analysis_output_contract``: stable output slots and inference semantics for
+  preprocess handoff, clustering, marker discovery, annotation, condition DE,
+  and post-hoc QC review.
+* ``analysis_decision_summary`` and ``analysis_reviewer_table``: the single
+  reviewer-facing decision layer with recommended value, applied value, source,
+  confidence, affected output, inference level, biological risk note, and
+  manual-review status.
 * ``clustering_evidence_summary``: cluster counts and optional resolution-review
   evidence.
 * ``annotation_evidence_summary``: marker/reference/LLM evidence availability
@@ -36,6 +47,10 @@ contains:
   human-review tasks.
 * ``evidence_bundle`` and ``module_maturity``: shared scLucid evidence and
   contract-completeness views.
+
+The reviewer table is the preferred notebook/API/report surface. Use it before
+making biological claims from clusters, labels, condition DE, proportions, or
+tumor-context interpretation.
 
 Inspect the compact view:
 
@@ -157,6 +172,12 @@ Review Helpers
 --------------
 
 .. autofunction:: scLucid.analysis.get_analysis_module_contract
+
+.. autofunction:: scLucid.analysis.build_analysis_output_contract
+
+.. autofunction:: scLucid.analysis.build_analysis_decision_summary
+
+.. autofunction:: scLucid.analysis.build_analysis_reviewer_table
 
 .. autofunction:: scLucid.analysis.summarize_analysis_review_summary
 

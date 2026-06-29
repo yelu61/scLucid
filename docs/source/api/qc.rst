@@ -33,6 +33,21 @@ QCWorkflowConfig
 Core Functions
 --------------
 
+run_qc
+~~~~~~
+
+.. autofunction:: scLucid.qc.run_qc
+
+recommend_qc_policy
+~~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: scLucid.qc.recommend_qc_policy
+
+apply_qc_policy
+~~~~~~~~~~~~~~~
+
+.. autofunction:: scLucid.qc.apply_qc_policy
+
 calculate_qc_metric
 ~~~~~~~~~~~~~~~~~~~
 
@@ -49,8 +64,13 @@ QC Review Contract
 ``run_standard_qc`` stores an auditable review bundle at
 ``adata.uns["sclucid"]["qc"]["review_summary"]["data"]``. The bundle includes:
 
-* ``decision_table``: per-threshold recommendation, applied value, source, confidence,
-  evidence, and whether the matching filtering flag was active.
+* ``policy_flow``: the canonical QC decision narrative:
+  profile dataset -> propose candidate thresholds -> score biological risk ->
+  choose/recommend policy -> emit reviewer table -> optionally apply.
+* ``decision_table``: reviewer-facing per-threshold table with recommended value,
+  applied value, metric, source, confidence, evidence, active filtering flag,
+  affected cells, affected fraction, review-required status, biological guardrail,
+  and risk note.
 * ``recommended_threshold_summary``: compact map of recommended thresholds, applied
   thresholds, recommendation method, confidence interval, evidence, and final source.
 * ``applied_threshold_summary`` and ``user_override_summary``: explicit record of
@@ -61,6 +81,12 @@ QC Review Contract
   recommendation availability, and tumor-aware status.
 * ``sample_threshold_summary`` and ``tumor_aware_summary``: per-sample adaptive
   thresholds plus tumor-aware warnings such as mitochondrial filtering being disabled.
+* ``doublet_evidence_summary``: doublet prediction rates, score ranges,
+  heterotypic/homotypic risk metadata, external-evidence notes, and optional
+  ``benchmark_decision`` fields when validation evidence is attached. The compact
+  benchmark decision records the recommended default doublet mode, primary method,
+  candidate ``algorithm_weight`` for algorithm-plus-heuristic fusion, benchmark
+  deltas versus algorithm-only behavior, and whether manual review is required.
 * ``output_health``: downstream-safety checks including retained cells and missing QC
   metrics.
 * ``downstream_preprocess_recommendations``: next-step preprocessing guidance derived
@@ -83,7 +109,16 @@ When ``save_dir`` is set, the same contract is exported as
 ``qc_review_summary.json`` and summarized in ``qc_review_summary.md``. QC benchmark
 results are additionally exported as ``qc_benchmark.json`` and ``qc_benchmark.md``.
 
+Phase 2 validation outputs are consolidated by
+``validation/qc/build_figure2_qc_evidence_package.py`` into
+``validation_outputs/qc_figure2_package/``. The package contains harmonized
+Figure 2 source data plus a claim-level scorecard. This is the recommended
+place to inspect whether a QC claim is currently supported, partial, or
+contract-only.
+
 .. autofunction:: scLucid.qc.build_qc_decision_table
+
+.. autofunction:: scLucid.qc.enrich_qc_decision_table_for_review
 
 .. autofunction:: scLucid.qc.validate_qc_review_summary
 
@@ -94,6 +129,12 @@ QC is the first scLucid benchmark module. A benchmark-grade QC result should be
 auditable from the AnnData object alone: metrics, decisions, recommendations,
 overrides, output health, downstream guidance, action items, and reproducibility
 metadata should all be present under ``adata.uns["sclucid"]["qc"]``.
+
+Current evidence status is intentionally scoped: threshold-decision
+auditability and tumor-aware biological-fidelity proxies are supported by the
+local Figure 2 package; Kang demuxlet supports doublet calibration with review
+required; ambient diagnostics remain contract-only until a full raw 10x
+benchmark is added.
 
 Inspect the frozen QC module contract:
 

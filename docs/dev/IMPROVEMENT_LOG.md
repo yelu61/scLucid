@@ -69,7 +69,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `is_raw_count_matrix` |
 | **Status** | resolved |
 | **Resolution summary** | Implemented in `src/scLucid/utils/validation.py` and re-exported from `utils`. `_looks_like_counts` and `_matrix_looks_like_counts` now share the same canonical diagnostics. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/utils/test_validation.py`; smoke + affected module tests pass. |
 
 ### I002: Add `build_metadata_dicts` helper for multi-sample loading
@@ -80,7 +80,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `build_metadata_dicts` |
 | **Status** | resolved |
 | **Resolution summary** | Implemented in `src/scLucid/utils/helpers.py`. Converts `{sample: value}` group/batch dicts into `{column: {sample: value}}` for `read_10x` / `load_10x_data`. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/utils/test_helpers.py`; smoke + affected module tests pass. |
 
 ### I003: Add `audit_filtering` helper for QC retention audit
@@ -91,7 +91,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `audit_filtering` |
 | **Status** | resolved |
 | **Resolution summary** | Implemented in `src/scLucid/qc/filtering/core.py`. Compares cell counts before/after filtering by sample and optional group. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/qc/test_filtering.py`; smoke + affected module tests pass. |
 
 ### I004: Add `audit_doublets` helper for post-filter doublet check
@@ -102,7 +102,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `audit_doublets` |
 | **Status** | resolved |
 | **Resolution summary** | Implemented in `src/scLucid/qc/doublet/core.py`. Summarizes remaining doublet predictions and score distributions after filtering. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/qc/test_doublet.py`; smoke + affected module tests pass. |
 
 ### I005: Detect batch-biology confounding before integration
@@ -113,7 +113,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `detect_integration_confounding`, `diagnose_integration_risk` |
 | **Status** | resolved |
 | **Resolution summary** | Implemented in `src/scLucid/preprocess/integrate.py`. Detects one-to-one confounding and produces a structured risk assessment. `IntegrationConfig.auto_decide` wires the check into `batch_correction`. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/preprocess/test_integrate.py`; smoke + affected module tests pass. |
 
 ### I006: Add `resolve_qc_thresholds` for merging threshold sources
@@ -124,7 +124,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `resolve_qc_thresholds` |
 | **Status** | resolved |
 | **Resolution summary** | Implemented in `src/scLucid/qc/filtering/suggestions.py`. Merges intelligent/MAD/manual thresholds with configurable policy. Wired into `run_standard_qc` threshold application; user-explicit thresholds are authoritative. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/qc/test_filtering.py`, `tests/qc/test_qc_recommendation_executable.py`; smoke + affected module tests pass. |
 
 ### I007: Add `decide_integration` for auto integration decision
@@ -135,7 +135,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `decide_integration` |
 | **Status** | resolved |
 | **Resolution summary** | Implemented in `src/scLucid/preprocess/integrate.py`. Returns `(run, warnings, risk_dict)` for `run_integration="auto"` or explicit bool. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/preprocess/test_integrate.py`; smoke + affected module tests pass. |
 
 ### I008: Add `set_raw` option to `normalize_data`
@@ -146,7 +146,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Function(s)** | `normalize_data(..., set_raw=True)` |
 | **Status** | resolved |
 | **Resolution summary** | `NormalizationConfig` gained `set_raw`; `normalize_data` optionally sets `adata.raw` automatically after normalization. |
-| **Resolution commit** | TBD |
+| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/preprocess/test_normalize.py`; smoke + affected module tests pass. |
 
 ## Theme Backlog
@@ -156,7 +156,11 @@ single polishing session.
 
 ### QC robustness
 
-- *no entries yet*
+- *Count mixture for n_genes*: fixed missing `warnings` import, added equidispersion pre-screen, log-space NB/ZINB optimization, correct ZINB percentile inversion, and tests (`tests/qc/test_adaptive_threshold.py`).
+- *DBSCAN large-N stability*: switched `min_samples` to sqrt-scaling, added k-distance subsampling, and all-noise fallback.
+- *Ambient RNA correction*: enhanced linear correction with per-gene shrinkage and residual score; added unified `correct_ambient_rna` entry and CellBender CLI wrapper (`src/scLucid/qc/ambient_backends.py`); added optional `ambient` extras in `pyproject.toml`.
+- *MT% tumor metabolic awareness*: added `sample_aware`, `celltype_aware`, `multicomponent` models, review band, OXPHOS/glycolysis/mt_biogenesis panels, and `mt_review_flag` / `mt_hard_fail` obs columns in tumor-aware workflow.
+- *QC benchmark coverage*: added `sclucid_count_adaptive` strategy to threshold benchmark, ambient correction residual output, and new `run_mt_threshold_benchmark.py`.
 
 ### Preprocess defaults
 
@@ -168,11 +172,11 @@ single polishing session.
 
 ### Tumor interpretation edge cases
 
-- *no entries yet*
+- *MT% metabolic gradients*: see QC robustness entries; high-MT cells are now reviewed against OXPHOS/glycolysis/proliferation/hypoxia programs before mechanical deletion.*
 
 ### Documentation / discoverability
 
-- *no entries yet*
+- Updated `docs/roadmap/PHASE_2_QC_EVIDENCE_BENCHMARK.md` with count mixture, ambient backend, and MT stratified validation sections.
 
 ## Polishing Session Checklist
 

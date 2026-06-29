@@ -18,12 +18,22 @@ The current scaffold validates whether a golden-path run is:
   can be inspected
 - ready for later comparative validation
 
+For QC, the lightweight scaffold now also has a Figure 2 evidence package under
+``validation_outputs/qc_figure2_package/``. This package consolidates existing
+threshold, tumor-aware, doublet, and ambient validation outputs into a
+reviewable source-data table and a claim scorecard.
+
 It does **not** validate:
 
 - superiority over standard workflows
 - optimal biological filtering thresholds
 - cross-dataset scientific accuracy
 - publication-level benchmark conclusions
+
+The claim scorecard should be used to keep these limitations explicit. For
+example, Kang demuxlet labels support heterotypic donor-doublet evidence but do
+not fully validate homotypic doublets, while CellBender tiny validates ambient
+diagnostic plumbing rather than ambient-correction performance.
 
 Artifacts
 ---------
@@ -35,6 +45,19 @@ Golden paths write validation outputs under ``<output_dir>/validation/``:
 
 The JSON includes the full scaffold manifest. The CSV is a compact review table
 with one row per metric, including status and interpretation.
+
+QC evidence runners write current Phase 2 outputs under
+``validation_outputs/qc_*``:
+
+- ``qc_figure2_package/figure2_qc_source_data.tsv``: harmonized Figure 2 source
+  data for QC threshold decisions, tumor biological fidelity, doublet evidence,
+  and ambient contract checks
+- ``qc_figure2_package/qc_claim_scorecard.tsv``: claim-level status table for
+  QC auditability, tumor-aware biological fidelity, doublet calibration, ambient
+  diagnostic contract, and dataset coverage
+- ``qc_figure2_package/qc_dataset_coverage.tsv``: dataset role and Figure 2
+  panel coverage
+- ``qc_figure2_package/qc_evidence_report.md``: compact reviewer-facing summary
 
 Programmatic Use
 ----------------

@@ -4,6 +4,31 @@ Best Practices
 This guide defines the recommended division of labor between the major scLucid
 entrypoints and the repository artifacts around them.
 
+Recommended Pipeline Policy
+---------------------------
+
+The maintained QC -> Preprocess -> Analysis path is light by default and
+optionally extensible:
+
+- QC uses Python-native metrics, adaptive recommendations, conservative
+  multi-criterion filtering, and optional Scrublet/heuristic doublet evidence.
+- Preprocessing preserves counts in ``adata.layers["counts"]``, filters
+  low-detection genes, runs standard log-normalization, uses dependency-light HVG
+  selection, then PCA/neighbors/UMAP. Regression and batch correction are
+  explicit opt-ins.
+- Analysis consumes the unambiguous layers and embeddings from preprocessing for
+  clustering review, marker/evidence tables, annotation consensus, DE, and
+  proportion summaries. Analysis also records post-hoc QC review evidence for
+  doublet-heavy, high-mitochondrial, or stress-high clusters without deleting
+  cells automatically.
+
+Optional enhancements such as ``scanpy.external.pp.scran_normalize``,
+``seurat_v3`` HVGs, Harmony, scVI/scANVI, BBKNN, SOLO, or DoubletDetection are
+available when their dependencies and biological rationale are present.
+
+ScDblFinder wrappers, project-level ambient RNA correction, and custom rpy2
+execution branches are not part of the recommended default path.
+
 Recommended Pipeline Shape
 --------------------------
 
@@ -63,6 +88,9 @@ Recommended default:
 - keep filtering conservative by requiring multiple independent low-quality
   criteria before removing cells
 - review the stored QC trace and summary outputs before finalizing thresholds
+- use ``qc_reviewer_table`` as the single reviewer-facing QC table; it records
+  recommended value, applied value, source, confidence, affected cells,
+  biological risk note, and whether manual review is required
 
 When to override defaults:
 
@@ -98,6 +126,9 @@ Recommended stage handoff:
   normalization/HVG selection
 - store log-normalized expression in ``adata.layers["normalized"]`` and
   ``adata.raw`` before optional regression or HVG subsetting
+- expect the preprocessing review summary to document the canonical contract
+  ``counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph`` through
+  ``preprocess_layer_contract`` and ``preprocess_reviewer_table``
 - use HVGs for PCA/neighbors, but keep ``adata.raw`` available for marker,
   annotation, and differential-expression review
 - use integrated embeddings for visualization/clustering only when justified;

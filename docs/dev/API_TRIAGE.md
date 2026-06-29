@@ -155,4 +155,5 @@ recorded here; resolved entries are moved to the **Resolved** section.
 
 ## Resolved Triage Items
 
-*(None yet — populate as decisions are made.)*
+No resolved items yet. When a triage item is closed, move it here with the
+resolution date and commit reference.

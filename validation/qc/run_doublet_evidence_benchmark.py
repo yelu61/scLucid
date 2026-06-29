@@ -24,7 +24,7 @@ from validation.dataset_registry import DATASETS
 
 
 def _counts_matrix(adata: ad.AnnData):
-    return adata.layers["counts"] if "counts" in adata.layers else adata.X
+    return adata.layers.get("counts", adata.X)
 
 
 def _ensure_metrics(adata: ad.AnnData) -> None:
@@ -87,7 +87,7 @@ def _stratified_subset(
         keep.extend(rng.choice(idx, size=n_label, replace=False).tolist())
     if len(keep) > max_cells:
         keep = rng.choice(np.array(keep), size=max_cells, replace=False).tolist()
-    keep = sorted(set(int(i) for i in keep))
+    keep = sorted({int(i) for i in keep})
     return adata[keep].copy()
 
 
@@ -109,16 +109,30 @@ def _heuristic_predictions(adata: ad.AnnData) -> dict[str, pd.Series]:
     }
 
 
-def _method_available(method: str) -> tuple[bool, str]:
+def _method_available(method: str, *, require_gpu_for_solo: bool = True) -> tuple[bool, str, str]:
     package = {
         "scrublet": "scrublet",
+        "scanpy_scrublet": "scanpy",
+        "solo": "scvi",
         "scdblfinder": "pyscdblfinder",
         "scdblfinder_python": "pyscdblfinder",
         "scdblfinder_python_pyscdblfinder": "pyscdblfinder",
     }.get(method)
     if package is None:
-        return True, ""
-    return bool(importlib.util.find_spec(package)), package
+        return True, "", ""
+    if not importlib.util.find_spec(package):
+        return False, package, f"Missing optional dependency: {package}"
+    if method == "solo" and require_gpu_for_solo:
+        if not importlib.util.find_spec("torch"):
+            return False, "scvi-tools+torch", "Missing optional dependency: torch"
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                return False, "scvi-tools+cuda", "GPU unavailable; Solo benchmark skipped."
+        except Exception as exc:
+            return False, "scvi-tools+cuda", f"Could not inspect CUDA availability: {exc}"
+    return True, package, ""
 
 
 def _run_sclucid_doublet_method(
@@ -131,16 +145,20 @@ def _run_sclucid_doublet_method(
     use_heuristics: bool = False,
     algorithm_weight: float = 0.7,
     merge_strategy: str = "weighted_average",
+    require_gpu_for_solo: bool = True,
 ) -> dict[str, Any]:
-    available, package = _method_available(method)
+    available, package, availability_error = _method_available(
+        method,
+        require_gpu_for_solo=require_gpu_for_solo,
+    )
     if not available:
         return {
-            "status": "dependency_missing",
+            "status": "gpu_unavailable" if "GPU unavailable" in availability_error else "dependency_missing",
             "package": package,
             "predicted": pd.Series(False, index=adata.obs_names),
             "score": pd.Series(np.nan, index=adata.obs_names),
             "runtime_seconds": 0.0,
-            "error": f"Missing optional dependency: {package}",
+            "error": availability_error,
             "base_method": method,
             "sc_method": method,
             "use_heuristics": use_heuristics,
@@ -169,6 +187,7 @@ def _run_sclucid_doublet_method(
             scdblfinder_dims=15,
             scdblfinder_include_pcs=10,
             scdblfinder_dbr=expected_rate,
+            solo_use_gpu=True,
         )
         result = predict_doublets(adata.copy(), config=cfg, sample_key=sample_key)
         pred_col = f"{sc_method}_predicted"
@@ -730,6 +749,7 @@ def run(
     min_parity_group_cells: int,
     algorithm_weights: list[float],
     merge_strategy: str,
+    require_gpu_for_solo: bool = True,
 ) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     spec = next(dataset for dataset in DATASETS if dataset.key == "kang2018.pbmc")
@@ -784,6 +804,7 @@ def run(
                 use_heuristics=use_heuristics,
                 algorithm_weight=0.7 if weight is None else weight,
                 merge_strategy=merge_strategy,
+                require_gpu_for_solo=require_gpu_for_solo,
             )
             full_predictions[method_label] = result["predicted"].astype(bool)
             predictions[method_label] = result["predicted"].loc[usable].astype(bool)
@@ -957,6 +978,7 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=23)
     _DOUBLET_METHOD_CHOICES = (
         "scrublet",
+        "scanpy_scrublet",
         "solo",
         "doubletdetection",
         "scdblfinder",
@@ -967,7 +989,7 @@ def main() -> int:
         "--methods",
         nargs="*",
         choices=_DOUBLET_METHOD_CHOICES,
-        default=["scrublet", "scdblfinder_python_pyscdblfinder"],
+        default=["scrublet", "scanpy_scrublet", "scdblfinder_python_pyscdblfinder"],
         help=(
             "Algorithmic doublet-detection methods to benchmark. "
             "Heuristic predictions are always emitted as a transparent fallback baseline "
@@ -1000,6 +1022,11 @@ def main() -> int:
         choices=["weighted_average", "max_score", "heuristic_boost"],
         default="weighted_average",
     )
+    parser.add_argument(
+        "--allow-solo-cpu",
+        action="store_true",
+        help="Allow Solo to run on CPU in the benchmark. Default skips Solo unless CUDA is available.",
+    )
     args = parser.parse_args()
     paths = run(
         args.output_dir,
@@ -1010,6 +1037,7 @@ def main() -> int:
         min_parity_group_cells=args.min_parity_group_cells,
         algorithm_weights=args.algorithm_weights,
         merge_strategy=args.merge_strategy,
+        require_gpu_for_solo=not args.allow_solo_cpu,
     )
     for name, path in paths.items():
         print(f"{name}: {path}")

@@ -6,6 +6,24 @@ They define the user's trust in the rest of the workflow: if filtering,
 normalization, feature selection, and graph construction are not explainable,
 the later annotation and tumor modules cannot be trusted.
 
+Current Maturity Assessment
+---------------------------
+
+The table below is a snapshot of where each module stands today. It should be
+updated as modules move through the maturity gates described later in this
+document.
+
+| Area | Current Level | What Works Now | Main Gaps |
+|------|---------------|----------------|-----------|
+| QC | Candidate benchmark module with Figure 2 evidence package | Adaptive/sample-aware/tumor-aware threshold decisions, reviewer tables, tumor biological-fidelity benchmarks, Kang demuxlet doublet calibration, Python/R scDblFinder parity, and claim-level scorecards | More ground-truth-like doublet/ambient datasets and stronger homotypic/solid-tissue doublet evidence |
+| Preprocessing | Candidate benchmark module | Layer contracts, normalization/HVG/PCA/neighbors/UMAP evidence, batch-correction cautions, maturity contract | Larger multi-sample validation, stronger batch-correction recommendation evidence |
+| Analysis | Second benchmark module in active hardening | ``clustering_review -> markers -> annotation_evidence -> annotation_consensus -> posthoc_qc_review -> malignancy_interpretation``, manager-routed marker resources, review-summary contract | Real-data acceptance runs, richer CellTypist/reference evidence, better human-facing review tables |
+| Marker Resources | Strong architectural direction | Unified ``Manager``, human/mouse registry resources, tissue/tumor marker views, artifact/program/tumor routing, curation SOP | Source provenance at scale, mouse tissue/tumor parity, atlas-derived marker review |
+| Tumor Module | Feature-rich but needs integration hardening | CNV, malignancy scoring/classification, TME, therapy, heterogeneity, workflow scaffolds | Consume stable analysis outputs more tightly, store tumor-stage review summaries, validate on tumor datasets |
+| Plotting | Useful foundation | Publication-style themes and domain plots | Top-journal figure templates, richer multi-panel reports, visual regression checks |
+| Tools / Evidence Modules | Expanding tumor support | Python-facing wrappers, bulk deconvolution, bulk/spatial clean-room utilities, R parity scaffolds | Selective method validation, dependency isolation, bulk/spatial tumor use cases |
+| Documentation / Examples | Good skeleton | Three usage layers, advanced notebooks, golden-path scripts | Keep docs synchronized with maturity contracts and real-data acceptance results |
+
 Target State
 ------------
 
@@ -40,7 +58,20 @@ Required QC outputs:
 - low-quality and doublet flags
 - ``adata.uns["sclucid"]["qc"]["workflow_config"]``
 - ``adata.uns["sclucid"]["qc"]["review_summary"]``
+- ``review_summary["policy_flow"]`` describing profile -> threshold proposal ->
+  biological-risk scoring -> policy choice -> reviewer table -> optional apply
+- ``review_summary["doublet_evidence_summary"]`` with prediction rates, score
+  ranges, doublet risk metadata, and external-evidence notes when present
 - optional report sidecars under the configured ``save_dir``
+
+QC reporting boundary:
+
+- ``scLucid.qc.generate_qc_report`` is implemented in the reporting layer and
+  exported from ``scLucid.qc.reporting``.
+- ``scLucid.qc.filtering.generate_qc_report`` remains as a compatibility
+  wrapper only; filtering code should stay focused on threshold suggestion,
+  marking, filtering, and filtering audit. New code should use the reporting
+  entrypoint; the filtering wrapper emits a ``FutureWarning``.
 
 QC entries that can usually be compacted after review sidecars are exported:
 
@@ -51,16 +82,45 @@ QC entries that can usually be compacted after review sidecars are exported:
 
 QC hardening tasks:
 
-- keep ``run_standard_qc`` as the canonical workflow entrypoint
+- keep ``run_qc`` as the canonical user workflow entrypoint, backed by
+  ``run_standard_qc`` for compatibility
+- keep ``recommend_qc_policy`` as the diagnostic/recommend-only entrypoint and
+  ``apply_qc_policy`` as the explicit execution entrypoint
 - keep ``recommend_intelligent_qc`` executable as a standalone simple API tool
 - keep ScDblFinder and ambient RNA correction outside the default QC/preprocess
   path; removed wrappers should not reappear unless there is a clear
   dependency and maintenance plan
 - make user overrides explicit in the review summary
+- make the threshold ``decision_table`` reviewer-readable with recommended,
+  applied, source, confidence, evidence, review-required status, affected cells,
+  biological guardrails, strategy rank, recommended-policy status, and risk note
+- keep doublet benchmark evidence connected to normal QC reports through
+  ``doublet_evidence_summary``, rather than requiring users to inspect raw
+  doublet parameter payloads
+- maintain the Figure 2 QC evidence package under
+  ``validation_outputs/qc_figure2_package/`` so threshold, tumor-aware, doublet,
+  and ambient evidence are summarized in one source-data table and one
+  claim-level scorecard
 - test tumor-aware behavior on PDAC data where high mitochondrial content may
   be a warning rather than an automatic removal criterion
 - test edge cases: missing mitochondrial genes, single-sample data, small cell
   counts, sparse matrices, and absent ``sampleID``
+- maintain real-data evidence runners under ``validation/qc/`` for threshold
+  comparison, tumor biological fidelity, doublet evidence, and ambient/empty
+  droplet contracts
+
+Current QC evidence status:
+
+- QC decision auditability is supported across the local benchmark inventory by
+  threshold decision tables and strategy scorecards.
+- Tumor-aware biological fidelity is supported as a proxy claim across PDAC,
+  NSCLC, and CRC through marker/program retention and high-mt biological-signal
+  checks.
+- Doublet calibration is supported on Kang 2018 demuxlet labels, but review is
+  still required because those labels mainly validate genotype-detectable
+  heterotypic donor doublets.
+- Ambient RNA evidence remains contract-only until a full raw 10x matrix with
+  external SoupX/CellBender-style reference is added.
 
 Preprocessing As The Second Benchmark Module
 --------------------------------------------
@@ -80,6 +140,11 @@ Required preprocessing outputs:
 - neighbors graph and ``adata.obsm["X_umap"]`` when graph steps run
 - ``adata.uns["sclucid"]["preprocess"]["workflow_config"]``
 - ``adata.uns["sclucid"]["preprocess"]["review_summary"]``
+
+The preprocessing review summary should include both a compact
+``layer_transition_summary`` and a row-wise ``layer_transition_table`` so a
+reviewer can inspect each step's input layer, output slot, ``adata.X`` semantics,
+``adata.raw`` semantics, review-required status, and risk note.
 
 Preprocessing entries that can usually be compacted after the handoff to
 analysis:
@@ -111,6 +176,9 @@ Preprocessing hardening tasks:
 - warn when tumor data are batch-corrected in a way that may remove malignant,
   clone, patient, or microenvironment signal
 - test small datasets where PCA components and neighbors must be clipped safely
+- maintain real-data evidence runners under ``validation/preprocess_analysis/``
+  for layer contracts, HVG marker/program preservation, batch-correction
+  diagnostics, and graph handoff stability
 
 Recommended Implementation Order
 --------------------------------

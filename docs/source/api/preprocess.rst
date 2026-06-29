@@ -63,12 +63,26 @@ Preprocessing Review Contract
   ``counts`` layer is available.
 * ``applied_parameter_summary``: effective normalization, HVG, regression,
   scaling, PCA, batch-correction, and graph parameters used by the run.
+* ``normalization_decision_policy``: recommended and applied normalization
+  method/input layer, confidence, review reasons, and ambient-correction
+  caveats when QC reports an ambient layer contract.
 * ``layer_transition_summary``: expression-layer and embedding transitions from
   counts to normalized/scaled layers, PCA, and optional integrated embeddings.
+* ``layer_transition_table``: row-wise contract for input, normalization, raw,
+  HVG, scaling, PCA, and graph stages, including ``adata.X`` and ``adata.raw``
+  semantics.
+* ``preprocess_layer_contract``: the canonical handoff contract
+  ``counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph`` with
+  expected slots, recommended input layers, and review flags.
 * ``step_evidence_summary``: per-step audit records with status, inputs,
   outputs, applied parameters, linked review fields, and review flags.
 * ``hvg_selection_evidence_summary``: HVG method, input layer, selected count,
   selected fraction, input statistics, and excluded gene-type evidence.
+* ``preprocess_decision_summary`` and ``preprocess_reviewer_table``:
+  reviewer-facing decisions for normalization, HVG selection, regression,
+  scaling, PCA, batch correction, and graph construction, with recommended
+  value, applied value, source, confidence, affected representation, risk note,
+  and whether manual review is required.
 * ``tumor_aware_batch_correction_warnings``: tumor-context warnings when batch
   correction could over-correct malignant-state, clone, patient, or TME signal.
 * ``downstream_analysis_recommendations``: preprocessing-to-analysis handoff
@@ -116,9 +130,10 @@ while still making uncertainty explicit.
 
 ``summarize_preprocess_review_summary`` returns a compact product-facing view
 for notebooks, CLIs, and reports. It includes preprocessing maturity, readiness,
-QC handoff status, layers and embeddings present, HVG selection, PCA and UMAP
-state, per-step status counts, review-required steps, and downstream analysis
-readiness.
+QC handoff status, the canonical layer flow, recommended counts layer,
+normalization method, layers and embeddings present, HVG selection, PCA and
+UMAP state, per-step status counts, reviewer decisions, review-required steps,
+and downstream analysis readiness.
 
 .. autofunction:: scLucid.preprocess.get_preprocess_module_contract
 
@@ -139,6 +154,22 @@ find_hvgs
 ~~~~~~~~~
 
 .. autofunction:: scLucid.preprocess.find_hvgs
+
+HVG Set Selection
+~~~~~~~~~~~~~~~~~
+
+``find_hvgs`` computes method-specific HVG masks. ``select_hvg_sets`` and
+``select_and_audit_hvgs`` combine existing masks with direct, union,
+intersection, difference, or auto selection. When a mask represents curated
+biology rather than another algorithmic HVG method, pass ``set_roles`` such as
+``{"marker_mask": "protected_marker"}``; auto mode then favors retaining the
+protected marker/program genes and records that semantic choice in the audit.
+
+.. autofunction:: scLucid.preprocess.suggest_hvg_choice
+
+.. autofunction:: scLucid.preprocess.select_hvg_sets
+
+.. autofunction:: scLucid.preprocess.select_and_audit_hvgs
 
 scale_data
 ~~~~~~~~~~

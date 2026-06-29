@@ -7,6 +7,8 @@ three ideas:
 - **Traceable workflows** for QC, preprocessing, annotation, and differential analysis
 - **Biology-aware decisions** such as marker-driven QC and multi-evidence annotation
 - **Runnable entrypoints** for users who want either a one-liner workflow or a reviewable script
+- **Validation evidence packages** that separate supported, partial, and
+  contract-only claims instead of overstating benchmark results
 
 How To Use This Repository
 --------------------------

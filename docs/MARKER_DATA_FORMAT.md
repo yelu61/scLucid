@@ -1,0 +1,114 @@
+# Marker Data Format
+
+This document describes the machine-readable marker curation files stored as
+JSONL (JSON Lines) in the top-level `docs/` directory. Each file contains one
+JSON object per line. These files are the live queues for marker resource
+maintenance; the historical batch notes that produced them are archived under
+`docs/archive/marker_curation/`.
+
+## Files
+
+| File | Purpose | Lines (approx.) |
+|------|---------|-----------------|
+| `marker_curation_candidates.jsonl` | Candidate marker entries awaiting review | 12 |
+| `marker_curation_literature_index.jsonl` | Indexed literature queue with Zotero linkage | 141 |
+| `marker_resource_quality_gaps.jsonl` | Entry-level quality gaps detected by the marker audit pipeline | 114 |
+
+## `marker_curation_candidates.jsonl`
+
+Candidate entries distilled from historical curation batches. Each entry
+represents a proposed marker set, alias, functional program, or cancer state
+that has not yet been promoted to a stable resource.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `batch_id` | string | Two-digit batch identifier (e.g., `01`, `12`). |
+| `entry_name` | string | Human-readable candidate name. |
+| `target_resource` | string | Semicolon-separated target resource filenames. |
+| `kind` | string | One of: `cell_type`, `alias`, `tumor_evidence`, `functional_program`, `geneset`, `cancer_state`. |
+| `granularity` | string | One of: `lineage`, `subtype`, `nomenclature`, `program`, `cancer_type_specific`. |
+| `markers` | list of strings | Positive marker gene symbols. |
+| `negative_markers` | list of strings | Negative marker gene symbols. |
+| `source_ids` | list of strings | Stable source identifiers (e.g., `SRC0044`). |
+| `evidence_tier` | string | One of: `atlas_supported`, `curated_review`, etc. |
+| `review_status` | string | Currently `needs_review` for all live candidates. |
+| `notes` | string | Free-text curation notes. |
+
+### Status values
+
+- `needs_review` — candidate has not yet been promoted to a stable resource.
+
+## `marker_curation_literature_index.jsonl`
+
+Literature queue used to track which papers have been sourced, matched to
+Zotero, and registered as stable references. This is the canonical linkage
+between batch curation and the `references.toml` source registry.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `batch_id` | string | Two-digit batch identifier. |
+| `batch_file` | string | Source batch Markdown file. |
+| `source_number` | string | Paper number within the batch. |
+| `title` | string | Publication title. |
+| `year` | string | Publication year. |
+| `journal` | string | Journal name. |
+| `doi` | string | DOI. |
+| `source_type` | string | One of: `single_cell_atlas`, `pan_cancer_atlas`, `review`, `computational_tool`, `naming_reference`. |
+| `recommended_resource` | string | Suggested target resource or empty string. |
+| `reference_source_ids` | list of strings | Stable `SRC` identifiers assigned after registration. |
+| `zotero_status` | string | One of: `local_item_matched`, `doisearch_pending`, `not_matched`. |
+| `curation_status` | string | One of: `reference_registered`, `queued`. |
+| `zotero_item_key` | string | Zotero item key when matched. |
+| `zotero_match_score` | float | Match confidence (1.0 = exact). |
+| `resource_utility` | list of strings | One or more of: `marker_core`, `tissue_context`, `tumor_context`, `geneset_scoring`, `nomenclature_reference`, `benchmark_reference`, `validation_reference`. |
+| `target_resources` | list of strings | Resource files the source can feed into. |
+| `curation_priority` | string | `high`, `medium`, or `low`. |
+| `fulltext_review_required` | boolean | Whether full-text review is needed before promotion. |
+| `extraction_status` | string | One of: `triaged_not_extracted`, `extracted`, `pending`. |
+
+## `marker_resource_quality_gaps.jsonl`
+
+Quality gaps identified by the marker audit pipeline. Each line flags a specific
+resource entry that fails a quality rule (for example, missing negative markers
+or too few positive markers).
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `resource` | string | Resource file where the gap was found. |
+| `entry` | string | Entry name (e.g., cell type or state). |
+| `gap` | string | Gap type. Common values: `missing_effective_negative_markers`, `thin_marker_set`. |
+| `granularity` | string | Entry granularity in the resource. |
+| `parent` | string or null | Parent entry when applicable. |
+| `marker_count` | integer (optional) | Current number of positive markers. |
+| `recommended_min` | integer (optional) | Recommended minimum number of markers. |
+
+### Common gap types
+
+- `missing_effective_negative_markers` — entry lacks negative markers that would
+  help distinguish it from sibling lineages.
+- `thin_marker_set` — entry has fewer positive markers than the recommended
+  minimum.
+
+## How to update
+
+1. Add new candidates to `marker_curation_candidates.jsonl` with
+   `review_status: needs_review`.
+2. Register newly matched literature in `marker_curation_literature_index.jsonl`
+   and assign stable `SRC` identifiers in `references.toml`.
+3. Re-run the marker audit pipeline to refresh
+   `marker_resource_quality_gaps.jsonl`.
+4. Do not edit historical batch files under `docs/archive/marker_curation/`;
+   they are kept for provenance only.
+
+## Relationship to other docs
+
+- `docs/MARKER_RESOURCE_CURATION.md` — the curation contract and workflow.
+- `docs/MARKER_RESOURCE_QUALITY_SUMMARY.md` — human-readable quality snapshot.
+- `docs/MARKER_NOMENCLATURE_CONTRACT.md` — naming rules for entries.
+- `docs/archive/marker_curation/` — historical batch notes.

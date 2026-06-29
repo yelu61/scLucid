@@ -1,8 +1,8 @@
 # Phase 2: QC Evidence Benchmark
 
 **Recommended duration**: 1-2 个月  
-**Primary output**: QC 证据链 benchmark 和 Figure 2  
-**Main claim**: scLucid QC 比固定阈值流程更可审计，并在肿瘤场景中更少误伤关键生物信号。
+**Primary output**: QC 证据链 benchmark、Figure 2 source data、claim scorecard
+**Main claim**: scLucid QC 比固定阈值流程更可审计，并在肿瘤场景中更少误伤关键生物信号。当前证据支持系统性证据框架和若干明确优势方向，但不应表述为所有场景下的全面准确性优越。
 
 ## 目标
 
@@ -57,6 +57,9 @@
 - top gene fraction。
 - doublet score and predicted doublet rate。
 - marker fidelity before/after QC。
+- **count mixture model for `n_genes_by_counts`**：fitted family (NB/ZINB/Poisson), AIC, fallback status。
+- **ambient RNA correction residual score**：linear and/or CellBender backend。
+- **MT% review band**：hard threshold and review-band lower bound for tumor datasets。
 
 ### Step 2. 建立 threshold decision table
 
@@ -64,11 +67,12 @@
 
 - recommended threshold。
 - applied threshold。
-- source：user / default / recommendation。
+- source：user / default / recommendation / count_mixture / bimodal_gmm / sample_aware。
 - rationale。
 - confidence。
 - affected cells。
 - risk note。
+- **model evidence**：count-model AIC, MT component separation, stratum baselines。
 
 标准字段：
 
@@ -89,6 +93,8 @@
 - Scrublet。
 - scDblFinder / pyscdblfinder。
 - scLucid lineage co-expression heuristic。
+- algorithm-only vs algorithm-plus-heuristic fusion, including candidate
+  `algorithm_weight` values.
 - external evidence, 如果有。
 
 输出：
@@ -106,6 +112,8 @@
 - scDblFinder 专属 `dbr` 和通用 expected rate 行为明确。
 - raw-count guard 能阻止 normalized data 误用。
 - doublet evidence report 不只给二值标签。
+- Python/R scDblFinder parity 和 disagreement group 进入报告。
+- Kang demuxlet 作为 external genotype-based reference，而不是全局金标准。
 
 ### Step 4. Tumor-aware QC validation
 
@@ -115,12 +123,14 @@
 - 高 cell cycle 是否是 proliferating tumor，而不是过滤目标？
 - epithelial/stromal/immune marker 是否在 QC 后被保留？
 - malignant-like clusters 是否被过度删除？
+- **代谢重编程状态（OXPHOS / glycolysis / mt biogenesis）是否在高-MT 细胞中保留？**
 
 输出：
 
 - tumor cell preservation metric。
 - marker fidelity。
 - retained tumor program score。
+- **MT% threshold scorecard**：fixed 20%、fixed 5%、bimodal GMM、sample-aware、multicomponent 的 program retention 对比。
 - warning examples。
 
 ### Step 5. 对照固定阈值流程
@@ -130,6 +140,8 @@
 - Scanpy/Seurat fixed threshold。
 - scLucid recommendation。
 - scLucid user override。
+- **scLucid count-adaptive threshold for `n_genes_by_counts`。**
+- **scLucid sample-aware / multicomponent MT% threshold for tumor datasets。**
 
 核心判断不是“保留越多越好”，而是：
 
@@ -137,22 +149,29 @@
 - 是否保护关键 marker/program。
 - 是否识别低质量风险。
 - 是否生成可审计理由。
+- **统计模型是否更适合数据类型（count mixture vs GMM/percentile）。**
 
 ## 完成标准
 
 Phase 2 通过条件：
 
-- 至少 5 个数据集完成 QC benchmark。
-- 每个数据集都有 machine-readable QC review summary。
-- 至少 2 个 tumor case 显示 scLucid QC 相比固定阈值更少误伤关键生物信号。
-- doublet evidence 有算法对照、fallback 和解释表。
-- Figure 2 草图完成。
+- 至少 5 个数据集完成 QC benchmark。当前本地 inventory 已有 8 个 h5ad
+  validation datasets，其中 7 个进入 threshold/tumor/doublet/ambient QC
+  evidence 路径。
+- 每个 benchmark 输出都有 machine-readable reviewer/source table。
+- 至少 2 个 tumor case 显示 scLucid QC 相比固定阈值更少误伤关键生物信号。当前 PDAC/NSCLC/CRC 通过 marker/program retention proxy 支撑该方向。
+- doublet evidence 有算法对照、fallback、Python/R parity、threshold
+  calibration、algorithm_weight recommendation 和解释表。
+- Figure 2 source-data package 完成，并区分 supported / partial /
+  contract-only claims。
 
 ## 交付物
 
 - `validation/qc/` benchmark scripts。
 - `validation_outputs/qc_*` 汇总表。
-- `docs/VALIDATION_QC_EVIDENCE.md` 或等价报告。
+- `validation_outputs/qc_figure2_package/figure2_qc_source_data.tsv`。
+- `validation_outputs/qc_figure2_package/qc_claim_scorecard.tsv`。
+- `validation_outputs/qc_figure2_package/qc_evidence_report.md`。
 - Figure 2 数据表和绘图脚本。
 - QC audit report 示例。
 
@@ -161,14 +180,18 @@ Phase 2 通过条件：
 Figure 2A: QC workflow and evidence table。  
 Figure 2B: retention and marker fidelity across datasets。  
 Figure 2C: tumor-aware QC preserves malignant/TME programs。  
-Figure 2D: doublet evidence overlap and risk decomposition。
+Figure 2D: doublet evidence overlap, calibration, parity, and risk decomposition。
+Figure 2E: reviewer-facing tumor QC decision narrative。
 
 ## 风险与处理
 
 | 风险 | 表现 | 处理 |
 |------|------|------|
 | 无 ground truth | 很难说更准 | 使用 marker fidelity、retention bias、synthetic doublets |
-| scDblFinder Python port 与 R 不一致 | doublet calls 差异大 | Phase 5 做 parity benchmark |
+| scDblFinder Python port 与 R 不一致 | doublet calls 差异大 | 已有 Python/R parity table；继续报告 disagreement donor/sample/cell type |
 | tumor-aware 被认为主观 | warning 太像建议 | 所有 warning 配 evidence key 和 review status |
 | 只赢固定阈值太弱 | 审稿人说基线简单 | 加入 Scanpy recommended practices 和 Seurat baseline |
-
+| Ambient claim 过强 | CellBender tiny 只能证明接口 | 标记为 contract-only，补 full raw 10x + SoupX/CellBender reference |
+| count mixture 稳定性 | NB/ZINB 退化或 fallback 到 GMM | 增加 equidispersion 预筛、log-space 优化、Poisson 平局 |
+| ambient backend 可选依赖 | CellBender 未安装 | 自动 fallback 到 linear correction，并在 summary 标注 backend |
+| MT% 代谢异质性 | 单阈值误删高 OXPHOS / 增殖肿瘤细胞 | 提供 sample-aware baseline、review band、multicomponent GMM |
