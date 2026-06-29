@@ -66,6 +66,7 @@ figures/
 # Documentation build artifacts
 docs/_build/
 docs/source/_build/
+docs/build/
 
 # Local data fixtures
 # These are downloaded or generated during tests/golden-path runs and should
@@ -75,3 +76,11 @@ data/processed/
 
 # Local editor / tool caches
 .claude/
+
+# Local benchmark/analysis datasets (not for commit)
+data/baron2016.pancreas.h5ad
+data/cellbender_tiny.h5ad
+data/kang2018.pbmc.h5ad
+data/lee2020.crc.h5ad
+data/moncada2020.pdac.h5ad
+data/zilionis2019.nsclc.h5ad

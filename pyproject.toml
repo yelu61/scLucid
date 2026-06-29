@@ -130,6 +130,11 @@ tools = [
     "triku",       # For Triku HVG selection
 ]
 
+# Ambient RNA correction backends
+ambient = [
+    "cellbender",  # Python CLI for remove-background
+]
+
 # Install everything
 all = [
     "scLucid[analysis]",
@@ -138,6 +143,7 @@ all = [
     "scLucid[bulk]",
     "scLucid[spatial]",
     "scLucid[tools]",
+    "scLucid[ambient]",
 ]
 
 # Dependencies for developers (e.g., for running tests)
