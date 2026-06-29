@@ -1,3 +1,13 @@
+>
+> **⚠️ ARCHIVED / SUPERSEDED**
+>
+> This document is kept for historical reference only. The current design,
+> contracts, and implementation plans are maintained in the top-level `docs/`
+> files and in `docs/source/`. Do not use this document as a source of truth.
+> See `docs/README.md` for the documentation map.
+
+---
+
 # Hierarchical Annotation Workflow
 
 This note defines the scLucid annotation boundary after adopting a

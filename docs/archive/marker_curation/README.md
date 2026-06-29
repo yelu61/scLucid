@@ -1,3 +1,11 @@
+> **⚠️ ARCHIVED / SUPERSEDED**
+>
+> This directory contains historical marker curation batches kept for provenance
+> only. The live marker resource contract and status are maintained in
+> `docs/MARKER_RESOURCE_CURATION.md` and the top-level JSONL queues.
+
+---
+
 # Historical Marker Curation Batches
 
 This directory contains historical marker curation notes organized by batch.

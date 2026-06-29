@@ -1,3 +1,13 @@
+> **⚠️ ARCHIVED / SUPERSEDED**
+>
+> This batch curation note is kept for provenance only. The live marker
+> resource status is tracked in `docs/marker_curation_literature_index.jsonl`,
+> `docs/marker_resource_quality_gaps.jsonl`, `docs/marker_curation_candidates.jsonl`,
+> and `docs/MARKER_RESOURCE_CURATION.md`. New curation should follow the current
+> contract rather than adding new files to this archive.
+
+---
+
 # Marker Curation Batch 04: NK Cell Lineage Papers
 
 ## Source Articles
