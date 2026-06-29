@@ -21,6 +21,16 @@ along the same hierarchy:
 
 > Gene -> Program -> Cell State -> Cell Community -> Ecotype -> Ecosystem -> Clinical Phenotype
 
+| Interpretation Level | Current Coverage | Role In scLucid |
+|----------------------|------------------|-----------------|
+| Gene | Strong | Marker and gene-level evidence |
+| Program | Active | Tumor and TME program scoring |
+| Cell State | Active | Annotation, state interpretation, malignancy evidence |
+| Cell Community | Emerging | Co-abundance and local ecosystem patterns |
+| Ecotype | Planned / prototype | Sample-level archetypes and stability-tested patterns |
+| Ecosystem | Planned | Integrated tumor microenvironment interpretation |
+| Clinical Phenotype | Long-term | Response or outcome association with explicit limitations |
+
 Short-term:
 
 - Robust tumor cell-state interpretation.

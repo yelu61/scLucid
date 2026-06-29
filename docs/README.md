@@ -14,6 +14,7 @@ scLucid. User-facing Sphinx documentation lives under `docs/source/`.
 | `BULK_SPATIAL_DESIGN.md` | Canonical design for `scLucid.tools.bulk` and `scLucid.tools.spatial`. |
 | `OMICVERSE_FEATURE_AUDIT.md` | GPL-aware feature audit used to avoid direct OmicVerse code copying. |
 | `DATA_USAGE_GUIDE.md` | Current local data fixture roles and handling rules. |
+| `MARKER_DATA_FORMAT.md` | Schema and usage notes for the machine-readable marker curation JSONL files. |
 
 ### Marker Resources
 
