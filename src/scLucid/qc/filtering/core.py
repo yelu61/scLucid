@@ -350,11 +350,17 @@ class AdaptiveThresholdCalculator:
                 adjusted_mean = (1 - shrinkage) * batch_mean + shrinkage * global_mean
                 adjusted_std = (1 - shrinkage) * batch_std + shrinkage * global_std
 
-                # Calculate thresholds from adjusted distribution
-                z_score = stats.norm.ppf(percentile / 100)
+                # Calculate thresholds from the adjusted distribution using the
+                # empirical quantiles of the batch values shrunk toward the global
+                # distribution, rather than assuming normality. This avoids
+                # nonsensical thresholds for skewed count metrics.
+                global_q_low = global_values.quantile((100 - percentile) / 100)
+                global_q_high = global_values.quantile(percentile / 100)
+                batch_q_low = batch_values.quantile((100 - percentile) / 100)
+                batch_q_high = batch_values.quantile(percentile / 100)
 
-                lower = adjusted_mean - z_score * adjusted_std
-                upper = adjusted_mean + z_score * adjusted_std
+                lower = (1 - shrinkage) * batch_q_low + shrinkage * global_q_low
+                upper = (1 - shrinkage) * batch_q_high + shrinkage * global_q_high
 
                 # Domain-aware clipping
                 if metric in ("n_genes_by_counts", "total_counts"):
