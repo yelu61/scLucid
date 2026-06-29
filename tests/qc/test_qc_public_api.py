@@ -33,3 +33,30 @@ def test_qc_no_longer_exports_removed_optional_modules():
     ]
     for symbol in removed_symbols:
         assert not hasattr(qc, symbol), f"scLucid.qc should not export removed symbol: {symbol}"
+
+
+@pytest.mark.unit
+def test_qc_compatibility_aliases_remain_importable_but_hidden_from_all():
+    hidden = [
+        "run_qc_decision_workflow",
+        "run_advanced_qc",
+    ]
+    for symbol in hidden:
+        assert hasattr(qc, symbol), f"compatibility symbol missing: {symbol}"
+        assert symbol not in qc.__all__
+
+
+@pytest.mark.unit
+def test_qc_policy_entrypoints_are_public():
+    for symbol in ["run_qc", "recommend_qc_policy", "apply_qc_policy"]:
+        assert hasattr(qc, symbol)
+        assert symbol in qc.__all__
+
+
+@pytest.mark.unit
+def test_generate_qc_report_canonical_source_is_reporting():
+    from scLucid.qc import reporting
+    from scLucid.qc.filtering import generate_qc_report as filtering_generate_qc_report
+
+    assert qc.generate_qc_report is reporting.generate_qc_report
+    assert filtering_generate_qc_report is not reporting.generate_qc_report

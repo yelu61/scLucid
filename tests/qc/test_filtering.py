@@ -1,5 +1,6 @@
 """Tests for QC filtering functions."""
 
+import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
@@ -16,6 +17,22 @@ from scLucid.qc.filtering import (
     run_qc_threshold_decision,
     suggest_qc_thresholds,
 )
+from scLucid.qc.filtering.core import AdaptiveThresholdCalculator
+
+
+def test_adaptive_thresholds_record_reviewable_model_semantics():
+    adata = AnnData(X=np.ones((12, 4)))
+    adata.obs["sampleID"] = ["S1"] * 6 + ["S2"] * 6
+    adata.obs["n_genes_by_counts"] = [100, 110, 120, 130, 140, 150, 200, 210, 220, 230, 240, 250]
+
+    thresholds = AdaptiveThresholdCalculator(adata, "sampleID")._suggest_adaptive_thresholds(
+        "n_genes_by_counts",
+        method="hierarchical",
+    )
+
+    assert set(thresholds) == {"S1", "S2"}
+    assert all(item["model_type"] == "empirical_shrinkage_heuristic" for item in thresholds.values())
+    assert all("formal mixed-effects" in item["review_note"] for item in thresholds.values())
 
 
 class TestSuggestQCThresholds:
@@ -186,6 +203,18 @@ class TestFilterCells:
                 custom_logic_expr=None,
             )
 
+    def test_custom_logic_rejects_function_calls(self, qc_test_adata):
+        adata = qc_test_adata.copy()
+        adata.obs["outlier_a"] = [True] * adata.n_obs
+        config = FilterConfig(
+            criteria_to_filter=["outlier_a"],
+            combination_logic="custom",
+            custom_logic_expr="outlier_a.astype(bool)",
+        )
+
+        with pytest.raises(ValueError, match="Invalid custom logic expression"):
+            filter_cells(adata, config=config, copy=True)
+
 
 class TestResolveQCThresholds:
     def test_intelligent_then_mad_policy(self):
@@ -226,18 +255,19 @@ class TestResolveQCThresholds:
 
 class TestQCDecisionWorkflow:
     def test_runs_threshold_resolution_and_marking(self, qc_test_adata):
-        result = run_qc_decision_workflow(
-            qc_test_adata.copy(),
-            intelligent_thresholds={"min_genes": 100, "pc_mt": 20.0},
-            manual_thresholds={"min_genes": 50},
-            plot_distributions=False,
-            filter_cells_result=False,
-        )
+        with pytest.warns(FutureWarning, match="run_qc_threshold_decision"):
+            result = run_qc_decision_workflow(
+                qc_test_adata.copy(),
+                intelligent_thresholds={"min_genes": 100, "pc_mt": 20.0},
+                manual_thresholds={"min_genes": 50},
+                plot_distributions=False,
+                filter_cells_result=False,
+            )
 
         assert "adata" in result
         assert result["resolved_thresholds"].min_genes == 100
         assert "qc_threshold_decision" in result["adata"].uns["sclucid"]["qc"]
-        assert "qc_decision_workflow" in result["adata"].uns["sclucid"]["qc"]
+        assert "qc_decision_workflow" not in result["adata"].uns["sclucid"]["qc"]
 
     def test_new_threshold_decision_entrypoint(self, qc_test_adata):
         result = run_qc_threshold_decision(
@@ -274,28 +304,31 @@ class TestAuditFiltering:
 class TestGenerateQCReport:
     def test_smoke_report_generation(self, qc_test_adata, temp_output_dir):
         """Basic smoke test: report generation should not crash."""
-        generate_qc_report(
-            qc_test_adata,
-            save_dir=temp_output_dir,
-            include_before_after=False,
-        )
+        with pytest.warns(FutureWarning, match="filtering.generate_qc_report"):
+            generate_qc_report(
+                qc_test_adata,
+                save_dir=temp_output_dir,
+                include_before_after=False,
+            )
 
     def test_report_with_before_after(self, qc_test_adata, temp_output_dir):
         before = qc_test_adata.copy()
         after = qc_test_adata.copy()
-        generate_qc_report(
-            after,
-            save_dir=temp_output_dir,
-            include_before_after=True,
-            adata_before=before,
-        )
+        with pytest.warns(FutureWarning, match="filtering.generate_qc_report"):
+            generate_qc_report(
+                after,
+                save_dir=temp_output_dir,
+                include_before_after=True,
+                adata_before=before,
+            )
 
     def test_report_creates_output(self, qc_test_adata, temp_output_dir):
-        generate_qc_report(
-            qc_test_adata,
-            save_dir=temp_output_dir,
-            include_before_after=False,
-        )
+        with pytest.warns(FutureWarning, match="filtering.generate_qc_report"):
+            generate_qc_report(
+                qc_test_adata,
+                save_dir=temp_output_dir,
+                include_before_after=False,
+            )
         import os
         files = os.listdir(temp_output_dir)
         # Should create at least some output

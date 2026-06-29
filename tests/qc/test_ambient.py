@@ -1,14 +1,20 @@
-"""Tests for Python-native ambient RNA diagnostics."""
+"""Tests for Python-native ambient RNA diagnostics and correction."""
 
 import numpy as np
+import scipy.sparse as sparse
 from anndata import AnnData
 
 from scLucid.qc import (
+    AMBIENT_CORRECTED_COUNTS_LAYER,
+    build_ambient_layer_contract,
     diagnose_ambient_rna,
     diagnose_empty_droplets,
+    infer_ambient_input_context,
     record_ambient_correction_status,
     register_external_ambient_result,
 )
+from scLucid.qc.ambient import correct_ambient_rna_linear
+from scLucid.qc.ambient_backends import cellbender_available, correct_ambient_rna
 
 
 def test_diagnose_ambient_rna_returns_risk_summary():
@@ -72,7 +78,52 @@ def test_register_external_ambient_result_copies_matching_matrix_to_layer():
     assert np.asarray(adata.layers["cellbender_corrected"]).mean() == 2.0
 
 
-def test_diagnose_empty_droplets_records_background_profile():
+def test_register_external_ambient_result_defaults_to_contract_layer():
+    adata = AnnData(X=np.ones((5, 4), dtype=float))
+    corrected = AnnData(X=np.full((5, 4), 2.0, dtype=float))
+    adata.obs_names = corrected.obs_names = [f"cell{i}" for i in range(5)]
+    adata.var_names = corrected.var_names = [f"gene{i}" for i in range(4)]
+    adata.layers["counts"] = adata.X.copy()
+
+    status = register_external_ambient_result(
+        adata,
+        backend="cellbender",
+        corrected_adata=corrected,
+    )
+
+    contract = adata.uns["sclucid"]["qc"]["ambient_layer_contract"]
+    assert status["output_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
+    assert AMBIENT_CORRECTED_COUNTS_LAYER in adata.layers
+    assert contract["corrected_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
+    assert contract["corrected_layer_present"] is True
+    assert contract["recommended_preprocess_counts_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
+
+
+def test_infer_ambient_input_context_distinguishes_filtered_and_raw_like():
+    filtered = AnnData(X=np.ones((5, 4), dtype=float))
+    raw_like = AnnData(X=np.ones((5, 4), dtype=float))
+    raw_like.obs["likely_empty_droplet"] = ["true", "false", "false", "false", "false"]
+
+    assert infer_ambient_input_context(filtered)["matrix_type"] == "filtered_like"
+    raw_context = infer_ambient_input_context(raw_like)
+    assert raw_context["matrix_type"] == "raw_like"
+    assert "cellbender" in raw_context["suitable_backends"]
+
+
+def test_ambient_layer_contract_falls_back_to_counts_without_correction():
+    adata = AnnData(X=np.ones((5, 4), dtype=float))
+    adata.layers["counts"] = adata.X.copy()
+
+    contract = build_ambient_layer_contract(
+        adata,
+        correction_summary={"corrected": False, "reason": "not_requested"},
+    )
+
+    assert contract["recommended_preprocess_counts_layer"] == "counts"
+    assert "ambient_corrected_counts(optional)" in contract["canonical_flow"]
+
+
+def test_diagnose_empty_droplets_is_pure_by_default_and_can_record_explicitly():
     X = np.ones((120, 20), dtype=float)
     X[:20, :] = 0
     X[:20, 0] = 10
@@ -87,4 +138,111 @@ def test_diagnose_empty_droplets_records_background_profile():
     assert summary["method"] == "python_barcode_rank_background_profile"
     assert "not an EmptyDrops replacement" in summary["method_note"]
     assert "top_background_genes" in summary
+    assert "sclucid" not in adata.uns or "qc" not in adata.uns.get("sclucid", {})
+
+    recorded = diagnose_empty_droplets(adata, min_barcodes=50, top_n_genes=5, record=True)
+    assert recorded["available"] is True
     assert "empty_droplet_summary" in adata.uns["sclucid"]["qc"]
+
+
+def test_linear_correction_reduces_ambient_marker_expression():
+    """Synthetic ambient profile should be partially removed by linear correction."""
+    rng = np.random.default_rng(42)
+    n_cells = 500
+    n_genes = 50
+    # True expression matrix with sparse counts.
+    true_expr = rng.poisson(lam=2, size=(n_cells, n_genes)).astype(float)
+    true_expr[true_expr < 1] = 0.0
+
+    # Ambient profile concentrated in first 5 genes.
+    ambient_profile = np.zeros(n_genes)
+    ambient_profile[:5] = np.array([0.4, 0.3, 0.15, 0.1, 0.05])
+    # Per-cell contamination fractions.
+    rho = rng.uniform(0.05, 0.25, size=n_cells)
+    ambient_counts = (rho[:, None] * true_expr.sum(axis=1)[:, None] * ambient_profile[None, :])
+    observed = true_expr + ambient_counts
+    observed = np.round(observed).astype(float)
+
+    adata = AnnData(X=observed)
+    adata.var_names = [f"Gene{i}" for i in range(n_genes)]
+
+    summary = correct_ambient_rna_linear(adata, output_layer="ambient_corrected")
+
+    assert summary["corrected"] is True
+    assert "ambient_corrected" in adata.layers
+    corrected = np.asarray(adata.layers["ambient_corrected"])
+    # Ambient marker genes should lose counts on average.
+    ambient_before = observed[:, :5].sum()
+    ambient_after = corrected[:, :5].sum()
+    assert ambient_after < ambient_before
+    # Non-ambient genes should be nearly unchanged (allow some shrinkage noise
+    # because the linear estimator uses all genes to scale rho, not just markers).
+    non_ambient_before = observed[:, 5:].sum()
+    non_ambient_after = corrected[:, 5:].sum()
+    assert non_ambient_after > non_ambient_before * 0.75
+    assert "residual_ambient_score" in summary
+    assert 0.0 <= summary["residual_ambient_score"] <= 1.0
+
+
+def test_linear_correction_preserves_sparse_output_without_dense_expected_matrix():
+    empty = np.tile(np.array([[20, 5, 0, 0], [18, 4, 0, 1]], dtype=float), (5, 1))
+    cells = np.tile(np.array([[1, 0, 5, 4], [1, 0, 4, 5]], dtype=float), (5, 1))
+    X = sparse.csr_matrix(np.vstack([empty, cells]))
+    adata = AnnData(X=X)
+    adata.obs["empty_droplet"] = ["empty"] * empty.shape[0] + ["cell"] * cells.shape[0]
+
+    summary = correct_ambient_rna_linear(
+        adata,
+        empty_droplet_key="empty_droplet",
+        output_layer="ambient_corrected",
+    )
+
+    assert summary["corrected"] is True
+    assert sparse.issparse(adata.layers["ambient_corrected"])
+    assert adata.layers["ambient_corrected"].shape == adata.X.shape
+
+
+def test_linear_correction_default_layer_contract():
+    rng = np.random.default_rng(10)
+    X = rng.poisson(lam=3, size=(200, 20)).astype(float)
+    X[:30, :] = 0
+    X[:30, :4] = rng.poisson(lam=5, size=(30, 4)).astype(float)
+    adata = AnnData(X=X)
+    adata.var_names = [f"Gene{i}" for i in range(20)]
+    adata.layers["counts"] = adata.X.copy()
+
+    summary = correct_ambient_rna_linear(adata)
+
+    contract = adata.uns["sclucid"]["qc"]["ambient_layer_contract"]
+    assert summary["output_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
+    assert AMBIENT_CORRECTED_COUNTS_LAYER in adata.layers
+    assert contract["recommended_preprocess_counts_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
+
+
+def test_correct_ambient_rna_auto_fallback_without_cellbender():
+    """Auto method falls back to linear when CellBender is unavailable."""
+    rng = np.random.default_rng(7)
+    adata = AnnData(X=rng.poisson(lam=5, size=(200, 20)).astype(float))
+    adata.var_names = [f"Gene{i}" for i in range(20)]
+
+    summary = correct_ambient_rna(
+        adata, method="auto", backend="auto", output_layer="ambient_corrected"
+    )
+    assert summary["corrected"] is True
+    assert summary["method"] == "linear_background_subtraction"
+    if not cellbender_available():
+        assert "ambient_corrected" in adata.layers
+
+
+def test_correct_ambient_rna_linear_explicit():
+    """Explicit linear method should always work without optional deps."""
+    rng = np.random.default_rng(8)
+    adata = AnnData(X=rng.poisson(lam=3, size=(200, 15)).astype(float))
+    adata.var_names = [f"Gene{i}" for i in range(15)]
+
+    summary = correct_ambient_rna(
+        adata, method="linear", output_layer="ambient_corrected"
+    )
+    assert summary["corrected"] is True
+    assert summary["method"] == "linear_background_subtraction"
+    assert "ambient_corrected" in adata.layers

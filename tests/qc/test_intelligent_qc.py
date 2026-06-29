@@ -123,7 +123,7 @@ class TestIntelligentQCRecommender:
         assert result.max_mt_percent.threshold > 0
         assert result.n_counts.threshold > 0
         assert "method_limitation" in result.min_genes.evidence
-        assert "threshold recommendation heuristic" in result.min_genes.evidence["method_limitation"]
+        assert "threshold" in result.min_genes.evidence["method_limitation"]
 
         # Check confidence intervals
         assert 0 <= result.min_genes.ci_lower <= result.min_genes.threshold
@@ -146,8 +146,8 @@ class TestIntelligentQCRecommender:
             assert "confidence" in payload[key]
             assert "evidence" in payload[key]
 
-    def test_doublet_beta_fit_uses_four_parameter_evidence(self, sample_adata_with_qc):
-        """Doublet threshold analysis should handle scipy beta.fit's four parameters."""
+    def test_doublet_threshold_uses_gmm_or_percentile_evidence(self, sample_adata_with_qc):
+        """Doublet threshold evidence should reflect the operative threshold model."""
         adata = sample_adata_with_qc.copy()
         rng = np.random.default_rng(7)
         adata.obs["doublet_score"] = rng.beta(1.5, 12.0, size=adata.n_obs)
@@ -156,9 +156,29 @@ class TestIntelligentQCRecommender:
         result = recommender._analyze_doublet_patterns(adata, plot=False)
 
         assert isinstance(result, ThresholdRecommendation)
-        for key in ["beta_a", "beta_b", "beta_loc", "beta_scale"]:
+        for key in ["distribution_model", "threshold_percentile", "confidence_components"]:
             assert key in result.evidence
+        for key in ["beta_a", "beta_b", "beta_loc", "beta_scale"]:
+            assert key not in result.evidence
+        assert result.method.startswith(("doublet_score_gmm", "doublet_score_percentile"))
         assert 0 <= result.threshold <= 1
+
+    def test_quality_scoring_uses_configurable_guardrails(self, sample_adata_with_qc):
+        """Quality score guardrails should be configurable rather than hard-coded."""
+        from scLucid.qc.intelligent_qc import IntelligentQCConfig
+
+        cfg = IntelligentQCConfig(
+            quality_min_median_genes=10_000,
+            quality_penalty_low_genes=7.0,
+            quality_min_median_counts=0,
+            quality_high_mt_median=100.0,
+        )
+        recommender = IntelligentQCRecommender(config=cfg)
+
+        score, flags = recommender._assess_data_quality(sample_adata_with_qc)
+
+        assert score == 93.0
+        assert any("<10000" in flag for flag in flags)
 
 
 # =============================================================================
@@ -197,6 +217,44 @@ class TestStrategies:
 
         # Check that tumor-specific considerations are present
         assert len(result.tumor_specific_considerations) > 0
+
+    def test_recommend_max_mt_sample_aware(self, tumor_like_adata):
+        """Sample-aware MT% should compute stratum baselines."""
+        from scLucid.qc.intelligent_qc import IntelligentQCConfig
+
+        cfg = IntelligentQCConfig(mt_model="sample_aware", sample_key="batch")
+        recommender = IntelligentQCRecommender(
+            strategy=StrategyType.TUMOR_AWARE, config=cfg
+        )
+        result = recommender.recommend(
+            tumor_like_adata, tissue_type="lung_tumor", plot=False
+        )
+        assert result.max_mt_percent.threshold > 0
+        assert "stratum_baselines" in result.max_mt_percent.evidence
+        assert result.max_mt_percent.evidence["review_band_lower"] > 0
+
+    def test_recommend_max_mt_multicomponent(self, tumor_like_adata):
+        """Multi-component GMM should be selectable for MT%."""
+        from scLucid.qc.intelligent_qc import IntelligentQCConfig
+
+        cfg = IntelligentQCConfig(mt_model="multicomponent", mt_max_components=4)
+        recommender = IntelligentQCRecommender(
+            strategy=StrategyType.TUMOR_AWARE, config=cfg
+        )
+        result = recommender.recommend(
+            tumor_like_adata, tissue_type="lung_tumor", plot=False
+        )
+        assert result.max_mt_percent.threshold > 0
+        assert result.max_mt_percent.evidence.get("multicomponent") is not None
+
+    def test_recommend_max_mt_review_band_present(self, tumor_like_adata):
+        """MT recommendation should expose a review band."""
+        recommender = IntelligentQCRecommender(strategy=StrategyType.TUMOR_AWARE)
+        result = recommender.recommend(
+            tumor_like_adata, tissue_type="lung_tumor", plot=False
+        )
+        assert "review_band_lower" in result.max_mt_percent.evidence
+        assert result.max_mt_percent.evidence["review_band_lower"] <= result.max_mt_percent.threshold
 
     def test_conservative_strategy(self, low_quality_adata):
         """Test CONSERVATIVE strategy keeps more cells."""

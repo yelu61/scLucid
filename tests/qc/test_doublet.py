@@ -7,6 +7,7 @@ Covers:
 - _export_doublet_stats
 """
 
+import json
 import sys
 from types import SimpleNamespace
 
@@ -26,8 +27,6 @@ from scLucid.qc.doublet import (
     HETEROTYPIC_RISK_COL,
     HOMOTYPIC_RISK_COL,
     DoubletEvidenceProfiler,
-    _export_doublet_stats,
-    _run_heuristic,
     audit_doublets,
     predict_doublets,
 )
@@ -35,10 +34,12 @@ from scLucid.qc.doublet._scrublet_compat import apply_scrublet_compatibility_shi
 from scLucid.qc.doublet.algorithms import (
     _plot_scrublet_embedding_fallback,
     _raw_count_guard,
+    _run_scanpy_scrublet,
     _run_scdblfinder,
     _run_scrublet,
 )
-from scLucid.qc.doublet.ensemble import _merge_doublet_predictions
+from scLucid.qc.doublet.ensemble import _export_doublet_stats, _merge_doublet_predictions
+from scLucid.qc.doublet.heuristic import _run_heuristic
 
 # ---------------------------------------------------------------------------
 # Scrublet compatibility shims
@@ -220,6 +221,35 @@ class TestScrubletCompatibilityShims:
         assert fig is not None
         assert len(fig.axes) >= 2
 
+    def test_run_scanpy_scrublet_uses_scanpy_pp_wrapper(self, monkeypatch):
+        """scanpy_scrublet should use Scanpy's wrapper and return aligned arrays."""
+
+        def fake_scrublet(adata_in, **kwargs):
+            n = adata_in.n_obs
+            adata_in.obs["doublet_score"] = np.linspace(0.0, 1.0, n)
+            adata_in.obs["predicted_doublet"] = adata_in.obs["doublet_score"] > 0.8
+            assert kwargs["expected_doublet_rate"] == 0.1
+            assert kwargs["n_prin_comps"] == 10
+
+        fake_scanpy = SimpleNamespace(pp=SimpleNamespace(scrublet=fake_scrublet))
+        monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
+        rng = np.random.default_rng(17)
+        adata = AnnData(X=rng.poisson(3, size=(80, 120)).astype(np.float32))
+
+        scores, predicted = _run_scanpy_scrublet(
+            adata,
+            sample_name="s1",
+            config=DoubletConfig(
+                method="scanpy_scrublet",
+                expected_doublet_rate=0.1,
+                scr_n_pcs=10,
+            ),
+        )
+
+        assert scores is not None
+        assert predicted is not None
+        assert int(predicted.sum()) == 16
+
 
 # ---------------------------------------------------------------------------
 # scDblFinder
@@ -238,7 +268,10 @@ class TestScDblFinder:
 
     def test_unknown_method_raises_at_config_level(self):
         """Unknown method should be rejected by Pydantic config validation."""
-        with pytest.raises(Exception, match="scrublet|solo|doubletdetection|scdblfinder"):
+        with pytest.raises(
+            Exception,
+            match="scrublet|scanpy_scrublet|solo|doubletdetection|scdblfinder",
+        ):
             DoubletConfig(method="unknown_method")
 
     def test_run_scdblfinder_optional_dependency_missing(self, monkeypatch):
@@ -514,7 +547,7 @@ class TestPredictDoublets:
 
     def test_unknown_method_raises_at_config_level(self):
         """Unknown method should be rejected by Pydantic config validation."""
-        with pytest.raises(Exception, match="scrublet|solo|doubletdetection"):
+        with pytest.raises(Exception, match="scrublet|scanpy_scrublet|solo|doubletdetection"):
             DoubletConfig(method="unknown_method")
 
     def test_skip_small_samples(self, minimal_adata):
@@ -775,6 +808,23 @@ class TestDoubletEvidenceProfiler:
 
         assert isinstance(report, str)
         assert len(report) > 0
+
+    def test_export_evidence_summary_can_cap_table_rows(self, minimal_adata, tmp_path):
+        """Large evidence exports should be able to write only the highest-risk rows."""
+        adata = minimal_adata.copy()
+        adata.obs["scrublet_score"] = np.linspace(0, 1, adata.n_obs)
+        adata.obs["predicted_doublet"] = False
+        profiler = DoubletEvidenceProfiler(adata)
+        profiler.generate_evidence_table()
+
+        profiler.export_evidence_summary(tmp_path, top_n_reports=2, max_table_rows=5)
+
+        exported = pd.read_csv(tmp_path / "evidence_table.csv", index_col=0)
+        summary = json.loads((tmp_path / "evidence_export_summary.json").read_text())
+        assert len(exported) == 5
+        assert summary["total_rows"] == adata.n_obs
+        assert summary["exported_rows"] == 5
+        assert summary["truncated"] is True
 
 
 # ---------------------------------------------------------------------------

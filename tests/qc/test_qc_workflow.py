@@ -3,6 +3,8 @@ Test QC workflow behavior using synthetic data.
 """
 
 
+from contextlib import suppress
+
 from scLucid import qc
 from scLucid.qc import QCWorkflowConfig
 from tests.fixtures.synthetic_data import generate_minimal_adata
@@ -60,8 +62,84 @@ def test_standard_qc_workflow():
 
     # Check that QC/marking annotations exist.
     assert "outlier_count" in adata_qc.obs or "predicted_doublet" in adata_qc.obs
+    assert "qc_decision" in adata_qc.obs
+    assert "qc_reason" in adata_qc.obs
+    assert "qc_decision_summary" in adata_qc.uns["sclucid"]["qc"]
     assert "ambient_rna_summary" in adata_qc.uns["sclucid"]["qc"]
     assert "empty_droplet_summary" in adata_qc.uns["sclucid"]["qc"]
+
+
+def test_standard_qc_can_filter_by_qc_decision_remove():
+    """Decision-based filtering should be opt-in and remove only qc_remove cells."""
+    adata = _make_qc_test_adata()
+    config = _workflow_config_for_tests()
+    config.doublet_config.run_algorithm = False
+    config.qc_decision_filter_mode = "replace"
+
+    adata_qc = qc.run_standard_qc(adata, config=config, show_progress=False)
+
+    assert "qc_decision" in adata_qc.obs
+    assert "qc_remove" in adata_qc.obs
+    assert not adata_qc.obs["qc_remove"].any()
+    filtering = adata_qc.uns["sclucid"]["qc"]["filtering_results"]
+    assert filtering["criteria_used"] == ["qc_remove"]
+    review = adata_qc.uns["sclucid"]["qc"]["review_summary"]["data"]
+    filtering_policy = review["qc_filtering_policy_summary"]
+    assert filtering_policy["final_filter_basis"] == "qc_decision_remove"
+    assert filtering_policy["review_required"] is False
+
+
+def test_iterative_qc_records_phase_summary():
+    """Iterative QC entrypoint should expose the phase contract."""
+    adata = _make_qc_test_adata()
+    config = _workflow_config_for_tests()
+    config.doublet_config.run_algorithm = False
+
+    adata_qc = qc.run_iterative_qc(
+        adata,
+        config=config,
+        tissue_type="tumor",
+        final_filter_policy="none",
+        show_progress=False,
+    )
+
+    summary = adata_qc.uns["sclucid"]["qc"]["iterative_qc_summary"]
+    assert summary["schema_version"] == "iterative_qc_summary_v1"
+    assert summary["final_filter_policy"] == "none"
+    assert [phase["phase"] for phase in summary["phases"]] == [
+        "lenient_cell_screen",
+        "doublet_contamination_stress_evidence",
+        "quick_biology_review",
+        "final_qc_decision",
+    ]
+    assert "qc_decision" in adata_qc.obs
+
+
+def test_iterative_qc_runs_quick_biology_review():
+    """Iterative QC should optionally run a temporary embedding review."""
+    adata = _make_qc_test_adata()
+    config = _workflow_config_for_tests()
+    config.doublet_config.run_algorithm = False
+
+    adata_qc = qc.run_iterative_qc(
+        adata,
+        config=config,
+        tissue_type="tumor",
+        final_filter_policy="none",
+        run_quick_review=True,
+        quick_review_max_cells=120,
+        quick_review_n_top_genes=150,
+        quick_review_n_pcs=10,
+        quick_review_n_neighbors=8,
+        show_progress=False,
+    )
+
+    quick = adata_qc.uns["sclucid"]["qc"]["iterative_qc_summary"]["quick_biology_review"]
+    assert quick["schema_version"] == "quick_biology_review_v1"
+    assert quick["status"] == "complete"
+    assert quick["n_cells_reviewed"] <= 120
+    assert isinstance(quick["cluster_qc_table"], list)
+    assert "X_umap" not in adata_qc.obsm
 
 
 def test_qc_with_adaptive_thresholds():
@@ -201,7 +279,7 @@ class TestQCWorkflowErrorRecovery:
         config = _workflow_config_for_tests()
 
         recovery_dir = tmp_path / "recovery"
-        try:
+        with suppress(Exception):
             qc.run_standard_qc(
                 adata,
                 config=config,
@@ -209,8 +287,6 @@ class TestQCWorkflowErrorRecovery:
                 error_recovery=True,
                 recovery_save_dir=str(recovery_dir),
             )
-        except Exception:
-            pass
 
     def test_qc_workflow_save_dir_parameter(self, tmp_path):
         """Test QC workflow with unified save_dir parameter."""

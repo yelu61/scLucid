@@ -110,6 +110,19 @@ def test_marker_fidelity_uses_synthetic_marker_sets():
     assert 0 <= fidelity["overall_marker_fidelity"] <= 1
 
 
+def test_marker_fidelity_reports_cell_type_strata():
+    adata = _make_marker_adata()
+    retained = adata[:180].copy()
+    fidelity = compute_marker_fidelity(adata, retained, cell_type_key="cell_type")
+
+    assert fidelity["cell_type_key"] == "cell_type"
+    assert fidelity["per_cell_type"]
+    for payload in fidelity["per_cell_type"].values():
+        assert "initial_cells" in payload
+        assert "final_cells" in payload
+        assert "overall_marker_fidelity" in payload
+
+
 def test_evaluate_qc_benchmark_has_profile_checks():
     adata = _make_marker_adata()
     retained = adata[:180].copy()
