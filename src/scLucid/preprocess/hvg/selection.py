@@ -14,6 +14,7 @@ from anndata import AnnData
 
 try:
     from matplotlib_venn import venn2, venn3
+
     HAS_VENN = True
 except ImportError:
     HAS_VENN = False
@@ -22,9 +23,33 @@ from scLucid.utils.helpers import _is_interactive_backend
 
 log = logging.getLogger(__name__)
 
+__all__ = [
+    "suggest_hvg_choice",
+    "select_hvg_sets",
+    "select_and_audit_hvgs",
+]
 
-def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str = "auto") -> Dict[str, object]:
-    """Return structured guidance for choosing an HVG set operation."""
+
+def _is_protected_hvg_role(role: object) -> bool:
+    role_text = str(role or "").lower()
+    return any(
+        token in role_text for token in ("protected", "marker", "program", "biology", "curated")
+    )
+
+
+def suggest_hvg_choice(
+    adata: AnnData,
+    hvg_keys: List[str],
+    mode: str = "auto",
+    set_roles: Optional[Dict[str, str]] = None,
+) -> Dict[str, object]:
+    """Return structured guidance for choosing an HVG set operation.
+
+    ``set_roles`` lets callers distinguish ordinary algorithmic HVG masks from
+    curated/protected biology masks. Small protected marker sets naturally have
+    low Jaccard overlap with a 2k variance HVG set, so overlap alone would
+    recommend a destructive intersection.
+    """
     if len(hvg_keys) < 2:
         return {
             "requested_mode": mode,
@@ -41,7 +66,15 @@ def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str = "auto") 
     union_set = set.union(*sets)
     jaccard_index = len(intersection_set) / len(union_set) if union_set else 0.0
 
-    if jaccard_index > 0.7:
+    set_roles = set_roles or {}
+    protected_keys = [key for key in hvg_keys if _is_protected_hvg_role(set_roles.get(key))]
+    has_protected_set = bool(protected_keys)
+
+    if has_protected_set and len(hvg_keys) >= 2:
+        overlap_level = "protected_biology"
+        recommended_mode = "union"
+        risk = "review"
+    elif jaccard_index > 0.7:
         overlap_level = "high"
         recommended_mode = "union"
         risk = "low"
@@ -63,16 +96,22 @@ def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str = "auto") 
     ]
     for key, genes in zip(hvg_keys, sets):
         messages.append(f"- Set '{key}': {len(genes)} genes")
-    messages.extend([
-        "",
-        "--- Overlap Analysis ---",
-        f"- Intersection (genes in all sets): {len(intersection_set)} genes",
-        f"- Union (genes in any set): {len(union_set)} genes",
-        f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)",
-        "",
-        f"Recommended mode: {recommended_mode} (overlap={overlap_level}, risk={risk})",
-        f"Requested/effective mode: {mode} -> {effective_mode}",
-    ])
+    messages.extend(
+        [
+            "",
+            "--- Overlap Analysis ---",
+            f"- Intersection (genes in all sets): {len(intersection_set)} genes",
+            f"- Union (genes in any set): {len(union_set)} genes",
+            f"- Jaccard Similarity Index: {jaccard_index:.3f} (Intersection / Union)",
+            "",
+            f"Recommended mode: {recommended_mode} (overlap={overlap_level}, risk={risk})",
+            f"Requested/effective mode: {mode} -> {effective_mode}",
+        ]
+    )
+    if has_protected_set:
+        messages.append(
+            "Protected biology HVG set detected; auto mode favors union so marker/program genes are not lost."
+        )
     if risk == "high":
         messages.append(
             "Warning: HVG methods disagree strongly; inspect batch effects and consider conservative intersection."
@@ -85,6 +124,8 @@ def suggest_hvg_choice(adata: AnnData, hvg_keys: List[str], mode: str = "auto") 
         "jaccard_index": float(jaccard_index),
         "overlap_level": overlap_level,
         "risk": risk,
+        "set_roles": {key: set_roles.get(key, "") for key in hvg_keys},
+        "protected_hvg_keys": protected_keys,
         "n_genes_per_set": {key: len(genes) for key, genes in zip(hvg_keys, sets)},
         "n_intersection": len(intersection_set),
         "n_union": len(union_set),
@@ -104,6 +145,7 @@ def select_hvg_sets(
     show_stats: bool = True,
     show_suggestion: bool = True,
     save_dir: Optional[str] = None,
+    set_roles: Optional[Dict[str, str]] = None,
     **kwargs,
 ) -> AnnData:
     """
@@ -117,7 +159,7 @@ def select_hvg_sets(
 
     # --- Suggestion for HVG set choice ---
     if show_suggestion:
-        suggestion = suggest_hvg_choice(adata, hvg_keys, mode)
+        suggestion = suggest_hvg_choice(adata, hvg_keys, mode, set_roles=set_roles)
         print("\n".join(suggestion.get("messages", [])))
 
     hvg_sets = [set(adata.var_names[adata.var[k]]) for k in hvg_keys]
@@ -224,6 +266,7 @@ def select_and_audit_hvgs(
     stability_key: Optional[str] = None,
     stability_kwargs: Optional[Dict] = None,
     save_dir: Optional[str] = None,
+    set_roles: Optional[Dict[str, str]] = None,
     **kwargs,
 ) -> tuple[AnnData, Dict[str, object]]:
     """Select final HVGs and store a compact audit summary.
@@ -237,7 +280,11 @@ def select_and_audit_hvgs(
     else:
         hvg_key_list = list(hvg_keys)
 
-    suggestion = suggest_hvg_choice(adata, hvg_key_list, mode) if len(hvg_key_list) >= 2 else None
+    suggestion = (
+        suggest_hvg_choice(adata, hvg_key_list, mode, set_roles=set_roles)
+        if len(hvg_key_list) >= 2
+        else None
+    )
     effective_mode = (
         suggestion.get("recommended_mode", "direct")
         if mode == "auto" and isinstance(suggestion, dict)
@@ -251,6 +298,8 @@ def select_and_audit_hvgs(
         "subset": bool(subset),
         "output_key": output_key,
     }
+    if set_roles:
+        audit["set_roles"] = {key: set_roles.get(key, "") for key in hvg_key_list}
 
     if suggestion is not None:
         audit["suggestion"] = suggestion
@@ -277,9 +326,7 @@ def select_and_audit_hvgs(
             audit["stability_key"] = key_for_stability
             audit["stability_available"] = True
             stability_summary = (
-                adata.uns.get("sclucid", {})
-                .get("preprocess", {})
-                .get("hvg_stability", {})
+                adata.uns.get("sclucid", {}).get("preprocess", {}).get("hvg_stability", {})
             )
             audit["stability_summary"] = stability_summary
             if stability_summary.get("overall_score", 1.0) < 0.5:
@@ -299,16 +346,17 @@ def select_and_audit_hvgs(
         keep_raw=keep_raw,
         output_key=output_key,
         save_dir=save_dir,
+        set_roles=set_roles,
         show_suggestion=kwargs.pop("show_suggestion", False),
         **kwargs,
     )
 
-    selected_count = int(result.var[output_key].sum()) if output_key in result.var else result.n_vars
+    selected_count = (
+        int(result.var[output_key].sum()) if output_key in result.var else result.n_vars
+    )
     audit["n_selected"] = selected_count
     if stability_result is not None:
         audit["stability_result_type"] = type(stability_result).__name__
 
-    result.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
-        "hvg_selection_audit"
-    ] = audit
+    result.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["hvg_selection_audit"] = audit
     return result, audit

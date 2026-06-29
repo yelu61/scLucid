@@ -9,6 +9,7 @@ before downstream analysis.
 import logging
 import tempfile
 import time
+import warnings
 from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
@@ -380,6 +381,12 @@ def _load_reference_biotypes(
 
 # Backward-compatible internal alias.
 def _load_ensembl_biotypes(*args, **kwargs):
+    warnings.warn(
+        "_load_ensembl_biotypes is deprecated; use load_gene_biotypes or "
+        "_load_reference_biotypes instead.",
+        FutureWarning,
+        stacklevel=2,
+    )
     return _load_reference_biotypes(*args, **kwargs)
 
 
@@ -641,6 +648,12 @@ def apply_gene_biotype_strategy(
     - `method="reference"` for package/cache/download-backed official reference loading
     - `method="custom"` with either a DataFrame or a local TSV/CSV path
     """
+    warnings.warn(
+        "apply_gene_biotype_strategy is a convenience wrapper; prefer explicit "
+        "annotate_gene_biotypes(...) followed by filter_genes_by_biotype(...).",
+        FutureWarning,
+        stacklevel=2,
+    )
     if copy:
         adata = adata.copy()
 

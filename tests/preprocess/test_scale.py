@@ -265,6 +265,15 @@ class TestRegressOut:
         assert result["status"] == "review_required"
         assert result["metrics"]["condition_eta2_cc_score"] > 0.15
         assert result["warnings"]
+        assert "sclucid" not in adata.uns or "preprocess" not in adata.uns.get("sclucid", {})
+
+        recorded = diagnose_cell_cycle_regression(
+            adata,
+            condition_key="condition",
+            tumor=True,
+            record=True,
+        )
+        assert recorded["status"] == "review_required"
         assert "cell_cycle_regression_diagnostic" in adata.uns["sclucid"]["preprocess"]
 
     def test_cell_cycle_regression_diagnostic_identifies_batch_candidate(self):

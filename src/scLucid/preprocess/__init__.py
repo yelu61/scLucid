@@ -8,9 +8,7 @@ scaling, batch correction, and other essential preprocessing steps.
 # --- Configuration Objects ---
 from .adaptive_normalize import (
     AdaptiveNormalizationConfig,
-    adaptive_normalize,
     estimate_cell_size_factors,
-    quality_aware_normalize,
 )
 
 # --- Backend Abstraction ---
@@ -24,6 +22,7 @@ from .backend import (
 )
 from .config import (
     GraphConfig,
+    GeneBiotypeConfig,
     HVGConfig,
     IntegrationConfig,
     NeighborsConfig,
@@ -34,11 +33,8 @@ from .config import (
 )
 from .gene_biotype import (
     annotate_gene_biotypes,
-    apply_gene_biotype_strategy,
     filter_genes_by_biotype,
     get_biotype_statistics,
-    get_gene_biotype_cache_dir,
-    list_gene_biotype_resources,
     load_gene_biotypes,
     recommend_biotype_strategy,
 )
@@ -72,7 +68,7 @@ from .intelligent import (
     recommend_intelligent_preprocessing,
     run_intelligent_preprocessing,
 )
-from .neighbors import optimize_neighbors_pcs, run_embedding_pipeline, run_embedding_workflow
+from .neighbors import optimize_neighbors_pcs, run_embedding_pipeline
 
 # --- Core Functions ---
 # --- Plotting & Evaluation Functions ---
@@ -83,7 +79,12 @@ from .trace import (
     PREPROCESS_REQUIRED_REVIEW_SECTIONS,
     PREPROCESS_STABLE_ENTRYPOINTS,
     PREPROCESS_TRACE_SCHEMA_VERSION,
+    build_layer_transition_table,
+    build_normalization_decision_policy,
+    build_preprocess_decision_summary,
+    build_preprocess_layer_contract,
     build_preprocess_module_maturity_assessment,
+    build_preprocess_reviewer_table,
     build_qc_input_context,
     build_step_evidence_summary,
     enrich_preprocessing_review_summary,
@@ -112,16 +113,22 @@ __all__ = [
     "IntegrationConfig",
     "NeighborsConfig",
     "GraphConfig",
+    "GeneBiotypeConfig",
     # Workflow
     "run_preprocessing",
     "WORKFLOW_STEPS",
-    "WorkflowError",
     "PartialWorkflowResult",
+    "WorkflowError",
     "PREPROCESS_REQUIRED_REVIEW_SECTIONS",
     "PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION",
     "PREPROCESS_STABLE_ENTRYPOINTS",
     "PREPROCESS_TRACE_SCHEMA_VERSION",
+    "build_layer_transition_table",
+    "build_normalization_decision_policy",
+    "build_preprocess_decision_summary",
+    "build_preprocess_layer_contract",
     "build_preprocess_module_maturity_assessment",
+    "build_preprocess_reviewer_table",
     "build_qc_input_context",
     "build_step_evidence_summary",
     "enrich_preprocessing_review_summary",
@@ -130,7 +137,6 @@ __all__ = [
     "validate_preprocess_module_completeness",
     "validate_preprocessing_review_summary",
     # Core Functions
-    "apply_gene_biotype_strategy",
     "normalize_data",
     "regress_out",
     "find_hvgs",
@@ -146,8 +152,6 @@ __all__ = [
     "filter_genes_by_biotype",
     "get_biotype_statistics",
     "load_gene_biotypes",
-    "list_gene_biotype_resources",
-    "get_gene_biotype_cache_dir",
     "recommend_biotype_strategy",
     # Backend
     "PreprocessingBackend",
@@ -165,7 +169,6 @@ __all__ = [
     "evaluate_integration",
     "optimize_neighbors_pcs",
     "run_embedding_pipeline",
-    "run_embedding_workflow",
     # Intelligent Preprocessing
     "IntelligentPreprocessConfig",
     "IntelligentPreprocessRecommender",
@@ -180,7 +183,14 @@ __all__ = [
     "run_intelligent_preprocessing",
     # Adaptive Normalization
     "AdaptiveNormalizationConfig",
-    "adaptive_normalize",
     "estimate_cell_size_factors",
-    "quality_aware_normalize",
 ]
+
+# Transitional aliases stay importable but are intentionally not part of __all__.
+from .adaptive_normalize import adaptive_normalize, quality_aware_normalize  # noqa: E402,F401
+from .gene_biotype import (  # noqa: E402,F401
+    apply_gene_biotype_strategy,
+    get_gene_biotype_cache_dir,
+    list_gene_biotype_resources,
+)
+from .neighbors import run_embedding_workflow  # noqa: E402,F401

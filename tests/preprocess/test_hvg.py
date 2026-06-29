@@ -7,17 +7,19 @@ from anndata import AnnData
 
 from scLucid.preprocess.hvg import (
     PROTECTED_GENE_PRESETS,
-    _exclude_genes,
-    _gene_type_detection,
-    _get_hvg_input_matrix,
-    _infer_species_from_gene_names,
-    _validate_hvg_input_matrix,
     evaluate_hvg_stability,
     find_hvgs,
     select_hvg_sets,
     suggest_hvg_choice,
 )
-from scLucid.preprocess.hvg.core import _apply_hvg_biological_protection
+from scLucid.preprocess.hvg.core import (
+    _apply_hvg_biological_protection,
+    _exclude_genes,
+    _gene_type_detection,
+    _get_hvg_input_matrix,
+    _infer_species_from_gene_names,
+    _validate_hvg_input_matrix,
+)
 
 
 class TestGetHVGInputMatrix:
@@ -170,9 +172,11 @@ class TestExcludeGenes:
         hvg_mask = np.ones(minimal_adata.n_vars, dtype=bool)
 
         mask, counts = _exclude_genes(
-            minimal_adata, hvg_mask,
+            minimal_adata,
+            hvg_mask,
             exclude_types=["mitochondrial"],
-            gene_types=gene_types, species="human",
+            gene_types=gene_types,
+            species="human",
         )
         assert isinstance(mask, np.ndarray)
         assert isinstance(counts, dict)
@@ -182,9 +186,11 @@ class TestExcludeGenes:
         hvg_mask = np.ones(minimal_adata.n_vars, dtype=bool)
         gene_types = _gene_type_detection(minimal_adata.var_names, species="human")
         mask, counts = _exclude_genes(
-            minimal_adata, hvg_mask,
+            minimal_adata,
+            hvg_mask,
             exclude_types=[],
-            gene_types=gene_types, species="human",
+            gene_types=gene_types,
+            species="human",
         )
         assert mask.sum() == hvg_mask.sum()
 
@@ -193,9 +199,11 @@ class TestExcludeGenes:
         hvg_mask = np.ones(minimal_adata.n_vars, dtype=bool)
 
         mask, counts = _exclude_genes(
-            minimal_adata, hvg_mask,
+            minimal_adata,
+            hvg_mask,
             exclude_types=["mitochondrial", "ribosomal", "hemoglobin"],
-            gene_types=gene_types, species="human",
+            gene_types=gene_types,
+            species="human",
         )
         assert isinstance(counts, dict)
         assert 2 <= len(counts) <= 3
@@ -239,6 +247,21 @@ class TestFindHVGs:
         result = find_hvgs(adata, config=config, force=True, input_layer="counts")
         assert result is not None
         assert "highly_variable_scanpy_seurat" in result.var.columns
+
+    def test_deviance_method_selects_ranked_hvgs(self, minimal_adata):
+        from scLucid.preprocess.config import HVGConfig
+
+        config = HVGConfig(method="deviance", n_top_genes=100, exclude_gene_types=[])
+        adata = minimal_adata.copy()
+        result = find_hvgs(adata, config=config, force=True, input_layer="counts")
+
+        assert "highly_variable_deviance" in result.var.columns
+        assert "highly_variable_deviance_deviance_score" in result.var.columns
+        assert "highly_variable_deviance_rank" in result.var.columns
+        assert int(result.var["highly_variable_deviance"].sum()) == min(100, result.n_vars)
+        meta = result.uns["sclucid"]["preprocess"]["hvg"]
+        assert meta["method"] == "deviance"
+        assert meta["method_report"]["backend"] == "deviance_poisson_approx"
 
     def test_scanpy_method_v3_with_config(self, minimal_adata):
         from scLucid.preprocess.config import HVGConfig
@@ -392,7 +415,9 @@ class TestSelectHVGSets:
         result = select_hvg_sets(
             adata,
             hvg_keys=["highly_variable_scanpy_seurat"],
-            mode="direct", subset=False, keep_raw=True,
+            mode="direct",
+            subset=False,
+            keep_raw=True,
         )
         assert result is not None
 
@@ -400,15 +425,25 @@ class TestSelectHVGSets:
         from scLucid.preprocess.config import HVGConfig
 
         adata = minimal_adata.copy()
-        find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
-                  force=True, input_layer="counts")
-        find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat_v3", n_top_genes=100),
-                  force=True, input_layer="counts")
+        find_hvgs(
+            adata,
+            config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
+            force=True,
+            input_layer="counts",
+        )
+        find_hvgs(
+            adata,
+            config=HVGConfig(method="scanpy", flavor="seurat_v3", n_top_genes=100),
+            force=True,
+            input_layer="counts",
+        )
 
         result = select_hvg_sets(
             adata,
             hvg_keys=["highly_variable_scanpy_seurat", "highly_variable_scanpy_seurat_v3"],
-            mode="intersection", subset=False, keep_raw=True,
+            mode="intersection",
+            subset=False,
+            keep_raw=True,
         )
         assert result is not None
 
@@ -416,13 +451,19 @@ class TestSelectHVGSets:
         from scLucid.preprocess.config import HVGConfig
 
         adata = minimal_adata.copy()
-        find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
-                  force=True, input_layer="counts")
+        find_hvgs(
+            adata,
+            config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
+            force=True,
+            input_layer="counts",
+        )
 
         result = select_hvg_sets(
             adata,
             hvg_keys=["highly_variable_scanpy_seurat"],
-            mode="union", subset=False, keep_raw=True,
+            mode="union",
+            subset=False,
+            keep_raw=True,
         )
         assert result is not None
 
@@ -431,8 +472,12 @@ class TestSelectHVGSets:
         from scLucid.preprocess.hvg.selection import select_and_audit_hvgs
 
         adata = minimal_adata.copy()
-        find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
-                  force=True, input_layer="counts")
+        find_hvgs(
+            adata,
+            config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
+            force=True,
+            input_layer="counts",
+        )
 
         result, audit = select_and_audit_hvgs(
             adata,
@@ -452,10 +497,18 @@ class TestSuggestHVGChoice:
         from scLucid.preprocess.config import HVGConfig
 
         adata = minimal_adata.copy()
-        find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
-                  force=True, input_layer="counts")
-        find_hvgs(adata, config=HVGConfig(method="scanpy", flavor="seurat_v3", n_top_genes=100),
-                  force=True, input_layer="counts")
+        find_hvgs(
+            adata,
+            config=HVGConfig(method="scanpy", flavor="seurat", n_top_genes=100),
+            force=True,
+            input_layer="counts",
+        )
+        find_hvgs(
+            adata,
+            config=HVGConfig(method="scanpy", flavor="seurat_v3", n_top_genes=100),
+            force=True,
+            input_layer="counts",
+        )
 
         suggestion = suggest_hvg_choice(
             adata,
@@ -466,6 +519,25 @@ class TestSuggestHVGChoice:
         assert suggestion["recommended_mode"] in {"union", "intersection"}
         assert 0 <= suggestion["jaccard_index"] <= 1
         assert suggestion["messages"]
+
+    def test_suggest_protected_marker_set_prefers_union(self):
+        adata = AnnData(X=np.ones((4, 8)))
+        adata.var_names = [f"g{i}" for i in range(8)]
+        adata.var["standard_hvg"] = [True, True, True, True, False, False, False, False]
+        adata.var["protected_marker_hvg"] = [False, False, False, False, True, True, False, False]
+
+        suggestion = suggest_hvg_choice(
+            adata,
+            hvg_keys=["standard_hvg", "protected_marker_hvg"],
+            mode="auto",
+            set_roles={"protected_marker_hvg": "protected_marker"},
+        )
+
+        assert suggestion["recommended_mode"] == "union"
+        assert suggestion["effective_mode"] == "union"
+        assert suggestion["overlap_level"] == "protected_biology"
+        assert suggestion["risk"] == "review"
+        assert suggestion["protected_hvg_keys"] == ["protected_marker_hvg"]
 
 
 class TestEdgeCases:

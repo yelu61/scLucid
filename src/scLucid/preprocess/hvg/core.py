@@ -31,6 +31,7 @@ from .plotting import plot_hvg_metrics
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "PROTECTED_GENE_PRESETS",
     "find_hvgs",
 ]
 
@@ -311,6 +312,76 @@ def _exclude_genes(
     log.info(f"\nTotal genes excluded: {total_excluded}")
 
     return updated_mask, excluded_counts
+
+
+def _backfill_hvgs_after_exclusion(
+    adata: AnnData,
+    hvg_mask: np.ndarray,
+    *,
+    target_n: int,
+    output_key: str,
+    exclude_types: Optional[List[str]] = None,
+    species: Optional[str] = None,
+) -> tuple[np.ndarray, Dict[str, object]]:
+    """Backfill HVGs after gene-type exclusion to honor the requested target."""
+    updated_mask = np.asarray(hvg_mask, dtype=bool).copy()
+    current_n = int(updated_mask.sum())
+    if current_n >= target_n:
+        return updated_mask, {"enabled": False, "n_added": 0, "reason": "target_already_met"}
+
+    gene_types = _gene_type_detection(adata.var_names, species=species) if exclude_types else {}
+    excluded_mask = np.zeros(adata.n_vars, dtype=bool)
+    for gene_type in exclude_types or []:
+        if gene_type in gene_types:
+            excluded_mask |= np.asarray(gene_types[gene_type], dtype=bool)
+
+    candidate_mask = ~updated_mask & ~excluded_mask
+    n_needed = min(int(target_n) - current_n, int(candidate_mask.sum()))
+    if n_needed <= 0:
+        return updated_mask, {
+            "enabled": True,
+            "n_added": 0,
+            "target_n": int(target_n),
+            "reason": "no_eligible_candidates",
+        }
+
+    score_columns = [
+        f"{output_key}_dispersions_norm",
+        "dispersions_norm",
+        f"{output_key}_variances_norm",
+        "variances_norm",
+        f"{output_key}_deviance_score",
+        f"{output_key}_dispersions",
+        "dispersions",
+        f"{output_key}_means",
+        "means",
+    ]
+    score_col = next((col for col in score_columns if col in adata.var.columns), None)
+    candidate_positions = np.flatnonzero(candidate_mask)
+
+    if score_col is not None:
+        scores = pd.to_numeric(adata.var.iloc[candidate_positions][score_col], errors="coerce")
+        order = np.argsort(np.nan_to_num(scores.to_numpy(dtype=float), nan=-np.inf))[::-1]
+        selected_positions = candidate_positions[order[:n_needed]]
+    else:
+        selected_positions = candidate_positions[:n_needed]
+
+    updated_mask[selected_positions] = True
+    added_genes = adata.var_names[selected_positions].astype(str).tolist()
+    log.info(
+        "[HVG] Backfilled %s genes after exclusion to approach requested n_top_genes=%s.",
+        len(added_genes),
+        target_n,
+    )
+    return updated_mask, {
+        "enabled": True,
+        "target_n": int(target_n),
+        "n_before": current_n,
+        "n_added": len(added_genes),
+        "n_after": int(updated_mask.sum()),
+        "score_column": score_col,
+        "added_genes": added_genes,
+    }
 
 
 def _resolve_protected_gene_sets(
@@ -708,6 +779,80 @@ def _identify_highly_expressed_genes(
     return highly_expressed_mask
 
 
+def _compute_poisson_deviance_scores(X) -> np.ndarray:
+    """Compute a lightweight per-gene Poisson deviance score for count-like data."""
+    if scipy.sparse.issparse(X):
+        matrix = X.tocsc(copy=False)
+        sums = np.asarray(matrix.sum(axis=0)).ravel().astype(float)
+        means = sums / max(matrix.shape[0], 1)
+        scores = np.zeros(matrix.shape[1], dtype=float)
+        for gene_idx in range(matrix.shape[1]):
+            mu = means[gene_idx]
+            if mu <= 0 or not np.isfinite(mu):
+                continue
+            start, end = matrix.indptr[gene_idx], matrix.indptr[gene_idx + 1]
+            values = np.asarray(matrix.data[start:end], dtype=float)
+            positive = values[values > 0]
+            if positive.size:
+                scores[gene_idx] = 2.0 * float(
+                    np.sum(positive * np.log(np.maximum(positive / mu, 1e-12)))
+                )
+        return scores
+
+    arr = np.asarray(X, dtype=float)
+    means = arr.mean(axis=0)
+    scores = np.zeros(arr.shape[1], dtype=float)
+    for gene_idx, mu in enumerate(means):
+        if mu <= 0 or not np.isfinite(mu):
+            continue
+        values = arr[:, gene_idx]
+        positive = values[values > 0]
+        if positive.size:
+            scores[gene_idx] = 2.0 * float(
+                np.sum(positive * np.log(np.maximum(positive / mu, 1e-12)))
+            )
+    return scores
+
+
+def _select_deviance_hvgs(
+    adata: AnnData,
+    *,
+    input_layer: str,
+    output_key: str,
+    n_top_genes: int,
+) -> dict[str, object]:
+    """Select HVGs by a dependency-light Poisson deviance approximation."""
+    X = _get_hvg_input_matrix(adata, input_layer)
+    scores = _compute_poisson_deviance_scores(X)
+    means = np.asarray(X.mean(axis=0)).ravel().astype(float)
+    finite_scores = np.nan_to_num(scores, nan=-np.inf, posinf=-np.inf, neginf=-np.inf)
+    n_select = min(max(int(n_top_genes), 0), adata.n_vars)
+    selected = np.zeros(adata.n_vars, dtype=bool)
+    if n_select > 0 and np.isfinite(finite_scores).any():
+        order = np.argsort(finite_scores, kind="mergesort")[::-1]
+        selected[order[:n_select]] = True
+        ranks = np.empty(adata.n_vars, dtype=int)
+        ranks[order] = np.arange(1, adata.n_vars + 1)
+    else:
+        ranks = np.arange(1, adata.n_vars + 1, dtype=int)
+
+    adata.var[output_key] = selected
+    adata.var[f"{output_key}_deviance_score"] = scores
+    adata.var[f"{output_key}_means"] = means
+    adata.var[f"{output_key}_rank"] = ranks
+    return {
+        "backend": "deviance_poisson_approx",
+        "score_column": f"{output_key}_deviance_score",
+        "rank_column": f"{output_key}_rank",
+        "n_selected_before_exclusion": int(selected.sum()),
+        "input_layer": input_layer,
+        "risk_note": (
+            "Dependency-light Poisson deviance approximation. For publication-grade "
+            "deviance feature selection, compare against scry/scran-style references when available."
+        ),
+    }
+
+
 def _identify_sample_specific_genes_parallel(
     adata: AnnData,
     sample_key: str,
@@ -1027,7 +1172,7 @@ def _infer_species_from_gene_names(var_names: pd.Index) -> str:
 
 
 def adapt_n_top_genes(n_cells: int, method: str = "linear") -> int:
-    """Adapt n_top_genes based on dataset size.
+    """Heuristically adapt ``n_top_genes`` based on dataset size.
 
     For complex tissues like tumors with >20 cell types, the standard 2000
     HVGs may be insufficient to capture rare populations. This function
@@ -1038,7 +1183,8 @@ def adapt_n_top_genes(n_cells: int, method: str = "linear") -> int:
     n_cells : int
         Number of cells in the dataset.
     method : str
-        Scaling method: "linear" (default) or "log".
+        Heuristic method: ``"linear"`` uses bucketed step thresholds despite the
+        historical name, while ``"log"`` scales more aggressively on large data.
 
     Returns:
     -------
@@ -1161,7 +1307,12 @@ def find_hvgs(
         user_explicit_n_top = user_explicit_n_top or (
             "n_top_genes" in getattr(config, "model_fields_set", set())
         )
-    if auto_n_top and not user_explicit_n_top:
+    if auto_n_top and user_explicit_n_top:
+        log.info(
+            "[HVG] auto_n_top_genes=True detected, but preserving explicit n_top_genes=%s.",
+            n_top_genes,
+        )
+    elif auto_n_top and not user_explicit_n_top:
         adaptive_method = getattr(active_config, "auto_n_top_genes_method", "log")
         n_top_genes_adaptive = adapt_n_top_genes(adata.n_obs, method=adaptive_method)
         if n_top_genes_adaptive != n_top_genes:
@@ -1187,6 +1338,7 @@ def find_hvgs(
     output_key = (
         f"highly_variable_{method}_{flavor}" if method == "scanpy" else f"highly_variable_{method}"
     )
+    method_report: dict[str, object] = {}
 
     if output_key in adata.var and not force:
         n_existing = adata.var[output_key].sum()
@@ -1371,11 +1523,25 @@ def find_hvgs(
             result = triku.tl.triku(adata, return_all=True)
             adata.var[output_key] = result["highly_variable"]
             adata.var[f"{output_key}_score"] = result["score"]
+        elif method == "deviance":
+            log.info(
+                "[HVG] Running dependency-light Poisson deviance feature selection "
+                "(n_top_genes=%s, input_layer=%s).",
+                n_top_genes,
+                input_layer,
+            )
+            method_report = _select_deviance_hvgs(
+                adata,
+                input_layer=input_layer,
+                output_key=output_key,
+                n_top_genes=n_top_genes,
+            )
         else:
             raise ValueError(f"Unknown method '{method}'.")
 
     # Exclude gene types
     gene_type_counts = {}
+    backfill_report = {"enabled": False}
     if exclude_gene_types:
         log.info(f"[HVG] Excluding gene types: {exclude_gene_types}")
 
@@ -1395,6 +1561,15 @@ def find_hvgs(
 
         adata.var[output_key] = updated_mask
         gene_type_counts.update(excluded_counts)
+        backfilled_mask, backfill_report = _backfill_hvgs_after_exclusion(
+            adata,
+            np.asarray(adata.var[output_key], dtype=bool),
+            target_n=int(n_top_genes),
+            output_key=output_key,
+            exclude_types=exclude_gene_types,
+            species=species,
+        )
+        adata.var[output_key] = backfilled_mask
 
     protection_report = {"enabled": False}
     if getattr(active_config, "protect_genes", True):
@@ -1439,8 +1614,10 @@ def find_hvgs(
         "n_hvg": n_hvg,
         "input_stats": stats,
         "excluded_gene_types": gene_type_counts,
+        "backfilled_after_exclusion": backfill_report,
         "biological_protection": protection_report,
         "consensus_report": consensus_report,
+        "method_report": method_report,
     }
 
     if plot:

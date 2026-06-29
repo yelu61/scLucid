@@ -13,6 +13,7 @@ Key innovations:
 """
 
 import logging
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple
@@ -25,6 +26,8 @@ import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
 from sklearn.preprocessing import QuantileTransformer
+
+from .utils import apply_log1p, apply_row_scale, resolve_input_matrix
 
 log = logging.getLogger(__name__)
 
@@ -256,6 +259,12 @@ def quality_aware_normalize(
     Returns:
         AnnData with quality-aware normalized data
     """
+    warnings.warn(
+        "quality_aware_normalize is a low-level algorithm entrypoint; prefer "
+        "normalize_data(method='quality_aware', ...) for the public normalization API.",
+        FutureWarning,
+        stacklevel=2,
+    )
     log.info("=" * 60)
     log.info("Quality-Aware Normalization")
     log.info("=" * 60)
@@ -266,10 +275,8 @@ def quality_aware_normalize(
         raise ValueError(f"Missing quality metrics in adata.obs: {missing_metrics}")
 
     # Get expression matrix
-    if input_layer in adata.layers:
-        X = adata.layers[input_layer].copy()
-    else:
-        X = adata.X.copy()
+    X, _ = resolve_input_matrix(adata, input_layer)
+    X = X.copy()
 
     is_sparse = scipy.sparse.issparse(X)
     if is_sparse:
@@ -369,19 +376,11 @@ def quality_aware_normalize(
 
         log.info(f"  {bin_name}: target_sum={target_bin:.0f}")
 
-    if is_sparse:
-        X_normalized = X.copy()
-        X_normalized.data *= np.repeat(row_scale, np.diff(X_normalized.indptr))
-    else:
-        X_normalized = X * row_scale[:, np.newaxis]
+    X_normalized = apply_row_scale(X, row_scale)
 
     # === 4. Log transform ===
     if log_transform:
-        if is_sparse:
-            X_normalized.data = np.log1p(X_normalized.data)
-            X_normalized.eliminate_zeros()
-        else:
-            X_normalized = np.log1p(X_normalized)
+        X_normalized = apply_log1p(X_normalized)
 
     # === 5. Store result ===
     adata.layers[output_layer] = X_normalized
@@ -415,6 +414,12 @@ def adaptive_normalize(
     Returns:
         AnnData with normalized data
     """
+    warnings.warn(
+        "adaptive_normalize is a specialized dispatcher; prefer "
+        "normalize_data(method=..., ...) for the public normalization API.",
+        FutureWarning,
+        stacklevel=2,
+    )
     # Setup config
     if config is None:
         config = AdaptiveNormalizationConfig()
@@ -449,26 +454,14 @@ def adaptive_normalize(
         )
 
         # Apply size factors
-        if config.input_layer in adata.layers:
-            X = adata.layers[config.input_layer].copy()
-        else:
-            X = adata.X.copy()
-
+        X, _ = resolve_input_matrix(adata, config.input_layer)
+        X = X.copy()
         is_sparse_input = scipy.sparse.issparse(X)
-        if is_sparse_input:
-            X = X.tocsr()
-            row_scale = 1.0 / size_factors
-            X.data *= np.repeat(row_scale, np.diff(X.indptr))
-            X_normalized = X
-        else:
-            X_normalized = X / size_factors[:, np.newaxis]
+        row_scale = 1.0 / size_factors
+        X_normalized = apply_row_scale(X, row_scale)
 
         if config.log_transform:
-            if is_sparse_input:
-                X_normalized.data = np.log1p(X_normalized.data)
-                X_normalized.eliminate_zeros()
-            else:
-                X_normalized = np.log1p(X_normalized)
+            X_normalized = apply_log1p(X_normalized)
 
         adata.layers[config.output_layer] = X_normalized
         adata.obs["deconvolution_size_factors"] = size_factors
@@ -477,10 +470,8 @@ def adaptive_normalize(
         # Quantile normalization
         log.info(f"Applying quantile normalization (quantile={config.quantile})...")
 
-        if config.input_layer in adata.layers:
-            X = adata.layers[config.input_layer].copy()
-        else:
-            X = adata.X.copy()
+        X, _ = resolve_input_matrix(adata, config.input_layer)
+        X = X.copy()
 
         is_sparse_input = scipy.sparse.issparse(X)
         if is_sparse_input:
@@ -539,10 +530,7 @@ def _plot_normalization_diagnostics(
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
 
     # Get data
-    if config.input_layer in adata.layers:
-        X_raw = adata.layers[config.input_layer]
-    else:
-        X_raw = adata.X
+    X_raw, _ = resolve_input_matrix(adata, config.input_layer)
 
     X_norm = adata.layers[config.output_layer]
 

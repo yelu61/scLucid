@@ -6,6 +6,7 @@ unwanted sources of variation, preparing the data for downstream analysis.
 """
 
 import logging
+import warnings
 from importlib.metadata import version
 from pathlib import Path
 from typing import List, Optional, Union
@@ -20,33 +21,11 @@ from anndata import AnnData
 from scLucid.utils.helpers import _show_or_close
 
 from .config import NormalizationConfig, apply_config_overrides
-from .utils import validate_matrix_input
+from .utils import apply_log1p, resolve_input_matrix, validate_matrix_input
 
 log = logging.getLogger(__name__)
 
 __all__ = ["normalize_data", "plot_normalization_effect"]
-
-
-# --- Helper Functions ---
-def _get_matrix_from_input_layer(adata: AnnData, input_layer: str):
-    """Resolve the configured input matrix with graceful fallback."""
-    if input_layer == "X":
-        return adata.X, "adata.X"
-    if input_layer in adata.layers:
-        return adata.layers[input_layer], f"adata.layers['{input_layer}']"
-
-    # Graceful fallback: if "counts" is missing, use adata.X (warn once)
-    if input_layer == "counts":
-        log.warning(
-            "Layer 'counts' not found. Falling back to adata.X for normalization. "
-            "Consider creating adata.layers['counts'] = adata.X.copy() for reproducibility."
-        )
-        return adata.X, "adata.X (fallback from missing counts layer)"
-
-    available = list(adata.layers.keys())
-    raise ValueError(
-        f"Input layer '{input_layer}' not found. Available layers: {available or '[]'}."
-    )
 
 
 def _validate_normalization_input(
@@ -256,8 +235,53 @@ def normalize_data(
     plot = active_config.plot
     save_dir = Path(active_config.save_dir) if active_config.save_dir else None
 
+    adaptive_methods = {"quality_aware", "deconvolution_pool", "quantile_regression"}
+    if active_config.method in adaptive_methods:
+        from .adaptive_normalize import AdaptiveNormalizationConfig, adaptive_normalize
+
+        adaptive_config = AdaptiveNormalizationConfig(
+            method=active_config.method,
+            input_layer=input_layer,
+            output_layer=output_layer,
+            target_sum=getattr(active_config, "target_sum", None),
+            plot=plot,
+            save_dir=str(save_dir) if save_dir else None,
+        )
+        adaptive_overrides = {
+            key: value
+            for key, value in kwargs.items()
+            if key
+            in {
+                "force",
+                "quality_metrics",
+                "n_quality_bins",
+                "log_transform",
+                "pool_size",
+                "min_mean",
+                "quantile",
+                "n_quantile_bins",
+                "clip_values",
+                "output_layer",
+                "input_layer",
+                "target_sum",
+                "plot",
+                "save_dir",
+            }
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            adata = adaptive_normalize(adata, config=adaptive_config, **adaptive_overrides)
+        adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["normalization"] = {
+            "dispatcher": "normalize_data",
+            "method": active_config.method,
+            "input_layer": input_layer,
+            "output_layer": output_layer,
+            "routed_to": "adaptive_normalize",
+        }
+        return adata
+
     # --- 3. Input validation and data diagnosis ---
-    source_data, source_name = _get_matrix_from_input_layer(adata, input_layer)
+    source_data, source_name = resolve_input_matrix(adata, input_layer)
 
     if output_layer in adata.layers and not force:
         log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")
@@ -350,7 +374,7 @@ def normalize_data(
     final_log_transformed = method_is_log_transformed
     if not method_is_log_transformed:
         log.info("Applying log1p transformation.")
-        sc.pp.log1p(temp_adata)
+        temp_adata.X = apply_log1p(temp_adata.X)
         final_log_transformed = True
 
     adata.layers[output_layer] = temp_adata.X.copy()

@@ -7,8 +7,10 @@ from typing import Any
 
 from anndata import AnnData
 
-from ..utils.evidence import EvidenceBundle, EvidenceItem, ReviewAction, model_to_dict
 from scLucid.utils.contracts import _review_payload
+
+from ..utils.context import is_tumor_context as _shared_is_tumor_context
+from ..utils.evidence import EvidenceBundle, EvidenceItem, ReviewAction, model_to_dict
 
 PREPROCESS_TRACE_SCHEMA_VERSION = "1.0"
 PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION = "1.0"
@@ -16,7 +18,12 @@ PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION = "1.0"
 PREPROCESS_REQUIRED_REVIEW_SECTIONS = {
     "preprocess_schema_version",
     "applied_parameter_summary",
+    "normalization_decision_policy",
+    "preprocess_layer_contract",
     "layer_transition_summary",
+    "layer_transition_table",
+    "preprocess_decision_summary",
+    "preprocess_reviewer_table",
     "step_evidence_summary",
     "tumor_aware_batch_correction_warnings",
     "hvg_selection_evidence_summary",
@@ -65,26 +72,6 @@ def enrich_preprocessing_review_summary(
         successful_steps=successful_steps,
         tissue_type=tissue_type,
     )
-    downstream = build_downstream_analysis_recommendations(
-        adata=adata,
-        config=config,
-        successful_steps=successful_steps,
-        hvg_summary=hvg_summary,
-        tumor_warnings=tumor_warnings,
-    )
-    readiness = build_preprocess_readiness_assessment(
-        adata=adata,
-        downstream_recommendations=downstream,
-        hvg_summary=hvg_summary,
-        tumor_warnings=tumor_warnings,
-    )
-    actions = build_preprocess_review_action_items(
-        readiness=readiness,
-        downstream_recommendations=downstream,
-        tumor_warnings=tumor_warnings,
-        hvg_summary=hvg_summary,
-    )
-
     summary["preprocess_schema_version"] = PREPROCESS_TRACE_SCHEMA_VERSION
     summary["qc_input_context"] = qc_input_context
     summary["applied_parameter_summary"] = build_applied_parameter_summary(
@@ -92,10 +79,30 @@ def enrich_preprocessing_review_summary(
         config=config,
         successful_steps=successful_steps,
     )
-    summary["layer_transition_summary"] = build_layer_transition_summary(
+    normalization_policy = build_normalization_decision_policy(
         adata=adata,
         config=config,
         successful_steps=successful_steps,
+    )
+    summary["normalization_decision_policy"] = normalization_policy
+    layer_transition_summary = build_layer_transition_summary(
+        adata=adata,
+        config=config,
+        successful_steps=successful_steps,
+        keep_intermediate_layers=keep_intermediate_layers,
+    )
+    layer_transition_table = build_layer_transition_table(
+        adata=adata,
+        config=config,
+        successful_steps=successful_steps,
+        keep_intermediate_layers=keep_intermediate_layers,
+    )
+    summary["layer_transition_summary"] = layer_transition_summary
+    summary["layer_transition_table"] = layer_transition_table
+    summary["preprocess_layer_contract"] = build_preprocess_layer_contract(
+        adata=adata,
+        config=config,
+        layer_transition_table=layer_transition_table,
         keep_intermediate_layers=keep_intermediate_layers,
     )
     summary["step_evidence_summary"] = build_step_evidence_summary(
@@ -105,8 +112,40 @@ def enrich_preprocessing_review_summary(
     )
     summary["tumor_aware_batch_correction_warnings"] = tumor_warnings
     summary["hvg_selection_evidence_summary"] = hvg_summary
+    downstream = build_downstream_analysis_recommendations(
+        adata=adata,
+        config=config,
+        successful_steps=successful_steps,
+        hvg_summary=hvg_summary,
+        tumor_warnings=tumor_warnings,
+    )
     summary["downstream_analysis_recommendations"] = downstream
+    decision_summary = build_preprocess_decision_summary(
+        adata=adata,
+        config=config,
+        successful_steps=successful_steps,
+        hvg_summary=hvg_summary,
+        tumor_warnings=tumor_warnings,
+        downstream_recommendations=downstream,
+        layer_contract=summary["preprocess_layer_contract"],
+        step_evidence=summary["step_evidence_summary"],
+        normalization_policy=normalization_policy,
+    )
+    summary["preprocess_decision_summary"] = decision_summary
+    summary["preprocess_reviewer_table"] = build_preprocess_reviewer_table(decision_summary)
+    readiness = build_preprocess_readiness_assessment(
+        adata=adata,
+        downstream_recommendations=downstream,
+        hvg_summary=hvg_summary,
+        tumor_warnings=tumor_warnings,
+    )
     summary["preprocess_readiness"] = readiness
+    actions = build_preprocess_review_action_items(
+        readiness=readiness,
+        downstream_recommendations=downstream,
+        tumor_warnings=tumor_warnings,
+        hvg_summary=hvg_summary,
+    )
     summary["review_action_items"] = actions
     summary["evidence_bundle"] = build_preprocess_evidence_bundle(summary)
     summary["module_maturity"] = build_preprocess_module_maturity_assessment(summary)
@@ -123,8 +162,13 @@ def get_preprocess_module_contract() -> dict[str, Any]:
         "expected_outputs": list(PREPROCESS_EXPECTED_OUTPUTS),
         "canonical_namespace": 'adata.uns["sclucid"]["preprocess"]',
         "readiness_key": "preprocess_readiness",
+        "layer_contract_key": "preprocess_layer_contract",
+        "normalization_policy_key": "normalization_decision_policy",
         "layer_transition_key": "layer_transition_summary",
-        "step_evidence_key": "step_evidence_summary",
+    "layer_transition_table_key": "layer_transition_table",
+    "decision_summary_key": "preprocess_decision_summary",
+    "reviewer_table_key": "preprocess_reviewer_table",
+    "step_evidence_key": "step_evidence_summary",
         "qc_input_key": "qc_input_context",
     }
 
@@ -298,6 +342,603 @@ def build_layer_transition_summary(
             "transitions": transitions,
         }
     )
+
+
+def build_layer_transition_table(
+    *,
+    adata: AnnData,
+    config: Any,
+    successful_steps: list[str],
+    keep_intermediate_layers: bool,
+) -> list[dict[str, Any]]:
+    """Build a reviewer-facing table of layer and embedding semantics."""
+    has_counts = config.counts_layer in adata.layers
+    normalized_present = config.normalized_layer in adata.layers
+    regressed_present = config.regressed_layer in adata.layers
+    scaled_present = config.scaled_layer in adata.layers
+    integration_key = config.integration.output_key or (
+        f"X_{config.integration.method}" if config.integration.method else None
+    )
+
+    rows = [
+        {
+            "step": "input",
+            "executed": True,
+            "input_layer": f"layers['{config.counts_layer}']" if has_counts else "adata.X",
+            "output_slot": "adata.X",
+            "adata_X_semantics_before": "raw_counts_expected",
+            "adata_X_semantics_after": "raw_counts_or_workflow_input",
+            "raw_semantics": "unset_or_source_defined",
+            "output_present": True,
+            "review_required": not has_counts,
+            "risk_note": ""
+            if has_counts
+            else f"layers['{config.counts_layer}'] missing; preprocessing fell back to adata.X.",
+        },
+        {
+            "step": "normalization",
+            "executed": "normalization" in successful_steps,
+            "input_layer": f"layers['{config.counts_layer}'] or adata.X",
+            "output_slot": f"layers['{config.normalized_layer}']; adata.X if update_X",
+            "adata_X_semantics_before": "raw_counts_or_workflow_input",
+            "adata_X_semantics_after": "normalized_counts"
+            if config.normalization.update_X and "normalization" in successful_steps
+            else "unchanged",
+            "raw_semantics": "unchanged",
+            "output_present": normalized_present,
+            "review_required": "normalization" in successful_steps and not normalized_present,
+            "risk_note": ""
+            if normalized_present or "normalization" not in successful_steps
+            else f"Normalization ran but layers['{config.normalized_layer}'] is missing.",
+        },
+        {
+            "step": "set_raw",
+            "executed": "set_raw" in successful_steps,
+            "input_layer": f"layers['{config.normalized_layer}']",
+            "output_slot": "adata.raw",
+            "adata_X_semantics_before": "normalized_counts_or_current_X",
+            "adata_X_semantics_after": "unchanged",
+            "raw_semantics": "normalized_full_gene_snapshot" if adata.raw is not None else "unset",
+            "output_present": adata.raw is not None,
+            "review_required": "set_raw" in successful_steps and adata.raw is None,
+            "risk_note": ""
+            if adata.raw is not None or "set_raw" not in successful_steps
+            else "set_raw ran but adata.raw is missing.",
+        },
+        {
+            "step": "hvg_selection",
+            "executed": "hvg_selection" in successful_steps,
+            "input_layer": f"layers['{config.normalized_layer}']",
+            "output_slot": "var['highly_variable'] or configured hvg key",
+            "adata_X_semantics_before": "normalized_counts",
+            "adata_X_semantics_after": "unchanged",
+            "raw_semantics": "unchanged",
+            "output_present": "highly_variable" in adata.var
+            or bool(_preprocess_namespace(adata).get("hvg", {}).get("output_key") in adata.var),
+            "review_required": False,
+            "risk_note": "",
+        },
+        {
+            "step": "scaling",
+            "executed": "scaling" in successful_steps,
+            "input_layer": f"layers['{config.regressed_layer}'] or layers['{config.normalized_layer}']",
+            "output_slot": f"layers['{config.scaled_layer}']",
+            "adata_X_semantics_before": "normalized_or_hvg_subset",
+            "adata_X_semantics_after": "scaled_or_unchanged_depending_config",
+            "raw_semantics": "unchanged",
+            "output_present": scaled_present,
+            "review_required": "scaling" in successful_steps and not scaled_present,
+            "risk_note": ""
+            if scaled_present or "scaling" not in successful_steps
+            else f"Scaling ran but layers['{config.scaled_layer}'] is missing.",
+        },
+        {
+            "step": "pca",
+            "executed": "pca" in successful_steps,
+            "input_layer": f"layers['{config.scaled_layer}'] or layers['{config.regressed_layer}'] or layers['{config.normalized_layer}']",
+            "output_slot": "obsm['X_pca']",
+            "adata_X_semantics_before": "unchanged",
+            "adata_X_semantics_after": "unchanged",
+            "raw_semantics": "unchanged",
+            "output_present": "X_pca" in adata.obsm,
+            "review_required": "pca" in successful_steps and "X_pca" not in adata.obsm,
+            "risk_note": "" if "X_pca" in adata.obsm or "pca" not in successful_steps else "PCA ran but obsm['X_pca'] is missing.",
+        },
+        {
+            "step": "batch_correction",
+            "executed": "batch_correction" in successful_steps,
+            "input_layer": f"obsm['{config.integration.use_rep}']",
+            "output_slot": f"obsm['{integration_key}']" if integration_key else "",
+            "adata_X_semantics_before": "unchanged",
+            "adata_X_semantics_after": "unchanged",
+            "raw_semantics": "unchanged",
+            "output_present": bool(integration_key and integration_key in adata.obsm),
+            "review_required": bool("batch_correction" in successful_steps and integration_key and integration_key not in adata.obsm),
+            "risk_note": ""
+            if not ("batch_correction" in successful_steps and integration_key and integration_key not in adata.obsm)
+            else f"Batch correction ran but obsm['{integration_key}'] is missing.",
+        },
+        {
+            "step": "neighbors_umap",
+            "executed": "neighbors_umap" in successful_steps,
+            "input_layer": "obsm['X_pca'] or corrected representation",
+            "output_slot": "uns['neighbors']; obsp connectivities/distances; obsm['X_umap']",
+            "adata_X_semantics_before": "unchanged",
+            "adata_X_semantics_after": "unchanged",
+            "raw_semantics": "unchanged",
+            "output_present": "neighbors" in adata.uns and "X_umap" in adata.obsm,
+            "review_required": "neighbors_umap" in successful_steps
+            and not ("neighbors" in adata.uns and "X_umap" in adata.obsm),
+            "risk_note": ""
+            if "neighbors_umap" not in successful_steps or ("neighbors" in adata.uns and "X_umap" in adata.obsm)
+            else "Graph/UMAP step ran but neighbors or UMAP output is missing.",
+        },
+    ]
+    canonical_order = {
+        "input": (0, "counts"),
+        "normalization": (1, "normalized"),
+        "set_raw": (2, "raw"),
+        "hvg_selection": (3, "HVG"),
+        "scaling": (4, "scaled"),
+        "pca": (5, "PCA"),
+        "batch_correction": (6, "batch_correction"),
+        "neighbors_umap": (7, "graph"),
+    }
+    for row in rows:
+        order, stage = canonical_order.get(str(row.get("step")), (99, str(row.get("step"))))
+        row["canonical_order"] = order
+        row["canonical_stage"] = stage
+        row["canonical_flow"] = "counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph"
+        row["keep_intermediate_layers"] = keep_intermediate_layers
+        row["layers_present"] = sorted(str(layer) for layer in adata.layers.keys())
+        row["obsm_present"] = sorted(str(key) for key in adata.obsm.keys())
+        row["regressed_layer_present"] = regressed_present
+    return _json_safe(rows)
+
+
+def build_preprocess_layer_contract(
+    *,
+    adata: AnnData,
+    config: Any,
+    layer_transition_table: list[Mapping[str, Any]],
+    keep_intermediate_layers: bool,
+) -> dict[str, Any]:
+    """Build the canonical preprocessing layer contract for reviewers."""
+    qc_ambient_contract = (
+        adata.uns.get("sclucid", {}).get("qc", {}).get("ambient_layer_contract", {})
+    )
+    ambient_recommended = (
+        qc_ambient_contract.get("recommended_preprocess_counts_layer")
+        if isinstance(qc_ambient_contract, Mapping)
+        else None
+    )
+    counts_layer = (
+        ambient_recommended
+        if ambient_recommended and ambient_recommended in adata.layers
+        else config.counts_layer
+        if config.counts_layer in adata.layers
+        else None
+    )
+    row_by_stage = {
+        str(row.get("canonical_stage")): row
+        for row in layer_transition_table
+        if isinstance(row, Mapping)
+    }
+    canonical_stages = [
+        ("counts", "input", True),
+        ("normalized", "normalization", True),
+        ("raw", "set_raw", True),
+        ("HVG", "hvg_selection", True),
+        ("scaled", "scaling", True),
+        ("PCA", "pca", True),
+        ("graph", "neighbors_umap", bool(getattr(config, "run_neighbors", True))),
+    ]
+    stages: list[dict[str, Any]] = []
+    review_flags: list[str] = []
+    for stage, step, expected in canonical_stages:
+        row = row_by_stage.get(stage, {})
+        executed = bool(row.get("executed", False))
+        output_present = bool(row.get("output_present", False))
+        review_required = bool(row.get("review_required", False))
+        if review_required:
+            review_flags.append(f"{step}: {row.get('risk_note') or 'review required'}")
+        status = (
+            "complete"
+            if output_present and (executed or step == "input")
+            else "skipped"
+            if not expected and not executed
+            else "review_required"
+            if review_required
+            else "not_run"
+            if not executed
+            else "missing_output"
+        )
+        stages.append(
+            {
+                "stage": stage,
+                "step": step,
+                "expected": expected,
+                "status": status,
+                "input_layer": row.get("input_layer"),
+                "output_slot": row.get("output_slot"),
+                "output_present": output_present,
+                "adata_X_semantics_after": row.get("adata_X_semantics_after"),
+                "raw_semantics": row.get("raw_semantics"),
+                "risk_note": row.get("risk_note", ""),
+            }
+        )
+
+    missing_required = [
+        item["stage"]
+        for item in stages
+        if item["expected"] and item["status"] in {"missing_output", "review_required"}
+    ]
+    return _json_safe(
+        {
+            "schema_version": "preprocess_layer_contract_v1",
+            "canonical_flow": "counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph",
+            "recommended_counts_layer": counts_layer,
+            "counts_layer_source": "ambient_layer_contract"
+            if counts_layer and counts_layer == ambient_recommended
+            else "workflow_config"
+            if counts_layer
+            else "adata.X_fallback",
+            "normalized_layer": config.normalized_layer,
+            "raw_source_layer": config.normalized_layer,
+            "hvg_input_layer": config.normalized_layer,
+            "scaled_layer": config.scaled_layer,
+            "pca_key": "X_pca",
+            "graph_keys": ["neighbors", "connectivities", "distances", "X_umap"],
+            "keep_intermediate_layers": keep_intermediate_layers,
+            "stage_contracts": stages,
+            "layers_present": sorted(str(layer) for layer in adata.layers.keys()),
+            "obsm_present": sorted(str(key) for key in adata.obsm.keys()),
+            "raw_present": adata.raw is not None,
+            "review_required": bool(review_flags or missing_required),
+            "review_flags": review_flags,
+            "missing_required_stages": missing_required,
+            "ambient_layer_contract": qc_ambient_contract or None,
+        }
+    )
+
+
+def build_normalization_decision_policy(
+    *,
+    adata: AnnData,
+    config: Any,
+    successful_steps: list[str],
+) -> dict[str, Any]:
+    """Describe why the normalization method/input layer is acceptable or reviewable."""
+    norm_meta = _preprocess_namespace(adata).get("normalization", {})
+    params = norm_meta.get("params", {}) if isinstance(norm_meta, Mapping) else {}
+    input_stats = norm_meta.get("input_stats", {}) if isinstance(norm_meta, Mapping) else {}
+    output_stats = norm_meta.get("output_stats", {}) if isinstance(norm_meta, Mapping) else {}
+    ambient_contract = (
+        adata.uns.get("sclucid", {}).get("qc", {}).get("ambient_layer_contract", {})
+    )
+    ambient_recommended = (
+        ambient_contract.get("recommended_preprocess_counts_layer")
+        if isinstance(ambient_contract, Mapping)
+        else None
+    )
+
+    method = str(params.get("method", config.normalization.method))
+    input_layer = str(norm_meta.get("input_layer", config.normalization.input_layer))
+    zero_frac = input_stats.get("zero_frac") if isinstance(input_stats, Mapping) else None
+    min_val = input_stats.get("min") if isinstance(input_stats, Mapping) else None
+    review_reasons: list[str] = []
+    recommended_method = "standard"
+    recommended_input_layer = ambient_recommended or config.counts_layer
+    source = "workflow_default"
+
+    if ambient_recommended:
+        source = "qc_ambient_layer_contract"
+        if input_layer != ambient_recommended:
+            review_reasons.append(
+                f"QC recommends ambient-corrected counts layer {ambient_recommended!r}, but normalization used {input_layer!r}."
+            )
+
+    if isinstance(min_val, (int, float)) and min_val < 0:
+        review_reasons.append("Normalization input contains negative values; count-based normalization may be inappropriate.")
+    if isinstance(zero_frac, (int, float)) and zero_frac < 0.05:
+        review_reasons.append("Normalization input has very few zeros; it may already be transformed.")
+
+    if method == "pearson_residuals":
+        recommended_method = "pearson_residuals_for_feature_selection_or_PCA"
+        review_reasons.append(
+            "Pearson residuals are useful for feature selection/PCA but should not replace count-level inputs for DE."
+        )
+    elif method == "scran":
+        recommended_method = "scran_when_size_factor_estimation_is_needed"
+    elif method == "quality_aware":
+        recommended_method = "quality_aware_when_QC_metrics_drive_depth_or_composition"
+        source = "quality_aware_policy"
+    elif method == "clr":
+        recommended_method = "clr_for_compositional_or_ADT_like_data"
+        review_reasons.append("CLR is task-specific; verify it is appropriate for RNA expression workflows.")
+
+    if "normalization" in successful_steps and config.normalized_layer not in adata.layers:
+        review_reasons.append(f"Normalization ran but layer {config.normalized_layer!r} is missing.")
+
+    status = "review_required" if review_reasons else "ok"
+    confidence = 0.65 if review_reasons else 0.9
+    return _json_safe(
+        {
+            "schema_version": "normalization_decision_policy_v1",
+            "status": status,
+            "executed": "normalization" in successful_steps,
+            "recommended_method": recommended_method,
+            "applied_method": method,
+            "recommended_input_layer": recommended_input_layer,
+            "applied_input_layer": input_layer,
+            "source": source,
+            "confidence": confidence,
+            "review_required": bool(review_reasons),
+            "review_reasons": review_reasons,
+            "input_stats": input_stats,
+            "output_stats": output_stats,
+            "ambient_layer_contract": ambient_contract or None,
+            "downstream_note": (
+                "Use normalized/log expression for PCA/visualization/marker display; "
+                "use counts or pseudobulk counts for formal condition DE."
+            ),
+        }
+    )
+
+
+def build_preprocess_decision_summary(
+    *,
+    adata: AnnData,
+    config: Any,
+    successful_steps: list[str],
+    normalization_policy: Mapping[str, Any],
+    hvg_summary: Mapping[str, Any],
+    tumor_warnings: Mapping[str, Any],
+    downstream_recommendations: Mapping[str, Any],
+    layer_contract: Mapping[str, Any],
+    step_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build step-level preprocessing decisions and scientific guardrails."""
+
+    def _step_status_from_evidence(step: str) -> str:
+        steps = step_evidence.get("steps", []) if isinstance(step_evidence, Mapping) else []
+        if isinstance(steps, Mapping):
+            steps = steps.values()
+        for item in steps:
+            if isinstance(item, Mapping) and item.get("step") == step:
+                return str(item.get("status", "unknown"))
+        return "unknown"
+
+    def _decision_from_status(
+        *,
+        step: str,
+        applied: Any,
+        recommended: Any,
+        source: str,
+        confidence: float,
+        risk_note: str = "",
+        review_required: bool = False,
+        blocker: bool = False,
+        downstream_target: str | None = None,
+    ) -> dict[str, Any]:
+        status = _step_status_from_evidence(step)
+        if blocker or status == "missing_output":
+            decision = "blocked"
+            review_required = True
+        elif review_required:
+            decision = "review"
+        elif status == "skipped":
+            decision = "skipped"
+        elif status == "not_run":
+            decision = "not_run"
+        else:
+            decision = "use"
+        return {
+            "step": step,
+            "decision": decision,
+            "recommended": recommended,
+            "applied": applied,
+            "source": source,
+            "confidence": confidence,
+            "review_required": bool(review_required),
+            "risk_note": risk_note,
+            "status": status,
+            "downstream_target": downstream_target,
+        }
+
+    normalized_present = config.normalized_layer in adata.layers
+    pca_present = "X_pca" in adata.obsm
+    graph_present = "neighbors" in adata.uns and "X_umap" in adata.obsm
+    integration_key = config.integration.output_key or (
+        f"X_{config.integration.method}" if config.integration.method else None
+    )
+    integration_present = bool(integration_key and integration_key in adata.obsm)
+    sample_depth = downstream_recommendations.get("sample_depth_diagnostic", {})
+    cell_cycle = downstream_recommendations.get("cell_cycle_regression_diagnostic", {})
+    blockers = list(downstream_recommendations.get("blockers", []))
+
+    hvg_review = hvg_summary.get("status") == "review_required"
+    integration_review = bool(tumor_warnings.get("warnings")) or (
+        isinstance(sample_depth, Mapping) and sample_depth.get("status") == "review_required"
+    )
+    regression_vars = list(getattr(config.scaling, "vars_to_regress", []) or [])
+    regression_review = bool(regression_vars) or (
+        isinstance(cell_cycle, Mapping) and cell_cycle.get("status") == "review_required"
+    )
+
+    primary_rep = integration_key if integration_present else "X_pca" if pca_present else None
+    decisions = [
+        _decision_from_status(
+            step="normalization",
+            applied=config.normalization.method,
+            recommended=normalization_policy.get(
+                "recommended_method",
+                "standard_log_normalize_by_default; consider scran/pearson_residuals by dataset/task",
+            ),
+            source=normalization_policy.get("source", "workflow_config"),
+            confidence=float(normalization_policy.get("confidence", 0.85 if normalized_present else 0.2)),
+            review_required=bool(normalization_policy.get("review_required")) or not normalized_present,
+            blocker=not normalized_present and "normalization" in successful_steps,
+            risk_note=(
+                "Normalization output is missing."
+                if not normalized_present and "normalization" in successful_steps
+                else "; ".join(str(item) for item in normalization_policy.get("review_reasons", []))
+                or normalization_policy.get(
+                    "downstream_note",
+                    "Normalization choice should match downstream task; DE should use counts/pseudobulk rather than scaled data.",
+                )
+            ),
+            downstream_target=config.normalized_layer,
+        ),
+        _decision_from_status(
+            step="hvg_selection",
+            applied={
+                "method": hvg_summary.get("method"),
+                "flavor": hvg_summary.get("flavor"),
+                "n_hvg_selected": hvg_summary.get("n_hvg_selected"),
+            },
+            recommended="batch-aware HVG with protected marker/program genes when biology could be variance-sparse",
+            source="hvg_selection_evidence_summary",
+            confidence=0.65 if hvg_review else 0.9,
+            review_required=hvg_review,
+            risk_note="; ".join(str(item) for item in hvg_summary.get("warnings", []))
+            or "Review marker/program preservation when studying rare states, tumor heterogeneity, or immune activation.",
+            downstream_target=hvg_summary.get("output_key") or "highly_variable",
+        ),
+        _decision_from_status(
+            step="regression",
+            applied=regression_vars,
+            recommended="off_by_default; enable only after confounding review",
+            source="workflow_config",
+            confidence=0.55 if regression_review else 0.9,
+            review_required=regression_review,
+            risk_note=(
+                "Regression can remove biological gradients; document why these covariates are technical."
+                if regression_vars
+                else str(cell_cycle.get("message", ""))
+                if isinstance(cell_cycle, Mapping) and cell_cycle.get("status") == "review_required"
+                else ""
+            ),
+            downstream_target=config.regressed_layer if regression_vars else config.normalized_layer,
+        ),
+        _decision_from_status(
+            step="scaling",
+            applied=config.scaling.scale_method,
+            recommended="zscore_for_PCA; retain normalized/raw layers for expression interpretation",
+            source="workflow_config",
+            confidence=0.85 if config.scaled_layer in adata.layers else 0.4,
+            review_required="scaling" in successful_steps and config.scaled_layer not in adata.layers,
+            risk_note=(
+                "Scaled values are for PCA/graph, not expression-level biological interpretation."
+            ),
+            downstream_target=config.scaled_layer,
+        ),
+        _decision_from_status(
+            step="pca",
+            applied={"requested_n_pcs": config.graph.n_pcs, "present": pca_present},
+            recommended="use PCA before graph; review n_pcs with variance/marker preservation diagnostics",
+            source="workflow_config",
+            confidence=0.9 if pca_present else 0.2,
+            review_required=not pca_present and "pca" in successful_steps,
+            blocker=not pca_present and ("pca" in successful_steps or "PCA embedding" in " ".join(blockers)),
+            risk_note="PCA is the primary handoff to graph/integration; missing PCA blocks standard analysis."
+            if not pca_present
+            else "",
+            downstream_target="X_pca",
+        ),
+        _decision_from_status(
+            step="batch_correction",
+            applied={
+                "method": config.integration.method,
+                "batch_key": config.integration.batch_key,
+                "output_key": integration_key if integration_present else None,
+            },
+            recommended=(
+                "use_corrected_representation_after_review"
+                if integration_present
+                else "keep_unintegrated_X_pca_unless_batch_effect_is_demonstrated"
+            ),
+            source="integration_guardrail",
+            confidence=0.55 if integration_review else 0.8,
+            review_required=integration_review,
+            risk_note="; ".join(str(item) for item in tumor_warnings.get("warnings", []))
+            or (
+                sample_depth.get("message", "")
+                if isinstance(sample_depth, Mapping)
+                and sample_depth.get("status") == "review_required"
+                else "Integration is optional; compare integrated and unintegrated embeddings when batch correction is used."
+            ),
+            downstream_target=integration_key if integration_present else "X_pca",
+        ),
+        _decision_from_status(
+            step="neighbors_umap",
+            applied={"n_neighbors": config.graph.n_neighbors, "n_pcs": config.graph.n_pcs},
+            recommended=f"use obsm['{primary_rep}'] for graph" if primary_rep else "run PCA before graph",
+            source="downstream_analysis_recommendations",
+            confidence=0.85 if graph_present else 0.6 if not getattr(config, "run_neighbors", True) else 0.25,
+            review_required=("neighbors_umap" in successful_steps and not graph_present),
+            blocker=("neighbors_umap" in successful_steps and not graph_present),
+            risk_note="Graph/UMAP missing after requested graph step."
+            if "neighbors_umap" in successful_steps and not graph_present
+            else "If integration was applied, verify graph uses the intended representation.",
+            downstream_target=primary_rep,
+        ),
+    ]
+
+    decision_counts: dict[str, int] = {}
+    for item in decisions:
+        decision_counts[item["decision"]] = decision_counts.get(item["decision"], 0) + 1
+
+    return _json_safe(
+        {
+            "schema_version": "preprocess_decision_summary_v1",
+            "canonical_flow": layer_contract.get(
+                "canonical_flow",
+                "counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph",
+            ),
+            "decisions": decisions,
+            "decision_counts": decision_counts,
+            "review_required_steps": [
+                item["step"] for item in decisions if item.get("review_required")
+            ],
+            "primary_downstream_representation": primary_rep,
+            "risk_note": (
+                "Preprocess decisions are step/representation-level guardrails. "
+                "They do not change data automatically; they define what should be reviewed before analysis."
+            ),
+        }
+    )
+
+
+def build_preprocess_reviewer_table(
+    decision_summary: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Build a single reviewer table for preprocessing choices and risks."""
+    decisions = decision_summary.get("decisions", []) if isinstance(decision_summary, Mapping) else []
+    if isinstance(decisions, Mapping):
+        decisions = decisions.values()
+    rows = []
+    for item in decisions:
+        if not isinstance(item, Mapping):
+            continue
+        rows.append(
+            _json_safe(
+                {
+                    "item": item.get("step"),
+                    "category": "preprocess_step",
+                    "recommended_value": item.get("recommended"),
+                    "applied_value": item.get("applied"),
+                    "source": item.get("source"),
+                    "confidence": item.get("confidence"),
+                    "affected_representation": item.get("downstream_target"),
+                    "preprocess_decision": item.get("decision"),
+                    "review_required": bool(item.get("review_required")),
+                    "biological_risk_note": item.get("risk_note", ""),
+                    "status": item.get("status"),
+                }
+            )
+        )
+    return rows
 
 
 def build_step_evidence_summary(
@@ -626,6 +1267,8 @@ def build_tumor_aware_batch_correction_warnings(
     """Warn when tumor heterogeneity could be affected by batch correction."""
     is_tumor = _is_tumor_context(tissue_type)
     batch_key = config.integration.batch_key
+    auto_decide = bool(getattr(config.integration, "auto_decide", False))
+    evaluate = bool(getattr(config.integration, "evaluate", False))
     batch_applied = "batch_correction" in successful_steps and bool(
         config.integration.method and batch_key
     )
@@ -639,12 +1282,22 @@ def build_tumor_aware_batch_correction_warnings(
         warnings.append(
             f"Tumor data include {n_batches} batch/sample groups for batch key {batch_key!r}; inspect embeddings before and after correction."
         )
+    if batch_applied and not auto_decide:
+        warnings.append(
+            "Batch correction was applied without IntegrationConfig.auto_decide=True; document the batch effect evidence and biological-preservation check."
+        )
+    if batch_applied and not evaluate:
+        warnings.append(
+            "Batch correction was applied without IntegrationConfig.evaluate=True; compare integrated and unintegrated representations before interpreting clusters."
+        )
     return {
         "enabled": is_tumor,
         "tissue_type": tissue_type,
         "batch_correction_applied": batch_applied,
         "method": config.integration.method if batch_applied else None,
         "batch_key": batch_key if batch_applied else None,
+        "auto_decide": auto_decide if batch_applied else None,
+        "evaluate": evaluate if batch_applied else None,
         "n_batches": n_batches,
         "warnings": warnings,
     }
@@ -701,6 +1354,7 @@ def build_hvg_selection_evidence_summary(
             "method": hvg_meta.get("method", config.hvg.method),
             "flavor": config.hvg.flavor,
             "requested_n_top_genes": config.hvg.n_top_genes,
+            "method_report": hvg_meta.get("method_report", {}),
             "n_hvg_selected": n_hvg,
             "n_input_genes": int(adata.n_vars),
             "selected_fraction": selected_fraction,
@@ -977,10 +1631,24 @@ def build_preprocess_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, An
     evidence_items = [
         EvidenceItem(
             source="metric",
+            name="preprocess_layer_contract",
+            value=summary.get("preprocess_layer_contract", {}),
+            rationale="Freezes the canonical counts-to-graph layer contract used by preprocessing.",
+            related_keys=["preprocess_layer_contract", "layer_transition_table"],
+        ),
+        EvidenceItem(
+            source="metric",
             name="layer_transition_summary",
             value=summary.get("layer_transition_summary", {}),
             rationale="Tracks expression-layer and embedding transitions across preprocessing.",
             related_keys=["layer_transition_summary"],
+        ),
+        EvidenceItem(
+            source="recommendation",
+            name="normalization_decision_policy",
+            value=summary.get("normalization_decision_policy", {}),
+            rationale="Explains the normalization method/input-layer choice and downstream expression semantics.",
+            related_keys=["normalization_decision_policy"],
         ),
         EvidenceItem(
             source="output_health",
@@ -988,6 +1656,13 @@ def build_preprocess_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, An
             value=summary.get("step_evidence_summary", {}),
             rationale="Records status, inputs, outputs, parameters, and review flags for each preprocessing step.",
             related_keys=["step_evidence_summary"],
+        ),
+        EvidenceItem(
+            source="recommendation",
+            name="preprocess_decision_summary",
+            value=summary.get("preprocess_decision_summary", {}),
+            rationale="Converts preprocessing outputs into step-level use/review/block decisions.",
+            related_keys=["preprocess_decision_summary", "preprocess_reviewer_table"],
         ),
         EvidenceItem(
             source="metric",
@@ -1039,7 +1714,11 @@ def build_preprocess_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, An
         },
         related_review_keys=[
             "applied_parameter_summary",
+            "normalization_decision_policy",
+            "preprocess_layer_contract",
             "layer_transition_summary",
+            "preprocess_decision_summary",
+            "preprocess_reviewer_table",
             "step_evidence_summary",
             "hvg_selection_evidence_summary",
             "tumor_aware_batch_correction_warnings",
@@ -1059,8 +1738,12 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
     missing_sections = sorted(required_sections - set(payload.keys()))
 
     layer_summary = payload.get("layer_transition_summary")
+    layer_contract = payload.get("preprocess_layer_contract")
     step_evidence = payload.get("step_evidence_summary")
+    decision_summary = payload.get("preprocess_decision_summary")
+    reviewer_table = payload.get("preprocess_reviewer_table")
     parameter_summary = payload.get("applied_parameter_summary")
+    normalization_policy = payload.get("normalization_decision_policy")
     hvg_summary = payload.get("hvg_selection_evidence_summary")
     readiness = payload.get("preprocess_readiness", {})
     evidence_bundle = payload.get("evidence_bundle")
@@ -1073,12 +1756,24 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
         )
     if not isinstance(layer_summary, Mapping):
         issues.append("layer_transition_summary must be present.")
+    if not isinstance(layer_contract, Mapping):
+        issues.append("preprocess_layer_contract must be present.")
+    elif layer_contract.get("canonical_flow") != "counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph":
+        issues.append("preprocess_layer_contract.canonical_flow is not the canonical counts-to-graph flow.")
     if not isinstance(step_evidence, Mapping):
         issues.append("step_evidence_summary must be present.")
     elif not isinstance(step_evidence.get("steps"), list):
         issues.append("step_evidence_summary.steps must be present.")
+    if not isinstance(decision_summary, Mapping):
+        issues.append("preprocess_decision_summary must be present.")
+    elif not isinstance(decision_summary.get("decisions"), list):
+        issues.append("preprocess_decision_summary.decisions must be present.")
+    if not isinstance(reviewer_table, list):
+        issues.append("preprocess_reviewer_table must be present.")
     if not isinstance(parameter_summary, Mapping):
         issues.append("applied_parameter_summary must be present.")
+    if not isinstance(normalization_policy, Mapping):
+        issues.append("normalization_decision_policy must be present.")
     if not isinstance(hvg_summary, Mapping):
         issues.append("hvg_selection_evidence_summary must be present.")
     if not isinstance(readiness, Mapping) or "status" not in readiness:
@@ -1099,6 +1794,17 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
         review_steps = step_evidence.get("review_required_steps", [])
         if review_steps:
             review_required.append("step_evidence_summary.review_required_steps=" + ",".join(map(str, review_steps)))
+    if isinstance(decision_summary, Mapping):
+        decision_review_steps = decision_summary.get("review_required_steps", [])
+        if decision_review_steps:
+            review_required.append(
+                "preprocess_decision_summary.review_required_steps="
+                + ",".join(map(str, decision_review_steps))
+            )
+    if isinstance(layer_contract, Mapping) and layer_contract.get("review_required"):
+        review_required.append("preprocess_layer_contract.review_required=True")
+    if isinstance(normalization_policy, Mapping) and normalization_policy.get("review_required"):
+        review_required.append("normalization_decision_policy.review_required=True")
 
     if issues:
         status = "incomplete"
@@ -1132,8 +1838,19 @@ def summarize_preprocess_review_summary(summary: Mapping[str, Any]) -> dict[str,
     readiness = payload.get("preprocess_readiness", {}) if isinstance(payload, Mapping) else {}
     maturity = payload.get("module_maturity", {}) if isinstance(payload, Mapping) else {}
     hvg = payload.get("hvg_selection_evidence_summary", {}) if isinstance(payload, Mapping) else {}
+    normalization_policy = (
+        payload.get("normalization_decision_policy", {})
+        if isinstance(payload, Mapping)
+        else {}
+    )
     layers = payload.get("layer_transition_summary", {}) if isinstance(payload, Mapping) else {}
+    layer_contract = payload.get("preprocess_layer_contract", {}) if isinstance(payload, Mapping) else {}
     step_evidence = payload.get("step_evidence_summary", {}) if isinstance(payload, Mapping) else {}
+    decision_summary = (
+        payload.get("preprocess_decision_summary", {})
+        if isinstance(payload, Mapping)
+        else {}
+    )
     params = payload.get("applied_parameter_summary", {}) if isinstance(payload, Mapping) else {}
     qc_context = payload.get("qc_input_context", {}) if isinstance(payload, Mapping) else {}
     downstream = (
@@ -1156,8 +1873,19 @@ def summarize_preprocess_review_summary(summary: Mapping[str, Any]) -> dict[str,
             "layers_present": layers.get("layers_present"),
             "obsm_present": layers.get("obsm_present"),
             "raw_present": layers.get("raw_present"),
+            "canonical_layer_flow": layer_contract.get("canonical_flow"),
+            "recommended_counts_layer": layer_contract.get("recommended_counts_layer"),
+            "normalization_status": normalization_policy.get("status"),
+            "normalization_recommended_method": normalization_policy.get("recommended_method"),
+            "normalization_applied_method": normalization_policy.get("applied_method"),
+            "layer_contract_review_required": layer_contract.get("review_required"),
             "step_status_counts": step_evidence.get("status_counts"),
             "review_required_steps": step_evidence.get("review_required_steps"),
+            "preprocess_decision_counts": decision_summary.get("decision_counts"),
+            "decision_review_required_steps": decision_summary.get("review_required_steps"),
+            "primary_downstream_representation": decision_summary.get(
+                "primary_downstream_representation"
+            ),
             "hvg_status": hvg.get("status"),
             "n_hvg_selected": hvg.get("n_hvg_selected"),
             "hvg_input_layer": hvg.get("input_layer"),
@@ -1185,10 +1913,84 @@ def validate_preprocessing_review_summary(
     elif bundle.get("module") != "preprocess":
         errors.append("Preprocessing evidence_bundle.module must be 'preprocess'.")
     step_evidence = summary.get("step_evidence_summary")
+    normalization_policy = summary.get("normalization_decision_policy")
+    if not isinstance(normalization_policy, Mapping):
+        errors.append(
+            "Preprocessing review summary field 'normalization_decision_policy' must be a mapping."
+        )
     if not isinstance(step_evidence, Mapping):
         errors.append("Preprocessing review summary field 'step_evidence_summary' must be a mapping.")
     elif not isinstance(step_evidence.get("steps"), (list, dict)):
         errors.append("Preprocessing step_evidence_summary.steps must be a list or dict.")
+    decision_summary = summary.get("preprocess_decision_summary")
+    if not isinstance(decision_summary, Mapping):
+        errors.append(
+            "Preprocessing review summary field 'preprocess_decision_summary' must be a mapping."
+        )
+    elif not isinstance(decision_summary.get("decisions"), (list, dict)):
+        errors.append("Preprocessing preprocess_decision_summary.decisions must be a list or dict.")
+    reviewer_table = summary.get("preprocess_reviewer_table")
+    if not isinstance(reviewer_table, list) or not reviewer_table:
+        errors.append(
+            "Preprocessing review summary field 'preprocess_reviewer_table' must be a non-empty list."
+        )
+    else:
+        required_reviewer_columns = {
+            "item",
+            "category",
+            "recommended_value",
+            "applied_value",
+            "source",
+            "confidence",
+            "affected_representation",
+            "preprocess_decision",
+            "review_required",
+            "biological_risk_note",
+        }
+        for idx, row in enumerate(reviewer_table):
+            if not isinstance(row, Mapping):
+                errors.append(f"Preprocessing preprocess_reviewer_table row {idx} must be a mapping.")
+                continue
+            missing_columns = sorted(required_reviewer_columns - set(row.keys()))
+            if missing_columns:
+                errors.append(
+                    f"Preprocessing preprocess_reviewer_table row {idx} missing columns: {missing_columns}"
+                )
+    layer_table = summary.get("layer_transition_table")
+    layer_contract = summary.get("preprocess_layer_contract")
+    if not isinstance(layer_contract, Mapping):
+        errors.append("Preprocessing review summary field 'preprocess_layer_contract' must be a mapping.")
+    else:
+        if layer_contract.get("canonical_flow") != "counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph":
+            errors.append("Preprocessing preprocess_layer_contract.canonical_flow is invalid.")
+        if not isinstance(layer_contract.get("stage_contracts"), list) or not layer_contract.get("stage_contracts"):
+            errors.append(
+                "Preprocessing preprocess_layer_contract.stage_contracts must be a non-empty list."
+            )
+    if not isinstance(layer_table, list) or not layer_table:
+        errors.append("Preprocessing review summary field 'layer_transition_table' must be a non-empty list.")
+    else:
+        required_columns = {
+            "step",
+            "executed",
+            "input_layer",
+            "output_slot",
+            "adata_X_semantics_before",
+            "adata_X_semantics_after",
+            "raw_semantics",
+            "output_present",
+            "review_required",
+            "risk_note",
+        }
+        for idx, row in enumerate(layer_table):
+            if not isinstance(row, Mapping):
+                errors.append(f"Preprocessing layer_transition_table row {idx} must be a mapping.")
+                continue
+            missing_columns = sorted(required_columns - set(row.keys()))
+            if missing_columns:
+                errors.append(
+                    f"Preprocessing layer_transition_table row {idx} missing columns: {missing_columns}"
+                )
     maturity = summary.get("module_maturity")
     if not isinstance(maturity, Mapping):
         errors.append("Preprocessing review summary field 'module_maturity' must be a mapping.")
@@ -1257,8 +2059,7 @@ def _preprocess_namespace(adata: AnnData) -> dict[str, Any]:
 
 
 def _is_tumor_context(tissue_type: Any) -> bool:
-    text = str(tissue_type or "").lower()
-    return any(token in text for token in ["tumor", "cancer", "malignan"])
+    return _shared_is_tumor_context(tissue_type)
 
 
 def _n_batches(adata: AnnData, batch_key: Any) -> int | None:
@@ -1326,10 +2127,15 @@ __all__ = [
     "build_downstream_analysis_recommendations",
     "build_hvg_selection_evidence_summary",
     "build_layer_transition_summary",
+    "build_layer_transition_table",
+    "build_normalization_decision_policy",
+    "build_preprocess_decision_summary",
+    "build_preprocess_layer_contract",
     "build_step_evidence_summary",
     "build_preprocess_evidence_bundle",
     "build_preprocess_module_maturity_assessment",
     "build_preprocess_readiness_assessment",
+    "build_preprocess_reviewer_table",
     "build_preprocess_review_action_items",
     "build_qc_input_context",
     "build_tumor_aware_batch_correction_warnings",

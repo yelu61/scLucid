@@ -7,6 +7,8 @@ integrating with existing neighbors.py optimization functionality.
 
 import json
 import logging
+import inspect
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -52,7 +54,7 @@ class IntelligentPreprocessRecommender:
     def __init__(
         self,
         config: Optional[IntelligentPreprocessConfig] = None,
-        strategy: str = "auto",
+        strategy: Optional[str] = None,
     ):
         """
         Initialize the recommender.
@@ -61,11 +63,19 @@ class IntelligentPreprocessRecommender:
         ----------
         config : IntelligentPreprocessConfig, optional
             Configuration for recommendation algorithms
-        strategy : str, default="auto"
-            Overall strategy: "auto", "minimal", "standard", "aggressive"
+        strategy : str, optional
+            Deprecated compatibility argument. The recommender now infers its
+            strategy directly from the data profile.
         """
         self.config = config or IntelligentPreprocessConfig()
-        self.strategy = strategy
+        if strategy is not None:
+            warnings.warn(
+                "IntelligentPreprocessRecommender(strategy=...) is deprecated and ignored; "
+                "the recommender now derives strategy from the data profile.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        self._deprecated_strategy = strategy
         self._data_profile: Optional[DataProfile] = None
 
     def recommend(
@@ -1061,6 +1071,28 @@ def _export_preprocess_review_summary(
     log.info(f"Preprocessing review summary exported to {json_path} and {md_path}")
 
 
+def _run_preprocessing_with_stable_save_arg(
+    run_preprocessing_func,
+    adata: AnnData,
+    *,
+    config,
+    save_dir: Optional[str],
+) -> AnnData:
+    """Use stable save_dir, with a fallback for legacy shims in tests/extensions."""
+    try:
+        signature = inspect.signature(run_preprocessing_func)
+    except (TypeError, ValueError):
+        signature = None
+
+    if signature is None or "save_dir" in signature.parameters:
+        return run_preprocessing_func(adata, config=config, save_dir=save_dir)
+
+    if "results_dir" in signature.parameters:
+        return run_preprocessing_func(adata, config=config, results_dir=save_dir)
+
+    return run_preprocessing_func(adata, config=config)
+
+
 def run_intelligent_preprocessing(
     adata: AnnData,
     batch_key: Optional[str] = None,
@@ -1125,7 +1157,12 @@ def run_intelligent_preprocessing(
 
     # Apply recommendations
     config = strategy.to_config()
-    adata_processed = run_preprocessing(adata, config=config, results_dir=save_dir)
+    adata_processed = _run_preprocessing_with_stable_save_arg(
+        run_preprocessing,
+        adata,
+        config=config,
+        save_dir=save_dir,
+    )
 
     adata_processed.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
         "intelligent_recommendation"

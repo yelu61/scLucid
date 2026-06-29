@@ -3,7 +3,8 @@ Data classes for intelligent preprocessing recommendations.
 """
 
 import copy
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import InitVar, dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
 import numpy as np
@@ -26,8 +27,8 @@ class DataProfile:
     # Classification flags
     is_sparse: bool
     is_small_dataset: bool
-    is_medium_dataset: bool
     is_large_dataset: bool
+    is_medium_dataset: InitVar[Optional[bool]] = None
     has_batch_info: bool = False
     n_batches: Optional[int] = None
 
@@ -37,6 +38,24 @@ class DataProfile:
 
     # Suggested strategy type
     strategy_type: Literal["minimal", "standard", "aggressive", "large_scale"] = "standard"
+
+    _legacy_is_medium_dataset: bool = field(init=False, repr=False, default=False)
+
+    def __post_init__(self, is_medium_dataset: Optional[bool]) -> None:
+        computed = (not self.is_small_dataset) and (not self.is_large_dataset)
+        if is_medium_dataset is not None and is_medium_dataset != computed:
+            warnings.warn(
+                "DataProfile.is_medium_dataset is deprecated and is now derived from "
+                "is_small_dataset/is_large_dataset.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        self._legacy_is_medium_dataset = computed
+
+    @property
+    def is_medium_dataset(self) -> bool:
+        """Deprecated compatibility view derived from size boundary flags."""
+        return self._legacy_is_medium_dataset
 
     @classmethod
     def from_adata(

@@ -30,7 +30,15 @@ class NormalizationConfig(SclucidBaseConfig):
 
     model_config = ConfigDict(extra="ignore")
 
-    method: Literal["standard", "scran", "pearson_residuals", "clr"] = Field(default="standard")
+    method: Literal[
+        "standard",
+        "scran",
+        "pearson_residuals",
+        "clr",
+        "quality_aware",
+        "deconvolution_pool",
+        "quantile_regression",
+    ] = Field(default="standard")
     target_sum: float = Field(default=1e4, gt=0, description="Target sum for normalization")
     exclude_highly_expressed: bool = Field(default=False)
     max_fraction: float = Field(default=0.05, gt=0, lt=1)
@@ -69,7 +77,7 @@ class HVGConfig(SclucidBaseConfig):
 
     model_config = ConfigDict(extra="ignore")
 
-    method: Literal["scanpy", "custom", "triku"] = Field(default="scanpy")
+    method: Literal["scanpy", "custom", "triku", "deviance"] = Field(default="scanpy")
     n_top_genes: int = Field(default=2000, ge=100, le=20000, description="Number of HVGs to select")
     auto_n_top_genes: bool = Field(
         default=True,
@@ -236,6 +244,63 @@ class GraphConfig(SclucidBaseConfig):
     n_neighbors: int = Field(default=15, ge=3, le=100, description="Number of neighbors")
 
 
+class GeneBiotypeConfig(SclucidBaseConfig):
+    """Configuration for optional gene biotype annotation and filtering."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    annotate: bool = Field(
+        default=False,
+        description="Annotate genes with biotype metadata before normalization.",
+    )
+    filter: bool = Field(
+        default=False,
+        description="Filter genes by biotype after annotation and low-detection filtering.",
+    )
+    species: Literal["human", "mouse", "rat"] = Field(default="human")
+    method: Literal["reference", "ensembl", "custom"] = Field(default="reference")
+    custom_biotype_path: Optional[str] = Field(
+        default=None,
+        description="Local CSV/TSV reference with gene_name and biotype columns.",
+    )
+    keep_biotypes: Optional[List[str]] = Field(
+        default=None,
+        description="Biotype categories to keep. Overrides use_recommended when provided.",
+    )
+    use_recommended: bool = Field(
+        default=True,
+        description="Keep recommended analysis biotypes when keep_biotypes is not provided.",
+    )
+    filter_stage: Literal["before_normalization", "after_raw"] = Field(
+        default="after_raw",
+        description=(
+            "When to apply biotype filtering. 'after_raw' preserves full-gene normalized "
+            "expression in .raw before subsetting analysis features."
+        ),
+    )
+    fuzzy_match: bool = Field(default=True)
+    overwrite: bool = Field(default=True)
+    allow_download: bool = Field(
+        default=False,
+        description="Allow downloading a reference if no bundled/cache/custom table is available.",
+    )
+    prefer_bundled: bool = Field(default=True)
+    cache_dir: Optional[str] = Field(default=None)
+    fail_on_error: bool = Field(
+        default=False,
+        description="Raise biotype annotation/filtering errors instead of recording a skipped status.",
+    )
+
+    @model_validator(mode="after")
+    def validate_gene_biotype_config(self) -> GeneBiotypeConfig:
+        """Validate biotype workflow settings."""
+        if self.filter and not self.annotate:
+            raise ValueError("gene_biotype.filter=True requires gene_biotype.annotate=True")
+        if self.method == "custom" and not self.custom_biotype_path:
+            raise ValueError("gene_biotype.custom_biotype_path is required when method='custom'")
+        return self
+
+
 class PreprocessingWorkflowConfig(WorkflowConfigBase):
     """Master configuration for the entire preprocessing workflow."""
 
@@ -253,6 +318,7 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
     scaling: ScalingConfig = Field(default_factory=ScalingConfig)
     integration: IntegrationConfig = Field(default_factory=IntegrationConfig)
     graph: GraphConfig = Field(default_factory=GraphConfig)
+    gene_biotype: GeneBiotypeConfig = Field(default_factory=GeneBiotypeConfig)
 
     # PCA auto-selection
     auto_select_n_pcs: bool = Field(
@@ -348,6 +414,26 @@ class PreprocessingWorkflowConfig(WorkflowConfigBase):
                 integration_params[key] = config_data.pop(config_key)
         if integration_params:
             kwargs["integration"] = IntegrationConfig(**integration_params)
+
+        # Extract gene biotype parameters
+        gene_biotype_params = {}
+        for key in [
+            "annotate",
+            "filter",
+            "species",
+            "method",
+            "custom_biotype_path",
+            "keep_biotypes",
+            "use_recommended",
+            "filter_stage",
+            "allow_download",
+            "fail_on_error",
+        ]:
+            config_key = f"gene_biotype_{key}"
+            if config_key in config_data:
+                gene_biotype_params[key] = config_data.pop(config_key)
+        if gene_biotype_params:
+            kwargs["gene_biotype"] = GeneBiotypeConfig(**gene_biotype_params)
 
         # Extract graph parameters
         graph_params = {}
@@ -446,6 +532,7 @@ __all__ = [
     "IntegrationConfig",
     "NeighborsConfig",
     "GraphConfig",
+    "GeneBiotypeConfig",
     "PreprocessingWorkflowConfig",
     "WorkflowConfig",  # Backward compatibility
     "apply_config_overrides",

@@ -14,7 +14,7 @@ from anndata import AnnData
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.preprocess import run_preprocessing
-from scLucid.preprocess.config import NormalizationConfig, WorkflowConfig
+from scLucid.preprocess.config import GeneBiotypeConfig, NormalizationConfig, WorkflowConfig
 from scLucid.preprocess.gene_biotype import (
     annotate_gene_biotypes,
     apply_gene_biotype_strategy,
@@ -410,6 +410,44 @@ class TestPreprocessingWorkflow:
         assert dropped_gene not in result.var_names
         assert meta["removed_genes"] >= 1
         assert meta["min_cells_per_gene"] == 3
+
+    def test_workflow_can_apply_gene_biotype_filtering_after_raw(
+        self, minimal_adata, tmp_path
+    ):
+        """Workflow biotype filtering should preserve full-gene normalized data in .raw."""
+        adata = minimal_adata.copy()
+        biotype_path = tmp_path / "biotypes.csv"
+        pd.DataFrame(
+            {
+                "gene_name": list(adata.var_names),
+                "biotype": ["protein_coding"] * (adata.n_vars - 1) + ["lncRNA"],
+            }
+        ).to_csv(biotype_path, index=False)
+        dropped_gene = adata.var_names[-1]
+
+        config = _workflow_config_for_tests()
+        config.gene_biotype = GeneBiotypeConfig(
+            annotate=True,
+            filter=True,
+            method="custom",
+            custom_biotype_path=str(biotype_path),
+        )
+
+        result = run_preprocessing(
+            adata,
+            config=config,
+            steps=["gene_filtering", "normalization", "set_raw"],
+            show_progress=False,
+        )
+
+        meta = result.uns["sclucid"]["preprocess"]["gene_biotype_filtering"]
+        assert dropped_gene not in result.var_names
+        assert result.raw is not None
+        assert dropped_gene in result.raw.var_names
+        assert "biotype_category" in result.var
+        assert meta["status"] == "completed"
+        assert meta["removed_genes"] == 1
+        assert meta["strategy"] == "recommended biotypes"
 
     def test_auto_select_n_pcs_is_bounded_for_small_inputs(self):
         """Auto PC selection should never exceed available components."""

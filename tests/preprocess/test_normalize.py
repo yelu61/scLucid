@@ -118,12 +118,31 @@ class TestNormalizeDataStandard:
             config=NormalizationConfig(method="standard", plot=False, report=False, verbose=False),
         )
         assert "sclucid" in result.uns
-        assert "preprocess" in result.uns["sclucid"]
+
+    def test_quality_aware_method_routes_through_public_dispatcher(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["pct_counts_mt"] = np.linspace(0, 20, adata.n_obs)
+        adata.obs["n_genes_by_counts"] = np.asarray((adata.X > 0).sum(axis=1)).ravel()
+
+        result = normalize_data(
+            adata,
+            config=NormalizationConfig(
+                method="quality_aware",
+                output_layer="quality_normalized",
+                plot=False,
+                report=False,
+                verbose=False,
+            ),
+            quality_metrics=["pct_counts_mt", "n_genes_by_counts"],
+            n_quality_bins=3,
+            log_transform=True,
+        )
+
+        assert "quality_normalized" in result.layers
         meta = result.uns["sclucid"]["preprocess"]["normalization"]
-        assert meta["params"]["method"] == "standard"
-        assert "input_stats" in meta
-        assert "output_stats" in meta
-        assert meta["log_transformed"] is True
+        assert meta["method"] == "quality_aware"
+        assert meta["routed_to"] == "adaptive_normalize"
+        assert result.uns["sclucid"]["preprocess"]["adaptive_normalization"]["method"] == "quality_aware"
 
     def test_kwargs_override_config(self, minimal_adata):
         adata = minimal_adata.copy()

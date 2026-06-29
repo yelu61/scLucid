@@ -20,7 +20,7 @@ from .config import NeighborsConfig, apply_config_overrides
 
 log = logging.getLogger(__name__)
 
-__all__ = ["optimize_neighbors_pcs", "run_embedding_pipeline", "run_embedding_workflow"]
+__all__ = ["optimize_neighbors_pcs", "run_embedding_pipeline"]
 
 
 # --- Helper Functions ---#

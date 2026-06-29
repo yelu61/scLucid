@@ -44,6 +44,16 @@ class TestBatchCorrection:
         assert result["risk_level"] in {"moderate", "high"}
         assert result["metrics"]["batch_condition_cramers_v"] >= 0.8
         assert result["warnings"]
+        assert "sclucid" not in adata.uns or "preprocess" not in adata.uns.get("sclucid", {})
+
+        recorded = diagnose_integration_risk(
+            adata,
+            batch_key="batch",
+            condition_key="condition",
+            tumor=True,
+            record=True,
+        )
+        assert recorded["risk_level"] in {"moderate", "high"}
         assert "integration_risk" in adata.uns["sclucid"]["preprocess"]["integration"]
 
     def test_diagnose_integration_risk_detects_biology_confounding(self, minimal_adata):

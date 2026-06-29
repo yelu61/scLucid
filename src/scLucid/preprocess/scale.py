@@ -68,7 +68,7 @@ def diagnose_cell_cycle_regression(
     confounding_threshold: float = 0.15,
     technical_threshold: float = 0.20,
     key_added: str = "cell_cycle_regression_diagnostic",
-    record: bool = True,
+    record: bool = False,
 ) -> Dict[str, object]:
     """Diagnose whether cell-cycle regression is biologically appropriate.
 

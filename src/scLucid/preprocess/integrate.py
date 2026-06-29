@@ -208,6 +208,7 @@ def diagnose_integration_risk(
     confounding_threshold: float = 0.8,
     preservation_drop_threshold: float = 0.15,
     key_added: str = "integration_risk",
+    record: bool = False,
 ) -> Dict[str, Union[str, float, bool, List[str], Dict[str, float]]]:
     """Diagnose when batch integration may be scientifically unsafe."""
     if batch_key not in adata.obs.columns:
@@ -284,9 +285,10 @@ def diagnose_integration_risk(
         "warnings": warnings,
         "recommendation": recommendation,
     }
-    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault("integration", {})[
-        key_added
-    ] = result
+    if record:
+        adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {}).setdefault(
+            "integration", {}
+        )[key_added] = result
     return result
 
 
@@ -1114,10 +1116,21 @@ def batch_correction(
     decision_record = None
     if active_config.auto_decide:
         decision_batch_key = batch_key[0] if isinstance(batch_key, list) else batch_key
+        risk = diagnose_integration_risk(
+            adata,
+            batch_key=decision_batch_key,
+            condition_key=active_config.condition_key,
+            biology_columns=active_config.biology_columns,
+            label_key=active_config.label_key,
+            tumor=active_config.tumor,
+            before_rep=use_rep,
+            record=True,
+        )
         run, decision_warnings, risk = decide_integration(
             adata,
             batch_key=decision_batch_key,
             run_integration="auto",
+            risk=risk,
             biology_columns=active_config.biology_columns,
             condition_key=active_config.condition_key,
             tumor=active_config.tumor,

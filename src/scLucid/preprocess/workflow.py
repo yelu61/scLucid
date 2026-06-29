@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional
 
 import numpy as np
+import pandas as pd
 import scanpy as sc
 import scipy.sparse
 from anndata import AnnData
@@ -26,7 +27,9 @@ from ..utils import (
     normalize_review_summary,
     validate_review_summary_schema,
 )
+from ..utils.context import is_tumor_context
 from .config import WorkflowConfig
+from .gene_biotype import annotate_gene_biotypes, filter_genes_by_biotype
 from .hvg import find_hvgs, select_hvg_sets
 from .integrate import batch_correction
 from .normalize import normalize_data
@@ -39,7 +42,6 @@ __all__ = [
     "run_preprocessing",
     "WORKFLOW_STEPS",
     "WorkflowError",
-    "PartialWorkflowResult",
 ]
 
 # Define workflow steps for flexible execution
@@ -274,7 +276,12 @@ def run_preprocessing(
                     "set_raw",
                     custom_pre_step,
                     custom_post_step,
-                    lambda a: _set_raw_layer(a, active_config),
+                    lambda a: _run_gene_biotype_filtering_step(
+                        _set_raw_layer(a, active_config),
+                        active_config,
+                        initial_genes_before_step=int(a.n_vars),
+                        current_stage="after_raw",
+                    ),
                 )
                 successful_steps.append(step_name)
 
@@ -418,7 +425,7 @@ def run_preprocessing(
     adata.uns["sclucid"]["preprocess"][UnsKeys.STEPS_EXECUTED] = successful_steps
 
     # Tumor-aware preprocessing notes
-    if tissue_type and ("tumor" in tissue_type.lower() or "cancer" in tissue_type.lower()):
+    if is_tumor_context(tissue_type):
         tumor_notes: Dict[str, Any] = {"tissue_type": tissue_type, "tumor_aware_enabled": True}
         if active_config.integration.method and active_config.integration.batch_key:
             tumor_notes["batch_correction_note"] = (
@@ -498,12 +505,25 @@ def _resolve_steps(
         disabled_steps.add("scaling")
     if not config.run_pca:
         disabled_steps.add("pca")
-    if not config.run_integration:
+    if not _integration_step_requested(config):
         disabled_steps.add("batch_correction")
     if not config.run_neighbors:
         disabled_steps.add("neighbors_umap")
 
     return [step for step in WORKFLOW_STEPS if step not in disabled_steps]
+
+
+def _integration_step_requested(config: WorkflowConfig) -> bool:
+    """Return whether the workflow should execute batch correction."""
+    if config.run_integration:
+        return bool(config.integration.method and config.integration.batch_key)
+
+    if "run_integration" in getattr(config, "model_fields_set", set()):
+        return False
+
+    integration_fields = getattr(config.integration, "model_fields_set", set())
+    user_touched_integration = bool({"method", "batch_key"} & set(integration_fields))
+    return bool(user_touched_integration and config.integration.method and config.integration.batch_key)
 
 
 def _prepare_workflow_config(config: Optional[WorkflowConfig]) -> WorkflowConfig:
@@ -519,11 +539,12 @@ def _prepare_workflow_config(config: Optional[WorkflowConfig]) -> WorkflowConfig
 
 
 def _run_gene_filtering_step(adata: AnnData, config: WorkflowConfig) -> AnnData:
-    """Filter genes detected in fewer than config.min_cells_per_gene cells."""
+    """Filter low-detection genes and optionally apply biotype-aware filtering."""
     min_cells = min(int(config.min_cells_per_gene), max(int(adata.n_obs), 1))
     source_name = config.counts_layer if config.counts_layer in adata.layers else "X"
     X = adata.layers[config.counts_layer] if source_name != "X" else adata.X
 
+    initial_genes_before_step = int(adata.n_vars)
     if scipy.sparse.issparse(X):
         detected_cells = np.diff(X.tocsc().indptr)
     else:
@@ -549,9 +570,7 @@ def _run_gene_filtering_step(adata: AnnData, config: WorkflowConfig) -> AnnData:
             "Gene filtering would remove all genes with min_cells_per_gene=%s; skipping.",
             min_cells,
         )
-        return adata
-
-    if removed_genes > 0:
+    elif removed_genes > 0:
         log.info(
             "Gene filtering removed %s/%s genes expressed in fewer than %s cells.",
             removed_genes,
@@ -562,6 +581,134 @@ def _run_gene_filtering_step(adata: AnnData, config: WorkflowConfig) -> AnnData:
     else:
         log.info("Gene filtering kept all %s genes.", initial_genes)
 
+    adata = _run_gene_biotype_filtering_step(
+        adata,
+        config,
+        initial_genes_before_step=initial_genes_before_step,
+        current_stage="before_normalization",
+    )
+    return adata
+
+
+def _run_gene_biotype_filtering_step(
+    adata: AnnData,
+    config: WorkflowConfig,
+    *,
+    initial_genes_before_step: int,
+    current_stage: Literal["before_normalization", "after_raw"],
+) -> AnnData:
+    """Optionally annotate/filter genes by biotype and record audit metadata."""
+    biotype_config = config.gene_biotype
+    meta: Dict[str, Any] = {
+        "enabled": bool(biotype_config.annotate or biotype_config.filter),
+        "annotate": bool(biotype_config.annotate),
+        "filter": bool(biotype_config.filter),
+        "species": biotype_config.species,
+        "method": biotype_config.method,
+        "filter_stage": biotype_config.filter_stage,
+        "current_stage": current_stage,
+        "initial_genes_before_gene_filtering": int(initial_genes_before_step),
+        "initial_genes": int(adata.n_vars),
+        "final_genes": int(adata.n_vars),
+        "removed_genes": 0,
+        "skipped": not bool(biotype_config.annotate or biotype_config.filter),
+    }
+
+    if not biotype_config.annotate and not biotype_config.filter:
+        adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+            "gene_biotype_filtering"
+        ] = meta
+        return adata
+
+    try:
+        if biotype_config.annotate and (
+            biotype_config.overwrite
+            or "biotype" not in adata.var.columns
+            or "biotype_category" not in adata.var.columns
+        ):
+            biotype_df = None
+            if biotype_config.method == "custom" and biotype_config.custom_biotype_path:
+                custom_path = Path(biotype_config.custom_biotype_path)
+                sep = "\t" if custom_path.suffix.lower() in {".tsv", ".txt"} else ","
+                biotype_df = pd.read_csv(custom_path, sep=sep)
+                rename_map = {
+                    "external_gene_name": "gene_name",
+                    "gene_biotype": "biotype",
+                    "ensembl_gene_id": "gene_id",
+                    "chromosome_name": "chromosome",
+                    "start_position": "start",
+                    "end_position": "end",
+                }
+                biotype_df = biotype_df.rename(
+                    columns={k: v for k, v in rename_map.items() if k in biotype_df.columns}
+                )
+
+            annotate_gene_biotypes(
+                adata,
+                species=biotype_config.species,
+                method="reference" if biotype_config.method == "ensembl" else biotype_config.method,
+                biotype_df=biotype_df,
+                fuzzy_match=biotype_config.fuzzy_match,
+                overwrite=biotype_config.overwrite,
+                allow_download=biotype_config.allow_download,
+                cache_dir=biotype_config.cache_dir,
+                prefer_bundled=biotype_config.prefer_bundled,
+            )
+
+        if "biotype" in adata.var.columns and "biotype_category" in adata.var.columns:
+            meta["annotation_rate"] = float(
+                adata.var["biotype"].notna().sum() / max(float(adata.n_vars), 1.0)
+            )
+            meta["biotype_categories"] = {
+                str(k): int(v)
+                for k, v in adata.var["biotype_category"].value_counts(dropna=False).items()
+            }
+
+        should_filter_now = bool(
+            biotype_config.filter and biotype_config.filter_stage == current_stage
+        )
+        if biotype_config.filter and not should_filter_now:
+            meta["status"] = "annotated_pending_filter"
+        elif should_filter_now:
+            before = int(adata.n_vars)
+            filtered = filter_genes_by_biotype(
+                adata,
+                keep_biotypes=biotype_config.keep_biotypes,
+                use_recommended=biotype_config.use_recommended,
+                copy=True,
+            )
+            if filtered is not None:
+                adata = filtered
+            meta["strategy"] = (
+                f"custom: {', '.join(biotype_config.keep_biotypes)}"
+                if biotype_config.keep_biotypes
+                else "recommended biotypes"
+            )
+            meta["final_genes"] = int(adata.n_vars)
+            meta["removed_genes"] = int(before - adata.n_vars)
+            meta["status"] = "completed"
+
+        meta["skipped"] = False
+        meta.setdefault("status", "completed")
+    except Exception as exc:
+        meta.update(
+            {
+                "status": "failed",
+                "skipped": True,
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
+        )
+        log.warning("Gene biotype annotation/filtering failed: %s", exc)
+        if biotype_config.fail_on_error:
+            adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+                "gene_biotype_filtering"
+            ] = meta
+            raise
+
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "gene_biotype_filtering"
+    ] = meta
     return adata
 
 
@@ -591,6 +738,8 @@ def _run_step(
 
 def _get_hvg_input_layer(adata: AnnData, config: WorkflowConfig) -> str:
     """Choose the best available layer for HVG calculation."""
+    if getattr(config.hvg, "method", None) == "deviance" and config.counts_layer in adata.layers:
+        return config.counts_layer
     if config.normalized_layer in adata.layers:
         return config.normalized_layer
     if config.regressed_layer in adata.layers:
@@ -691,7 +840,7 @@ def _select_n_pcs(
     cumulative_threshold : float
         For cumulative method, fraction of variance to explain.
 
-    Returns
+    Returns:
     -------
     int
         Recommended number of PCs.
@@ -880,6 +1029,12 @@ def _build_preprocessing_review_summary(
         summary["gene_filtering"] = (
             adata.uns.get("sclucid", {}).get("preprocess", {}).get("gene_filtering", {})
         )
+    if "gene_biotype_filtering" in adata.uns.get("sclucid", {}).get("preprocess", {}):
+        summary["gene_biotype_filtering"] = (
+            adata.uns.get("sclucid", {})
+            .get("preprocess", {})
+            .get("gene_biotype_filtering", {})
+        )
 
     # Normalization
     if "normalization" in successful_steps:
@@ -931,7 +1086,7 @@ def _build_preprocessing_review_summary(
             summary["neighbors"]["umap_computed"] = True
 
     # Tumor aware
-    if tissue_type and ("tumor" in tissue_type.lower() or "cancer" in tissue_type.lower()):
+    if is_tumor_context(tissue_type):
         summary["tumor_aware"] = {
             "tissue_type": tissue_type,
             "enabled": True,
