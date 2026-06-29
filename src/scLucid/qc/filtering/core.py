@@ -5,6 +5,7 @@ This module provides marking, filtering, and reporting functions for low-quality
 cells, doublets, and custom outliers, with flexible logic and clear outputs.
 """
 
+import ast
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,6 +30,50 @@ __all__ = [
     "filter_cells",
     "audit_filtering",
 ]
+
+
+def _evaluate_filter_logic_expr(
+    expr: str,
+    namespace: Dict[str, pd.Series],
+    *,
+    index: pd.Index,
+) -> pd.Series:
+    """Evaluate a restricted boolean expression over QC criterion masks.
+
+    Supported syntax is intentionally small: criterion names, parentheses,
+    ``&`` / ``|`` and ``~`` plus the word forms ``and`` / ``or`` / ``not``.
+    Function calls, comparisons, attributes, subscripts and constants are
+    rejected so custom filtering cannot execute arbitrary Python.
+    """
+
+    def _eval(node: ast.AST) -> pd.Series:
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Name):
+            if node.id not in namespace:
+                raise ValueError(f"Unknown criterion in custom logic: {node.id!r}")
+            return namespace[node.id].reindex(index).fillna(False).astype(bool)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.Invert, ast.Not)):
+            return ~_eval(node.operand)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.BitAnd, ast.BitOr)):
+            left = _eval(node.left)
+            right = _eval(node.right)
+            return left & right if isinstance(node.op, ast.BitAnd) else left | right
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+            values = [_eval(value) for value in node.values]
+            result = values[0]
+            for value in values[1:]:
+                result = result & value if isinstance(node.op, ast.And) else result | value
+            return result
+        raise ValueError(
+            "Custom filter logic only supports criterion names combined with &, |, ~, and/or/not."
+        )
+
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"Invalid custom filter logic syntax: {expr!r}") from exc
+    return _eval(tree).reindex(index).fillna(False).astype(bool)
 
 
 def audit_filtering(
@@ -96,10 +141,12 @@ def audit_filtering(
 
 class AdaptiveThresholdCalculator:
     """
-    Batch-aware adaptive threshold calculator using mixed-effect modeling.
+    Batch-aware adaptive threshold calculator using empirical shrinkage.
 
     This addresses the common issue where different batches/samples have
     inherently different QC distributions (e.g., fresh vs. frozen samples).
+    The ``hierarchical`` strategy is an empirical-Bayes-style heuristic, not a
+    formal mixed-effects model; thresholds should remain reviewer-visible.
     """
 
     def __init__(self, adata: AnnData, batch_key: str, reference_batch: Optional[str] = None):
@@ -199,11 +246,14 @@ class AdaptiveThresholdCalculator:
         self, metric: str, method: str = "hierarchical", percentile: float = 95.0
     ) -> Dict[str, Dict[str, float]]:
         """
-        Suggest batch-specific thresholds using hierarchical strategy.
+        Suggest batch-specific thresholds using pooled, independent, or
+        empirical-shrinkage strategy.
 
         Args:
             metric: QC metric name
-            method: 'hierarchical', 'independent', or 'pooled'
+            method: 'hierarchical', 'independent', or 'pooled'. ``hierarchical``
+                uses empirical shrinkage toward the global distribution and is
+                intended as reviewable threshold guidance.
             percentile: Percentile for threshold calculation
 
         Returns:
@@ -225,6 +275,8 @@ class AdaptiveThresholdCalculator:
                     "lower": values.quantile((100 - percentile) / 100),
                     "upper": values.quantile(percentile / 100),
                     "method": "independent",
+                    "model_type": "nonparametric_quantile",
+                    "review_note": "Independent per-batch quantile thresholds are heuristic QC guidance.",
                 }
 
         elif method == "pooled":
@@ -234,6 +286,8 @@ class AdaptiveThresholdCalculator:
                 "lower": values.quantile((100 - percentile) / 100),
                 "upper": values.quantile(percentile / 100),
                 "method": "pooled",
+                "model_type": "pooled_nonparametric_quantile",
+                "review_note": "Pooled quantile thresholds ignore sample-specific QC distribution shifts.",
             }
             thresholds = dict.fromkeys(batches, global_threshold)
 
@@ -317,8 +371,12 @@ class AdaptiveThresholdCalculator:
                     "lower": lower,
                     "upper": upper,
                     "method": "hierarchical",
+                    "model_type": "empirical_shrinkage_heuristic",
                     "shrinkage_factor": shrinkage,
                     "n_cells": n_batch,
+                    "review_note": (
+                        "Empirical-shrinkage threshold guidance; not a formal mixed-effects model."
+                    ),
                 }
 
                 log.info(
@@ -1214,22 +1272,16 @@ def filter_cells(
         if not cfg.custom_logic_expr:
             raise ValueError("custom_logic_expr must be provided when combination_logic='custom'")
         try:
-            # Create a namespace with all criteria for evaluation
             namespace = {col: criteria_masks[col] for col in valid_criteria}
-            combined_removal_mask = pd.eval(
+            combined_removal_mask = _evaluate_filter_logic_expr(
                 cfg.custom_logic_expr,
-                local_dict=namespace,
-                engine="python",
-                parser="pandas",
+                namespace,
+                index=adata.obs_names,
             )
-
-            if not isinstance(combined_removal_mask, pd.Series):
-                combined_removal_mask = pd.Series(combined_removal_mask, index=adata.obs_names)
-            combined_removal_mask = combined_removal_mask.reindex(adata.obs_names).fillna(False).astype(bool)
 
         except Exception as e:
             log.error(f"Error evaluating custom logic expression: {e}")
-            raise ValueError(f"Invalid custom logic expression: {cfg.custom_logic_expr}")
+            raise ValueError(f"Invalid custom logic expression: {cfg.custom_logic_expr}") from e
 
     elif cfg.combination_logic == "threshold":
         # Remove if at least min_criteria_for_removal criteria are true

@@ -25,6 +25,7 @@ from .core import (
     HEURISTIC_SCORE_COL,
     LINEAGE_SCORES_KEY,
     _create_doublet_marker_config_from_manager,
+    _expected_rate_grouped_predictions,
 )
 
 log = logging.getLogger(__name__)
@@ -257,32 +258,33 @@ def _run_heuristic(
     # Adaptive threshold: use expected_doublet_rate to set the quantile.
     # If no rate is provided, fall back to the legacy 90% quantile.
     if expected_rate is not None:
-        if isinstance(expected_rate, dict) and sample_key and sample_key in adata.obs.columns:
-            potential_doublets = pd.Series(False, index=adata.obs_names)
-            for sample, rate in expected_rate.items():
+        potential_doublets, thresholds = _expected_rate_grouped_predictions(
+            heuristic_confidence_score,
+            expected_rate=expected_rate,
+            groups=adata.obs[sample_key] if isinstance(expected_rate, dict) and sample_key else None,
+            eligible_mask=heuristic_confidence_score > 0,
+        )
+        if isinstance(thresholds, dict):
+            fallback_rate = (
+                float(np.mean(list(expected_rate.values())))
+                if isinstance(expected_rate, dict) and expected_rate
+                else 0.1
+            )
+            for sample, threshold in thresholds.items():
                 sample_mask = adata.obs[sample_key] == sample
-                sample_scores = heuristic_confidence_score[sample_mask]
-                positive = sample_scores[sample_scores > 0]
-                if not positive.empty:
-                    score_threshold = positive.quantile(1.0 - rate)
-                else:
-                    score_threshold = 0.0
-                potential_doublets.loc[sample_mask] = sample_scores > score_threshold
+                sample_rate = (
+                    float(expected_rate.get(sample, fallback_rate))
+                    if isinstance(expected_rate, dict)
+                    else fallback_rate
+                )
                 log.info(
-                    f"  Sample '{sample}': expected_rate={rate:.4f}, "
-                    f"threshold={score_threshold:.4f}, flagged={int(potential_doublets.loc[sample_mask].sum())}"
+                    f"  Sample '{sample}': expected_rate={sample_rate:.4f}, "
+                    f"threshold={threshold:.4f}, flagged={int(potential_doublets.loc[sample_mask].sum())}"
                 )
         else:
-            rate = float(expected_rate)
-            positive = heuristic_confidence_score[heuristic_confidence_score > 0]
-            if not positive.empty:
-                score_threshold = positive.quantile(1.0 - rate)
-            else:
-                score_threshold = 0.0
-            potential_doublets = heuristic_confidence_score > score_threshold
             log.info(
-                f"Adaptive threshold: expected_rate={rate:.4f}, "
-                f"threshold={score_threshold:.4f}, flagged={int(potential_doublets.sum())}"
+                f"Adaptive threshold: expected_rate={float(expected_rate):.4f}, "
+                f"threshold={thresholds:.4f}, flagged={int(potential_doublets.sum())}"
             )
     else:
         score_threshold = heuristic_confidence_score[heuristic_confidence_score > 0].quantile(0.90)

@@ -5,6 +5,7 @@ Extracted from core.py for maintainability.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -18,6 +19,7 @@ from anndata import AnnData
 from ..config import DoubletConfig
 from .algorithms import (
     _run_doubletdetection,
+    _run_scanpy_scrublet,
     _run_scdblfinder,
     _run_scrublet,
     _run_solo,
@@ -35,6 +37,8 @@ from .core import (
     HEURISTIC_SCORE_COL,
     HOMOTYPIC_RISK_COL,
     LINEAGE_SCORES_KEY,
+    _expected_rate_grouped_predictions,
+    _expected_rate_series,
 )
 from .heuristic import _plot_doublet_summary, _run_heuristic
 
@@ -119,31 +123,29 @@ def _merge_doublet_predictions(
             log.warning("expected_doublet_rate is None, using a default of 0.1 for thresholding.")
             expected_rate = 0.1
 
-        if isinstance(expected_rate, dict) and sample_key and sample_key in adata.obs:
-            merged_pred = pd.Series(False, index=adata.obs_names, dtype=bool)
+        grouped_scores = adata.obs[sample_key] if isinstance(expected_rate, dict) and sample_key in adata.obs else None
+        merged_pred, threshold = _expected_rate_grouped_predictions(
+            final_score,
+            expected_rate=expected_rate,
+            groups=grouped_scores,
+        )
+        if isinstance(threshold, dict):
             fallback = float(np.mean(list(expected_rate.values()))) if expected_rate else 0.1
-            for sample, idx in adata.obs.groupby(sample_key, observed=False).groups.items():
+            for sample, sample_threshold in threshold.items():
                 sample_rate = float(expected_rate.get(sample, fallback))
-                sample_scores = final_score.loc[idx]
-                threshold = sample_scores.quantile(1 - sample_rate)
-                merged_pred.loc[idx] = sample_scores > threshold
                 log.info(
                     "Using final score threshold %.3f for sample '%s' based on expected doublet rate %.3f.",
-                    threshold,
+                    sample_threshold,
                     sample,
                     sample_rate,
                 )
             return merged_pred
 
-        if isinstance(expected_rate, dict):
-            expected_rate = np.mean(list(expected_rate.values()))
-
-        threshold = final_score.quantile(1 - expected_rate)
         log.info(
             f"Using a final score threshold of {threshold:.3f} based on expected doublet rate for merged predictions."
         )
 
-    return final_score > threshold
+    return merged_pred
 
 
 def _collect_external_doublet_evidence(
@@ -194,22 +196,6 @@ def _collect_external_doublet_evidence(
         "included_in_final": bool(policy == "include_in_final" and present_cols),
         "per_column": per_column,
     }
-
-
-def _expected_rate_series(
-    adata: AnnData,
-    expected_rate: Optional[Union[float, Dict[str, float]]],
-    *,
-    sample_key: str,
-) -> pd.Series:
-    if isinstance(expected_rate, dict) and sample_key in adata.obs.columns:
-        mapped = adata.obs[sample_key].map(expected_rate)
-        fallback = float(np.mean(list(expected_rate.values()))) if expected_rate else 0.1
-        return pd.to_numeric(mapped, errors="coerce").fillna(fallback).astype(float)
-    if expected_rate is None:
-        return pd.Series(0.1, index=adata.obs_names, dtype=float)
-    return pd.Series(float(expected_rate), index=adata.obs_names, dtype=float)
-
 
 def _lineage_mixture_fraction(adata: AnnData) -> tuple[pd.Series, Dict[str, float]]:
     """Estimate heterotypic opportunity from dominant lineage composition."""
@@ -491,6 +477,7 @@ def predict_doublets(
     # Use a dispatcher for multi-algorithm support ---
     ALGORITHM_DISPATCHER = {
         "scrublet": _run_scrublet,
+        "scanpy_scrublet": _run_scanpy_scrublet,
         "solo": _run_solo,
         "doubletdetection": _run_doubletdetection,
         "scdblfinder": _run_scdblfinder,
@@ -1025,12 +1012,19 @@ class DoubletEvidenceProfiler:
 
         return fig
 
-    def export_evidence_summary(self, output_dir: str, top_n_reports: int = 50):
+    def export_evidence_summary(
+        self,
+        output_dir: str,
+        top_n_reports: int = 50,
+        max_table_rows: Optional[int] = 100_000,
+    ):
         """
         Export comprehensive evidence summaries.
 
         Creates:
-        - evidence_table.csv: Full evidence table
+        - evidence_table.csv: Evidence table, capped to the highest-risk rows
+          when ``max_table_rows`` is set.
+        - evidence_export_summary.json: Export provenance and truncation status.
         - top_doublets_reports/: Individual reports for top doublets
         - evidence_heatmap.png: Heatmap visualization
         """
@@ -1043,7 +1037,27 @@ class DoubletEvidenceProfiler:
         if self.evidence_table is None:
             self.generate_evidence_table()
 
-        self.evidence_table.to_csv(output_path / "evidence_table.csv")
+        total_rows = int(len(self.evidence_table))
+        export_table = self.evidence_table
+        truncated = False
+        if max_table_rows is not None and total_rows > max_table_rows:
+            truncated = True
+            export_table = self.evidence_table.nlargest(
+                max_table_rows, "combined_evidence_score"
+            )
+        export_table.to_csv(output_path / "evidence_table.csv")
+        export_summary = {
+            "schema_version": "doublet_evidence_export_summary_v1",
+            "total_rows": total_rows,
+            "exported_rows": int(len(export_table)),
+            "truncated": truncated,
+            "max_table_rows": max_table_rows,
+            "sort_key": "combined_evidence_score" if truncated else None,
+        }
+        (output_path / "evidence_export_summary.json").write_text(
+            json.dumps(export_summary, indent=2),
+            encoding="utf-8",
+        )
         log.info(f"Exported evidence table to {output_path / 'evidence_table.csv'}")
 
         # Generate individual reports for top doublets

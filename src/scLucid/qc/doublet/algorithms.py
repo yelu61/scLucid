@@ -11,14 +11,15 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
 import numpy as np
 import pandas as pd
 import scipy.sparse as sparse
 from anndata import AnnData
+from matplotlib.colors import ListedColormap
 
 from ..config import DoubletConfig
 from ._scrublet_compat import apply_scrublet_compatibility_shims
+from .core import _expected_rate_topk_predictions
 
 log = logging.getLogger(__name__)
 
@@ -98,31 +99,6 @@ def _coerce_scrublet_array(values, *, expected_len: int, name: str, sample_name:
         )
         return None
     return arr
-
-
-def _expected_rate_topk_predictions(scores, expected_rate: float) -> Tuple[np.ndarray, float]:
-    """Flag the top expected-rate cells by score, robust to tied quantiles."""
-    scores = np.asarray(scores, dtype=float).ravel()
-    finite_mask = np.isfinite(scores)
-    predicted = np.zeros(scores.shape[0], dtype=bool)
-    if scores.size == 0 or not np.any(finite_mask):
-        return predicted, float("nan")
-
-    rate = max(0.0, min(1.0, float(expected_rate)))
-    n_expected = int(np.ceil(rate * scores.size))
-    if rate > 0 and n_expected == 0:
-        n_expected = 1
-    n_expected = min(n_expected, int(np.sum(finite_mask)))
-    if n_expected <= 0:
-        return predicted, float(np.nanmax(scores[finite_mask]))
-
-    finite_indices = np.flatnonzero(finite_mask)
-    finite_scores = scores[finite_mask]
-    order = np.argsort(finite_scores, kind="mergesort")
-    selected = finite_indices[order[-n_expected:]]
-    predicted[selected] = True
-    threshold = float(np.min(scores[selected]))
-    return predicted, threshold
 
 
 def _scrublet_scores_degenerate(scores) -> bool:
@@ -414,6 +390,83 @@ def _run_scrublet(
     finally:
         if _patched:
             log.debug("Scrublet NumPy compatibility flag set; no global ndarray patch was applied.")
+        gc.collect()
+
+
+def _run_scanpy_scrublet(
+    adata_view: AnnData,
+    sample_name: str,
+    config: DoubletConfig,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Run Scanpy's wrapped Scrublet implementation on a single sample."""
+    if not _raw_count_guard(adata_view, sample_name=sample_name, method="scanpy.pp.scrublet"):
+        return None, None
+    if adata_view.n_vars < 100:
+        log.warning(
+            "Skipping scanpy.pp.scrublet for sample '%s': only %d genes "
+            "(minimum 100 required for reliable doublet detection).",
+            sample_name,
+            adata_view.n_vars,
+        )
+        return None, None
+
+    rate = config.expected_doublet_rate
+    current_rate = rate.get(sample_name, 0.1) if isinstance(rate, dict) else rate
+    if current_rate is None:
+        current_rate = 0.1
+    actual_n_pcs = min(config.scr_n_pcs, adata_view.n_obs - 1, adata_view.n_vars - 1)
+
+    try:
+        import scanpy as sc
+
+        adata_scr = adata_view.copy()
+        kwargs = {
+            "expected_doublet_rate": float(current_rate),
+            "n_prin_comps": int(actual_n_pcs),
+            "random_state": int(config.random_state),
+            "verbose": False,
+            "copy": False,
+        }
+        try:
+            sc.pp.scrublet(adata_scr, **kwargs)
+        except TypeError:
+            kwargs.pop("copy", None)
+            sc.pp.scrublet(adata_scr, **kwargs)
+
+        score_col = next(
+            (col for col in ("doublet_score", "scrublet_score") if col in adata_scr.obs),
+            None,
+        )
+        pred_col = next(
+            (col for col in ("predicted_doublet", "scrublet_predicted") if col in adata_scr.obs),
+            None,
+        )
+        if score_col is None:
+            raise KeyError("scanpy.pp.scrublet did not add a doublet score column")
+        scores = pd.to_numeric(adata_scr.obs[score_col], errors="coerce").to_numpy(dtype=float)
+        if pred_col is not None:
+            predicted = adata_scr.obs[pred_col].fillna(False).astype(bool).to_numpy()
+        else:
+            predicted, threshold = _expected_rate_topk_predictions(scores, float(current_rate))
+            log.warning(
+                "scanpy.pp.scrublet did not return binary predictions for sample '%s'; "
+                "falling back to expected-rate top-score threshold %.4f.",
+                sample_name,
+                threshold,
+            )
+
+        doublet_count = int(np.asarray(predicted, dtype=bool).sum())
+        doublet_rate = doublet_count / len(predicted) if len(predicted) > 0 else 0.0
+        log.info(
+            "  Found %d potential doublets via scanpy.pp.scrublet (%.2f%%)",
+            doublet_count,
+            doublet_rate * 100.0,
+        )
+        return scores, np.asarray(predicted, dtype=bool)
+    except Exception as e:
+        log.error("scanpy.pp.scrublet failed for sample %s: %s", sample_name, e)
+        return None, None
+    finally:
         gc.collect()
 
 

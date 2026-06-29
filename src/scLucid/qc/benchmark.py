@@ -152,57 +152,94 @@ def compute_marker_fidelity(
     adata_after: AnnData,
     *,
     marker_sets: Mapping[str, list[str]] | None = None,
+    cell_type_key: str | None = None,
+    min_cells_per_cell_type: int = 20,
 ) -> dict[str, Any]:
     """Measure how well known marker signal is preserved after QC filtering."""
     markers = dict(marker_sets or {})
     if not markers:
         markers = detect_marker_sets_from_var(adata_before)
 
-    per_set: dict[str, dict[str, Any]] = {}
-    scores: list[float] = []
     before_names = {gene.upper(): gene for gene in adata_before.var_names}
     after_names = {gene.upper(): gene for gene in adata_after.var_names}
 
-    for set_name, genes in markers.items():
-        available_before = [before_names[g.upper()] for g in genes if g.upper() in before_names]
-        available_after = [after_names[g.upper()] for g in genes if g.upper() in after_names]
-        common = sorted(set(available_before) & set(available_after))
-        if not common:
+    def _score_marker_sets(before: AnnData, after: AnnData) -> tuple[dict[str, dict[str, Any]], list[float]]:
+        per_set: dict[str, dict[str, Any]] = {}
+        scores: list[float] = []
+        for set_name, genes in markers.items():
+            available_before = [before_names[g.upper()] for g in genes if g.upper() in before_names]
+            available_after = [after_names[g.upper()] for g in genes if g.upper() in after_names]
+            common = sorted(set(available_before) & set(available_after))
+            if not common:
+                per_set[set_name] = {
+                    "available_markers": [],
+                    "n_markers": 0,
+                    "status": "not_available",
+                    "fidelity_score": None,
+                }
+                continue
+
+            before_expr = _mean_marker_expression(before, common)
+            after_expr = _mean_marker_expression(after, common)
+            before_detected = _marker_detection_fraction(before, common)
+            after_detected = _marker_detection_fraction(after, common)
+            expression_ratio = _safe_ratio(after_expr, before_expr)
+            detection_ratio = _safe_ratio(after_detected, before_detected)
+            score = _bounded_preservation_score(expression_ratio, detection_ratio)
+            scores.append(score)
+
             per_set[set_name] = {
-                "available_markers": [],
-                "n_markers": 0,
-                "status": "not_available",
-                "fidelity_score": None,
+                "available_markers": common,
+                "n_markers": len(common),
+                "mean_expression_before": before_expr,
+                "mean_expression_after": after_expr,
+                "mean_expression_ratio": expression_ratio,
+                "detection_fraction_before": before_detected,
+                "detection_fraction_after": after_detected,
+                "detection_fraction_delta": after_detected - before_detected,
+                "fidelity_score": score,
+                "status": "ok",
             }
-            continue
+        return per_set, scores
 
-        before_expr = _mean_marker_expression(adata_before, common)
-        after_expr = _mean_marker_expression(adata_after, common)
-        before_detected = _marker_detection_fraction(adata_before, common)
-        after_detected = _marker_detection_fraction(adata_after, common)
-        expression_ratio = _safe_ratio(after_expr, before_expr)
-        detection_ratio = _safe_ratio(after_detected, before_detected)
-        score = _bounded_preservation_score(expression_ratio, detection_ratio)
-        scores.append(score)
-
-        per_set[set_name] = {
-            "available_markers": common,
-            "n_markers": len(common),
-            "mean_expression_before": before_expr,
-            "mean_expression_after": after_expr,
-            "mean_expression_ratio": expression_ratio,
-            "detection_fraction_before": before_detected,
-            "detection_fraction_after": after_detected,
-            "detection_fraction_delta": after_detected - before_detected,
-            "fidelity_score": score,
-            "status": "ok",
-        }
+    per_set, scores = _score_marker_sets(adata_before, adata_after)
+    per_cell_type: dict[str, dict[str, Any]] = {}
+    retained_names = set(adata_after.obs_names)
+    if cell_type_key and cell_type_key in adata_before.obs:
+        for cell_type, before_idx in adata_before.obs.groupby(cell_type_key, observed=False).groups.items():
+            before_names_for_type = list(before_idx)
+            after_names_for_type = [name for name in before_names_for_type if name in retained_names]
+            if len(before_names_for_type) < min_cells_per_cell_type:
+                continue
+            if not after_names_for_type:
+                per_cell_type[str(cell_type)] = {
+                    "initial_cells": int(len(before_names_for_type)),
+                    "final_cells": 0,
+                    "available": False,
+                    "overall_marker_fidelity": None,
+                    "status": "no_retained_cells",
+                }
+                continue
+            before_subset = adata_before[before_names_for_type, :].copy()
+            after_subset = adata_after[after_names_for_type, :].copy()
+            ct_per_set, ct_scores = _score_marker_sets(before_subset, after_subset)
+            per_cell_type[str(cell_type)] = {
+                "initial_cells": int(len(before_names_for_type)),
+                "final_cells": int(len(after_names_for_type)),
+                "available": bool(ct_scores),
+                "overall_marker_fidelity": float(np.mean(ct_scores)) if ct_scores else None,
+                "n_marker_sets_available": len(ct_scores),
+                "per_marker_set": ct_per_set,
+                "status": "ok" if ct_scores else "not_available",
+            }
 
     return {
         "available": bool(scores),
         "overall_marker_fidelity": float(np.mean(scores)) if scores else None,
         "n_marker_sets_available": len(scores),
         "per_marker_set": per_set,
+        "per_cell_type": per_cell_type,
+        "cell_type_key": cell_type_key if per_cell_type else None,
     }
 
 
@@ -238,6 +275,7 @@ def evaluate_qc_benchmark(
         adata_before,
         adata_after,
         marker_sets=markers,
+        cell_type_key=cell_type_key if cell_type_key in adata_before.obs else None,
     )
 
     checks = _evaluate_benchmark_checks(retention, marker_fidelity, profile_spec)

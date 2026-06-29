@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 from typing import Dict, Literal, Optional, Union
 
+import numpy as np
 import pandas as pd
 from anndata import AnnData
 
@@ -33,10 +34,144 @@ EXPECTED_HETEROTYPIC_RATE_COL = "expected_heterotypic_doublet_rate"
 EXPECTED_HOMOTYPIC_RATE_COL = "expected_homotypic_doublet_rate"
 
 __all__ = [
+    "LINEAGE_SCORES_KEY",
+    "HEURISTIC_SCORE_COL",
+    "HEURISTIC_PRED_COL",
+    "FINAL_PRED_COL",
+    "ALGORITHM_SCORE_COL",
+    "ALGORITHM_PRED_COL",
+    "COMBINED_SCORE_COL",
+    "HETEROTYPIC_RISK_COL",
+    "HOMOTYPIC_RISK_COL",
+    "EXPECTED_TOTAL_RATE_COL",
+    "EXPECTED_HETEROTYPIC_RATE_COL",
+    "EXPECTED_HOMOTYPIC_RATE_COL",
     "generate_doublet_rates",
     "create_custom_marker_dict",
     "audit_doublets",
 ]
+
+
+def _coerce_expected_rate(rate: Optional[float], *, default: float = 0.1) -> float:
+    """Clamp expected-rate inputs to a stable [0, 1] float."""
+    if rate is None:
+        return float(default)
+    return max(0.0, min(1.0, float(rate)))
+
+
+def _expected_rate_series(
+    adata: AnnData,
+    expected_rate: Optional[Union[float, Dict[str, float]]],
+    *,
+    sample_key: str,
+    default_rate: float = 0.1,
+) -> pd.Series:
+    """Return a per-cell expected-rate series with stable fallback behavior."""
+    if isinstance(expected_rate, dict) and sample_key in adata.obs.columns:
+        mapped = adata.obs[sample_key].map(expected_rate)
+        fallback = (
+            float(np.mean(list(expected_rate.values())))
+            if expected_rate
+            else float(default_rate)
+        )
+        return pd.to_numeric(mapped, errors="coerce").fillna(fallback).astype(float)
+    if expected_rate is None:
+        return pd.Series(float(default_rate), index=adata.obs_names, dtype=float)
+    return pd.Series(float(expected_rate), index=adata.obs_names, dtype=float)
+
+
+def _expected_rate_topk_predictions(
+    scores,
+    expected_rate: float,
+    *,
+    eligible_mask=None,
+    universe_size: Optional[int] = None,
+) -> tuple[np.ndarray, float]:
+    """Flag the top expected-rate eligible cells by score, robust to ties."""
+    scores = np.asarray(scores, dtype=float).ravel()
+    predicted = np.zeros(scores.shape[0], dtype=bool)
+    if scores.size == 0:
+        return predicted, float("nan")
+
+    eligible = np.isfinite(scores)
+    if eligible_mask is not None:
+        eligible &= np.asarray(eligible_mask, dtype=bool).ravel()
+    if not np.any(eligible):
+        finite = np.isfinite(scores)
+        fallback_threshold = float(np.nanmax(scores[finite])) if np.any(finite) else float("nan")
+        return predicted, fallback_threshold
+
+    rate = _coerce_expected_rate(expected_rate)
+    base_size = int(universe_size) if universe_size is not None else scores.size
+    n_expected = int(np.ceil(rate * max(base_size, 0)))
+    if rate > 0 and n_expected == 0:
+        n_expected = 1
+    n_expected = min(n_expected, int(np.sum(eligible)))
+    if n_expected <= 0:
+        threshold = float(np.nanmax(scores[eligible]))
+        return predicted, threshold
+
+    eligible_indices = np.flatnonzero(eligible)
+    eligible_scores = scores[eligible]
+    if np.nanmax(eligible_scores) <= 0 and (
+        np.nanmax(eligible_scores) - np.nanmin(eligible_scores) <= 1e-12
+    ):
+        return predicted, float(np.nanmax(eligible_scores))
+    order = np.argsort(eligible_scores, kind="mergesort")
+    selected = eligible_indices[order[-n_expected:]]
+    predicted[selected] = True
+    threshold = float(np.min(scores[selected]))
+    return predicted, threshold
+
+
+def _expected_rate_grouped_predictions(
+    scores: pd.Series,
+    *,
+    expected_rate: Optional[Union[float, Dict[str, float]]],
+    groups: Optional[pd.Series] = None,
+    eligible_mask: Optional[pd.Series] = None,
+    default_rate: float = 0.1,
+) -> tuple[pd.Series, Union[float, Dict[str, float]]]:
+    """Apply expected-rate thresholding globally or per group with shared semantics."""
+    scores = pd.to_numeric(scores, errors="coerce").astype(float)
+    if eligible_mask is not None:
+        eligible_mask = pd.Series(eligible_mask, index=scores.index, dtype=bool)
+
+    if isinstance(expected_rate, dict) and groups is not None:
+        groups = pd.Series(groups, index=scores.index)
+        predicted = pd.Series(False, index=scores.index, dtype=bool)
+        thresholds: Dict[str, float] = {}
+        fallback_rate = (
+            float(np.mean(list(expected_rate.values())))
+            if expected_rate
+            else float(default_rate)
+        )
+        for group_name, idx in groups.groupby(groups, observed=False).groups.items():
+            rate = _coerce_expected_rate(expected_rate.get(group_name), default=fallback_rate)
+            sample_scores = scores.loc[idx]
+            sample_eligible = eligible_mask.loc[idx] if eligible_mask is not None else None
+            sample_pred, threshold = _expected_rate_topk_predictions(
+                sample_scores.to_numpy(),
+                rate,
+                eligible_mask=sample_eligible.to_numpy() if sample_eligible is not None else None,
+                universe_size=sample_scores.shape[0],
+            )
+            predicted.loc[idx] = sample_pred
+            thresholds[str(group_name)] = threshold
+        return predicted, thresholds
+
+    rate = (
+        _coerce_expected_rate(float(expected_rate), default=default_rate)
+        if expected_rate is not None and not isinstance(expected_rate, dict)
+        else float(default_rate)
+    )
+    predicted, threshold = _expected_rate_topk_predictions(
+        scores.to_numpy(),
+        rate,
+        eligible_mask=eligible_mask.to_numpy() if eligible_mask is not None else None,
+        universe_size=scores.shape[0],
+    )
+    return pd.Series(predicted, index=scores.index, dtype=bool), threshold
 
 
 def audit_doublets(
@@ -355,4 +490,3 @@ def create_custom_marker_dict(
         log.info(f"Marker configuration saved to {save_path}")
 
     return config_dict
-

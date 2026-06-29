@@ -9,9 +9,8 @@ from .suggestions import (
     suggest_qc_thresholds as suggest_qc_thresholds,
 )
 from .workflow_decision import (
-    run_qc_decision_workflow as run_qc_decision_workflow,
+    apply_qc_threshold_decision as apply_qc_threshold_decision,
+    decide_qc_thresholds as decide_qc_thresholds,
     run_qc_threshold_decision as run_qc_threshold_decision,
 )
-
-# Re-export items not in __all__ but used externally.
-from .core import AdaptiveThresholdCalculator  # noqa: F401
+from .workflow_decision import run_qc_decision_workflow as run_qc_decision_workflow  # noqa: F401
