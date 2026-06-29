@@ -864,17 +864,23 @@ def correct_ambient_rna_linear(
     expected_cell_scale = rho * cell_totals / bg_total
 
     # Shrink per-gene subtraction so we never remove more than the configured
-    # fraction of the original count in that cell.
+    # fraction of the original count in that cell. Process in chunks to avoid
+    # materialising a full n_cells x n_genes dense matrix for large datasets.
+    chunk_cells = max(1, min(adata.n_obs, int(50_000_000 // max(adata.n_vars, 1))))
     if sparse.issparse(X):
         corrected = X.astype(float).copy()
-        row, col = corrected.nonzero()
-        original = corrected.data
-        subtract = expected_cell_scale[row] * bg[col]
-        max_remove = original * max_removed_fraction_per_gene
-        corrected.data = np.maximum(original - np.minimum(subtract, max_remove), 0.0)
-        # Keep sparse structure integer-like by zeroing values below 1.
-        corrected.data[corrected.data < 1.0] = 0.0
-        corrected.eliminate_zeros()
+        for start in range(0, adata.n_obs, chunk_cells):
+            stop = min(start + chunk_cells, adata.n_obs)
+            chunk = corrected[start:stop, :]
+            row, col = chunk.nonzero()
+            original = chunk.data
+            # row is relative to the chunk, so offset by start for expected_cell_scale
+            subtract = expected_cell_scale[start + row] * bg[col]
+            max_remove = original * max_removed_fraction_per_gene
+            chunk.data = np.maximum(original - np.minimum(subtract, max_remove), 0.0)
+            # Keep sparse structure integer-like by zeroing values below 1.
+            chunk.data[chunk.data < 1.0] = 0.0
+            chunk.eliminate_zeros()
     else:
         X_arr = np.asarray(X, dtype=float)
         corrected = np.empty_like(X_arr, dtype=float)
