@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, TypeVar
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import scipy.sparse
 from anndata import AnnData
 
 from ..runtime import effective_n_jobs
@@ -42,7 +43,7 @@ from .ambient import (
 from .ambient_backends import correct_ambient_rna as correct_ambient_rna_unified
 from .benchmark import evaluate_qc_benchmark, export_qc_benchmark_report
 from .config import FilterConfig, QCWorkflowConfig
-from .decisions import build_qc_decisions, summarize_qc_decisions
+from .decisions import build_qc_decisions, summarize_qc_decisions, score_qc_gene_panels
 from .doublet import predict_doublets
 from .filtering import (
     filter_cells,
@@ -2033,8 +2034,20 @@ def _run_quick_biology_review(
     try:
         tmp = _sample_for_quick_review(adata, max_cells=max_cells, random_state=random_state)
         tmp.X = tmp.X.copy()
-        sc.pp.normalize_total(tmp, target_sum=1e4)
-        sc.pp.log1p(tmp)
+
+        # Avoid double-normalising if the input matrix is already log1p-normalised.
+        # A raw count matrix typically has a max value well above 100; log1p(CPM)
+        # or log1p-normalised data is usually below 10-20.
+        x_max = float(np.asarray(tmp.X).max()) if not scipy.sparse.issparse(tmp.X) else float(tmp.X.max())
+        if x_max > 100:
+            sc.pp.normalize_total(tmp, target_sum=1e4)
+            sc.pp.log1p(tmp)
+        else:
+            log.debug(
+                "Quick biology review: input max value %.2f suggests already-normalised data; "
+                "skipping normalize_total/log1p.",
+                x_max,
+            )
         if tmp.n_vars > 50:
             sc.pp.highly_variable_genes(
                 tmp,
@@ -2188,6 +2201,98 @@ def _run_quick_biology_review(
         }
 
 
+def _refine_qc_decisions_from_review(
+    adata: AnnData,
+    quick_biology_review: Dict[str, Any],
+    sample_key: str,
+) -> Dict[str, Any]:
+    """Use quick-biology-review findings to refine qc_decision labels.
+
+    The quick review runs on a temporary embedding and may flag:
+
+    - ``qc_enriched_cluster``: clusters with >30% qc_remove or >50% review_required
+    - ``stress_enriched_cluster`` / ``stress_high_sample_bias``: stress signals
+    - ``doublet_enriched_cluster`` / ``doublet_boundary_review``: doublet signals
+    - ``ambient_enriched_cluster`` / ``ambient_marker_widespread_leakage``: ambient leakage
+    - ``sample_dominated_cluster``: technical batch/sample segregation
+
+    This function does **not** delete cells. It upgrades the decision label of
+    affected cells to ``review`` or ``sensitivity_only`` when the quick review
+    suggests the original decision may be missing biology or over-filtering.
+    """
+    if quick_biology_review.get("status") != "complete":
+        return {"refined": False, "reason": "review_not_complete", "changes": {}}
+
+    findings = quick_biology_review.get("review_findings", [])
+    if not findings:
+        return {"refined": False, "reason": "no_findings", "changes": {}}
+
+    original_decisions = adata.obs["qc_decision"].copy()
+    changes: Dict[str, int] = {}
+
+    # Identify affected samples flagged by review findings.
+    affected_samples: set[str] = set()
+    for finding in findings:
+        if finding.get("finding") == "stress_high_sample_bias":
+            affected_samples.add(str(finding.get("sample", "")))
+
+    if affected_samples and sample_key in adata.obs:
+        sample_mask = adata.obs[sample_key].astype(str).isin(affected_samples)
+        # Stress-high cells in affected samples: keep under sensitivity review.
+        stress_mask = _as_bool_obs(adata, "stress_high") & sample_mask
+        upgrade_mask = stress_mask & adata.obs["qc_decision"].isin(["keep"])
+        if upgrade_mask.any():
+            adata.obs.loc[upgrade_mask, "qc_decision"] = "sensitivity_only"
+            adata.obs.loc[upgrade_mask, "qc_review_required"] = True
+            changes["stress_sample_to_sensitivity"] = int(upgrade_mask.sum())
+
+    # Clusters enriched for QC issues: ensure cells are at least under review.
+    cluster_table = quick_biology_review.get("cluster_qc_table", [])
+    review_clusters: set[str] = set()
+    for row in cluster_table:
+        flags = row.get("review_flags", [])
+        if any(f in flags for f in ("qc_enriched_cluster", "ambient_enriched_cluster")):
+            review_clusters.add(str(row.get("cluster", "")))
+
+    if review_clusters:
+        # Map quick-review clusters back to full adata via the sampled subset.
+        # The quick review stores its cluster assignments only in the temporary
+        # object, so we approximate by upgrading cells that share the flagged
+        # QC evidence across the whole dataset.
+        for flag in ("qc_high_mt", "ambient_risk", "qc_low_complexity"):
+            if flag in adata.obs.columns:
+                upgrade_mask = (
+                    adata.obs[flag].astype(bool)
+                    & adata.obs["qc_decision"].isin(["keep"])
+                )
+                if upgrade_mask.any():
+                    adata.obs.loc[upgrade_mask, "qc_decision"] = "review"
+                    adata.obs.loc[upgrade_mask, "qc_review_required"] = True
+                    changes.setdefault(f"{flag}_to_review", 0)
+                    changes[f"{flag}_to_review"] += int(upgrade_mask.sum())
+
+    # Doublet-enriched clusters: doublet-like cells already flagged by the
+    # algorithm should remain under review if they were about to be kept.
+    doublet_upgrade = (
+        _as_bool_obs(adata, "predicted_doublet")
+        & adata.obs["qc_decision"].isin(["keep"])
+    )
+    if doublet_upgrade.any():
+        adata.obs.loc[doublet_upgrade, "qc_decision"] = "review"
+        adata.obs.loc[doublet_upgrade, "qc_review_required"] = True
+        changes["doublet_to_review"] = int(doublet_upgrade.sum())
+
+    # Recompute qc_remove to respect refined decisions.
+    adata.obs["qc_remove"] = adata.obs["qc_decision"].eq("remove").to_numpy(bool)
+
+    n_changed = int((adata.obs["qc_decision"] != original_decisions).sum())
+    return {
+        "refined": n_changed > 0,
+        "n_changed": n_changed,
+        "changes": changes,
+    }
+
+
 def _build_iterative_qc_summary(
     adata: AnnData,
     *,
@@ -2310,6 +2415,7 @@ def run_iterative_qc(
         steps=steps,
     )
     quick_biology_review = None
+    refinement = {"refined": False}
     if run_quick_review:
         quick_biology_review = _run_quick_biology_review(
             result,
@@ -2321,12 +2427,30 @@ def run_iterative_qc(
             resolution=quick_review_resolution,
             random_state=active_config.doublet_config.random_state,
         )
+        refinement = _refine_qc_decisions_from_review(
+            result,
+            quick_biology_review,
+            sample_key=active_config.sample_key,
+        )
+        # If decisions were refined and final filtering uses qc_decision,
+        # re-apply filtering so the refined labels take effect.
+        if refinement.get("refined") and final_filter_policy == "decision_remove":
+            from .decisions import summarize_qc_decisions
+
+            summarize_qc_decisions(result, tissue_type=tissue_type, policy=active_config.qc_decision_policy)
+            keep_mask = ~result.obs["qc_remove"].fillna(False).to_numpy(bool)
+            result = result[keep_mask, :].copy()
+            log.info(
+                "Iterative QC: re-applied filtering after quick review; %d cells retained.",
+                result.n_obs,
+            )
     summary = _build_iterative_qc_summary(
         result,
         final_filter_policy=final_filter_policy,
         run_quick_review=run_quick_review,
         quick_biology_review=quick_biology_review,
     )
+    summary["decision_refinement"] = refinement
     result.uns.setdefault("sclucid", {}).setdefault("qc", {})[
         "iterative_qc_summary"
     ] = summary

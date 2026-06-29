@@ -887,8 +887,12 @@ def mark_low_quality_cell(
 
     thresholds = cfg.thresholds
 
-    # Check required QC columns
-    required = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
+    # Check required QC columns. pct_counts_mt is only required when the user
+    # has configured an MT threshold; datasets without mitochondrial genes
+    # (e.g., synthetic test fixtures) may legitimately lack this column.
+    required = ["total_counts", "n_genes_by_counts"]
+    if thresholds.pc_mt is not None:
+        required.append("pct_counts_mt")
     missing = [col for col in required if col not in adata.obs.columns]
     if missing:
         raise ValueError(

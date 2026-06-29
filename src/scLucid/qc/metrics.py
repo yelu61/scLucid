@@ -774,6 +774,13 @@ def calculate_qc_metric(
 
     log.info("QC metrics calculation complete.")
 
+    # Ensure standard percentage columns exist even when no genes matched the
+    # corresponding pattern. Downstream tools (e.g., mark_low_quality_cell) expect
+    # these columns to be present and treat a zero column as "no signal".
+    for col in ("pct_counts_mt", "pct_counts_ribo", "pct_counts_hb"):
+        if col not in adata.obs.columns:
+            adata.obs[col] = 0.0
+
     # --- Centralized .uns storage ---
     metrics_uns = adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("metrics", {})
     params = {
