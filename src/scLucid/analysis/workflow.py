@@ -124,6 +124,19 @@ def _default_groupby_key(adata: AnnData) -> str:
     return "leiden_clusters"
 
 
+def _sync_default_annotation_aliases(
+    adata: AnnData,
+    *,
+    annotation_key: str = "cell_type_auto",
+    lineage_key: str = "celltype_lineage_auto",
+) -> None:
+    """Expose canonical downstream annotation aliases without discarding detail."""
+    if annotation_key in adata.obs.columns and "cell_type" not in adata.obs.columns:
+        adata.obs["cell_type"] = adata.obs[annotation_key]
+    if lineage_key in adata.obs.columns and "celltype_lineage" not in adata.obs.columns:
+        adata.obs["celltype_lineage"] = adata.obs[lineage_key]
+
+
 def run_standard_analysis(
     adata: AnnData,
     config: Optional[AnalysisWorkflowConfig] = None,
@@ -389,6 +402,21 @@ def run_standard_analysis(
                 n_annotated = (
                     adata.obs["cell_type"].notna().sum() if "cell_type" in adata.obs else 0
                 )
+                annotation_config = (
+                    config.annotation
+                    if isinstance(config.annotation, AnnotationConfig)
+                    else AnnotationConfig(**config.annotation)
+                    if isinstance(config.annotation, dict)
+                    else AnnotationConfig()
+                )
+                _sync_default_annotation_aliases(
+                    adata,
+                    annotation_key=annotation_config.key_added,
+                    lineage_key=annotation_config.lineage_key,
+                )
+                n_annotated = (
+                    adata.obs["cell_type"].notna().sum() if "cell_type" in adata.obs else n_annotated
+                )
                 log.info(f"  Annotated {n_annotated}/{len(adata)} cells")
                 successful_steps.append(step_name)
                 step_results.append(
@@ -511,6 +539,11 @@ def run_standard_analysis(
                     active_cluster_key,
                     annotation_review_table,
                     key_added=annotation_config.key_added,
+                    lineage_key=annotation_config.lineage_key,
+                )
+                _sync_default_annotation_aliases(
+                    adata,
+                    annotation_key=annotation_config.key_added,
                     lineage_key=annotation_config.lineage_key,
                 )
                 log.info(f"  Applied consensus labels to obs['{annotation_config.key_added}']")

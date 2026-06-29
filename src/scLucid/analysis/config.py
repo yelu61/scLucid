@@ -400,7 +400,7 @@ class ScoringConfig(SclucidBaseConfig):
     custom_signatures: Optional[str] = Field(default=None)
 
     # Scoring parameters
-    layer: Optional[str] = Field(default="log1p_norm")
+    layer: Optional[str] = Field(default="normalized")
     use_raw: bool = Field(default=True)
     ctrl_size: int = Field(default=50, ge=1)
     score_name_suffix: str = Field(default="_score")
@@ -426,7 +426,13 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
     proportion: Optional[ProportionConfig] = Field(default=None)
 
     # Evidence-first analysis controls
-    run_clustering_review: bool = Field(default=False)
+    run_clustering_review: bool = Field(
+        default=True,
+        description=(
+            "Run a lightweight clustering-resolution review before final clustering. "
+            "Users can disable it for speed with run_clustering_review=False."
+        ),
+    )
     candidate_resolutions: Optional[List[float]] = Field(default=None)
     use_recommended_resolution: bool = Field(default=True)
     run_annotation_evidence: bool = Field(default=True)

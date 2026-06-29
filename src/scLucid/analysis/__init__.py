@@ -82,6 +82,10 @@ _export(
     "trace",
     [
         "ANALYSIS_REQUIRED_REVIEW_SECTIONS",
+        "build_analysis_decision_summary",
+        "build_analysis_inference_policy",
+        "build_analysis_output_contract",
+        "build_analysis_reviewer_table",
         "build_posthoc_qc_review_summary",
         "enrich_analysis_review_summary",
         "get_analysis_module_contract",

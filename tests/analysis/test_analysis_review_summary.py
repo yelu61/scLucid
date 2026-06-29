@@ -22,6 +22,14 @@ from scLucid.analysis import (
     validate_analysis_module_completeness,
     validate_analysis_review_summary,
 )
+from scLucid.analysis.trace import (
+    build_analysis_readiness_assessment,
+    build_analysis_review_action_items,
+)
+
+
+def _rows(value):
+    return list(value.values()) if isinstance(value, dict) else value
 
 
 def _make_preprocessed_adata(n_obs=120, n_vars=80):
@@ -145,9 +153,94 @@ def test_run_standard_analysis_creates_analysis_maturity_review_summary(tmp_path
     assert ANALYSIS_REQUIRED_REVIEW_SECTIONS.issubset(review)
     assert review["module_maturity"]["module"] == "analysis"
     assert review["analysis_readiness"]["status"] in {"ready", "review_required"}
+    policy = review["analysis_inference_policy"]
+    assert policy["clustering_review"]["recommended"] is True
+    assert policy["clustering_review"]["executed"] is True
+    assert policy["condition_de"]["recommended_primary_method"] == "sample_level_pseudobulk"
+    assert policy["condition_de"]["cell_level_compare_policy"] == "exploratory_only"
+    assert policy["cell_level_compare"]["inference_level"] == "exploratory_cell_level"
+    output_contract = review["analysis_output_contract"]
+    assert output_contract["schema_version"] == "analysis_output_contract_v1"
+    assert output_contract["cluster_key"] == "leiden_clusters"
+    assert output_contract["annotation_key"] == "cell_type_auto"
+    assert "cell_type" in output_contract["canonical_annotation_aliases"]
+    assert {row["stage"] for row in _rows(output_contract["stage_contracts"])} >= {
+        "preprocess_handoff",
+        "clustering",
+        "marker_discovery",
+        "annotation",
+        "condition_de",
+        "posthoc_qc",
+    }
+    decision_summary = review["analysis_decision_summary"]
+    assert decision_summary["schema_version"] == "analysis_decision_summary_v1"
+    assert decision_summary["primary_cluster_key"] == "leiden_clusters"
+    assert decision_summary["primary_annotation_key"] == "cell_type_auto"
+    decision_rows = {row["step"]: row for row in _rows(decision_summary["decisions"])}
+    assert {"clustering_review", "annotation_consensus", "condition_de"}.issubset(
+        decision_rows
+    )
+    assert decision_rows["condition_de"]["decision"] in {
+        "prefer_pseudobulk",
+        "use_pseudobulk_results",
+    }
+    reviewer_table = review["analysis_reviewer_table"]
+    reviewer_table_rows = _rows(reviewer_table)
+    reviewer_rows = {row["item"]: row for row in reviewer_table_rows}
+    assert {"clustering_review", "annotation_consensus", "cell_level_compare"}.issubset(
+        reviewer_rows
+    )
+    required_reviewer_columns = {
+        "recommended_value",
+        "applied_value",
+        "source",
+        "confidence",
+        "affected_output",
+        "analysis_decision",
+        "inference_level",
+        "biological_risk_note",
+        "review_required",
+    }
+    for row in reviewer_table_rows:
+        assert required_reviewer_columns.issubset(row)
     assert review["clustering_evidence_summary"]["n_clusters"] > 0
+    assert review["clustering_evidence_summary"]["recommendation_claim_level"] == (
+        "heuristic_review_recommendation"
+    )
     assert review["annotation_evidence_summary"]["review_table_rows"] > 0
+    assert review["annotation_evidence_summary"]["claim_level"] == (
+        "evidence_consensus_not_formal_truth"
+    )
+    assert review["annotation_evidence_summary"]["cluster_evidence_rows"] > 0
+    cluster_evidence = _rows(
+        review["annotation_evidence_summary"]["cluster_evidence_table"]
+    )
+    required_cluster_evidence_cols = {
+        "cluster",
+        "predicted_label",
+        "annotation_confidence",
+        "claim_level",
+        "evidence_status",
+        "positive_marker_support",
+        "contradictory_labels",
+        "reference_model_label",
+        "requires_manual_review",
+        "manual_review_recommendation",
+    }
+    for row in cluster_evidence:
+        assert required_cluster_evidence_cols.issubset(row)
     assert review["annotation_consensus_summary"]["final_obs_present"] is True
+    claim_summary = review["analysis_claim_level_summary"]
+    assert claim_summary["schema_version"] == "analysis_claim_level_summary_v1"
+    outputs = {row["output"]: row for row in _rows(claim_summary["outputs"])}
+    assert outputs["cluster_marker_discovery"]["claim_level"] == (
+        "exploratory_marker_screen"
+    )
+    assert outputs["condition_de"]["claim_level"] == "not_formal_until_pseudobulk"
+    assert outputs["cell_level_compare"]["claim_level"] == (
+        "exploratory_hypothesis_generation"
+    )
+    assert outputs["celltype_proportion"]["not_allowed_claim"]
     assert "cell_type_auto" in result.obs
 
     validation = validate_analysis_module_completeness(result)
@@ -155,12 +248,33 @@ def test_run_standard_analysis_creates_analysis_maturity_review_summary(tmp_path
     compact = summarize_analysis_review_summary(review)
     assert compact["module"] == "analysis"
     assert compact["n_clusters"] == review["clustering_evidence_summary"]["n_clusters"]
+    assert compact["condition_de_primary_method"] == "sample_level_pseudobulk"
+    assert compact["cell_level_compare_policy"] == "exploratory_only"
+    assert compact["global_claim_boundary"] == (
+        "heuristic_and_exploratory_until_evidence_review"
+    )
+    assert compact["recommended_resolution_claim_level"] == (
+        "heuristic_review_recommendation"
+    )
+    assert compact["annotation_cluster_evidence_rows"] > 0
+    assert compact["primary_annotation_key"] == "cell_type_auto"
+    assert compact["analysis_decision_counts"]
 
 
 def test_analysis_module_contract_is_public():
     contract = get_analysis_module_contract()
     assert contract["module"] == "analysis"
     assert "scLucid.analysis.run_standard_analysis" in contract["stable_entrypoints"]
+    assert "analysis_inference_policy" in contract["required_review_sections"]
+    assert "analysis_claim_level_summary" in contract["required_review_sections"]
+    assert contract["inference_policy_key"] == "analysis_inference_policy"
+    assert contract["claim_level_key"] == "analysis_claim_level_summary"
+    assert "analysis_output_contract" in contract["required_review_sections"]
+    assert "analysis_decision_summary" in contract["required_review_sections"]
+    assert "analysis_reviewer_table" in contract["required_review_sections"]
+    assert contract["output_contract_key"] == "analysis_output_contract"
+    assert contract["decision_summary_key"] == "analysis_decision_summary"
+    assert contract["reviewer_table_key"] == "analysis_reviewer_table"
     assert "clustering_evidence_summary" in contract["required_review_sections"]
     assert "annotation_consensus_summary" in contract["required_review_sections"]
     assert "posthoc_qc_review_summary" in contract["required_review_sections"]
@@ -180,6 +294,43 @@ def test_posthoc_qc_review_summary_flags_doublet_heavy_clusters():
     assert summary["doublet_heavy_clusters"] == ["0"]
     assert summary["n_high_mitochondrial_clusters"] == 1
     assert summary["high_mitochondrial_clusters"] == ["1"]
+
+
+def test_analysis_readiness_flags_low_confidence_annotation_clusters():
+    adata = _make_preprocessed_adata(n_obs=30, n_vars=40)
+    adata.obs["leiden_clusters"] = ["0"] * 15 + ["1"] * 15
+    annotation_summary = {
+        "needs_review_clusters": 0,
+        "low_confidence_clusters": 1,
+    }
+    consensus_summary = {
+        "final_obs_present": True,
+        "needs_review_cells": 0,
+    }
+
+    readiness = build_analysis_readiness_assessment(
+        adata=adata,
+        successful_steps=["markers", "annotation_consensus"],
+        cluster_key="leiden_clusters",
+        preprocess_context={"pca_present": True},
+        clustering_summary={},
+        annotation_summary=annotation_summary,
+        consensus_summary=consensus_summary,
+        posthoc_qc_summary={},
+        malignancy_summary={},
+    )
+    actions = build_analysis_review_action_items(
+        readiness=readiness,
+        clustering_summary={},
+        annotation_summary=annotation_summary,
+        consensus_summary=consensus_summary,
+        posthoc_qc_summary={},
+        malignancy_summary={},
+    )
+
+    assert readiness["status"] == "review_required"
+    assert "annotation_low_confidence_clusters_present" in readiness["review_reasons"]
+    assert any("low-confidence annotation clusters" in item["action"] for item in actions)
 
 
 def test_malignancy_interpretation_bridge_adds_reviewable_outputs():

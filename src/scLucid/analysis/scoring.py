@@ -19,6 +19,11 @@ from ..utils.manager import Manager
 
 log = logging.getLogger(__name__)
 
+EXPRESSION_LAYER_ALIASES = {
+    "normalized": ("normalized", "log1p_norm"),
+    "log1p_norm": ("normalized", "log1p_norm"),
+}
+
 __all__ = [
     "score_by_gene_sets",
     "run_module_scoring_workflow",
@@ -118,6 +123,21 @@ def _effective_use_raw(adata: AnnData, use_raw: bool) -> bool:
     return use_raw
 
 
+def _resolve_expression_layer(adata: AnnData, layer: Optional[str]) -> Optional[str]:
+    """Resolve canonical expression-layer aliases for downstream scoring."""
+    if layer is None or layer in adata.layers:
+        return layer
+    for candidate in EXPRESSION_LAYER_ALIASES.get(layer, ()):
+        if candidate in adata.layers:
+            log.warning(
+                "Layer '%s' not found; using compatible expression layer '%s'.",
+                layer,
+                candidate,
+            )
+            return candidate
+    raise ValueError(f"Layer '{layer}' not found in adata.layers.")
+
+
 def _assign_mean_gene_score(
     adata: AnnData,
     genes: List[str],
@@ -147,7 +167,7 @@ def _safe_abs_max(values: np.ndarray) -> float:
 def score_by_gene_sets(
     adata: AnnData,
     gene_sets: Union[Dict[str, List[str]], Manager],
-    layer: Optional[str] = "log1p_norm",
+    layer: Optional[str] = "normalized",
     use_raw: bool = False,
     ctrl_size: int = 50,
     score_name_suffix: str = "_score",
@@ -205,8 +225,8 @@ def score_by_gene_sets(
         target_layer = layer
         if target_layer is None:
             log.warning("layer=None and use_raw=False; using adata.X for scoring.")
-        elif target_layer not in adata.layers:
-            raise ValueError(f"Layer '{target_layer}' not found in adata.layers.")
+        else:
+            target_layer = _resolve_expression_layer(adata, target_layer)
 
     total_sets = len(gene_sets)
     scored_count = 0
@@ -317,7 +337,7 @@ def run_module_scoring_workflow(
     groupby: Optional[str] = None,
     sample_col: Optional[str] = None,
     condition_col: Optional[str] = None,
-    layer: Optional[str] = "log1p_norm",
+    layer: Optional[str] = "normalized",
     use_raw: bool = False,
     ctrl_size: int = 50,
     score_name_suffix: str = "_score",

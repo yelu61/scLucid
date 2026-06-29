@@ -481,6 +481,10 @@ def compare_groups(
 
     if config.verbose:
         log.info(f"Comparing DE genes: '{group1}' vs '{group2}' in '{groupby}'")
+    log.warning(
+        "compare_groups runs exploratory cell-level DE. For condition-level "
+        "inference, use run_pseudobulk_de with sample_col and biological replicates."
+    )
 
     # Input validation
     if groupby not in adata.obs.columns:
@@ -552,6 +556,7 @@ def compare_groups(
     params["de_warning"] = (
         "compare_groups is cell-level exploratory DE; use run_pseudobulk_de for formal condition DE."
     )
+    params["recommended_formal_inference_api"] = "run_pseudobulk_de"
     root[f"{key_added}_params"] = sanitize_for_hdf5(params)
 
     log.info(f"Results stored at .uns['sclucid']['analysis']['de']['{key_added}']")
@@ -622,6 +627,10 @@ def compare_conditions(
         f"Comparing conditions '{config.condition1}' vs '{config.condition2}' "
         f"within '{group_name}'"
     )
+    log.warning(
+        "compare_conditions runs exploratory cell-level DE. For condition-level "
+        "inference, use run_pseudobulk_de with sample_col and biological replicates."
+    )
 
     # Validate group exists
     if group_name not in adata.obs[groupby].unique():
@@ -667,6 +676,7 @@ def compare_conditions(
     params["de_warning"] = (
         "compare_conditions is cell-level exploratory DE; use run_pseudobulk_de for formal condition DE."
     )
+    params["recommended_formal_inference_api"] = "run_pseudobulk_de"
     root[f"{comp_config.key_added}_params"] = sanitize_for_hdf5(params)
 
     log.info(

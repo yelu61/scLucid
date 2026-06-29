@@ -10,6 +10,7 @@ from scLucid.analysis import (
     plot_delta_heatmap,
     plot_score_violin_with_stats,
     run_module_scoring_workflow,
+    score_by_gene_sets,
 )
 
 
@@ -79,6 +80,20 @@ def test_run_module_scoring_workflow_tracks_unscored_modules(scoring_adata):
     summary = results["module_summary"].set_index("module")
     assert bool(summary.loc["valid", "scored"]) is True
     assert bool(summary.loc["invalid", "scored"]) is False
+
+
+def test_score_by_gene_sets_accepts_legacy_log1p_norm_alias(scoring_adata):
+    scoring_adata.raw = None
+    scoring_adata.layers["log1p_norm"] = np.log1p(scoring_adata.X.copy())
+
+    result = score_by_gene_sets(
+        scoring_adata,
+        {"T_core": ["CD3D", "CD3E"]},
+        layer="normalized",
+        use_raw=False,
+    )
+
+    assert "T_core_score" in result.obs.columns
 
 
 def test_calculate_signature_matrix_falls_back_when_raw_missing(scoring_adata):

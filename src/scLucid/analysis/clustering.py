@@ -67,6 +67,19 @@ def _format_top_distribution(values: pd.Series, n: int = 3) -> str:
     return ", ".join(f"{name}:{frac:.2f}" for name, frac in counts.items())
 
 
+def _hdf5_safe_review_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize nullable object columns before storing review tables in AnnData."""
+    if df.empty:
+        return df
+    safe = df.copy()
+    for col in safe.columns:
+        if pd.api.types.is_object_dtype(safe[col]) or isinstance(
+            safe[col].dtype, pd.CategoricalDtype
+        ):
+            safe[col] = safe[col].where(safe[col].notna(), "").astype(str)
+    return safe
+
+
 # ====================== Clustering Evaluation Helpers ======================
 def run_clustering_review(
     adata: AnnData,
@@ -350,9 +363,9 @@ def run_clustering_review(
     clustering_ns = (
         adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("clustering", {})
     )
-    clustering_ns["clustering_review"] = review_df
-    clustering_ns["clustering_review_by_cluster"] = cluster_review_df
-    clustering_ns["clustering_review_markers"] = marker_review_df
+    clustering_ns["clustering_review"] = _hdf5_safe_review_table(review_df)
+    clustering_ns["clustering_review_by_cluster"] = _hdf5_safe_review_table(cluster_review_df)
+    clustering_ns["clustering_review_markers"] = _hdf5_safe_review_table(marker_review_df)
     clustering_ns["clustering_review_summary"] = sanitize_for_hdf5(
         {
             "method": method,
