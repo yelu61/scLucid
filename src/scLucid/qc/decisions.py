@@ -248,13 +248,20 @@ def build_qc_decisions(
         + apoptosis_high.astype(int)
         + doublet.astype(int)
     )
+    # Policy-based minimum evidence for removal. In tumor/stress/CSF/low-RNA
+    # contexts we never remove cells based on a single piece of evidence,
+    # because high MT, stress scores, or ambient signal can be biological.
     remove_min = 3 if policy == "conservative" else 2 if policy == "screening" else 1
+    if tumor_context or tissue_type in ("csf", "snrna", "low_rna", "fragile"):
+        remove_min = max(remove_min, 2)
     remove = evidence_count >= remove_min
 
     biologically_ambiguous = high_mt | stress_high | ambient_high | doublet
     review = biologically_ambiguous & ~remove
     sensitivity = stress_high & ~remove
     if tumor_context:
+        # High-MT tumor cells are preserved for review unless they also carry
+        # strong multi-evidence failure (>= max(remove_min + 1, 3) issues).
         remove = remove & ~(high_mt & (evidence_count < max(remove_min + 1, 3)))
         review = review | high_mt
         sensitivity = sensitivity | (stress_high & ~remove)

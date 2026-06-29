@@ -237,6 +237,8 @@ def _sample_for_plotting(
         f"Large dataset detected ({adata.n_obs} cells), sampling {max_cells} cells for visualization..."
     )
 
+    rng = np.random.default_rng(random_state)
+
     # Stratified sampling by sample to maintain representation
     if sample_key in adata.obs.columns:
         sampled_indices = []
@@ -250,8 +252,7 @@ def _sample_for_plotting(
             if len(sample_indices) <= cells_per_sample:
                 sampled_indices.extend(sample_indices)
             else:
-                np.random.seed(random_state)
-                selected = np.random.choice(sample_indices, size=cells_per_sample, replace=False)
+                selected = rng.choice(sample_indices, size=cells_per_sample, replace=False)
                 sampled_indices.extend(selected)
 
         # If we still have room, randomly sample more cells
@@ -260,8 +261,7 @@ def _sample_for_plotting(
             all_indices = set(range(adata.n_obs))
             available_indices = list(all_indices - set(sampled_indices))
             if available_indices:
-                np.random.seed(random_state)
-                additional = np.random.choice(
+                additional = rng.choice(
                     available_indices,
                     size=min(remaining_slots, len(available_indices)),
                     replace=False,
@@ -270,8 +270,7 @@ def _sample_for_plotting(
 
     else:
         # Simple random sampling if no sample key
-        np.random.seed(random_state)
-        sampled_indices = np.random.choice(adata.n_obs, size=max_cells, replace=False)
+        sampled_indices = rng.choice(adata.n_obs, size=max_cells, replace=False)
 
     return adata[sampled_indices].copy()
 

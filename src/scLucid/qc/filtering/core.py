@@ -339,11 +339,11 @@ class AdaptiveThresholdCalculator:
                 n_batch = len(batch_values)
 
                 # Empirical Bayes shrinkage:
-                #   lambda = sigma^2 / (sigma^2 + n_batch * tau^2)
-                # Small batch / similar batches  -> lambda -> 1 (shrink heavily)
-                # Large batch / different batches -> lambda -> 0 (keep batch estimate)
-                denom = sigma_sq + n_batch * tau_sq
-                shrinkage = sigma_sq / denom if denom > 0 else 0.5
+                #   lambda = tau^2 / (tau^2 + sigma^2 / n_batch)
+                # Small batches or similar batches -> shrink toward global mean
+                # Large batches or very different batches -> keep batch estimate
+                denom = tau_sq + sigma_sq / max(n_batch, 1)
+                shrinkage = tau_sq / denom if denom > 0 else 0.5
                 shrinkage = float(np.clip(shrinkage, 0.05, 0.95))
 
                 # Shrunken estimates
@@ -839,34 +839,46 @@ def mark_low_quality_cell(
         AnnData object with boolean columns in .obs marking low-quality cells.
     """
     # === CONFIGURATION SETUP ===
-    base_config = MarkingConfig()
+    cfg = MarkingConfig()
     if config is not None:
-        config_dict = config.to_dict()  # Pydantic's built-in serialization
-        if "thresholds" in config_dict:
-            # Update the default thresholds object field by field
-            for th_key, th_value in config_dict["thresholds"].items():
-                if hasattr(base_config.thresholds, th_key):
-                    setattr(base_config.thresholds, th_key, th_value)
-            # Remove 'thresholds' so it's not processed again
-            del config_dict["thresholds"]
+        cfg = config.model_copy(deep=True)
+        # Allow threshold overrides via kwargs (e.g., min_genes=300)
+        threshold_overrides = {
+            key: value for key, value in kwargs.items()
+            if hasattr(cfg.thresholds, key)
+        }
+        top_level_overrides = {
+            key: value for key, value in kwargs.items()
+            if key not in threshold_overrides and hasattr(cfg, key)
+        }
+        if threshold_overrides:
+            cfg = cfg.model_copy(
+                update={
+                    "thresholds": cfg.thresholds.model_copy(update=threshold_overrides)
+                },
+                deep=True,
+            )
+        if top_level_overrides:
+            cfg = cfg.model_copy(update=top_level_overrides, deep=True)
+    elif kwargs:
+        threshold_overrides = {
+            key: value for key, value in kwargs.items()
+            if hasattr(cfg.thresholds, key)
+        }
+        top_level_overrides = {
+            key: value for key, value in kwargs.items()
+            if key not in threshold_overrides and hasattr(cfg, key)
+        }
+        if threshold_overrides:
+            cfg = cfg.model_copy(
+                update={
+                    "thresholds": cfg.thresholds.model_copy(update=threshold_overrides)
+                },
+                deep=True,
+            )
+        if top_level_overrides:
+            cfg = cfg.model_copy(update=top_level_overrides, deep=True)
 
-        # Update the rest of the config fields
-        for key, value in config_dict.items():
-            if hasattr(base_config, key):
-                setattr(base_config, key, value)
-
-    if kwargs:
-        # Override with any specific kwargs
-        for key, value in kwargs.items():
-            if hasattr(base_config, key):
-                setattr(base_config, key, value)
-            # Allow nested threshold overrides like `min_genes=300`
-            elif hasattr(base_config.thresholds, key):
-                setattr(base_config.thresholds, key, value)
-            else:
-                log.warning(f"Unknown parameter '{key}' ignored.")
-
-    cfg = base_config
     thresholds = cfg.thresholds
 
     # Check required QC columns
@@ -1178,17 +1190,13 @@ def filter_cells(
         filter_cells(adata, config=config)
     """
     # === 1. CONFIGURATION SETUP ===
-    base_config = FilterConfig()
+    cfg = FilterConfig()
     if config is not None:
-        base_config.__dict__.update(config.to_dict())  # Pydantic's built-in serialization
-    if kwargs:
-        for key, value in kwargs.items():
-            if hasattr(base_config, key):
-                setattr(base_config, key, value)
-            else:
-                log.warning(f"Unknown parameter '{key}' ignored.")
-    cfg = base_config
-    # Pydantic configs validate automatically
+        cfg = config.model_copy(deep=True)
+        if kwargs:
+            cfg = cfg.model_copy(update=kwargs, deep=True)
+    elif kwargs:
+        cfg = cfg.model_copy(update=kwargs, deep=True)
 
     # --- Use cfg.criteria_to_filter instead of building a new list ---
     criteria = cfg.criteria_to_filter

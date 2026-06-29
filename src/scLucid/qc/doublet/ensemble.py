@@ -438,23 +438,14 @@ def predict_doublets(
         AnnData object with doublet predictions added to .obs and .obsm.
     """
     # === 1. CONFIGURATION SETUP ===
-    base_config = DoubletConfig()
-
+    cfg = DoubletConfig()
     if config is not None:
-        config_dict = config.to_dict()  # Pydantic's built-in serialization
-        for key, value in config_dict.items():
-            if hasattr(base_config, key):
-                setattr(base_config, key, value)
+        cfg = config.model_copy(deep=True)
+        if kwargs:
+            cfg = cfg.model_copy(update=kwargs, deep=True)
+    elif kwargs:
+        cfg = cfg.model_copy(update=kwargs, deep=True)
 
-    if kwargs:
-        for key, value in kwargs.items():
-            if hasattr(base_config, key):
-                setattr(base_config, key, value)
-            else:
-                log.warning(f"Unknown parameter '{key}' ignored.")
-
-    cfg = base_config
-    # Pydantic configs validate automatically
     log.info("--- Running Final Doublet Prediction Workflow ---")
 
     # Validate input data
@@ -561,8 +552,10 @@ def predict_doublets(
                 allowlist_mask = (
                     (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
                 )
-                # Only downgrade if algorithm did not flag the cell
-                algo_not_flagged = ~adata.obs[algo_pred_col].astype(bool)
+                # Only downgrade if algorithm did not flag the cell.
+                # NaN values in algo_pred_col correspond to skipped samples and must
+                # be treated as "not flagged" rather than "not doublet".
+                algo_not_flagged = ~adata.obs[algo_pred_col].fillna(False).astype(bool)
                 downgrade_mask = allowlist_mask & algo_not_flagged
                 n_downgraded = int(downgrade_mask.sum())
                 if n_downgraded > 0:

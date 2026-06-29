@@ -59,15 +59,24 @@ def test_build_qc_decisions_uses_joint_evidence_and_preserves_tumor_high_mt_for_
     assert summary["decision_counts"]["remove"] == 1
 
 
-def test_build_qc_decisions_can_run_without_gene_scoring():
+def test_strict_policy_does_not_remove_single_evidence_tumor_cells():
     adata = _decision_adata()
 
-    summary = build_qc_decisions(
-        adata,
-        tissue_type="blood",
-        policy="screening",
-        score_panels=False,
-    )
+    # cell_3 has only high_mt; cell_4 has multiple failures.
+    summary = build_qc_decisions(adata, tissue_type="pdac_tumor", policy="strict")
 
-    assert summary["n_cells"] == adata.n_obs
-    assert "qc_decision_summary" in adata.uns["sclucid"]["qc"]
+    # Even under strict, a single high-MT tumor cell must be reviewed, not removed.
+    assert adata.obs.loc["cell_3", "qc_decision"] in {"review", "sensitivity_only"}
+    assert not bool(adata.obs.loc["cell_3", "qc_remove"])
+    # Multi-evidence cell is still removed.
+    assert adata.obs.loc["cell_4", "qc_decision"] == "remove"
+
+
+def test_non_tumor_strict_policy_allows_single_evidence_removal():
+    adata = _decision_adata()
+
+    summary = build_qc_decisions(adata, tissue_type="pbmc", policy="strict")
+
+    # Non-fragile non-tumor tissue can still remove on single evidence under strict.
+    assert adata.obs.loc["cell_3", "qc_decision"] == "remove"
+    assert bool(adata.obs.loc["cell_3", "qc_remove"])
