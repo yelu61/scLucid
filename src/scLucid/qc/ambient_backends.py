@@ -1,8 +1,12 @@
 """Optional external ambient-RNA correction backends.
 
-This module provides thin wrappers around Python-based ambient RNA correction
-tools such as CellBender.  It is intentionally separate from :mod:`ambient` so
-that scLucid's core QC path remains dependency-free.
+This module provides thin wrappers around Python-based and R-based ambient RNA
+correction tools such as CellBender, SoupX, and DecontX. It is intentionally
+separate from :mod:`ambient` so that scLucid's core QC path remains
+dependency-free.
+
+The backend registry pattern makes it easy to add new ambient RNA correction
+methods without changing the unified :func:`correct_ambient_rna` entry point.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 from anndata import AnnData
@@ -26,6 +30,10 @@ from .ambient import (
 )
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Backend availability checks
+# ---------------------------------------------------------------------------
 
 
 def _check_cellbender_cli() -> Optional[str]:
@@ -43,13 +51,51 @@ def _check_cellbender_module() -> bool:
         return False
 
 
-def _estimate_expected_cells(total_barcodes: int) -> int:
-    """Heuristic for CellBender's --expected-cells argument.
+def cellbender_available() -> bool:
+    """Return True if CellBender can be invoked (CLI or Python module)."""
+    return _check_cellbender_cli() is not None or _check_cellbender_module()
 
-    Uses the knee of a crude barcode-rank approximation: cells above 10% of
-    the maximum total counts.  This is intentionally conservative and should
-    be reviewed by the user for real datasets.
-    """
+
+def _rpy2_available() -> bool:
+    """Return True if rpy2 is installed."""
+    try:
+        import rpy2.robjects as ro  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
+def _r_package_available(name: str) -> bool:
+    """Return True if an R package can be imported via rpy2."""
+    if not _rpy2_available():
+        return False
+    try:
+        import rpy2.robjects.packages as rpackages
+
+        rpackages.importr(name)
+        return True
+    except Exception:
+        return False
+
+
+def soupx_available() -> bool:
+    """Return True if SoupX (R package) is available."""
+    return _r_package_available("SoupX")
+
+
+def decontx_available() -> bool:
+    """Return True if celda/DecontX (R package) is available."""
+    return _r_package_available("celda")
+
+
+# ---------------------------------------------------------------------------
+# CellBender backend
+# ---------------------------------------------------------------------------
+
+
+def _estimate_expected_cells(total_barcodes: int) -> int:
+    """Heuristic for CellBender's --expected-cells argument."""
     return max(100, int(total_barcodes * 0.1))
 
 
@@ -71,53 +117,12 @@ def run_cellbender(
     record: bool = True,
     key_added: str = "ambient_correction_summary",
 ) -> Dict[str, Any]:
-    """Run CellBender ``remove-background`` on an AnnData object.
-
-    This is a thin CLI wrapper.  It writes a temporary ``.h5ad`` file, runs
-    CellBender, reads the corrected matrix from the output, and stores it in
-    ``adata.layers[output_layer]``.
-
-    Parameters
-    ----------
-    adata
-        AnnData object containing raw counts.  The matrix should be in
-        ``adata.layers[layer]`` or ``adata.X``.
-    output_layer
-        Layer name for the corrected matrix.
-    expected_cells
-        Passed to CellBender ``--expected-cells``.  Estimated heuristically if
-        not provided.
-    total_droplets_included
-        Passed to CellBender ``--total-droplets-included``.  Estimated
-        heuristically if not provided.
-    fpr
-        CellBender ``--fpr`` value.
-    epochs
-        CellBender ``--epochs`` value.
-    remove_checkpoint
-        If True, delete the temporary input/output files after reading results.
-    record
-        Store the correction summary in ``adata.uns['sclucid']['qc']``.
-    key_added
-        Key used when ``record=True``.
-
-    Returns:
-    -------
-    dict
-        Correction summary with ``corrected``, ``output_layer``, ``backend``,
-        ``command``, ``removed_counts``, ``risk_note``.
-
-    Raises:
-    ------
-    RuntimeError
-        If CellBender is not installed or the command fails.
-    """
+    """Run CellBender ``remove-background`` on an AnnData object."""
     if layer is not None and layer in adata.layers:
         matrix = adata.layers[layer]
     else:
         matrix = adata.X
 
-    # Materialise as a CSR-ish float matrix for storage; h5ad handles both.
     adata.layers["_cellbender_input"] = matrix
 
     total_barcodes = int(adata.n_obs)
@@ -177,7 +182,6 @@ def run_cellbender(
         if not corrected_adata.var_names.equals(adata.var_names):
             raise ValueError("CellBender output var_names do not match input")
 
-        # CellBender stores the corrected counts in .X by default.
         corrected_X = corrected_adata.X
         adata.layers[output_layer] = corrected_X.copy()
 
@@ -234,9 +238,336 @@ def run_cellbender(
         return summary
 
 
-def cellbender_available() -> bool:
-    """Return True if CellBender can be invoked (CLI or Python module)."""
-    return _check_cellbender_cli() is not None or _check_cellbender_module()
+# ---------------------------------------------------------------------------
+# SoupX backend (R bridge)
+# ---------------------------------------------------------------------------
+
+
+def run_soupx(
+    adata: AnnData,
+    *,
+    layer: Optional[str] = None,
+    output_layer: str = AMBIENT_CORRECTED_COUNTS_LAYER,
+    clusters: Optional[str] = None,
+    record: bool = True,
+    key_added: str = "ambient_correction_summary",
+) -> Dict[str, Any]:
+    """Run SoupX ambient RNA correction via rpy2.
+
+    SoupX works best when provided with a raw-feature matrix and preliminary
+    clustering. If ``clusters`` is provided, it is used as the SoupX cluster
+    argument; otherwise SoupX estimates clusters internally.
+    """
+    if not soupx_available():
+        raise RuntimeError(
+            "SoupX is not available. Install the R package with:\n"
+            "  install.packages('SoupX')\n"
+            "and ensure rpy2 is installed in Python."
+        )
+
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.conversion import localconverter
+    from rpy2.robjects.packages import importr
+
+    matrix = adata.layers[layer] if layer is not None and layer in adata.layers else adata.X
+    adata.layers["_soupx_input"] = matrix
+
+    soupx = importr("SoupX")
+    base = importr("base")
+
+    with tempfile.TemporaryDirectory(prefix="sclucid_soupx_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        input_h5ad = tmp_path / "input.h5ad"
+        adata.write_h5ad(str(input_h5ad))
+
+        ro.globalenv["input_h5ad"] = str(input_h5ad)
+        ro.globalenv["output_h5ad"] = str(tmp_path / "output.h5ad")
+        if clusters is not None and clusters in adata.obs.columns:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.globalenv["clusters"] = adata.obs[clusters].astype(str)
+        else:
+            ro.globalenv["clusters"] = ro.NULL
+
+        r_code = """
+        library(SoupX)
+        library(anndata)
+        # anndata R package is experimental; fall back to reticulate if needed.
+        if (requireNamespace("anndata", quietly = TRUE)) {
+          ad <- anndata::read_h5ad(input_h5ad)
+        } else if (requireNamespace("reticulate", quietly = TRUE)) {
+          ad <- reticulate::py_anndata(input_h5ad)
+        } else {
+          stop("SoupX backend requires the R anndata or reticulate package.")
+        }
+        sc <- SoupX::setDR(ad, clusters)
+        sc <- SoupX::calculateContaminationFraction(sc)
+        out <- SoupX::adjustCounts(sc)
+        # Write corrected counts back via reticulate/anndata
+        ad$layers[["ambient_corrected_counts"]] <- out
+        anndata::write_h5ad(ad, output_h5ad)
+        list(removed_counts = sum(ad$X - out), n_cells = nrow(out))
+        """
+        try:
+            r_result = base.eval(ro.r(r_code))
+        except Exception as exc:
+            raise RuntimeError(f"SoupX correction failed: {exc}") from exc
+
+        corrected_adata = AnnData.read_h5ad(str(tmp_path / "output.h5ad"))
+        if output_layer not in corrected_adata.layers:
+            raise RuntimeError(f"SoupX did not write layer '{output_layer}'")
+        adata.layers[output_layer] = corrected_adata.layers[output_layer].copy()
+
+        removed_counts = float(np.asarray(r_result.rx2("removed_counts")[0]))
+        summary = {
+            "corrected": True,
+            "output_layer": output_layer,
+            "backend": "soupx",
+            "method": "soupx_adjust_counts",
+            "n_cells": int(adata.n_obs),
+            "clusters_used": clusters,
+            "removed_counts": removed_counts,
+            "removed_fraction": float(
+                removed_counts / max(float(np.asarray(matrix.sum())), 1.0)
+            ),
+            "review_required": removed_counts > float(np.asarray(matrix.sum())) * 0.25,
+            "risk_note": (
+                "SoupX correction removed a large fraction of counts; inspect output."
+                if removed_counts > float(np.asarray(matrix.sum())) * 0.25
+                else "SoupX correction applied."
+            ),
+        }
+
+        adata.layers.pop("_soupx_input", None)
+
+        if record:
+            adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[key_added] = sanitize_for_hdf5(
+                summary
+            )
+            record_ambient_correction_status(
+                adata,
+                corrected=True,
+                backend="soupx",
+                output_layer=output_layer,
+                details=summary,
+            )
+            record_ambient_layer_contract(
+                adata,
+                input_context=infer_ambient_input_context(
+                    adata,
+                    layer=layer,
+                    matrix_source="filtered_like" if clusters else "raw_like",
+                ),
+                correction_summary=summary,
+                output_layer=output_layer,
+            )
+        return summary
+
+
+# ---------------------------------------------------------------------------
+# DecontX backend (R bridge)
+# ---------------------------------------------------------------------------
+
+
+def run_decontx(
+    adata: AnnData,
+    *,
+    layer: Optional[str] = None,
+    output_layer: str = AMBIENT_CORRECTED_COUNTS_LAYER,
+    batch_key: Optional[str] = None,
+    max_iter: int = 500,
+    record: bool = True,
+    key_added: str = "ambient_correction_summary",
+) -> Dict[str, Any]:
+    """Run DecontX ambient RNA correction via rpy2.
+
+    DecontX is designed for filtered-feature matrices where empty droplets have
+    already been removed. It estimates ambient contamination using a
+    variational Bayesian model.
+    """
+    if not decontx_available():
+        raise RuntimeError(
+            "DecontX (celda package) is not available. Install with:\n"
+            "  BiocManager::install('celda')\n"
+            "and ensure rpy2 is installed in Python."
+        )
+
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri
+    from rpy2.robjects.conversion import localconverter
+    from rpy2.robjects.packages import importr
+
+    matrix = adata.layers[layer] if layer is not None and layer in adata.layers else adata.X
+    adata.layers["_decontx_input"] = matrix
+
+    celda = importr("celda")
+    base = importr("base")
+
+    with tempfile.TemporaryDirectory(prefix="sclucid_decontx_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        input_h5ad = tmp_path / "input.h5ad"
+        output_h5ad = tmp_path / "output.h5ad"
+        adata.write_h5ad(str(input_h5ad))
+
+        ro.globalenv["input_h5ad"] = str(input_h5ad)
+        ro.globalenv["output_h5ad"] = str(output_h5ad)
+        ro.globalenv["max_iter"] = max_iter
+        if batch_key is not None and batch_key in adata.obs.columns:
+            with localconverter(ro.default_converter + pandas2ri.converter):
+                ro.globalenv["batch"] = adata.obs[batch_key].astype(str)
+        else:
+            ro.globalenv["batch"] = ro.NULL
+
+        r_code = """
+        library(celda)
+        library(anndata)
+        if (requireNamespace("anndata", quietly = TRUE)) {
+          ad <- anndata::read_h5ad(input_h5ad)
+        } else if (requireNamespace("reticulate", quietly = TRUE)) {
+          ad <- reticulate::py_anndata(input_h5ad)
+        } else {
+          stop("DecontX backend requires the R anndata or reticulate package.")
+        }
+        counts <- t(ad$X)
+        decont <- celda::decontX(counts, batch = batch, maxIter = max_iter)
+        corrected <- t(decont$decontXcounts)
+        ad$layers[["ambient_corrected_counts"]] <- corrected
+        anndata::write_h5ad(ad, output_h5ad)
+        list(removed_counts = sum(ad$X - corrected), n_cells = nrow(corrected))
+        """
+        try:
+            r_result = base.eval(ro.r(r_code))
+        except Exception as exc:
+            raise RuntimeError(f"DecontX correction failed: {exc}") from exc
+
+        corrected_adata = AnnData.read_h5ad(str(output_h5ad))
+        if output_layer not in corrected_adata.layers:
+            raise RuntimeError(f"DecontX did not write layer '{output_layer}'")
+        adata.layers[output_layer] = corrected_adata.layers[output_layer].copy()
+
+        removed_counts = float(np.asarray(r_result.rx2("removed_counts")[0]))
+        summary = {
+            "corrected": True,
+            "output_layer": output_layer,
+            "backend": "decontx",
+            "method": "decontx_variational",
+            "n_cells": int(adata.n_obs),
+            "batch_key": batch_key,
+            "max_iter": max_iter,
+            "removed_counts": removed_counts,
+            "removed_fraction": float(
+                removed_counts / max(float(np.asarray(matrix.sum())), 1.0)
+            ),
+            "review_required": removed_counts > float(np.asarray(matrix.sum())) * 0.25,
+            "risk_note": (
+                "DecontX correction removed a large fraction of counts; inspect output."
+                if removed_counts > float(np.asarray(matrix.sum())) * 0.25
+                else "DecontX correction applied."
+            ),
+        }
+
+        adata.layers.pop("_decontx_input", None)
+
+        if record:
+            adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[key_added] = sanitize_for_hdf5(
+                summary
+            )
+            record_ambient_correction_status(
+                adata,
+                corrected=True,
+                backend="decontx",
+                output_layer=output_layer,
+                details=summary,
+            )
+            record_ambient_layer_contract(
+                adata,
+                input_context=infer_ambient_input_context(
+                    adata,
+                    layer=layer,
+                    matrix_source="filtered_like",
+                ),
+                correction_summary=summary,
+                output_layer=output_layer,
+            )
+        return summary
+
+
+# ---------------------------------------------------------------------------
+# Backend registry and unified entry point
+# ---------------------------------------------------------------------------
+
+_BackendFn = Callable[..., Dict[str, Any]]
+_BACKEND_REGISTRY: Dict[str, Dict[str, Any]] = {
+    "cellbender": {
+        "run": run_cellbender,
+        "available": cellbender_available,
+        "matrix_types": {"raw_like"},
+        "python": True,
+        "r": False,
+    },
+    "soupx": {
+        "run": run_soupx,
+        "available": soupx_available,
+        "matrix_types": {"raw_like", "filtered_like"},
+        "python": False,
+        "r": True,
+    },
+    "decontx": {
+        "run": run_decontx,
+        "available": decontx_available,
+        "matrix_types": {"filtered_like"},
+        "python": False,
+        "r": True,
+    },
+}
+
+
+def list_ambient_backends() -> Dict[str, Dict[str, Any]]:
+    """Return ambient backend metadata with live availability flags."""
+    return {
+        name: {
+            **meta,
+            "available_now": bool(meta["available"]()),
+        }
+        for name, meta in _BACKEND_REGISTRY.items()
+    }
+
+
+def _choose_backend(
+    matrix_type: str,
+    backend: str,
+    risk_level: str,
+) -> Optional[str]:
+    """Choose a concrete backend given matrix type and availability."""
+    if backend != "auto" and backend in _BACKEND_REGISTRY:
+        chosen = backend
+    elif backend == "auto":
+        candidates = []
+        if matrix_type == "raw_like":
+            candidates = ["cellbender", "soupx"]
+        elif matrix_type == "filtered_like":
+            candidates = ["decontx", "soupx"]
+        chosen = None
+        for cand in candidates:
+            if _BACKEND_REGISTRY[cand]["available"]():
+                chosen = cand
+                break
+    else:
+        raise ValueError(f"Unknown ambient backend: {backend!r}")
+
+    if chosen is None:
+        return None
+
+    meta = _BACKEND_REGISTRY[chosen]
+    if matrix_type not in meta["matrix_types"]:
+        log.warning(
+            "Backend '%s' is not designed for '%s' matrices; review before using.",
+            chosen,
+            matrix_type,
+        )
+    if not meta["available"]():
+        return None
+    return chosen
 
 
 def correct_ambient_rna(
@@ -253,13 +584,15 @@ def correct_ambient_rna(
     Parameters
     ----------
     adata
-        AnnData object with raw counts.
+        AnnData object with raw or filtered counts.
     method
         ``"linear"`` for the zero-dependency linear subtraction,
-        ``"external"`` to attempt CellBender, or ``"auto"`` to choose based on
-        ambient risk and backend availability.
+        ``"external"`` to attempt a registered backend, or ``"auto"`` to choose
+        based on ambient risk and backend availability.
     backend
-        External backend to use.  ``"auto"`` tries CellBender.
+        External backend to use. ``"auto"`` picks a suitable backend based on the
+        matrix type (raw vs filtered). Registered backends: ``cellbender``,
+        ``soupx``, ``decontx``.
     layer
         Layer to correct; defaults to ``adata.X``.
     output_layer
@@ -271,49 +604,54 @@ def correct_ambient_rna(
     Returns:
     -------
     dict
-        Correction summary.  On backend failure, falls back to linear
-        correction and adds ``backend_fallback`` to the summary.
+        Correction summary. On backend failure, falls back to linear correction
+        and adds ``backend_fallback`` to the summary.
     """
-    # Avoid a circular import: ambient_backends is imported by ambient, but the
-    # convenience entry point lives here and can import from ambient directly.
     from .ambient import correct_ambient_rna_linear, diagnose_ambient_rna
+
+    context = infer_ambient_input_context(adata, layer=layer)
+    matrix_type = context.get("matrix_type", "filtered_like")
 
     if method == "auto":
         risk = diagnose_ambient_rna(adata, layer=layer)
-        use_external = backend == "auto" and cellbender_available() and risk.get(
-            "risk_level", "low"
-        ) in {"moderate", "high"}
+        use_external = risk.get("risk_level", "low") in {"moderate", "high"}
         method = "external" if use_external else "linear"
 
     if method == "external":
-        if backend in ("auto", "cellbender"):
-            if cellbender_available():
-                try:
-                    return run_cellbender(
-                        adata,
-                        layer=layer,
-                        output_layer=output_layer,
-                        **kwargs,
-                    )
-                except Exception as exc:
-                    log.warning(f"CellBender failed: {exc}; falling back to linear correction.")
-                    linear = correct_ambient_rna_linear(
-                        adata,
-                        layer=layer,
-                        output_layer=output_layer,
-                        **kwargs,
-                    )
-                    linear["backend_fallback"] = {
-                        "backend": "cellbender",
-                        "error": str(exc),
-                    }
-                    return linear
-            else:
-                log.warning(
-                    "CellBender not available; falling back to linear ambient correction."
-                )
-        else:
-            raise ValueError(f"Unknown ambient backend: {backend!r}")
+        chosen = _choose_backend(matrix_type, backend, "moderate")
+        if chosen is None:
+            log.warning(
+                "No suitable ambient backend available for %s matrix; "
+                "falling back to linear correction.",
+                matrix_type,
+            )
+            return correct_ambient_rna_linear(
+                adata,
+                layer=layer,
+                output_layer=output_layer,
+                **kwargs,
+            )
+
+        try:
+            return _BACKEND_REGISTRY[chosen]["run"](
+                adata,
+                layer=layer,
+                output_layer=output_layer,
+                **kwargs,
+            )
+        except Exception as exc:
+            log.warning(f"{chosen} failed: {exc}; falling back to linear correction.")
+            linear = correct_ambient_rna_linear(
+                adata,
+                layer=layer,
+                output_layer=output_layer,
+                **kwargs,
+            )
+            linear["backend_fallback"] = {
+                "backend": chosen,
+                "error": str(exc),
+            }
+            return linear
 
     if method == "linear":
         return correct_ambient_rna_linear(

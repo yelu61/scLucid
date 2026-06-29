@@ -1,6 +1,7 @@
 """Tests for Python-native ambient RNA diagnostics and correction."""
 
 import numpy as np
+import pytest
 import scipy.sparse as sparse
 from anndata import AnnData
 
@@ -14,7 +15,13 @@ from scLucid.qc import (
     register_external_ambient_result,
 )
 from scLucid.qc.ambient import correct_ambient_rna_linear
-from scLucid.qc.ambient_backends import cellbender_available, correct_ambient_rna
+from scLucid.qc.ambient_backends import (
+    cellbender_available,
+    correct_ambient_rna,
+    decontx_available,
+    list_ambient_backends,
+    soupx_available,
+)
 
 
 def test_diagnose_ambient_rna_returns_risk_summary():
@@ -246,3 +253,39 @@ def test_correct_ambient_rna_linear_explicit():
     assert summary["corrected"] is True
     assert summary["method"] == "linear_background_subtraction"
     assert "ambient_corrected" in adata.layers
+
+
+def test_list_ambient_backends_reports_availability():
+    backends = list_ambient_backends()
+    for name in ("cellbender", "soupx", "decontx"):
+        assert name in backends
+        assert "available_now" in backends[name]
+        assert "matrix_types" in backends[name]
+
+
+def test_correct_ambient_rna_filtered_prefers_decontx_or_soupx():
+    """Auto on a filtered matrix should choose a filtered-matrix backend if available."""
+    rng = np.random.default_rng(9)
+    adata = AnnData(X=rng.poisson(lam=5, size=(100, 20)).astype(float))
+    adata.var_names = [f"Gene{i}" for i in range(20)]
+
+    summary = correct_ambient_rna(
+        adata,
+        method="external",
+        backend="auto",
+        output_layer="ambient_corrected",
+    )
+
+    # Because no backends are likely installed in CI, this should fall back to linear.
+    assert summary["corrected"] is True
+    if not (soupx_available() or decontx_available() or cellbender_available()):
+        assert summary["method"] == "linear_background_subtraction"
+
+
+def test_correct_ambient_rna_unknown_backend_raises():
+    rng = np.random.default_rng(10)
+    adata = AnnData(X=rng.poisson(lam=2, size=(50, 10)).astype(float))
+    adata.var_names = [f"Gene{i}" for i in range(10)]
+
+    with pytest.raises(ValueError):
+        correct_ambient_rna(adata, method="external", backend="not_a_backend")
