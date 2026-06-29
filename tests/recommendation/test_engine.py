@@ -103,6 +103,28 @@ def _make_preprocess_mock_strategy():
     )
 
 
+def test_data_profile_deprecated_medium_flag_is_derived():
+    from scLucid.preprocess.intelligent.data_classes import DataProfile
+
+    profile = DataProfile(
+        n_cells=500,
+        n_genes=2000,
+        sparsity=0.85,
+        median_counts_per_cell=2500,
+        median_genes_per_cell=800,
+        is_sparse=False,
+        is_small_dataset=False,
+        is_medium_dataset=True,
+        is_large_dataset=False,
+        has_batch_info=False,
+        data_quality_score=75.0,
+        strategy_type="standard",
+    )
+
+    assert profile.is_medium_dataset is True
+    assert "is_medium_dataset" not in profile.to_dict()
+
+
 class TestAdaptQC:
     def test_adapt_qc(self):
         engine = RecommendationEngine()

@@ -91,6 +91,7 @@ def run_bulk_abundance_test(
     if result.empty:
         return result
 
+    result["pvalue"] = result["pval"]
     result["pvals_adj"] = _adjust_pvalues(result["pval"], method=config.p_adjust_method)
     result["inference_level"] = "sample_level" if replicate_requirement_met else "descriptive_sample_level"
     result["valid_for_publication_inference"] = replicate_requirement_met

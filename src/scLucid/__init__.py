@@ -478,7 +478,6 @@ __all__ = [
     "FONT_CELL",
     "FONT_TRADITIONAL",
     "run_standard_qc",
-    "run_advanced_qc",
     "run_preprocessing",
     "run_standard_analysis",
     "run_custom_analysis",

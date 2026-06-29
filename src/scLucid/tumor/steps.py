@@ -21,6 +21,7 @@ from anndata import AnnData
 
 from ..base_interfaces import AnalysisStep, AnalysisStepFactory
 from ..utils import StepResult, step_results_to_storage
+from ..utils.context import resolve_cell_type_key
 from .config import TumorAnalysisConfig
 
 log = logging.getLogger(__name__)
@@ -254,19 +255,14 @@ class MalignancyInterpretationStep(_TumorAdapterBase):
             self.config, "malignancy_annotation_key", None
         )
         if annotation_key is None:
-            annotation_key = (
-                "cell_type_auto"
-                if "cell_type_auto" in adata.obs.columns
-                else "cell_type"
-            )
+            annotation_key = resolve_cell_type_key(adata) or "cell_type_auto"
         if annotation_key not in adata.obs.columns:
-            for fallback in ("cell_type_auto", "cell_type"):
-                if fallback in adata.obs.columns:
-                    self._validation_warnings.append(
-                        f"Annotation key '{annotation_key}' not found; using '{fallback}'."
-                    )
-                    annotation_key = fallback
-                    break
+            fallback = resolve_cell_type_key(adata)
+            if fallback is not None:
+                self._validation_warnings.append(
+                    f"Annotation key '{annotation_key}' not found; using '{fallback}'."
+                )
+                annotation_key = fallback
             else:
                 self._validation_errors.append(
                     f"Annotation key '{annotation_key}' not found in adata.obs."
@@ -283,7 +279,7 @@ class MalignancyInterpretationStep(_TumorAdapterBase):
             "annotation_key",
             kwargs.get("annotation_key", "cell_type_auto"),
         )
-        cluster_key = kwargs.get("cluster_key", None)
+        cluster_key = kwargs.get("cluster_key")
         cancer_type = kwargs.get(
             "cancer_type", _get_cfg_attr(self.config, "cancer_type")
         )
@@ -340,13 +336,12 @@ class TMEDeconvolutionStep(_TumorAdapterBase):
             self.config, "tme_cell_type_key", "cell_type_auto"
         )
         if cell_type_key not in adata.obs.columns:
-            for fallback in ("cell_type_auto", "cell_type"):
-                if fallback in adata.obs.columns:
-                    self._validation_warnings.append(
-                        f"TME cell type key '{cell_type_key}' not found; using '{fallback}'."
-                    )
-                    cell_type_key = fallback
-                    break
+            fallback = resolve_cell_type_key(adata)
+            if fallback is not None:
+                self._validation_warnings.append(
+                    f"TME cell type key '{cell_type_key}' not found; using '{fallback}'."
+                )
+                cell_type_key = fallback
             else:
                 self._validation_errors.append(
                     "No cell type annotation found for TME deconvolution."
@@ -438,7 +433,6 @@ class TherapyPredictionStep(_TumorAdapterBase):
                 )
 
         n_completed = sum(1 for r in drug_results if r.status == "completed")
-        status = "completed" if n_completed == len(drug_results) else "degraded"
         self._outputs["drugs_completed"] = n_completed
         self._outputs["drug_results"] = [r.name for r in drug_results]
         self._outputs["per_drug_step_results"] = step_results_to_storage(drug_results)

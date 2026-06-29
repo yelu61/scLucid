@@ -58,6 +58,14 @@ def test_top_level_aliases_are_consistent():
 
 
 @pytest.mark.smoke
+def test_top_level_compatibility_aliases_can_exist_without_being_public():
+    import scLucid as scl
+
+    assert hasattr(scl, "run_advanced_qc")
+    assert "run_advanced_qc" not in scl.__all__
+
+
+@pytest.mark.smoke
 def test_optional_import_helper_gracefully_handles_missing_module():
     """Internal optional import helper should return None and warn on missing modules."""
     import scLucid as scl

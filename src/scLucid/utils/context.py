@@ -44,6 +44,23 @@ _DATASET_TYPE_ALIASES = {
 
 _MULTI_SAMPLE_HINTS = {"multi_sample", "multisample", "multi sample", "multiple_samples"}
 
+CELL_TYPE_KEY_CANDIDATES = (
+    "cell_type",
+    "cell_type_auto",
+    "cell_type_final",
+    "celltype",
+    "cell_type_major",
+    "annotation",
+    "cell_annotation",
+)
+
+CELL_LINEAGE_KEY_CANDIDATES = (
+    "celltype_lineage",
+    "celltype_lineage_auto",
+    "cell_lineage",
+    "lineage",
+)
+
 
 def _normalize_token(value: Optional[str]) -> str:
     if value is None:
@@ -56,6 +73,16 @@ def is_multi_sample_hint(value: Optional[str]) -> bool:
     """Return True when a string describes sample structure rather than biology."""
     token = _normalize_token(value)
     return token in _MULTI_SAMPLE_HINTS or token.replace(" ", "_") in _MULTI_SAMPLE_HINTS
+
+
+def is_tumor_context(*values: Optional[str]) -> bool:
+    """Return True when any provided context string indicates tumor biology."""
+    tumor_tokens = ("tumor", "tumour", "cancer", "malignan")
+    for value in values:
+        token = _normalize_token(value)
+        if token and any(marker in token for marker in tumor_tokens):
+            return True
+    return False
 
 
 def normalize_dataset_type(value: Optional[str]) -> DatasetType:
@@ -71,7 +98,7 @@ def normalize_dataset_type(value: Optional[str]) -> DatasetType:
         return _DATASET_TYPE_ALIASES[token]  # type: ignore[return-value]
     if is_multi_sample_hint(token):
         return "unknown"
-    if "tumor" in token or "tumour" in token or "cancer" in token:
+    if is_tumor_context(token):
         return "tumor_tissue"
     if "pbmc" in token or "blood" in token:
         return "pbmc_or_blood"
@@ -127,12 +154,7 @@ class AnalysisContext(SclucidBaseConfig):
     def _looks_tumor_context(self) -> bool:
         if self.cancer_type:
             return True
-        values = [self.tissue_type, self.tissue]
-        return any(
-            value is not None
-            and any(token in str(value).lower() for token in ("tumor", "tumour", "cancer"))
-            for value in values
-        )
+        return is_tumor_context(self.tissue_type, self.tissue)
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -147,6 +169,30 @@ def _first_existing_obs_key(adata: AnnData, candidates: list[str]) -> Optional[s
         if key in adata.obs.columns:
             return key
     return None
+
+
+def resolve_obs_key(
+    adata: AnnData,
+    candidates: tuple[str, ...] | list[str],
+    *,
+    preferred: Optional[str] = None,
+) -> Optional[str]:
+    """Return the first available obs key using a canonical candidate order."""
+    ordered: list[str] = []
+    if preferred:
+        ordered.append(preferred)
+    ordered.extend(str(key) for key in candidates if key and key not in ordered)
+    return _first_existing_obs_key(adata, ordered)
+
+
+def resolve_cell_type_key(adata: AnnData, preferred: Optional[str] = None) -> Optional[str]:
+    """Resolve the canonical downstream cell-type annotation key."""
+    return resolve_obs_key(adata, CELL_TYPE_KEY_CANDIDATES, preferred=preferred)
+
+
+def resolve_cell_lineage_key(adata: AnnData, preferred: Optional[str] = None) -> Optional[str]:
+    """Resolve the canonical downstream cell-lineage annotation key."""
+    return resolve_obs_key(adata, CELL_LINEAGE_KEY_CANDIDATES, preferred=preferred)
 
 
 def _single_obs_value(adata: AnnData, key: Optional[str]) -> Optional[str]:
@@ -258,5 +304,6 @@ __all__ = [
     "infer_analysis_context",
     "infer_dataset_profile",
     "is_multi_sample_hint",
+    "is_tumor_context",
     "normalize_dataset_type",
 ]

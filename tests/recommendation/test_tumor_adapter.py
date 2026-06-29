@@ -93,6 +93,25 @@ class TestAdaptTumorRecommendation:
             # Without cell_type column, should be disabled or low confidence
             assert run_tme.value is False or run_tme.confidence <= 0.5
 
+    def test_tme_uses_cell_type_auto_fallback(self, tumor_adata):
+        """TME recommendation should recognize canonical auto annotation aliases."""
+        from scLucid.utils.context import AnalysisContext
+
+        del tumor_adata.obs["cell_type"]
+        tumor_adata.obs["cell_type_auto"] = ["T cell"] * 400 + ["Epithelial"] * 400
+        ctx = AnalysisContext(dataset_type="tumor_tissue", tissue="tumor")
+
+        section = adapt_tumor_recommendation(
+            tumor_adata,
+            config=TumorAnalysisConfig(run_tme=True),
+            context=ctx,
+        )
+
+        run_tme = section.get_parameter("run_tme")
+        assert run_tme is not None
+        assert run_tme.value is True
+        assert run_tme.evidence["cell_type_key"] == "cell_type_auto"
+
     def test_with_cnv_score_detected(self, tumor_adata):
         tumor_adata.obs["cnv_score"] = 1.0
 

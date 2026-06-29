@@ -726,8 +726,13 @@ _REVIEW_SEQUENCE_KEYS = {
     "warnings",
     "review_action_items",
     "action_items",
+    "stage_contracts",
     "required_keys",
     "decision_table",
+    "qc_reviewer_table",
+    "preprocess_reviewer_table",
+    "analysis_reviewer_table",
+    "layer_transition_table",
     "recommendations",
     "decisions",
 }

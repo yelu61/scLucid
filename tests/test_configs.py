@@ -199,6 +199,12 @@ class TestDoubletConfig:
         config = DoubletConfig(expected_doublet_rate={"sample1": 0.05, "sample2": 0.08})
         assert config.expected_doublet_rate["sample1"] == 0.05
 
+        with pytest.raises(ValueError):
+            DoubletConfig(expected_doublet_rate={"sample1": "bad"})
+
+        with pytest.raises(ValueError):
+            DoubletConfig(expected_doublet_rate=True)
+
 
 @pytest.mark.unit
 class TestNormalizationConfig:

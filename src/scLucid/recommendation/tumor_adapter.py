@@ -10,7 +10,7 @@ import numpy as np
 from anndata import AnnData
 
 from ..tumor.config import TumorAnalysisConfig
-from ..utils.context import AnalysisContext, infer_analysis_context
+from ..utils.context import AnalysisContext, infer_analysis_context, resolve_cell_type_key
 from .schema import ParameterRecommendation, RecommendationSection
 
 log = logging.getLogger(__name__)
@@ -106,9 +106,10 @@ def adapt_tumor_recommendation(
         tme_confidence = 0.4
     cell_type_key = config.tme_cell_type_key
     if cell_type_key not in adata.obs.columns:
-        if "cell_type" in adata.obs.columns:
-            cell_type_key = "cell_type"
-            notes.append("Using 'cell_type' as fallback for TME deconvolution.")
+        resolved_cell_type_key = resolve_cell_type_key(adata)
+        if resolved_cell_type_key is not None:
+            cell_type_key = resolved_cell_type_key
+            notes.append(f"Using '{cell_type_key}' as fallback for TME deconvolution.")
         else:
             run_tme = False
             concerns.append("No cell type annotations found for TME deconvolution.")

@@ -14,13 +14,16 @@ def _adata(n_obs=20, n_vars=30):
 
 
 def test_normalize_dataset_type_aliases():
-    from scLucid.utils.context import normalize_dataset_type
+    from scLucid.utils.context import is_tumor_context, normalize_dataset_type
 
     assert normalize_dataset_type("PBMC") == "pbmc_or_blood"
     assert normalize_dataset_type("lung_tumor") == "tumor_tissue"
     assert normalize_dataset_type("cell line") == "cell_line"
     assert normalize_dataset_type("Visium") == "spatial"
     assert normalize_dataset_type("multi_sample") == "unknown"
+    assert is_tumor_context("lung_tumor")
+    assert is_tumor_context("pan-cancer")
+    assert is_tumor_context("malignant sample")
 
 
 def test_infer_analysis_context_detects_obs_and_spatial():
@@ -38,6 +41,21 @@ def test_infer_analysis_context_detects_obs_and_spatial():
     assert context.is_multi_sample is True
     assert context.is_spatial is True
     assert context.enables_tumor_module is False
+
+
+def test_resolve_cell_type_key_uses_canonical_downstream_order():
+    from scLucid.utils.context import resolve_cell_lineage_key, resolve_cell_type_key
+
+    adata = _adata()
+    adata.obs["cell_type_auto"] = "auto"
+    assert resolve_cell_type_key(adata) == "cell_type_auto"
+
+    adata.obs["cell_type"] = "manual"
+    assert resolve_cell_type_key(adata) == "cell_type"
+    assert resolve_cell_type_key(adata, preferred="cell_type_auto") == "cell_type_auto"
+
+    adata.obs["celltype_lineage_auto"] = "immune"
+    assert resolve_cell_lineage_key(adata) == "celltype_lineage_auto"
 
 
 def test_multi_sample_is_context_axis_not_dataset_type():
@@ -115,4 +133,3 @@ def test_recommendation_tumor_section_enabled_for_explicit_cancer_context():
     assert tumor.metadata["dataset_type"] == "unknown"
     assert recs.context["is_multi_sample"] is True
     assert tumor.get_parameter("run_malignancy").method != "dataset_type_gate"
-

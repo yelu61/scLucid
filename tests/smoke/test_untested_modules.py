@@ -27,6 +27,21 @@ class TestCellCycle:
         else:
             pytest.skip("Not enough marker genes in test data")
 
+    def test_score_cell_cycle_missing_layer_fails_clearly(self, qc_test_adata):
+        from scLucid.qc.cycle import score_cell_cycle
+
+        avail = list(qc_test_adata.var_names)
+        s_genes = avail[:3]
+        g2m_genes = avail[3:6]
+        with pytest.raises(KeyError, match="missing_layer"):
+            score_cell_cycle(
+                qc_test_adata,
+                s_genes=s_genes,
+                g2m_genes=g2m_genes,
+                layer="missing_layer",
+                plot=False,
+            )
+
     def test_available_species(self):
         from scLucid.qc.cycle import _get_available_species
 
