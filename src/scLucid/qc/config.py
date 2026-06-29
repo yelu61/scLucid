@@ -8,6 +8,7 @@ for consistent validation, serialization, and documentation.
 from __future__ import annotations
 
 import logging
+from numbers import Real
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -132,7 +133,13 @@ class DoubletConfig(SclucidBaseConfig):
         default=True,
         description="If False, skips algorithmic detection. Useful for heuristic-only runs.",
     )
-    method: Literal["scrublet", "solo", "doubletdetection", "scdblfinder"] = Field(
+    method: Literal[
+        "scrublet",
+        "scanpy_scrublet",
+        "solo",
+        "doubletdetection",
+        "scdblfinder",
+    ] = Field(
         default="scrublet", description="Algorithm for doublet score calculation"
     )
     detection_group_key: Optional[str] = Field(
@@ -266,6 +273,12 @@ class DoubletConfig(SclucidBaseConfig):
             except ImportError:
                 logger.warning("scrublet not found. Install with: pip install scrublet")
 
+        elif self.method == "scanpy_scrublet":
+            try:
+                import scanpy as _scanpy  # noqa: F401
+            except ImportError:
+                logger.warning("scanpy not found. Install with: pip install scanpy")
+
         elif self.method == "solo":
             try:
                 import scvi as _scvi  # noqa: F401
@@ -310,16 +323,26 @@ class DoubletConfig(SclucidBaseConfig):
         """Validate expected doublet rate."""
         if v is None:
             return v
-        if isinstance(v, float):
-            if not (0.0 < v < 1.0):
+        if isinstance(v, Real) and not isinstance(v, bool):
+            rate = float(v)
+            if not (0.0 < rate < 1.0):
                 raise ValueError("expected_doublet_rate must be between 0 and 1")
+            return rate
         elif isinstance(v, dict):
+            validated: Dict[str, float] = {}
             for k, rate in v.items():
-                if not (0.0 < rate < 1.0):
+                if not isinstance(rate, Real) or isinstance(rate, bool):
+                    raise ValueError(
+                        f"expected_doublet_rate for sample '{k}' must be numeric"
+                    )
+                rate_float = float(rate)
+                if not (0.0 < rate_float < 1.0):
                     raise ValueError(
                         f"expected_doublet_rate for sample '{k}' must be between 0 and 1"
                     )
-        return v
+                validated[str(k)] = rate_float
+            return validated
+        raise ValueError("expected_doublet_rate must be a float or a dict of floats")
 
 
 class MarkingConfig(SclucidBaseConfig):
@@ -435,6 +458,44 @@ class QCWorkflowConfig(WorkflowConfigBase):
     )
     use_recommendations: bool = Field(
         default=True, description="Run intelligent QC recommendation and apply to thresholds."
+    )
+    ambient_correction: Literal["none", "linear", "auto"] = Field(
+        default="none",
+        description=(
+            "Ambient RNA correction strategy. 'none' runs diagnostics only; "
+            "'linear' applies a lightweight background-subtraction correction; "
+            "'auto' attempts CellBender when available and falls back to linear."
+        ),
+    )
+    run_decision_engine: bool = Field(
+        default=True,
+        description=(
+            "Build unified evidence-based qc_decision/qc_reason/qc_confidence "
+            "columns before filtering."
+        ),
+    )
+    qc_decision_policy: Literal["conservative", "screening", "strict"] = Field(
+        default="conservative",
+        description=(
+            "Policy used by the evidence-based QC decision engine. Conservative "
+            "removes only multi-evidence low-quality cells and marks ambiguous "
+            "biology for review."
+        ),
+    )
+    qc_decision_score_layer: Optional[str] = Field(
+        default=None,
+        description=(
+            "Expression layer used for contamination/stress panel scores. None "
+            "uses adata.X."
+        ),
+    )
+    qc_decision_filter_mode: Literal["off", "append", "replace"] = Field(
+        default="off",
+        description=(
+            "How evidence-based qc_decision should affect filtering. 'off' keeps "
+            "legacy filter_config behavior; 'append' adds qc_remove to existing "
+            "criteria; 'replace' filters only cells with qc_decision == 'remove'."
+        ),
     )
     # Note: save_dir is inherited from SclucidBaseConfig, used for results output
 

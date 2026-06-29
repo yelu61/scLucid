@@ -8,6 +8,7 @@ gene symbols and includes automatic species detection capabilities.
 
 import json
 import logging
+import warnings
 from importlib import resources
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
@@ -430,6 +431,9 @@ def score_cell_cycle(
     if copy:
         adata = adata.copy()
 
+    if layer is not None and layer not in adata.layers:
+        raise KeyError(f"Layer '{layer}' not found in adata.layers")
+
     # Check if scores already exist
     if "phase" in adata.obs and not force:
         log.info("Cell cycle scores already exist. Use force=True to recompute.")
@@ -466,10 +470,11 @@ def score_cell_cycle(
         raise RuntimeError(f"Failed to compute cell cycle scores: {str(e)}")
 
     # Mark cell cycle genes in var
-    adata.var["is_cell_cycle"] = False  # 默认False
-    adata.var.loc[s_genes_found + g2m_genes_found, "is_cell_cycle"] = True
+    adata.var["is_cell_cycle"] = False
+    cell_cycle_genes = list(dict.fromkeys(s_genes_found + g2m_genes_found))
+    adata.var.loc[cell_cycle_genes, "is_cell_cycle"] = True
     log.info(
-        f"Marked {len(s_genes_found + g2m_genes_found)} cell cycle genes in adata.var['is_cell_cycle']."
+        f"Marked {len(cell_cycle_genes)} cell cycle genes in adata.var['is_cell_cycle']."
     )
 
     # Calculate additional metrics
@@ -480,6 +485,7 @@ def score_cell_cycle(
         "species_used": species_used,
         "s_genes_used_count": len(s_genes_found),
         "g2m_genes_used_count": len(g2m_genes_found),
+        "cell_cycle_genes_marked_count": len(cell_cycle_genes),
         "params": {
             "species_requested": species,
             "custom_s_genes_provided": s_genes is not None,
@@ -517,6 +523,12 @@ def score_cell_cycle_advanced(
     """
     增强版细胞周期打分，可选回归。
     """
+    warnings.warn(
+        "score_cell_cycle_advanced is deprecated; use score_cell_cycle plus "
+        "explicit downstream regression/plotting steps.",
+        FutureWarning,
+        stacklevel=2,
+    )
     # 现有打分逻辑
     adata = score_cell_cycle(adata, species, **kwargs)
 

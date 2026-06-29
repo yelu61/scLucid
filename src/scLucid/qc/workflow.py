@@ -10,9 +10,11 @@ import logging
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Dict, List, Literal, Optional, Tuple, TypeVar
 
 import numpy as np
+import pandas as pd
+import scanpy as sc
 from anndata import AnnData
 
 from ..runtime import effective_n_jobs
@@ -28,18 +30,28 @@ from ..utils import (
     save_workflow_result,
     validate_review_summary_schema,
 )
-from .ambient import diagnose_ambient_rna, diagnose_empty_droplets
+from ..utils.context import is_tumor_context, resolve_cell_type_key
+from .ambient import (
+    AMBIENT_CORRECTED_COUNTS_LAYER,
+    correct_ambient_rna_linear,
+    diagnose_ambient_rna,
+    diagnose_empty_droplets,
+    infer_ambient_input_context,
+    record_ambient_layer_contract,
+)
+from .ambient_backends import correct_ambient_rna as correct_ambient_rna_unified
 from .benchmark import evaluate_qc_benchmark, export_qc_benchmark_report
-from .config import QCWorkflowConfig
+from .config import FilterConfig, QCWorkflowConfig
+from .decisions import build_qc_decisions, summarize_qc_decisions
 from .doublet import predict_doublets
 from .filtering import (
-    AdaptiveThresholdCalculator,
     filter_cells,
-    generate_qc_report,
     mark_low_quality_cell,
     resolve_qc_thresholds,
 )
+from .filtering.core import AdaptiveThresholdCalculator
 from .metrics import calculate_qc_metric
+from .reporting import generate_qc_report
 from .trace import enrich_qc_review_summary, validate_qc_review_summary
 
 log = logging.getLogger(__name__)
@@ -56,6 +68,17 @@ QC_WORKFLOW_STEPS = [
 # Keep for backward compatibility
 QCWorkflowError = WorkflowError
 PartialQCResult = PartialResultManager
+
+
+def _restore_empty_config_values(value: Any) -> Any:
+    """Restore storage-normalized empty strings to ``None`` for config parsing."""
+    if value == "":
+        return None
+    if isinstance(value, dict):
+        return {key: _restore_empty_config_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_restore_empty_config_values(item) for item in value]
+    return value
 
 
 def _progress_bar(
@@ -385,9 +408,37 @@ def _safe_parallel_process(
 
 
 def _is_tumor_aware(tissue_type: Optional[str]) -> bool:
-    if not tissue_type:
+    return is_tumor_context(tissue_type)
+
+
+def _user_explicitly_set_threshold(
+    config: QCWorkflowConfig,
+    threshold_name: str,
+) -> bool:
+    """Return whether a nested QC threshold was explicitly supplied by the user."""
+    if "marking_config" not in getattr(config, "model_fields_set", set()):
         return False
-    return "tumor" in tissue_type.lower() or "cancer" in tissue_type.lower()
+    marking_config = getattr(config, "marking_config", None)
+    if marking_config is None or "thresholds" not in getattr(marking_config, "model_fields_set", set()):
+        return False
+    thresholds = getattr(marking_config, "thresholds", None)
+    return threshold_name in getattr(thresholds, "model_fields_set", set())
+
+
+def _resolve_filter_config_for_decisions(config: QCWorkflowConfig) -> FilterConfig:
+    """Return the filter config after applying optional qc_decision filtering."""
+    mode = getattr(config, "qc_decision_filter_mode", "off")
+    if mode == "off":
+        return config.filter_config
+    if mode == "replace":
+        return FilterConfig(
+            criteria_to_filter=["qc_remove"],
+            combination_logic="any",
+        )
+    criteria = list(config.filter_config.criteria_to_filter or [])
+    if "qc_remove" not in criteria:
+        criteria.append("qc_remove")
+    return config.filter_config.model_copy(update={"criteria_to_filter": criteria})
 
 
 def _apply_qc_recommendations(
@@ -691,6 +742,8 @@ def _build_qc_review_summary(
         "removed_cells": fs.get("removed_cells"),
         "removed_fraction": fs.get("removed_fraction"),
         "criteria_used": fs.get("criteria_used", config.filter_config.criteria_to_filter),
+        "criteria_counts": fs.get("criteria_counts", {}),
+        "review_criteria_counts": fs.get("review_criteria_counts", {}),
     }
 
     # --- Warnings ---
@@ -701,6 +754,32 @@ def _build_qc_review_summary(
         summary["empty_droplet_summary"] = empty_droplet_summary
 
     return summary
+
+
+def _sync_ambient_corrected_layer_to_output(
+    *,
+    source: AnnData,
+    target: AnnData,
+    output_layer: str,
+) -> bool:
+    """Copy an ambient-corrected layer from the review source to the final output."""
+    if output_layer not in source.layers:
+        return False
+    if not target.var_names.equals(source.var_names):
+        return False
+    try:
+        corrected = source.layers[output_layer]
+        target.layers[output_layer] = corrected[target.obs_names, :].copy()
+        return True
+    except Exception:
+        try:
+            row_index = source.obs_names.get_indexer(target.obs_names)
+            if np.any(row_index < 0):
+                return False
+            target.layers[output_layer] = source.layers[output_layer][row_index, :].copy()
+            return True
+        except Exception:
+            return False
 
 
 def _store_qc_trace(
@@ -715,6 +794,19 @@ def _store_qc_trace(
     adata_before_filtering: Optional[AnnData] = None,
 ) -> None:
     """Store unified QC trace under adata.uns['sclucid']['qc']."""
+    filtering_summary = dict(filtering_summary or {})
+    review_input = adata_before_filtering if adata_before_filtering is not None else adata
+    if (
+        _is_tumor_aware(config.tissue_type)
+        and config.marking_config.thresholds.pc_mt is not None
+        and "pct_counts_mt" in review_input.obs
+    ):
+        mt_values = np.asarray(review_input.obs["pct_counts_mt"], dtype=float)
+        mt_threshold = float(config.marking_config.thresholds.pc_mt)
+        review_counts = dict(filtering_summary.get("review_criteria_counts", {}) or {})
+        review_counts["outlier_mt"] = int(np.sum(mt_values >= mt_threshold))
+        filtering_summary["review_criteria_counts"] = review_counts
+
     n_samples = int(adata.obs[config.sample_key].nunique()) if config.sample_key in adata.obs else 1
     context = {
         "sample_key": config.sample_key,
@@ -753,7 +845,9 @@ def _store_qc_trace(
 
     ambient_input = adata_before_filtering if adata_before_filtering is not None else adata
     try:
+        ambient_input_context = infer_ambient_input_context(ambient_input)
         ambient_summary = diagnose_ambient_rna(ambient_input)
+        ambient_summary["input_context"] = ambient_input_context
         save_result(adata, "qc", "ambient_rna_summary", ambient_summary)
         empty_droplet_summary = diagnose_empty_droplets(ambient_input)
         save_result(adata, "qc", "empty_droplet_summary", empty_droplet_summary)
@@ -763,20 +857,99 @@ def _store_qc_trace(
                 f"{ambient_summary.get('risk_level')}; inspect ambient_rna_summary "
                 "and consider Python backends such as CellBender or scAR."
             )
-            save_result(adata, "qc", "warnings", warnings)
+            if config.ambient_correction in {"linear", "auto"}:
+                try:
+                    if config.ambient_correction == "auto":
+                        correction_summary = correct_ambient_rna_unified(
+                            ambient_input,
+                            method="auto",
+                            output_layer=AMBIENT_CORRECTED_COUNTS_LAYER,
+                            empty_droplet_key="likely_empty_droplet"
+                            if "likely_empty_droplet" in ambient_input.obs.columns
+                            else None,
+                        )
+                    else:
+                        correction_summary = correct_ambient_rna_linear(
+                            ambient_input,
+                            output_layer=AMBIENT_CORRECTED_COUNTS_LAYER,
+                            empty_droplet_key="likely_empty_droplet"
+                            if "likely_empty_droplet" in ambient_input.obs.columns
+                            else None,
+                        )
+                    if correction_summary.get("corrected"):
+                        correction_summary["output_layer_synced_to_filtered_adata"] = (
+                            _sync_ambient_corrected_layer_to_output(
+                                source=ambient_input,
+                                target=adata,
+                                output_layer=str(
+                                    correction_summary.get(
+                                        "output_layer",
+                                        AMBIENT_CORRECTED_COUNTS_LAYER,
+                                    )
+                                ),
+                            )
+                        )
+                        backend = correction_summary.get("backend", "linear")
+                        warnings.append(
+                            f"Applied {backend} ambient RNA correction to layer "
+                            f"'{correction_summary.get('output_layer')}'. "
+                            f"Removed {correction_summary.get('removed_counts', 0):.0f} "
+                            f"counts (mean rho = {correction_summary.get('mean_rho', 0):.3f})."
+                        )
+                    save_result(adata, "qc", "ambient_correction_summary", correction_summary)
+                    record_ambient_layer_contract(
+                        adata,
+                        input_context=ambient_input_context,
+                        correction_summary=correction_summary,
+                        output_layer=AMBIENT_CORRECTED_COUNTS_LAYER,
+                    )
+                except Exception as corr_exc:
+                    warnings.append(f"Ambient RNA correction failed: {corr_exc}")
+                    record_ambient_layer_contract(
+                        adata,
+                        input_context=ambient_input_context,
+                        correction_summary={
+                            "corrected": False,
+                            "reason": f"ambient correction failed: {corr_exc}",
+                            "review_required": True,
+                        },
+                        output_layer=AMBIENT_CORRECTED_COUNTS_LAYER,
+                    )
+            else:
+                record_ambient_layer_contract(
+                    adata,
+                    input_context=ambient_input_context,
+                    correction_summary={"corrected": False, "reason": "correction_not_requested"},
+                    output_layer=AMBIENT_CORRECTED_COUNTS_LAYER,
+                )
+        if "ambient_layer_contract" not in adata.uns.get("sclucid", {}).get("qc", {}):
+            record_ambient_layer_contract(
+                adata,
+                input_context=ambient_input_context,
+                correction_summary={
+                    "corrected": False,
+                    "reason": "ambient_risk_below_correction_threshold",
+                },
+                output_layer=AMBIENT_CORRECTED_COUNTS_LAYER,
+            )
+        save_result(adata, "qc", "warnings", warnings)
     except Exception as exc:
+        warnings.append(f"Ambient RNA diagnostics failed: {exc}")
         ambient_summary = {
             "available": False,
             "risk_level": "unknown",
             "reason": f"ambient diagnostic failed: {exc}",
+            "review_required": True,
         }
         empty_droplet_summary = {
             "available": False,
             "risk_level": "unknown",
             "reason": f"empty-droplet diagnostic failed: {exc}",
+            "review_required": True,
         }
         save_result(adata, "qc", "ambient_rna_summary", ambient_summary)
         save_result(adata, "qc", "empty_droplet_summary", empty_droplet_summary)
+        save_result(adata, "qc", "warnings", warnings)
 
     # Build and store the review-facing summary
     base_review_summary = _build_qc_review_summary(
@@ -804,6 +977,7 @@ def _store_qc_trace(
             warnings=warnings,
             context=context,
             steps_executed=steps_executed,
+            adata_before_filtering=adata_before_filtering,
         ),
         module="qc",
         workflow_name="standard",
@@ -820,10 +994,7 @@ def _store_qc_trace(
 
 def _detect_cell_type_key(adata: AnnData) -> Optional[str]:
     """Detect a likely cell type annotation column for benchmark stratification."""
-    for key in ["cell_type", "celltype", "cell_type_major", "annotation", "cell_annotation"]:
-        if key in adata.obs:
-            return key
-    return None
+    return resolve_cell_type_key(adata)
 
 
 def _export_qc_review_summary(
@@ -912,27 +1083,58 @@ def _export_qc_review_summary(
 
     md_lines.extend(
         [
-            "## Decision Table",
+            "## Threshold Reviewer Table",
             "",
-            "| Parameter | Applied | Source | Filter Enabled | Method | Confidence |",
-            "|-----------|---------|--------|----------------|--------|------------|",
+            "| Parameter | Recommended | Applied | Source | Confidence | Affected Cells | Risk Note | Review Required |",
+            "|-----------|-------------|---------|--------|------------|----------------|-----------|-----------------|",
         ]
     )
-    decision_table = review_summary.get("decision_table", [])
+    decision_table = review_summary.get(
+        "threshold_reviewer_table",
+        review_summary.get("decision_table", []),
+    )
     if isinstance(decision_table, dict):
         decision_table = list(decision_table.values())
     for row in decision_table:
         md_lines.append(
-            "| {parameter} | {applied} | {source} | {enabled} | {method} | {confidence} |".format(
+            "| {parameter} | {recommended} | {applied} | {source} | {confidence} | {affected} | {risk_note} | {review_required} |".format(
                 parameter=row.get("parameter"),
+                recommended=row.get("recommended"),
                 applied=row.get("applied"),
                 source=row.get("source"),
-                enabled=row.get("is_filtering_enabled"),
-                method=row.get("recommendation_method"),
                 confidence=row.get("confidence"),
+                affected=row.get("affected_cells"),
+                risk_note=str(row.get("risk_note") or "").replace("|", "/"),
+                review_required=row.get("review_required"),
             )
         )
     md_lines.append("")
+
+    qc_decisions = review_summary.get("qc_decision_summary", {})
+    if qc_decisions:
+        decision_counts = qc_decisions.get("decision_counts", {})
+        evidence_summary = qc_decisions.get("evidence_summary", {})
+        md_lines.extend(
+            [
+                "## QC Decision Summary",
+                "",
+                f"- **Policy**: {qc_decisions.get('policy')}",
+                f"- **Cells**: {qc_decisions.get('n_cells')}",
+                f"- **Review required cells**: {qc_decisions.get('review_required_cells')}",
+                f"- **Risk note**: {qc_decisions.get('risk_note')}",
+                "",
+                "| Decision | Cells |",
+                "|----------|-------|",
+            ]
+        )
+        if isinstance(decision_counts, dict):
+            for decision, count in decision_counts.items():
+                md_lines.append(f"| {decision} | {count} |")
+        md_lines.extend(["", "| Evidence | Cells |", "|----------|-------|"])
+        if isinstance(evidence_summary, dict):
+            for evidence, count in evidence_summary.items():
+                md_lines.append(f"| {evidence} | {count} |")
+        md_lines.append("")
 
     health = review_summary.get("output_health", {})
     md_lines.extend(
@@ -1026,6 +1228,57 @@ def _export_qc_review_summary(
             md_lines.append(f"- {note}")
     md_lines.append("")
 
+    doublet_summary = review_summary.get("doublet_evidence_summary", {})
+    if doublet_summary:
+        final_doublets = (
+            doublet_summary.get("predictions", {}).get("predicted_doublet", {})
+            if isinstance(doublet_summary.get("predictions"), dict)
+            else {}
+        )
+        predicted_fraction = final_doublets.get("fraction")
+        predicted_fraction_str = (
+            f"{predicted_fraction:.1%}" if isinstance(predicted_fraction, (int, float)) else "N/A"
+        )
+        md_lines.extend(
+            [
+                "## Doublet Evidence",
+                "",
+                f"- **Status**: {doublet_summary.get('status')}",
+                f"- **Predicted doublets**: {final_doublets.get('count', 'N/A')} ({predicted_fraction_str})",
+                f"- **Review required**: {doublet_summary.get('review_required', False)}",
+            ]
+        )
+        notes = doublet_summary.get("notes", [])
+        if isinstance(notes, dict):
+            notes = list(notes.values())
+        for note in notes:
+            md_lines.append(f"- {note}")
+        method_keys = doublet_summary.get("method_metadata_keys", [])
+        if method_keys:
+            md_lines.append(f"- **Method metadata**: {method_keys}")
+        benchmark_decision = doublet_summary.get("benchmark_decision", {})
+        if isinstance(benchmark_decision, dict) and benchmark_decision:
+            md_lines.extend(
+                [
+                    "- **Benchmark decision**:",
+                    f"  - recommended_default_mode: {benchmark_decision.get('recommended_default_mode', 'N/A')}",
+                    f"  - recommended_primary_method: {benchmark_decision.get('recommended_primary_method', 'N/A')}",
+                    f"  - recommended_algorithm_weight: {benchmark_decision.get('recommended_algorithm_weight', 'N/A')}",
+                    f"  - review_required: {benchmark_decision.get('review_required', False)}",
+                ]
+            )
+            if benchmark_decision.get("risk_note"):
+                md_lines.append(f"  - risk_note: {benchmark_decision['risk_note']}")
+        benchmark_evidence = doublet_summary.get("benchmark_evidence", {})
+        if benchmark_evidence:
+            md_lines.append("- **Benchmark evidence**:")
+            if isinstance(benchmark_evidence, dict):
+                for key, value in benchmark_evidence.items():
+                    md_lines.append(f"  - {key}: {value}")
+            else:
+                md_lines.append(f"  - {benchmark_evidence}")
+        md_lines.append("")
+
     downstream = review_summary.get("downstream_preprocess_recommendations", {})
     md_lines.extend(
         [
@@ -1105,7 +1358,7 @@ def _run_qc_workflow(
     config: QCWorkflowConfig,
     results_path: Optional[Path],
     show_progress: bool = True,
-) -> Tuple[AnnData, Any, Dict[str, Any], List[str]]:
+) -> Tuple[AnnData, QCWorkflowConfig, Any, Dict[str, Any], List[str], QCWorkflowConfig]:
     """
     Run QC workflow.
 
@@ -1153,6 +1406,36 @@ def _run_qc_workflow(
 
     # Tumor-aware filtering adjustment
     if _is_tumor_aware(active_tissue_type):
+        # The validation benchmark found that tumor-aware MT review thresholds
+        # should not fall below the conventional 20% guardrail.  In tumor data,
+        # MT% is treated as a review signal rather than an automatic deletion
+        # criterion unless the user explicitly opts into a stricter threshold.
+        pc_mt = config.marking_config.thresholds.pc_mt
+        if (
+            pc_mt is not None
+            and pc_mt < 20.0
+            and not _user_explicitly_set_threshold(original_config, "pc_mt")
+        ):
+            config.marking_config.thresholds.pc_mt = 20.0
+            msg = (
+                "Tumor-aware QC: pc_mt guardrail raised to 20.0 for review-only "
+                "mitochondrial signaling; validated tumor-aware policy avoids "
+                "mechanical high-MT deletion."
+            )
+            warnings_list.append(msg)
+            log.info(msg)
+        elif (
+            pc_mt is not None
+            and pc_mt < 20.0
+            and _user_explicitly_set_threshold(original_config, "pc_mt")
+        ):
+            msg = (
+                "Tumor-aware QC: user-provided pc_mt below 20.0 retained; review "
+                "high-MT malignant/stress/program preservation before filtering."
+            )
+            warnings_list.append(msg)
+            log.warning(msg)
+
         # Relax MAD threshold for tumor data (cells more heterogeneous)
         if config.marking_config.thresholds.nmads < 4.5:
             config.marking_config.thresholds.nmads = 4.5
@@ -1167,6 +1450,25 @@ def _run_qc_workflow(
             msg = "Tumor-aware QC: outlier_mt excluded from filtering criteria."
             warnings_list.append(msg)
             log.info(msg)
+
+        # Write MT review band from recommendation into obs when available.
+        if (
+            recommendation is not None
+            and hasattr(recommendation, "max_mt_percent")
+            and recommendation.max_mt_percent is not None
+        ):
+            mt_pct = np.asarray(adata.obs.get("pct_counts_mt", np.zeros(adata.n_obs)))
+            review_lower = recommendation.max_mt_percent.evidence.get("review_band_lower")
+            hard_threshold = recommendation.max_mt_percent.threshold
+            if review_lower is not None and hard_threshold is not None:
+                adata.obs["mt_review_flag"] = (
+                    (mt_pct >= review_lower) & (mt_pct < hard_threshold)
+                ).astype(int)
+                adata.obs["mt_hard_fail"] = (mt_pct >= hard_threshold).astype(int)
+                warnings_list.append(
+                    "Tumor-aware QC: added 'mt_review_flag' and 'mt_hard_fail' obs columns "
+                    "for metabolic-state review."
+                )
 
     # Blood tissue: ensure hemoglobin outlier detection is active
     if active_tissue_type and (
@@ -1475,10 +1777,40 @@ def run_standard_qc(
         if "filtering" in steps_to_run:
             current_step = "filtering"
             log.info("Step: Cell Filtering")
-            adata_filtered = filter_cells(adata, config=applied_config.filter_config, copy=True)
+            if applied_config.run_decision_engine:
+                log.info("Building evidence-based QC decisions before filtering")
+                decision_summary = build_qc_decisions(
+                    adata,
+                    tissue_type=applied_config.tissue_type or tissue_type,
+                    policy=applied_config.qc_decision_policy,
+                    score_layer=applied_config.qc_decision_score_layer,
+                )
+                adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+                    "qc_decision_summary"
+                ] = decision_summary
+            active_filter_config = _resolve_filter_config_for_decisions(applied_config)
+            adata_filtered = filter_cells(adata, config=active_filter_config, copy=True)
+            adata_filtered.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+                "qc_decision_filter_mode"
+            ] = applied_config.qc_decision_filter_mode
+            if applied_config.run_decision_engine and "qc_decision" in adata_filtered.obs:
+                adata_filtered.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+                    "qc_decision_summary"
+                ] = summarize_qc_decisions(
+                    adata_filtered,
+                    tissue_type=applied_config.tissue_type or tissue_type,
+                    policy=applied_config.qc_decision_policy,
+                )
             successful_steps.append("filtering")
         else:
             log.info("Step: Filtering (skipped)")
+            if applied_config.run_decision_engine:
+                build_qc_decisions(
+                    adata,
+                    tissue_type=applied_config.tissue_type or tissue_type,
+                    policy=applied_config.qc_decision_policy,
+                    score_layer=applied_config.qc_decision_score_layer,
+                )
             adata_filtered = adata
 
         filtering_summary = (
@@ -1561,6 +1893,460 @@ def run_standard_qc(
     return adata_filtered
 
 
+def recommend_qc_policy(
+    adata_in: AnnData,
+    config: Optional[QCWorkflowConfig] = None,
+    *,
+    tissue_type: str = "unknown",
+    show_progress: bool = False,
+) -> Dict[str, Any]:
+    """Recommend a QC policy without filtering or mutating the input object.
+
+    The returned bundle follows the canonical QC decision flow:
+    profile dataset, propose candidate thresholds, score biological risk,
+    choose/recommend policy, and emit a reviewer table. Filtering is not
+    applied; use :func:`apply_qc_policy` or :func:`run_qc` for execution.
+    """
+    diagnostic_config = (
+        config.model_copy(deep=True)
+        if config is not None and hasattr(config, "model_copy")
+        else config
+    )
+    if diagnostic_config is not None:
+        diagnostic_config.save_dir = None
+    diagnostic = run_standard_qc(
+        adata_in,
+        config=diagnostic_config,
+        tissue_type=tissue_type,
+        show_progress=show_progress,
+        steps=["qc_metrics"],
+    )
+    qc_ns = diagnostic.uns.get("sclucid", {}).get("qc", {})
+    review = qc_ns.get("review_summary", {}).get("data", {})
+    applied_config = _restore_empty_config_values(qc_ns.get("applied_config", {}).get("data", {}))
+    policy_flow = review.get("policy_flow", [])
+    if isinstance(policy_flow, dict):
+        policy_flow = [
+            policy_flow[key]
+            for key in sorted(policy_flow, key=lambda item: int(item) if str(item).isdigit() else str(item))
+        ]
+    return {
+        "schema_version": "qc_policy_bundle_v1",
+        "mode": "recommend_only",
+        "policy_flow": policy_flow,
+        "review_summary": review,
+        "decision_table": review.get("decision_table", []),
+        "recommended_threshold_summary": review.get("recommended_threshold_summary", {}),
+        "filtering_policy_summary": review.get("qc_filtering_policy_summary", {}),
+        "recommended_execution": {
+            "entrypoint": "scLucid.qc.run_iterative_qc",
+            "final_filter_policy": "decision_remove",
+            "rationale": (
+                "Reviewer-first QC should make final exclusion decisions from "
+                "qc_decision == 'remove' after recording ambiguous cells as review "
+                "or sensitivity_only evidence."
+            ),
+            "compatibility_path": (
+                "scLucid.qc.apply_qc_policy remains available for legacy threshold-based "
+                "execution and records qc_filtering_policy_summary for audit."
+            ),
+        },
+        "doublet_evidence_summary": review.get("doublet_evidence_summary", {}),
+        "applied_config": applied_config,
+    }
+
+
+def apply_qc_policy(
+    adata_in: AnnData,
+    policy: Optional[Dict[str, Any]] = None,
+    config: Optional[QCWorkflowConfig] = None,
+    *,
+    tissue_type: str = "unknown",
+    show_progress: bool = True,
+    overwrite: bool = False,
+) -> AnnData:
+    """Apply a recommended or user-provided QC policy to an AnnData object."""
+    if config is None and policy is not None:
+        policy_config = policy.get("applied_config") or policy.get("config")
+        if isinstance(policy_config, dict):
+            config = QCWorkflowConfig(**_restore_empty_config_values(policy_config))
+    return run_standard_qc(
+        adata_in,
+        config=config,
+        tissue_type=tissue_type,
+        show_progress=show_progress,
+        overwrite=overwrite,
+    )
+
+
+def _as_bool_obs(adata: AnnData, column: str) -> pd.Series:
+    """Return a boolean obs column or an all-False series."""
+    if column not in adata.obs:
+        return pd.Series(False, index=adata.obs_names)
+    return adata.obs[column].fillna(False).astype(bool)
+
+
+def _as_float_obs(adata: AnnData, column: str) -> pd.Series:
+    """Return a numeric obs column or an all-NaN series."""
+    if column not in adata.obs:
+        return pd.Series(np.nan, index=adata.obs_names, dtype=float)
+    return pd.to_numeric(adata.obs[column], errors="coerce")
+
+
+def _sample_for_quick_review(
+    adata: AnnData,
+    *,
+    max_cells: int,
+    random_state: int,
+) -> AnnData:
+    """Return a deterministic subset for quick biology review."""
+    if max_cells <= 0 or adata.n_obs <= max_cells:
+        return adata.copy()
+    rng = np.random.default_rng(random_state)
+    keep = np.sort(rng.choice(adata.n_obs, size=max_cells, replace=False))
+    return adata[keep].copy()
+
+
+def _run_quick_biology_review(
+    adata: AnnData,
+    *,
+    sample_key: str,
+    max_cells: int = 2000,
+    n_top_genes: int = 1000,
+    n_pcs: int = 20,
+    n_neighbors: int = 10,
+    resolution: float = 0.5,
+    random_state: int = 0,
+) -> Dict[str, Any]:
+    """Run a temporary quick embedding/cluster review for iterative QC."""
+    if adata.n_obs < 20 or adata.n_vars < 20:
+        return {
+            "schema_version": "quick_biology_review_v1",
+            "status": "skipped_too_few_cells",
+            "n_cells": int(adata.n_obs),
+            "n_genes": int(adata.n_vars),
+            "review_required": False,
+            "review_findings": [],
+            "cluster_qc_table": [],
+        }
+
+    try:
+        tmp = _sample_for_quick_review(adata, max_cells=max_cells, random_state=random_state)
+        tmp.X = tmp.X.copy()
+        sc.pp.normalize_total(tmp, target_sum=1e4)
+        sc.pp.log1p(tmp)
+        if tmp.n_vars > 50:
+            sc.pp.highly_variable_genes(
+                tmp,
+                n_top_genes=min(n_top_genes, tmp.n_vars),
+                flavor="seurat",
+            )
+            if "highly_variable" in tmp.var and bool(tmp.var["highly_variable"].any()):
+                tmp = tmp[:, tmp.var["highly_variable"].to_numpy()].copy()
+        sc.pp.scale(tmp, max_value=10)
+        effective_pcs = min(n_pcs, tmp.n_obs - 1, tmp.n_vars - 1)
+        if effective_pcs < 2:
+            raise ValueError("Too few cells/genes for PCA in quick biology review.")
+        sc.tl.pca(tmp, n_comps=effective_pcs, random_state=random_state)
+        sc.pp.neighbors(
+            tmp,
+            n_neighbors=min(n_neighbors, max(2, tmp.n_obs - 1)),
+            n_pcs=effective_pcs,
+            random_state=random_state,
+        )
+        sc.tl.umap(tmp, random_state=random_state)
+        sc.tl.leiden(
+            tmp,
+            resolution=resolution,
+            key_added="quick_qc_leiden",
+            random_state=random_state,
+        )
+
+        obs = tmp.obs
+        cluster_rows: list[dict[str, Any]] = []
+        review_findings: list[dict[str, Any]] = []
+        for cluster, group in obs.groupby("quick_qc_leiden", observed=True):
+            n_cells = int(group.shape[0])
+            qc_remove_frac = float(_as_bool_obs(tmp, "qc_remove").loc[group.index].mean())
+            review_frac = float(_as_bool_obs(tmp, "qc_review_required").loc[group.index].mean())
+            doublet_frac = float(_as_bool_obs(tmp, "predicted_doublet").loc[group.index].mean())
+            stress_frac = float(_as_bool_obs(tmp, "stress_high").loc[group.index].mean())
+            ambient_frac = float(_as_bool_obs(tmp, "ambient_risk").loc[group.index].mean())
+            mean_mt = _as_float_obs(tmp, "pct_counts_mt").loc[group.index].mean()
+            dominant_sample_fraction = None
+            dominant_sample = None
+            if sample_key in group:
+                sample_counts = group[sample_key].astype(str).value_counts(normalize=True)
+                if not sample_counts.empty:
+                    dominant_sample = str(sample_counts.index[0])
+                    dominant_sample_fraction = float(sample_counts.iloc[0])
+            flags: list[str] = []
+            if qc_remove_frac >= 0.30 or review_frac >= 0.50:
+                flags.append("qc_enriched_cluster")
+            if stress_frac >= 0.50:
+                flags.append("stress_enriched_cluster")
+            if doublet_frac >= 0.20:
+                flags.append("doublet_enriched_cluster")
+            if ambient_frac >= 0.30:
+                flags.append("ambient_enriched_cluster")
+            if dominant_sample_fraction is not None and dominant_sample_fraction >= 0.80 and n_cells >= 10:
+                flags.append("sample_dominated_cluster")
+
+            row = {
+                "cluster": str(cluster),
+                "n_cells": n_cells,
+                "qc_remove_fraction": qc_remove_frac,
+                "qc_review_required_fraction": review_frac,
+                "doublet_fraction": doublet_frac,
+                "stress_high_fraction": stress_frac,
+                "ambient_risk_fraction": ambient_frac,
+                "mean_pct_counts_mt": None if pd.isna(mean_mt) else float(mean_mt),
+                "dominant_sample": dominant_sample,
+                "dominant_sample_fraction": dominant_sample_fraction,
+                "review_flags": flags,
+            }
+            cluster_rows.append(row)
+            for flag in flags:
+                review_findings.append(
+                    {
+                        "scope": "cluster",
+                        "cluster": str(cluster),
+                        "finding": flag,
+                        "review_required": True,
+                    }
+                )
+
+        stress_mask = _as_bool_obs(tmp, "stress_high")
+        if sample_key in obs and int(stress_mask.sum()) >= 10:
+            stress_samples = obs.loc[stress_mask, sample_key].astype(str).value_counts(normalize=True)
+            if not stress_samples.empty and float(stress_samples.iloc[0]) >= 0.60:
+                review_findings.append(
+                    {
+                        "scope": "sample",
+                        "finding": "stress_high_sample_bias",
+                        "sample": str(stress_samples.index[0]),
+                        "fraction_of_stress_high_cells": float(stress_samples.iloc[0]),
+                        "review_required": True,
+                    }
+                )
+
+        doublet_mask = _as_bool_obs(tmp, "predicted_doublet")
+        if int(doublet_mask.sum()) >= 5:
+            doublet_clusters = obs.loc[doublet_mask, "quick_qc_leiden"].astype(str).nunique()
+            review_findings.append(
+                {
+                    "scope": "embedding",
+                    "finding": "doublet_boundary_review",
+                    "doublet_positive_clusters": int(doublet_clusters),
+                    "review_required": bool(doublet_clusters > 1),
+                }
+            )
+
+        ambient_mask = _as_bool_obs(tmp, "ambient_risk")
+        if int(ambient_mask.sum()) >= 5:
+            ambient_clusters = obs.loc[ambient_mask, "quick_qc_leiden"].astype(str).nunique()
+            if ambient_clusters >= max(2, obs["quick_qc_leiden"].nunique() // 2):
+                review_findings.append(
+                    {
+                        "scope": "embedding",
+                        "finding": "ambient_marker_widespread_leakage",
+                        "ambient_positive_clusters": int(ambient_clusters),
+                        "review_required": True,
+                    }
+                )
+
+        return {
+            "schema_version": "quick_biology_review_v1",
+            "status": "complete",
+            "n_cells_reviewed": int(tmp.n_obs),
+            "n_genes_reviewed": int(tmp.n_vars),
+            "cluster_key": "quick_qc_leiden",
+            "n_clusters": int(obs["quick_qc_leiden"].nunique()),
+            "umap_computed": bool("X_umap" in tmp.obsm),
+            "review_required": any(item.get("review_required") for item in review_findings),
+            "review_findings": review_findings,
+            "cluster_qc_table": cluster_rows,
+            "note": (
+                "Quick review was computed on a temporary normalized/log1p subset and "
+                "does not modify formal preprocessing layers."
+            ),
+        }
+    except Exception as exc:
+        return {
+            "schema_version": "quick_biology_review_v1",
+            "status": "failed",
+            "error": str(exc),
+            "review_required": True,
+            "review_findings": [
+                {
+                    "scope": "workflow",
+                    "finding": "quick_biology_review_failed",
+                    "review_required": True,
+                }
+            ],
+            "cluster_qc_table": [],
+        }
+
+
+def _build_iterative_qc_summary(
+    adata: AnnData,
+    *,
+    final_filter_policy: str,
+    run_quick_review: bool,
+    quick_biology_review: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the phase-level audit summary for iterative QC."""
+    qc_ns = adata.uns.get("sclucid", {}).get("qc", {})
+    decision_summary = qc_ns.get("qc_decision_summary", {})
+    filtering_summary = qc_ns.get("filtering_results", {})
+    phases = [
+        {
+            "phase": "lenient_cell_screen",
+            "status": "complete",
+            "outputs": [
+                "total_counts",
+                "n_genes_by_counts",
+                "pct_counts_mt",
+                "outlier_*",
+            ],
+            "note": "Extreme barcode/cell quality evidence was marked before final filtering.",
+        },
+        {
+            "phase": "doublet_contamination_stress_evidence",
+            "status": "complete",
+            "outputs": [
+                "predicted_doublet",
+                "qc_decision",
+                "qc_reason",
+                "qc_confidence",
+                "stress_score",
+                "hemoglobin_score",
+                "platelet_score",
+            ],
+            "note": "Evidence columns are review signals; ambiguous biology is not automatically deleted.",
+        },
+        {
+            "phase": "quick_biology_review",
+            "status": "not_run"
+            if not run_quick_review
+            else (quick_biology_review or {}).get("status", "not_run"),
+            "outputs": ["quick_biology_review"] if run_quick_review else [],
+            "note": (
+                "Quick embedding/cluster review was not requested."
+                if not run_quick_review
+                else "Temporary embedding review summarized QC/stress/doublet/ambient patterns."
+            ),
+        },
+        {
+            "phase": "final_qc_decision",
+            "status": "complete",
+            "outputs": ["qc_decision_summary", "filtering_results"],
+            "note": f"Final filter policy: {final_filter_policy}.",
+        },
+    ]
+    return {
+        "schema_version": "iterative_qc_summary_v1",
+        "final_filter_policy": final_filter_policy,
+        "run_quick_review": bool(run_quick_review),
+        "phases": phases,
+        "quick_biology_review": quick_biology_review or {},
+        "qc_decision_summary": decision_summary,
+        "filtering_summary": filtering_summary,
+        "recommended_next_step": (
+            "Run formal preprocessing on retained cells; inspect review/sensitivity_only cells "
+            "before irreversible exclusion in tumor or fragile-cell contexts."
+        ),
+    }
+
+
+def run_iterative_qc(
+    adata_in: AnnData,
+    config: Optional[QCWorkflowConfig] = None,
+    *,
+    tissue_type: str = "unknown",
+    final_filter_policy: Literal["decision_remove", "legacy", "none"] = "decision_remove",
+    run_quick_review: bool = False,
+    quick_review_max_cells: int = 2000,
+    quick_review_n_top_genes: int = 1000,
+    quick_review_n_pcs: int = 20,
+    quick_review_n_neighbors: int = 10,
+    quick_review_resolution: float = 0.5,
+    show_progress: bool = True,
+    overwrite: bool = False,
+) -> AnnData:
+    """Run the reviewer-first iterative QC entrypoint.
+
+    This first implementation formalizes the phase contract and routes final
+    filtering through the unified ``qc_decision`` schema when requested. It is
+    deliberately conservative: ambiguous high-MT/stress/doublet-like cells are
+    marked for review unless the joint decision engine labels them ``remove``.
+    """
+    active_config = (
+        config.model_copy(deep=True)
+        if config is not None and hasattr(config, "model_copy")
+        else QCWorkflowConfig()
+    )
+    active_config.run_decision_engine = True
+    if final_filter_policy == "decision_remove":
+        active_config.qc_decision_filter_mode = "replace"
+        steps = None
+    elif final_filter_policy == "legacy":
+        active_config.qc_decision_filter_mode = "off"
+        steps = None
+    elif final_filter_policy == "none":
+        active_config.qc_decision_filter_mode = "off"
+        steps = ["qc_metrics"]
+    else:
+        raise ValueError(
+            "final_filter_policy must be one of: 'decision_remove', 'legacy', 'none'"
+        )
+
+    result = run_standard_qc(
+        adata_in,
+        config=active_config,
+        tissue_type=tissue_type,
+        show_progress=show_progress,
+        overwrite=overwrite,
+        steps=steps,
+    )
+    quick_biology_review = None
+    if run_quick_review:
+        quick_biology_review = _run_quick_biology_review(
+            result,
+            sample_key=active_config.sample_key,
+            max_cells=quick_review_max_cells,
+            n_top_genes=quick_review_n_top_genes,
+            n_pcs=quick_review_n_pcs,
+            n_neighbors=quick_review_n_neighbors,
+            resolution=quick_review_resolution,
+            random_state=active_config.doublet_config.random_state,
+        )
+    summary = _build_iterative_qc_summary(
+        result,
+        final_filter_policy=final_filter_policy,
+        run_quick_review=run_quick_review,
+        quick_biology_review=quick_biology_review,
+    )
+    result.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+        "iterative_qc_summary"
+    ] = summary
+    return result
+
+
+def run_qc(
+    adata_in: AnnData,
+    config: Optional[QCWorkflowConfig] = None,
+    **kwargs: Any,
+) -> AnnData:
+    """Canonical user-facing QC entrypoint.
+
+    This is a thin alias for :func:`run_standard_qc`; it exists to make the
+    public API read as ``recommend_qc_policy`` -> ``apply_qc_policy`` or
+    ``run_qc`` for the one-step workflow.
+    """
+    return run_standard_qc(adata_in, config=config, **kwargs)
+
+
 def run_advanced_qc(
     adata_in: AnnData,
     config: QCWorkflowConfig,
@@ -1638,9 +2424,11 @@ def run_advanced_qc(
 
 
 __all__ = [
+    "run_qc",
+    "run_iterative_qc",
+    "recommend_qc_policy",
+    "apply_qc_policy",
     "run_standard_qc",
-    "run_advanced_qc",
     "QCWorkflowError",
-    "PartialQCResult",
     "QC_WORKFLOW_STEPS",
 ]

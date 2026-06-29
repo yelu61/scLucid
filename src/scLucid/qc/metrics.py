@@ -9,7 +9,7 @@ auto-detection of sample keys, and user-friendly logging.
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,6 +29,44 @@ __all__ = ["calculate_qc_metric"]
 
 
 # --- Helper Functions ---
+_NON_QC_VAR_COLUMNS = {
+    "highly_variable",
+    "highly_variable_nbatches",
+    "highly_variable_intersection",
+}
+
+
+def _is_gene_set_var_column(values: pd.Series) -> bool:
+    """Return True when a var column can be passed to scanpy as a gene-set mask."""
+    if pd.api.types.is_bool_dtype(values):
+        return True
+    if pd.api.types.is_numeric_dtype(values):
+        unique = pd.Series(values.dropna().unique())
+        return not unique.empty and unique.isin([0, 1]).all()
+    return False
+
+
+def _coerce_metrics_reporting_config(
+    reporting_config: Optional[MetricsReportingConfig],
+    kwargs: Dict[str, Any],
+) -> MetricsReportingConfig:
+    """Merge legacy keyword overrides through Pydantic instead of silent setattr."""
+    config_data = reporting_config.to_dict() if reporting_config is not None else {}
+    overrides = dict(kwargs)
+    if "show" in overrides and "show_plots" not in overrides:
+        overrides["show_plots"] = overrides.pop("show")
+
+    valid_fields = set(MetricsReportingConfig.model_fields)
+    unknown = sorted(set(overrides) - valid_fields)
+    if unknown:
+        raise TypeError(
+            "Unknown calculate_qc_metric reporting option(s): "
+            f"{unknown}. Use MetricsReportingConfig fields: {sorted(valid_fields)}."
+        )
+    config_data.update(overrides)
+    return MetricsReportingConfig(**config_data)
+
+
 def _find_sample_key(adata: AnnData, sample_key: Optional[str] = None) -> str:
     """
     Automatically detect the sample key column in adata.obs.
@@ -638,22 +676,7 @@ def calculate_qc_metric(
     Returns:
         AnnData object with QC metrics added to .obs and .var.
     """
-    report_config = MetricsReportingConfig()
-
-    if reporting_config is not None:
-        config_dict = reporting_config.to_dict()  # Pydantic's built-in serialization
-        for key, value in config_dict.items():
-            if hasattr(report_config, key):
-                setattr(report_config, key, value)
-
-    if kwargs:
-        for key, value in kwargs.items():
-            if hasattr(report_config, key):
-                setattr(report_config, key, value)
-            else:
-                log.warning(f"Unknown parameter '{key}' ignored.")
-
-    cfg = report_config
+    cfg = _coerce_metrics_reporting_config(reporting_config, kwargs)
 
     # --- Basic sanity checks ---
     sample_key = _find_sample_key(adata, sample_key)
@@ -697,6 +720,7 @@ def calculate_qc_metric(
                 )
 
     # Validate and apply regex patterns
+    validated_patterns: Dict[str, str] = {}
     if gene_patterns:
         validated_patterns = _validate_gene_patterns(gene_patterns, adata.var_names)
 
@@ -718,17 +742,18 @@ def calculate_qc_metric(
     log.info(f"Will calculate and analyze top gene percentages for: Top {percent_top_list}")
 
     # --- Calculate QC metrics with scanpy ---
-    qc_vars = [
+    requested_qc_vars = set(validated_patterns)
+    requested_qc_vars.update(
+        name
+        for name, gene_set_def in (extra_gene_sets or {}).items()
+        if isinstance(gene_set_def, list)
+    )
+    existing_gene_set_vars = {
         col
         for col in adata.var.columns
-        if col
-        in list(gene_patterns.keys())
-        + [
-            name
-            for name in (extra_gene_sets or {}).keys()
-            if isinstance(extra_gene_sets[name], list)
-        ]
-    ]
+        if col not in _NON_QC_VAR_COLUMNS and _is_gene_set_var_column(adata.var[col])
+    }
+    qc_vars = sorted(requested_qc_vars | existing_gene_set_vars)
 
     if qc_vars:
         log.info(f"Calculating QC metrics for gene sets: {qc_vars}")
@@ -751,14 +776,17 @@ def calculate_qc_metric(
     log.info("QC metrics calculation complete.")
 
     # --- Centralized .uns storage ---
-    adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("metrics", {})
-    adata.uns["sclucid"]["qc"]["metrics"]["params"] = {
+    metrics_uns = adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("metrics", {})
+    params = {
         "sample_key": sample_key,
         "include_standard_qc": cfg.include_standard_qc,
         "extra_gene_sets_provided": bool(extra_gene_sets),
+        "qc_vars": qc_vars,
         "percent_top_calculated": percent_top_list,
         "scanpy_version": version("scanpy"),
     }
+    metrics_uns["params"] = params
+    metrics_uns.setdefault("runs", []).append(dict(params))
 
     # --- Optional: Cell cycle scoring ---
     if calculate_cell_cycle:

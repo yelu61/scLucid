@@ -19,14 +19,23 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
 from scipy import stats
 
 from ..base_config import Field, SclucidBaseConfig
-from .adaptive_threshold import AdaptiveThresholdLearner as AdaptiveThresholdQC
+from ..utils.context import is_tumor_context, resolve_cell_type_key
+from .adaptive_threshold import (
+    AdaptiveThresholdLearner as AdaptiveThresholdQC,
+)
+from .adaptive_threshold import (
+    fit_bimodal_gmm_threshold_model,
+    fit_count_mixture_threshold_model,
+    fit_gmm_threshold_model,
+)
 from .metrics import calculate_qc_metric
 
 log = logging.getLogger(__name__)
@@ -70,9 +79,79 @@ class IntelligentQCConfig(SclucidBaseConfig):
         default=3, ge=2, le=5, description="Number of GMM components for tumor-aware strategy"
     )
 
+    # Count mixture parameters (for n_genes / count metrics)
+    min_genes_model: Literal["auto", "zinb", "poisson_gamma", "gmm", "percentile"] = Field(
+        default="auto",
+        description="Distribution family for min_genes threshold. auto tries ZINB/NB and falls back to GMM/percentile.",
+    )
+    min_genes_percentile: float = Field(
+        default=10.0, ge=1, le=50, description="Percentile for count-model min_genes threshold"
+    )
+
+    # Mitochondrial threshold parameters
+    mt_model: Literal[
+        "auto",
+        "bimodal_gmm",
+        "beta",
+        "lognorm",
+        "percentile",
+        "sample_aware",
+        "celltype_aware",
+        "multicomponent",
+    ] = Field(
+        default="auto",
+        description=(
+            "Distribution family for max_mt_percent threshold. auto uses bimodal "
+            "GMM for tumor tissues when supported; sample_aware / celltype_aware "
+            "compute per-stratum baselines."
+        ),
+    )
+    mt_global_percentile: float = Field(
+        default=95.0, ge=80, le=99, description="Global percentile for MT threshold"
+    )
+    mt_mad_factor: float = Field(
+        default=3.0, ge=1, le=10, description="MAD factor for MT threshold"
+    )
+    mt_review_mad_factor: float = Field(
+        default=2.0,
+        ge=1.0,
+        le=5.0,
+        description="MAD factor defining the MT% review band above the stratum baseline.",
+    )
+    mt_bimodal_min_separation: float = Field(
+        default=2.0,
+        ge=1.0,
+        le=5.0,
+        description="Minimum component separation (in std) to accept bimodal GMM for MT%.",
+    )
+    mt_max_components: int = Field(
+        default=4,
+        ge=2,
+        le=6,
+        description="Maximum GMM components for tumor-aware MT% modelling.",
+    )
+    mt_tumor_programs: Tuple[str, ...] = Field(
+        default_factory=lambda: (
+            "epithelial_malignant_like",
+            "cell_cycle",
+            "hypoxia_stress",
+            "emt_stromal",
+            "oxphos",
+            "glycolysis",
+            "mt_biogenesis",
+        ),
+        description="Tumor program panels used to interpret high-MT cells.",
+    )
+
+    # Stratified MT% analysis
+    sample_key: str = Field(
+        default="sampleID",
+        description="Observation key used for sample-aware MT% baselines.",
+    )
+
     # Bootstrap parameters
     n_bootstrap: int = Field(
-        default=100, ge=10, le=1000, description="Number of bootstrap iterations for CI calculation"
+        default=200, ge=50, le=2000, description="Number of bootstrap iterations for CI calculation"
     )
     bootstrap_percentile_lower: float = Field(
         default=2.5, ge=0, le=50, description="Lower percentile for bootstrap CI"
@@ -80,6 +159,23 @@ class IntelligentQCConfig(SclucidBaseConfig):
     bootstrap_percentile_upper: float = Field(
         default=97.5, ge=50, le=100, description="Upper percentile for bootstrap CI"
     )
+
+    # Data-quality scoring guardrails. These are heuristic defaults and are
+    # recorded in recommendation evidence so projects can calibrate them.
+    quality_min_median_genes: int = Field(default=200, ge=0)
+    quality_min_median_counts: int = Field(default=1000, ge=0)
+    quality_high_mt_median: float = Field(default=20.0, ge=0, le=100)
+    quality_doublet_score_threshold: float = Field(default=0.5, ge=0, le=1)
+    quality_high_doublet_rate: float = Field(default=0.2, ge=0, le=1)
+    quality_dominant_cell_cycle_phase_fraction: float = Field(default=0.9, ge=0, le=1)
+    quality_penalty_low_genes: float = Field(default=20.0, ge=0, le=100)
+    quality_penalty_low_counts: float = Field(default=20.0, ge=0, le=100)
+    quality_penalty_high_mt: float = Field(default=10.0, ge=0, le=100)
+    quality_penalty_high_doublet: float = Field(default=15.0, ge=0, le=100)
+    quality_penalty_cell_cycle_dominance: float = Field(default=10.0, ge=0, le=100)
+
+    tumor_program_min_relative_retention: float = Field(default=0.3, ge=0, le=10)
+    tumor_program_min_present_fraction: float = Field(default=0.5, ge=0, le=1)
 
     # Threshold calculation percentiles (for different strategies)
     percentile_conservative: float = Field(
@@ -93,14 +189,6 @@ class IntelligentQCConfig(SclucidBaseConfig):
     )
     percentile_standard: float = Field(
         default=10.0, ge=1, le=50, description="Percentile for standard strategy"
-    )
-
-    # Mitochondrial threshold parameters
-    mt_global_percentile: float = Field(
-        default=95.0, ge=80, le=99, description="Global percentile for MT threshold"
-    )
-    mt_mad_factor: float = Field(
-        default=3.0, ge=1, le=10, description="MAD factor for MT threshold"
     )
 
     # Confidence calculation
@@ -315,45 +403,65 @@ class IntelligentQCRecommender:
 
         if save_dir:
             save_dir = Path(save_dir)
-            save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Recommendation should not mutate the caller's AnnData; compute any
+        # missing QC helpers on a working copy instead.
+        required_aliases_present = all(
+            col in adata.obs.columns for col in ["n_genes", "n_counts", "pct_counts_mt"]
+        )
+        adata_for_recommendation = adata if required_aliases_present else adata.copy()
 
         # Ensure required QC columns exist; fallback to safe auto-derivation when possible.
-        metric_flags = self._prepare_required_qc_metrics(adata)
+        metric_flags = self._prepare_required_qc_metrics(adata_for_recommendation)
 
         # Step 1: Assess overall data quality
         log.info("Step 1/6: Assessing data quality...")
-        quality_score, quality_flags = self._assess_data_quality(adata)
+        quality_score, quality_flags = self._assess_data_quality(adata_for_recommendation)
         quality_flags = metric_flags + quality_flags
         log.info(f"  Data quality score: {quality_score:.1f}/100")
 
         # Step 2: Determine strategy
         log.info("Step 2/6: Determining analysis strategy...")
-        strategy = self._determine_strategy(adata, tissue_type, quality_score, sample_metadata)
+        strategy = self._determine_strategy(
+            adata_for_recommendation, tissue_type, quality_score, sample_metadata
+        )
         log.info(f"  Strategy: {strategy.value}")
 
         # Step 3: Recommend min_genes threshold
         log.info("Step 3/6: Recommending min_genes threshold...")
-        min_genes_rec = self._recommend_min_genes(adata, strategy, plot=plot, save_dir=save_dir)
+        min_genes_rec = self._recommend_min_genes(
+            adata_for_recommendation, strategy, plot=plot, save_dir=save_dir
+        )
 
         # Step 4: Recommend max_mt_percent threshold
         log.info("Step 4/6: Recommending max_mt_percent threshold...")
         max_mt_rec = self._recommend_max_mt(
-            adata, tissue_type, strategy, plot=plot, save_dir=save_dir
+            adata_for_recommendation,
+            tissue_type,
+            strategy,
+            plot=plot,
+            save_dir=save_dir,
         )
 
         # Step 5: Recommend n_counts threshold
         log.info("Step 5/6: Recommending n_counts threshold...")
-        n_counts_rec = self._recommend_n_counts(adata, strategy, plot=plot, save_dir=save_dir)
+        n_counts_rec = self._recommend_n_counts(
+            adata_for_recommendation, strategy, plot=plot, save_dir=save_dir
+        )
 
         # Step 6: Analyze doublet patterns
         log.info("Step 6/6: Analyzing doublet patterns...")
-        doublet_rec = self._analyze_doublet_patterns(adata, plot=plot, save_dir=save_dir)
+        doublet_rec = self._analyze_doublet_patterns(
+            adata_for_recommendation, plot=plot, save_dir=save_dir
+        )
 
         # Compile concerns
         concerns = self._generate_concerns(quality_score, quality_flags, strategy)
 
         # Tumor-specific considerations
-        tumor_considerations = self._get_tumor_considerations(adata, tissue_type, quality_flags)
+        tumor_considerations = self._get_tumor_considerations(
+            adata_for_recommendation, tissue_type, quality_flags
+        )
 
         # Calculate overall confidence
         overall_confidence = self._calculate_overall_confidence(
@@ -457,6 +565,7 @@ class IntelligentQCRecommender:
 
     def _assess_data_quality(self, adata: AnnData) -> Tuple[float, List[str]]:
         """Assess overall data quality."""
+        cfg = self.config
         score = 100.0
         flags = []
 
@@ -472,34 +581,34 @@ class IntelligentQCRecommender:
 
         # Assess various quality aspects
         # 1. Gene count distribution
-        if adata.obs["n_genes"].median() < 200:
-            score -= 20
-            flags.append("Low median gene count (<200)")
+        if adata.obs["n_genes"].median() < cfg.quality_min_median_genes:
+            score -= cfg.quality_penalty_low_genes
+            flags.append(f"Low median gene count (<{cfg.quality_min_median_genes})")
 
         # 2. UMI count distribution
-        if adata.obs["n_counts"].median() < 1000:
-            score -= 20
-            flags.append("Low median UMI count (<1000)")
+        if adata.obs["n_counts"].median() < cfg.quality_min_median_counts:
+            score -= cfg.quality_penalty_low_counts
+            flags.append(f"Low median UMI count (<{cfg.quality_min_median_counts})")
 
         # 3. Mitochondrial content
         mt_median = adata.obs["pct_counts_mt"].median()
-        if mt_median > 20:
-            score -= 10
+        if mt_median > cfg.quality_high_mt_median:
+            score -= cfg.quality_penalty_high_mt
             flags.append(f"High mitochondrial content ({mt_median:.1f}%)")
 
         # 4. Doublet score (if available)
         if "doublet_score" in adata.obs:
-            doublet_rate = (adata.obs["doublet_score"] > 0.5).mean()
-            if doublet_rate > 0.2:
-                score -= 15
+            doublet_rate = (adata.obs["doublet_score"] > cfg.quality_doublet_score_threshold).mean()
+            if doublet_rate > cfg.quality_high_doublet_rate:
+                score -= cfg.quality_penalty_high_doublet
                 flags.append(f"High doublet rate ({doublet_rate:.1%})")
 
         # 5. Cell cycle phase distribution
         if "cell_cycle_phase" in adata.obs:
             phase_dist = adata.obs["cell_cycle_phase"].value_counts(normalize=True)
             # Check if all cells are in same phase (suspicious)
-            if phase_dist.max() > 0.9:
-                score -= 10
+            if phase_dist.max() > cfg.quality_dominant_cell_cycle_phase_fraction:
+                score -= cfg.quality_penalty_cell_cycle_dominance
                 flags.append("All cells in same cell cycle phase")
 
         return max(0, score), flags
@@ -525,9 +634,7 @@ class IntelligentQCRecommender:
             return self.strategy
 
         # Auto-detect based on tissue type
-        tissue_lower = tissue_type.lower()
-
-        if "tumor" in tissue_lower or "cancer" in tissue_lower:
+        if is_tumor_context(tissue_type):
             log.info("  Detected tumor tissue → using tumor_aware strategy")
             return StrategyType.TUMOR_AWARE
 
@@ -552,139 +659,114 @@ class IntelligentQCRecommender:
         save_dir: Optional[Path] = None,
     ) -> ThresholdRecommendation:
         """
-        Recommend min_genes threshold using GMM and confidence intervals.
+        Recommend min_genes threshold using count mixture models and confidence intervals.
 
-        Innovation: Instead of "n_genes > 200", we:
-        1. Fit Gaussian Mixture Model to n_genes distribution
-        2. Identify main cell population vs low-quality tail
-        2. Bootstrap to get 95% CI
-        3. Adjust for tissue type (tumor vs normal)
+        Uses Zero-Inflated Negative Binomial / Negative Binomial (Poisson-Gamma)
+        when possible because n_genes is a discrete, right-skewed count metric.
+        Falls back to GMM or percentile for small / pathological datasets.
         """
         n_genes = adata.obs["n_genes"].values
-        cfg = self.config  # Use configured parameters
+        cfg = self.config
         n_cells = len(n_genes)
 
-        # Data-size-aware GMM settings
-        from sklearn.mixture import GaussianMixture
-
-        # --- Auto-select n_components via BIC when data supports it ---
-        max_components = min(5, max(2, n_cells // 100))
-        if n_cells < 500:
-            log.info(
-                f"Low cell count ({n_cells} < 500). Using conservative GMM parameters."
-            )
-            max_components = 2
-
-        best_n = 2
-        best_bic = np.inf
-        for k in range(1, max_components + 1):
-            gmm_k = GaussianMixture(
-                n_components=k,
-                random_state=cfg.random_state,
-                covariance_type="diag" if n_cells < 2000 else "full",
-                reg_covar=1e-3 if n_cells < 500 else 1e-6,
-                max_iter=200,
-            )
-            try:
-                gmm_k.fit(n_genes.reshape(-1, 1))
-                bic_k = gmm_k.bic(n_genes.reshape(-1, 1))
-                if bic_k < best_bic:
-                    best_bic = bic_k
-                    best_n = k
-            except Exception:
-                continue
-
-        n_components = best_n
-        log.info(f"Selected GMM with {n_components} component(s) (BIC-driven).")
-
-        gmm = GaussianMixture(
-            n_components=n_components,
-            random_state=cfg.random_state,
-            covariance_type="diag" if n_cells < 2000 else "full",
-            reg_covar=1e-3 if n_cells < 500 else 1e-6,
-            max_iter=200,
-        )
-        gmm.fit(n_genes.reshape(-1, 1))
-
-        # Find the main population (largest component)
-        main_component = np.argmax(gmm.weights_)
-
-        # Get threshold at 95th percentile of main component
-        main_mean = gmm.means_[main_component, 0]
-        # Handle both "diag" (2-D) and "full" (3-D) covariance shapes
-        cov = gmm.covariances_[main_component]
-        main_std = float(np.sqrt(cov.item()) if cov.ndim == 0 else np.sqrt(cov[0, 0] if cov.ndim == 2 else cov[0]))
-
-        # Adjust for strategy using configured percentiles
+        # Strategy-aware percentile
         if strategy == StrategyType.CONSERVATIVE:
-            # Lower threshold to keep more cells
             percentile_value = cfg.percentile_conservative
         elif strategy == StrategyType.AGGRESSIVE:
-            # Higher threshold
             percentile_value = cfg.percentile_aggressive
         else:
-            # Standard
             percentile_value = cfg.percentile_standard
 
-        z_score = stats.norm.ppf(percentile_value / 100.0)
+        # Small datasets: use percentile directly for stability
+        if n_cells < 500 or cfg.min_genes_model == "percentile":
+            return self._recommend_min_genes_percentile(n_genes, cfg, strategy)
 
-        threshold = main_mean + z_score * main_std
-        threshold = max(cfg.min_genes_absolute, int(threshold))
+        # Map config names to count-model names
+        model = cfg.min_genes_model
+        if model == "poisson_gamma":
+            model = "nb"
+        elif model == "auto":
+            model = "auto"
 
-        # Bootstrap for confidence interval (data-adaptive count)
-        n_bootstrap = max(50, min(1000, n_cells // 10))
-        boot_thresholds = []
+        count_fit = fit_count_mixture_threshold_model(
+            n_genes,
+            direction="lower",
+            percentile=percentile_value,
+            model=model,
+            random_state=cfg.random_state,
+            fallback=True,
+        )
 
+        threshold = float(count_fit["threshold"])
+        threshold = max(float(cfg.min_genes_absolute), threshold)
+
+        # Stratified bootstrap that preserves the zero / non-zero structure
         rng = np.random.default_rng(cfg.random_state)
+        n_bootstrap = max(cfg.n_bootstrap, 200)
+        boot_thresholds = []
         for _ in range(n_bootstrap):
             boot_sample = rng.choice(n_genes, size=len(n_genes), replace=True)
-            boot_threshold = np.percentile(boot_sample, percentile_value)
-            boot_thresholds.append(boot_threshold)
-
-        ci_lower = np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower)
-        ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
-        threshold = int(np.clip(threshold, ci_lower, ci_upper))
-
-        # Confidence based on delta-BIC vs. a single-Gaussian null model.
-        # delta_BIC = BIC(null) - BIC(best); larger -> stronger evidence for mixture.
-        bic = gmm.bic(n_genes.reshape(-1, 1))
-        try:
-            null_gmm = GaussianMixture(
-                n_components=1, random_state=cfg.random_state, max_iter=200
+            boot_fit = fit_count_mixture_threshold_model(
+                boot_sample,
+                direction="lower",
+                percentile=percentile_value,
+                model=count_fit.get("model", "auto") if count_fit.get("model") != "gmm" else "auto",
+                random_state=cfg.random_state + _,
+                fallback=True,
             )
-            null_gmm.fit(n_genes.reshape(-1, 1))
-            null_bic = null_gmm.bic(n_genes.reshape(-1, 1))
-            delta_bic = null_bic - bic
-            # Heuristic mapping: delta_BIC > 10 per cell gives near-1 confidence
-            confidence = min(1.0, max(0.5, 0.5 + delta_bic / (20.0 * n_cells)))
-        except Exception:
-            confidence = 0.7  # Neutral fallback
+            if boot_fit.get("is_success"):
+                boot_thresholds.append(float(boot_fit["threshold"]))
+            else:
+                boot_thresholds.append(np.percentile(boot_sample, percentile_value))
 
-        # Evidence
+        ci_lower = float(np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower))
+        ci_upper = float(np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper))
+        threshold = float(np.clip(threshold, ci_lower, ci_upper))
+
+        # Confidence: based on AIC advantage over GMM fallback (if available)
+        confidence = 0.7
+        if not count_fit.get("fallback_used") and count_fit.get("all_aic"):
+            all_aic = count_fit["all_aic"]
+            best_aic = count_fit.get("aic")
+            gmm_aic = all_aic.get("gmm")
+            if best_aic is not None and gmm_aic is not None and gmm_aic > best_aic:
+                delta_aic = min(gmm_aic - best_aic, 100.0)
+                confidence = min(1.0, max(0.5, 0.5 + delta_aic / 40.0))
+            elif best_aic is not None:
+                confidence = min(1.0, max(0.5, 0.7 + 10.0 / max(best_aic, 1.0)))
+
+        method_name = count_fit.get("method", "count mixture")
         evidence = {
-            "gmm_bic": float(bic),
-            "n_components": n_components,
+            "count_model": count_fit.get("model"),
+            "aic": count_fit.get("aic"),
+            "all_aic": count_fit.get("all_aic"),
+            "params": count_fit.get("params"),
+            "n_components": count_fit.get("gmm_fit", {}).get("n_components")
+            if count_fit.get("fallback_used")
+            else None,
             "n_bootstrap": n_bootstrap,
             "strategy": strategy.value,
-            "method": "GMM + Bootstrap",
+            "method": method_name,
+            "fallback_used": count_fit.get("fallback_used", False),
             "method_limitation": (
-                "One-dimensional n_genes GMM is used as a threshold recommendation heuristic; "
-                "it should not be interpreted as a validated generative model of low-quality cells."
+                "Count-mixture threshold is a data-driven heuristic for discrete QC metrics; "
+                "it should be reviewed against the actual n_genes distribution."
             ),
         }
 
         if plot and save_dir:
+            save_dir.mkdir(parents=True, exist_ok=True)
             self._plot_min_genes_analysis(
-                n_genes, threshold, boot_thresholds, save_dir / "min_genes_recommendation.pdf"
+                n_genes, int(threshold), boot_thresholds, save_dir / "min_genes_recommendation.pdf"
             )
             evidence["plot"] = str(save_dir / "min_genes_recommendation.pdf")
 
         return ThresholdRecommendation(
-            threshold=threshold,
+            threshold=int(threshold),
             ci_lower=int(ci_lower),
             ci_upper=int(ci_upper),
-            method="GMM + Bootstrap",
-            confidence=confidence,
+            method=method_name,
+            confidence=float(confidence),
             evidence=evidence,
         )
 
@@ -732,17 +814,26 @@ class IntelligentQCRecommender:
         plot: bool = True,
         save_dir: Optional[Path] = None,
     ) -> ThresholdRecommendation:
-        """
-        Recommend max_mt_percent threshold.
+        """Recommend max_mt_percent threshold with tumor metabolic awareness.
 
-        Innovation:
-        - Tumor tissues have higher mitochondrial content
-        - Adjust threshold based on data distribution
-        - Consider bimodal distribution (tumor + normal cells)
-        """
-        mt_pct = adata.obs["pct_counts_mt"].values
+        For tumor tissues this method supports:
 
-        # Remove zeros (cells with no MT)
+        - **Sample/cell-type aware baselines**: each stratum gets its own
+          median + nMAD band so that metabolically stressed populations are not
+          mechanically removed against a global low-MT baseline.
+        - **Multi-component GMM**: up to ``cfg.mt_max_components`` components
+          capture continuous metabolic gradients (OXPHOS, glycolysis, hypoxia,
+          proliferation).
+        - **Review band + hard threshold**: cells above the hard threshold are
+          flagged for filtering; cells between the stratum baseline +
+          ``mt_review_mad_factor`` MAD and the hard threshold are flagged for
+          review but not automatically removed.
+
+        The returned ``ThresholdRecommendation.evidence`` contains
+        ``review_band_lower`` and ``review_required`` so callers can build a
+        two-tier QC policy.
+        """
+        mt_pct = np.asarray(adata.obs["pct_counts_mt"].values, dtype=float)
         mt_pct_nonzero = mt_pct[mt_pct > 0]
 
         if len(mt_pct_nonzero) == 0:
@@ -755,11 +846,30 @@ class IntelligentQCRecommender:
                 evidence={"reason": "No mitochondrial genes detected"},
             )
 
-        # Fit distribution
+        cfg = self.config
+        is_tumor_dataset = is_tumor_context(tissue_type)
+
+        # Strategy-aware percentile baseline
+        if is_tumor_dataset or strategy == StrategyType.TUMOR_AWARE:
+            threshold_percentile = 95.0 if strategy == StrategyType.CONSERVATIVE else 90.0
+        else:
+            threshold_percentile = 90.0 if strategy == StrategyType.CONSERVATIVE else 85.0
+
+        threshold = float(np.percentile(mt_pct_nonzero, threshold_percentile))
+        method_name = f"distribution fitting (percentile {threshold_percentile:.0f})"
+        best_dist = "percentile"
+        best_params: Dict[str, Any] = {}
+        dist_results: Dict[str, Any] = {}
+        bimodal_info: Dict[str, Any] = {}
+        multicomponent_info: Dict[str, Any] = {}
+        tumor_program_signal: Dict[str, Any] = {}
+        review_required = False
+        review_band_lower = float(np.percentile(mt_pct_nonzero, 80.0))
+        stratum_baselines: Dict[str, Any] = {}
+
+        # 1. Try beta / lognorm single-distribution fits (existing path)
         from scipy.stats import beta, lognorm
 
-        # Try different distributions
-        dist_results = {}
         for dist_name, dist in [("beta", beta), ("lognorm", lognorm)]:
             try:
                 params = dist.fit(mt_pct_nonzero, floc=0)
@@ -768,35 +878,103 @@ class IntelligentQCRecommender:
             except Exception:
                 pass
 
-        # Select best distribution
         if dist_results:
             best_dist = min(dist_results.keys(), key=lambda k: dist_results[k]["ks_stat"])
-            best_params = dist_results[best_dist]["params"]
-        else:
-            # Fallback to percentiles
-            best_dist = "percentile"
-            best_params = {}
+            best_params = {"params": dist_results[best_dist]["params"]}
+            method_name = f"distribution fitting ({best_dist})"
 
-        # Determine threshold based on strategy and tissue type
-        tissue_lower = tissue_type.lower()
+        # 2. Stratum-aware baseline when requested or in tumor-aware auto mode.
+        requested_stratum_aware = cfg.mt_model in {"sample_aware", "celltype_aware"}
+        auto_stratum_aware = (
+            is_tumor_dataset
+            and cfg.mt_model == "auto"
+            and (cfg.sample_key in adata.obs.columns or resolve_cell_type_key(adata) is not None)
+        )
+        use_stratum_aware = requested_stratum_aware or auto_stratum_aware
+        if use_stratum_aware:
+            stratum_key = None
+            cell_type_key = resolve_cell_type_key(adata)
+            if cfg.mt_model == "celltype_aware" and cell_type_key is not None:
+                stratum_key = cell_type_key
+            elif cfg.mt_model == "sample_aware" and cfg.sample_key in adata.obs.columns:
+                stratum_key = cfg.sample_key
+            elif cell_type_key is not None:
+                stratum_key = cell_type_key
+            elif cfg.sample_key in adata.obs.columns:
+                stratum_key = cfg.sample_key
 
-        is_tumor_context = "tumor" in tissue_lower or "cancer" in tissue_lower
-        if is_tumor_context or strategy == StrategyType.TUMOR_AWARE:
-            # Tumor tissues: higher MT is normal
-            if strategy == StrategyType.CONSERVATIVE:
-                threshold_percentile = 95.0  # Allow high MT cells
-            else:
-                threshold_percentile = 90.0
-        else:
-            # Normal tissues: be more strict
-            if strategy == StrategyType.CONSERVATIVE:
-                threshold_percentile = 90.0
-            else:
-                threshold_percentile = 85.0
-        threshold = np.percentile(mt_pct_nonzero, threshold_percentile)
+            if stratum_key is not None:
+                baselines, global_review_lower = self._compute_mt_stratum_baselines(
+                    adata, mt_pct, stratum_key, cfg.mt_mad_factor, cfg.mt_review_mad_factor
+                )
+                stratum_baselines = baselines
+                review_band_lower = global_review_lower
+                # The hard threshold is the most permissive of the percentile
+                # baseline and the highest stratum-specific hard threshold.
+                stratum_hard_thresholds = [
+                    info["hard_threshold"]
+                    for info in baselines.values()
+                    if np.isfinite(info["hard_threshold"])
+                ]
+                if stratum_hard_thresholds:
+                    threshold = max(threshold, float(np.max(stratum_hard_thresholds)))
+                    method_name = f"{cfg.mt_model}_mad"
+
+        # 3. For tumor datasets, try bimodal GMM to identify a high-MT population
+        use_bimodal = (is_tumor_dataset or strategy == StrategyType.TUMOR_AWARE) and cfg.mt_model in (
+            "auto",
+            "bimodal_gmm",
+        )
+        if use_bimodal and len(mt_pct_nonzero) >= 100:
+            bimodal_fit = fit_bimodal_gmm_threshold_model(
+                mt_pct_nonzero,
+                direction="upper",
+                random_state=cfg.random_state,
+                min_separation=cfg.mt_bimodal_min_separation,
+            )
+            if bimodal_fit.get("is_bimodal"):
+                crossing = float(bimodal_fit["threshold"])
+                threshold = max(threshold, crossing)
+                method_name = "bimodal_gmm"
+                bimodal_info = {
+                    "crossing": crossing,
+                    "separation": bimodal_fit.get("separation"),
+                    "component_means": bimodal_fit.get("component_means"),
+                    "component_stds": bimodal_fit.get("component_stds"),
+                }
+
+        # 4. Multi-component GMM for tumor metabolic gradients.
+        use_multicomponent = (
+            is_tumor_dataset or strategy == StrategyType.TUMOR_AWARE
+        ) and cfg.mt_model in ("auto", "multicomponent")
+        if use_multicomponent and len(mt_pct_nonzero) >= 100:
+            multi_fit = fit_gmm_threshold_model(
+                mt_pct_nonzero,
+                direction="upper",
+                random_state=cfg.random_state,
+                max_components=cfg.mt_max_components,
+            )
+            if multi_fit.get("n_components", 1) > 1:
+                multi_threshold = float(multi_fit["threshold"])
+                threshold = max(threshold, multi_threshold)
+                method_name = "multicomponent_gmm"
+                multicomponent_info = {
+                    "n_components": multi_fit.get("n_components"),
+                    "bic": multi_fit.get("bic"),
+                    "null_bic": multi_fit.get("null_bic"),
+                }
+
+        # 5. Tumor-program co-expression check for high-MT cells
+        if is_tumor_dataset and threshold is not None and np.isfinite(threshold):
+            high_mt_mask = mt_pct > threshold
+            if high_mt_mask.sum() >= 10:
+                tumor_program_signal = self._assess_high_mt_tumor_programs(
+                    adata, high_mt_mask, cfg.mt_tumor_programs
+                )
+                if tumor_program_signal.get("signal_detected"):
+                    review_required = True
 
         # Bootstrap CI
-        cfg = self.config
         n_bootstrap = cfg.n_bootstrap
         boot_thresholds = []
         rng = np.random.default_rng(cfg.random_state)
@@ -805,33 +983,176 @@ class IntelligentQCRecommender:
             boot_thresh = np.percentile(boot_sample, threshold_percentile)
             boot_thresholds.append(boot_thresh)
 
-        ci_lower = np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower)
-        ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
+        ci_lower = float(np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower))
+        ci_upper = float(np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper))
         threshold = float(np.clip(threshold, ci_lower, ci_upper))
 
-        # Confidence based on distribution fit
-        if best_dist != "percentile":
+        # Confidence
+        if method_name in {"bimodal_gmm", "multicomponent_gmm"}:
+            separation = bimodal_info.get("separation", 0.0)
+            confidence = min(1.0, max(0.5, 0.6 + 0.05 * separation))
+        elif best_dist != "percentile" and dist_results:
             confidence = min(1.0, max(0.5, 0.5 + 0.5 * dist_results[best_dist]["ks_pval"]))
         else:
             confidence = 0.7
 
-        # Evidence
-        evidence = {
+        evidence: Dict[str, Any] = {
             "best_distribution": best_dist,
             "params": best_params,
             "tissue_type": tissue_type,
             "median_mt": float(np.median(mt_pct_nonzero)),
-            "method": f"distribution fitting ({best_dist})",
+            "method": method_name,
+            "threshold_percentile": threshold_percentile,
+            "bimodal": bimodal_info,
+            "multicomponent": multicomponent_info,
+            "stratum_baselines": stratum_baselines,
+            "review_band_lower": round(review_band_lower, 1),
+            "tumor_program_signal": tumor_program_signal,
+            "review_required": review_required,
         }
+
+        risk_note = ""
+        if review_required:
+            risk_note = (
+                "High-MT cells co-express tumor/stress/proliferation/metabolic programs; "
+                "avoid mechanical deletion and review biologically."
+            )
+            evidence["risk_note"] = risk_note
 
         return ThresholdRecommendation(
             threshold=round(float(threshold), 1),
             ci_lower=round(float(ci_lower), 1),
             ci_upper=round(float(ci_upper), 1),
-            method=f"distribution fitting ({best_dist})",
+            method=method_name,
             confidence=float(confidence),
             evidence=evidence,
         )
+
+    def _compute_mt_stratum_baselines(
+        self,
+        adata: AnnData,
+        mt_pct: np.ndarray,
+        stratum_key: str,
+        hard_mad_factor: float,
+        review_mad_factor: float,
+    ) -> Tuple[Dict[str, Any], float]:
+        """Compute per-stratum MT% baselines and a global review-band lower bound.
+
+        For each stratum with at least 25 cells, the hard threshold is
+        ``median + hard_mad_factor * MAD`` and the review-band lower bound is
+        ``median + review_mad_factor * MAD``.  The function returns a dict of
+        per-stratum summaries and the lowest review-band lower bound across
+        strata, which is used as the global ``review_band_lower``.
+        """
+        strata = adata.obs.groupby(stratum_key, observed=False).indices
+        baselines: Dict[str, Any] = {}
+        review_lowers = []
+        for name, idx in strata.items():
+            values = mt_pct[idx]
+            values = values[np.isfinite(values) & (values >= 0)]
+            if len(values) < 25:
+                continue
+            med = float(np.median(values))
+            mad = float(np.median(np.abs(values - med)))
+            # MAD to std-like scaling
+            scaled_mad = mad * 1.4826 if mad > 0 else 0.0
+            hard = med + hard_mad_factor * scaled_mad
+            review = med + review_mad_factor * scaled_mad
+            baselines[str(name)] = {
+                "n_cells": len(values),
+                "median": round(med, 3),
+                "mad": round(mad, 3),
+                "hard_threshold": round(hard, 3),
+                "review_threshold": round(review, 3),
+            }
+            review_lowers.append(review)
+
+        global_review_lower = float(np.min(review_lowers)) if review_lowers else float(
+            np.percentile(mt_pct[np.isfinite(mt_pct)], 80.0)
+        )
+        return baselines, global_review_lower
+
+    def _assess_high_mt_tumor_programs(
+        self,
+        adata: AnnData,
+        high_mt_mask: np.ndarray,
+        program_panel_names: Tuple[str, ...],
+    ) -> Dict[str, Any]:
+        """Check whether high-MT cells retain meaningful biology vs. being debris.
+
+        Instead of looking for enrichment of tumor programs in high-MT cells
+        (which are often damaged and have globally lower expression), we compare
+        the *relative retention* of the marker signal in the high-MT population
+        versus the low-MT population.  If high-MT cells retain a non-trivial
+        fraction of the marker signal, the high-MT peak should not be
+        mechanically removed.
+
+        Returns a dictionary with ``signal_detected`` (bool),
+        ``enriched_programs``, and per-program statistics.
+        """
+        result: Dict[str, Any] = {"signal_detected": False, "enriched_programs": []}
+        try:
+            from validation.gene_panels import TUMOR_PROGRAM_PANELS
+        except Exception:
+            return result
+
+        X = adata.X
+        if hasattr(X, "toarray"):
+            X_arr = X.toarray()
+        else:
+            X_arr = np.asarray(X)
+
+        var_names = pd.Index(adata.var_names.astype(str))
+        low_mt_mask = ~high_mt_mask
+        n_high = int(high_mt_mask.sum())
+        n_low = int(low_mt_mask.sum())
+        if n_high == 0 or n_low == 0:
+            return result
+
+        programs_enriched = []
+        program_stats = []
+
+        for panel_name in program_panel_names:
+            genes = TUMOR_PROGRAM_PANELS.get(panel_name, ())
+            present = [g for g in genes if g in var_names]
+            if len(present) < 2:
+                continue
+            idx = var_names.get_indexer(present)
+            high_expr = np.asarray(X_arr[high_mt_mask, :][:, idx].mean(axis=0)).ravel()
+            low_expr = np.asarray(X_arr[low_mt_mask, :][:, idx].mean(axis=0)).ravel()
+            # Total signal per population, normalised by population size
+            high_total = float(high_expr.sum())
+            low_total = float(low_expr.sum())
+            if low_total <= 0:
+                continue
+            # Relative retention of this program in high-MT vs low-MT cells
+            relative_retention = (high_total / n_high) / (low_total / n_low)
+            # Absolute presence: high-MT cells should express at least some marker genes
+            present_fraction = float((high_expr > 0).sum()) / len(present)
+            program_stats.append(
+                {
+                    "program": panel_name,
+                    "high_total_signal": high_total,
+                    "low_total_signal": low_total,
+                    "relative_retention": relative_retention,
+                    "present_fraction": present_fraction,
+                }
+            )
+            if (
+                relative_retention >= self.config.tumor_program_min_relative_retention
+                and present_fraction >= self.config.tumor_program_min_present_fraction
+            ):
+                programs_enriched.append(panel_name)
+
+        result["program_stats"] = program_stats
+        result["thresholds"] = {
+            "min_relative_retention": self.config.tumor_program_min_relative_retention,
+            "min_present_fraction": self.config.tumor_program_min_present_fraction,
+        }
+        if programs_enriched:
+            result["signal_detected"] = True
+            result["enriched_programs"] = programs_enriched
+        return result
 
     def _recommend_n_counts(
         self,
@@ -840,53 +1161,94 @@ class IntelligentQCRecommender:
         plot: bool = True,
         save_dir: Optional[Path] = None,
     ) -> ThresholdRecommendation:
-        """Recommend n_counts threshold."""
-        n_counts = adata.obs["n_counts"].values
+        """Recommend n_counts threshold with a count-distribution model."""
+        n_counts = np.asarray(adata.obs["n_counts"].values, dtype=float)
+        valid_counts = n_counts[np.isfinite(n_counts) & (n_counts >= 0)]
+        positive_counts = valid_counts[valid_counts > 0]
+        if positive_counts.size == 0:
+            return ThresholdRecommendation(
+                threshold=0,
+                ci_lower=0,
+                ci_upper=0,
+                method="count_mixture_unavailable",
+                confidence=0.0,
+                evidence={"reason": "no_positive_counts", "n_cells": int(len(n_counts))},
+            )
 
-        # Log-transform typically follows normal distribution
-        log_counts = np.log10(n_counts[n_counts > 0] + 1)
-
-        # Fit normal distribution
-        mu, std = log_counts.mean(), log_counts.std()
-
-        # Determine threshold based on strategy
         if strategy == StrategyType.CONSERVATIVE:
-            z_score = -1.282  # 10th percentile
+            threshold_percentile = 10.0
         elif strategy == StrategyType.AGGRESSIVE:
-            z_score = -0.842  # 20th percentile
+            threshold_percentile = 20.0
         else:
-            z_score = -1.036  # 15th percentile
+            threshold_percentile = 15.0
 
-        log_threshold = mu + z_score * std
-        threshold = int(10**log_threshold)
+        cfg = self.config
+        count_fit = fit_count_mixture_threshold_model(
+            valid_counts,
+            direction="lower",
+            percentile=threshold_percentile,
+            model="auto",
+            random_state=cfg.random_state,
+            fallback=True,
+        )
+        threshold = float(count_fit["threshold"])
 
         # Bootstrap CI
-        cfg = self.config
         n_bootstrap = cfg.n_bootstrap
         boot_thresholds = []
         rng = np.random.default_rng(cfg.random_state)
         for _ in range(n_bootstrap):
-            boot_sample = rng.choice(log_counts, size=len(log_counts), replace=True)
-            boot_mu = boot_sample.mean()
-            boot_std = boot_sample.std()
-            boot_thresh = 10 ** (boot_mu + z_score * boot_std)
-            boot_thresholds.append(boot_thresh)
+            boot_sample = rng.choice(valid_counts, size=len(valid_counts), replace=True)
+            boot_thresh = np.percentile(boot_sample, threshold_percentile)
+            if np.isfinite(boot_thresh):
+                boot_thresholds.append(float(boot_thresh))
 
-        ci_lower = np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower)
-        ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
+        if boot_thresholds:
+            ci_lower = float(np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower))
+            ci_upper = float(np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper))
+        else:
+            ci_lower = ci_upper = threshold
+
         threshold = int(np.clip(threshold, ci_lower, ci_upper))
 
-        # Confidence based on sample size
-        n_cells = len(n_counts)
-        confidence = min(1.0, n_cells / 1000)  # Approaches 1.0 at 1000 cells
+        n_cells = int(len(valid_counts))
+        sample_score = 1.0 - np.exp(-n_cells / 1000.0)
+        ci_width = max(float(ci_upper - ci_lower), 0.0)
+        ci_precision = 1.0 / (1.0 + ci_width / max(float(threshold), 1.0))
+        all_aic = count_fit.get("all_aic") or {}
+        if len(all_aic) >= 2:
+            ranked_aic = sorted(float(v) for v in all_aic.values() if np.isfinite(v))
+            delta_aic = ranked_aic[1] - ranked_aic[0] if len(ranked_aic) >= 2 else 0.0
+            model_score = float(np.clip(delta_aic / 20.0, 0.0, 1.0))
+        else:
+            model_score = 0.5 if count_fit.get("is_success") else 0.0
+        fallback_penalty = 0.85 if count_fit.get("fallback_used") else 1.0
+        confidence = fallback_penalty * (
+            0.35 * sample_score + 0.35 * model_score + 0.30 * ci_precision
+        )
+        confidence = float(np.clip(confidence, 0.0, 1.0))
 
         return ThresholdRecommendation(
             threshold=threshold,
             ci_lower=int(ci_lower),
             ci_upper=int(ci_upper),
-            method="log-normal distribution + bootstrap",
+            method=f"{count_fit.get('method', 'count_mixture')} + bootstrap",
             confidence=float(confidence),
-            evidence={"n_cells": n_cells},
+            evidence={
+                "n_cells": n_cells,
+                "model": count_fit.get("model"),
+                "params": count_fit.get("params"),
+                "aic": count_fit.get("aic"),
+                "all_aic": count_fit.get("all_aic"),
+                "fallback_used": count_fit.get("fallback_used"),
+                "threshold_percentile": threshold_percentile,
+                "bootstrap_ci_method": "empirical_resampled_percentile",
+                "confidence_components": {
+                    "sample_score": float(sample_score),
+                    "model_score": float(model_score),
+                    "ci_precision": float(ci_precision),
+                },
+            },
         )
 
     def _analyze_doublet_patterns(
@@ -904,18 +1266,17 @@ class IntelligentQCRecommender:
                 evidence={"reason": "Doublet scores not calculated"},
             )
 
-        doublet_scores = adata.obs["doublet_score"].values
-
-        # Analyze distribution
-        from scipy.stats import beta
-
-        # Fit beta distribution to doublet scores
-        beta_a, beta_b, beta_loc, beta_scale = beta.fit(doublet_scores)
-        beta_params = (beta_a, beta_b, beta_loc, beta_scale)
-
-        # Find "elbow" in distribution
-        # Typically, there's a peak at low scores (real cells) and tail (doublets)
-        # We want the inflection point
+        doublet_scores = np.asarray(adata.obs["doublet_score"].values, dtype=float)
+        doublet_scores = doublet_scores[np.isfinite(doublet_scores)]
+        if doublet_scores.size == 0:
+            return ThresholdRecommendation(
+                threshold=0.5,
+                ci_lower=0.5,
+                ci_upper=0.5,
+                method="doublet_scores_unavailable",
+                confidence=0.0,
+                evidence={"reason": "no_finite_doublet_scores"},
+            )
 
         # Use percentile method (more robust)
         if self.strategy == StrategyType.CONSERVATIVE:
@@ -924,7 +1285,25 @@ class IntelligentQCRecommender:
             threshold_percentile = 85.0
         else:
             threshold_percentile = 90.0
-        threshold = np.percentile(doublet_scores, threshold_percentile)
+        percentile_threshold = float(np.percentile(doublet_scores, threshold_percentile))
+        threshold = percentile_threshold
+        method = "doublet_score_percentile"
+        gmm_fit: Dict[str, Any] = {}
+        if doublet_scores.size >= 100 and float(np.std(doublet_scores)) > 0:
+            try:
+                gmm_fit = fit_gmm_threshold_model(
+                    doublet_scores,
+                    direction="upper",
+                    random_state=self.config.random_state,
+                    max_components=3,
+                )
+                if gmm_fit.get("n_components", 1) > 1 and np.isfinite(
+                    gmm_fit.get("threshold", np.nan)
+                ):
+                    threshold = float(gmm_fit["threshold"])
+                    method = "doublet_score_gmm"
+            except Exception as exc:
+                gmm_fit = {"is_success": False, "error": str(exc)}
 
         # Bootstrap CI
         cfg = self.config
@@ -933,33 +1312,62 @@ class IntelligentQCRecommender:
         rng = np.random.default_rng(cfg.random_state)
         for _ in range(n_bootstrap):
             boot_sample = rng.choice(doublet_scores, size=len(doublet_scores), replace=True)
-            boot_thresh = np.percentile(boot_sample, threshold_percentile)
+            if method == "doublet_score_gmm" and boot_sample.size >= 100:
+                try:
+                    boot_fit = fit_gmm_threshold_model(
+                        boot_sample,
+                        direction="upper",
+                        random_state=cfg.random_state,
+                        max_components=3,
+                    )
+                    boot_thresh = (
+                        float(boot_fit["threshold"])
+                        if boot_fit.get("n_components", 1) > 1
+                        else float(np.percentile(boot_sample, threshold_percentile))
+                    )
+                except Exception:
+                    boot_thresh = float(np.percentile(boot_sample, threshold_percentile))
+            else:
+                boot_thresh = float(np.percentile(boot_sample, threshold_percentile))
             boot_thresholds.append(boot_thresh)
 
         ci_lower = np.percentile(boot_thresholds, cfg.bootstrap_percentile_lower)
         ci_upper = np.percentile(boot_thresholds, cfg.bootstrap_percentile_upper)
         threshold = float(np.clip(threshold, ci_lower, ci_upper))
 
-        # Confidence based on distribution fit
-        # Use KS test to check if beta distribution is a good fit
-        ks_stat, ks_pval = stats.kstest(doublet_scores, "beta", args=beta_params)
-        confidence = min(1.0, max(0.5, 0.5 + 0.5 * ks_pval))
+        ci_width = max(float(ci_upper - ci_lower), 0.0)
+        ci_precision = 1.0 / (1.0 + ci_width / max(float(threshold), 1e-6))
+        null_bic = gmm_fit.get("null_bic")
+        bic = gmm_fit.get("bic")
+        if method == "doublet_score_gmm" and null_bic is not None and bic is not None:
+            mixture_score = float(np.clip((float(null_bic) - float(bic)) / 20.0, 0.0, 1.0))
+        elif method == "doublet_score_gmm":
+            mixture_score = 0.7
+        else:
+            mixture_score = 0.45
+        sample_score = 1.0 - np.exp(-len(doublet_scores) / 1000.0)
+        confidence = float(
+            np.clip(0.35 * sample_score + 0.35 * mixture_score + 0.30 * ci_precision, 0.0, 1.0)
+        )
 
         evidence = {
-            "beta_a": beta_a,
-            "beta_b": beta_b,
-            "beta_loc": beta_loc,
-            "beta_scale": beta_scale,
-            "ks_stat": ks_stat,
-            "ks_pval": ks_pval,
+            "distribution_model": method,
+            "gmm": gmm_fit,
+            "percentile_threshold": percentile_threshold,
+            "threshold_percentile": threshold_percentile,
             "doublet_rate": float((doublet_scores > threshold).mean()),
+            "confidence_components": {
+                "sample_score": float(sample_score),
+                "mixture_score": float(mixture_score),
+                "ci_precision": float(ci_precision),
+            },
         }
 
         return ThresholdRecommendation(
             threshold=round(float(threshold), 3),
             ci_lower=round(float(ci_lower), 3),
             ci_upper=round(float(ci_upper), 3),
-            method="beta distribution + percentile",
+            method=f"{method} + bootstrap",
             confidence=float(confidence),
             evidence=evidence,
         )
@@ -1000,9 +1408,7 @@ class IntelligentQCRecommender:
         """Generate tumor-specific considerations."""
         considerations = []
 
-        tissue_lower = tissue_type.lower()
-
-        if "tumor" in tissue_lower or "cancer" in tissue_lower:
+        if is_tumor_context(tissue_type):
             considerations.append("Tumor tissue detected: Using elevated mitochondrial thresholds")
 
             # Check for mixed populations
