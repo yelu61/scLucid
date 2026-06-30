@@ -201,7 +201,7 @@ def optimize_neighbors_pcs(
         best_params = df_results.loc[df_results["silhouette_score"].idxmax()]
         log.info("=" * 30)
         log.info("Optimization Complete")
-        log.info("Optimal parameters found:")
+        log.info("Silhouette-selected parameters found:")
         log.info(f"  n_neighbors: {int(best_params['n_neighbors'])}")
         log.info(f"  n_pcs: {int(best_params['n_pcs'])}")
         log.info(f"  Best Silhouette Score: {best_params['silhouette_score']:.4f}")
@@ -221,9 +221,16 @@ def optimize_neighbors_pcs(
                 "n_neighbors": int(best_params["n_neighbors"]),
                 "n_pcs": int(best_params["n_pcs"]),
                 "silhouette_score": float(best_params["silhouette_score"]),
+                "claim_level": "heuristic_graph_parameter_recommendation",
             }
             if not df_results.empty
             else None
+        ),
+        "model_type": "silhouette_grid_search_heuristic",
+        "claim_level": "heuristic_graph_parameter_recommendation",
+        "review_note": (
+            "Neighbor/PCA parameters are selected by a silhouette grid-search heuristic; "
+            "silhouette can favor over-separated clusters and is not an automatic optimum."
         ),
     }
 

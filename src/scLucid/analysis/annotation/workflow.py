@@ -607,7 +607,10 @@ def run_annotation(
     mgr.intersect_with(adata.raw if use_raw else adata)
 
     if config.run_celltypist or config.final_method in {"celltypist", "hybrid"}:
-        adata = run_celltypist(adata, model=config.celltypist_model)
+        celltypist_kwargs = {"model": config.celltypist_model}
+        if config.celltypist_model == "auto":
+            celltypist_kwargs["tissue"] = config.marker_tissue
+        adata = run_celltypist(adata, **celltypist_kwargs)
 
     if config.run_scoring and config.final_method != "celltypist":
         # Use raw for scoring by default

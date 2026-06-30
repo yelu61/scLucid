@@ -24,6 +24,7 @@ PREPROCESS_REQUIRED_REVIEW_SECTIONS = {
     "layer_transition_table",
     "preprocess_decision_summary",
     "preprocess_reviewer_table",
+    "preprocess_method_semantics",
     "step_evidence_summary",
     "tumor_aware_batch_correction_warnings",
     "hvg_selection_evidence_summary",
@@ -110,6 +111,8 @@ def enrich_preprocessing_review_summary(
         config=config,
         successful_steps=successful_steps,
     )
+    method_semantics = build_preprocess_method_semantics(adata)
+    summary["preprocess_method_semantics"] = method_semantics
     summary["tumor_aware_batch_correction_warnings"] = tumor_warnings
     summary["hvg_selection_evidence_summary"] = hvg_summary
     downstream = build_downstream_analysis_recommendations(
@@ -130,9 +133,13 @@ def enrich_preprocessing_review_summary(
         layer_contract=summary["preprocess_layer_contract"],
         step_evidence=summary["step_evidence_summary"],
         normalization_policy=normalization_policy,
+        method_semantics=method_semantics,
     )
     summary["preprocess_decision_summary"] = decision_summary
-    summary["preprocess_reviewer_table"] = build_preprocess_reviewer_table(decision_summary)
+    summary["preprocess_reviewer_table"] = build_preprocess_reviewer_table(
+        decision_summary,
+        method_semantics=method_semantics,
+    )
     readiness = build_preprocess_readiness_assessment(
         adata=adata,
         downstream_recommendations=downstream,
@@ -165,10 +172,11 @@ def get_preprocess_module_contract() -> dict[str, Any]:
         "layer_contract_key": "preprocess_layer_contract",
         "normalization_policy_key": "normalization_decision_policy",
         "layer_transition_key": "layer_transition_summary",
-    "layer_transition_table_key": "layer_transition_table",
-    "decision_summary_key": "preprocess_decision_summary",
-    "reviewer_table_key": "preprocess_reviewer_table",
-    "step_evidence_key": "step_evidence_summary",
+        "layer_transition_table_key": "layer_transition_table",
+        "decision_summary_key": "preprocess_decision_summary",
+        "reviewer_table_key": "preprocess_reviewer_table",
+        "method_semantics_key": "preprocess_method_semantics",
+        "step_evidence_key": "step_evidence_summary",
         "qc_input_key": "qc_input_context",
     }
 
@@ -211,12 +219,16 @@ def build_applied_parameter_summary(
 ) -> dict[str, Any]:
     """Summarize the effective preprocessing parameters that were applied."""
     hvg_meta = _preprocess_namespace(adata).get("hvg", {})
+    norm_meta = _preprocess_namespace(adata).get("normalization", {})
     integration = _preprocess_namespace(adata).get("integration", {}).get("workflow", {})
     return _json_safe(
         {
             "normalization": {
                 "executed": "normalization" in successful_steps,
                 "method": config.normalization.method,
+                "log_transformed": norm_meta.get("log_transformed")
+                if isinstance(norm_meta, Mapping)
+                else None,
                 "target_sum": config.normalization.target_sum,
                 "input_layer": config.counts_layer,
                 "output_layer": config.normalized_layer,
@@ -246,6 +258,7 @@ def build_applied_parameter_summary(
             "scaling": {
                 "executed": "scaling" in successful_steps,
                 "method": config.scaling.scale_method,
+                "zero_center": config.scaling.scale_method == "zscore",
                 "max_value": config.scaling.max_value,
                 "output_layer": config.scaled_layer,
             },
@@ -669,6 +682,10 @@ def build_normalization_decision_policy(
             "executed": "normalization" in successful_steps,
             "recommended_method": recommended_method,
             "applied_method": method,
+            "transformation_type": norm_meta.get("transformation_type"),
+            "model_type": norm_meta.get("model_type"),
+            "claim_level": norm_meta.get("claim_level"),
+            "review_note": norm_meta.get("review_note"),
             "recommended_input_layer": recommended_input_layer,
             "applied_input_layer": input_layer,
             "source": source,
@@ -686,6 +703,123 @@ def build_normalization_decision_policy(
     )
 
 
+def build_preprocess_method_semantics(adata: AnnData) -> dict[str, Any]:
+    """Collect scientific claim levels for heuristic and model-based preprocess steps."""
+    pp_ns = _preprocess_namespace(adata)
+    rows: list[dict[str, Any]] = []
+
+    def _add_row(
+        *,
+        step: str,
+        source_key: str,
+        meta: Mapping[str, Any] | None,
+        method: Any = None,
+        model_type_key: str = "model_type",
+        claim_level_key: str = "claim_level",
+        review_note_key: str = "review_note",
+    ) -> None:
+        if not isinstance(meta, Mapping):
+            return
+        model_type = meta.get(model_type_key)
+        claim_level = meta.get(claim_level_key)
+        review_note = meta.get(review_note_key)
+        if model_type is None and claim_level is None and review_note is None:
+            return
+        claim_text = str(claim_level or "")
+        rows.append(
+            {
+                "step": step,
+                "source_key": source_key,
+                "method": method if method is not None else meta.get("method"),
+                "model_type": model_type,
+                "claim_level": claim_level,
+                "review_note": review_note,
+                "review_required": any(
+                    token in claim_text
+                    for token in (
+                        "heuristic",
+                        "experimental",
+                        "approximation",
+                        "compositional",
+                    )
+                ),
+            }
+        )
+
+    norm_meta = pp_ns.get("normalization", {})
+    _add_row(step="normalization", source_key="normalization", meta=norm_meta)
+    adaptive_meta = pp_ns.get("adaptive_normalization", {})
+    _add_row(step="normalization", source_key="adaptive_normalization", meta=adaptive_meta)
+    quality_policy = pp_ns.get("quality_aware_normalization_policy", {})
+    _add_row(
+        step="normalization",
+        source_key="quality_aware_normalization_policy",
+        meta=quality_policy,
+        method="quality_aware",
+    )
+    _add_row(step="scaling", source_key="scaling", meta=pp_ns.get("scaling", {}))
+    _add_row(
+        step="pca",
+        source_key="pca_n_pcs_selection",
+        meta=pp_ns.get("pca_n_pcs_selection", {}),
+        method=pp_ns.get("pca_n_pcs_selection", {}).get("method")
+        if isinstance(pp_ns.get("pca_n_pcs_selection", {}), Mapping)
+        else None,
+    )
+    _add_row(
+        step="neighbors_umap",
+        source_key="neighbors_optimization",
+        meta=pp_ns.get("neighbors_optimization", {}),
+        method="silhouette_grid_search",
+    )
+
+    integration_eval = pp_ns.get("integration", {}).get("evaluation", {})
+    _add_row(
+        step="batch_correction",
+        source_key="integration.evaluation.kbet",
+        meta=integration_eval,
+        method="kbet",
+        model_type_key="kbet_model_type",
+        claim_level_key="kbet_claim_level",
+        review_note_key="kbet_review_note",
+    )
+    _add_row(
+        step="batch_correction",
+        source_key="integration.evaluation.batch_asw",
+        meta=integration_eval,
+        method="batch_asw",
+        model_type_key="batch_asw_model_type",
+        claim_level_key="batch_asw_claim_level",
+        review_note_key="batch_asw_review_note",
+    )
+
+    claim_counts: dict[str, int] = {}
+    for row in rows:
+        claim = str(row.get("claim_level") or "unspecified")
+        claim_counts[claim] = claim_counts.get(claim, 0) + 1
+
+    return _json_safe(
+        {
+            "schema_version": "preprocess_method_semantics_v1",
+            "status": "review_required"
+            if any(row.get("review_required") for row in rows)
+            else "ok"
+            if rows
+            else "not_available",
+            "rows": rows,
+            "claim_level_counts": claim_counts,
+            "review_required_steps": sorted(
+                {str(row.get("step")) for row in rows if row.get("review_required")}
+            ),
+            "interpretation": (
+                "These rows define the boundary between standard preprocessing, "
+                "heuristic recommendations, approximations, and experimental transforms. "
+                "Review-required rows should be interpreted as audit prompts, not automatic optima."
+            ),
+        }
+    )
+
+
 def build_preprocess_decision_summary(
     *,
     adata: AnnData,
@@ -697,6 +831,7 @@ def build_preprocess_decision_summary(
     downstream_recommendations: Mapping[str, Any],
     layer_contract: Mapping[str, Any],
     step_evidence: Mapping[str, Any],
+    method_semantics: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Build step-level preprocessing decisions and scientific guardrails."""
 
@@ -708,6 +843,16 @@ def build_preprocess_decision_summary(
             if isinstance(item, Mapping) and item.get("step") == step:
                 return str(item.get("status", "unknown"))
         return "unknown"
+
+    semantics_rows = (
+        method_semantics.get("rows", []) if isinstance(method_semantics, Mapping) else []
+    )
+    semantics_by_step: dict[str, list[Mapping[str, Any]]] = {}
+    if isinstance(semantics_rows, Mapping):
+        semantics_rows = list(semantics_rows.values())
+    for row in semantics_rows:
+        if isinstance(row, Mapping):
+            semantics_by_step.setdefault(str(row.get("step")), []).append(row)
 
     def _decision_from_status(
         *,
@@ -733,6 +878,7 @@ def build_preprocess_decision_summary(
             decision = "not_run"
         else:
             decision = "use"
+        step_semantics = semantics_by_step.get(step, [])
         return {
             "step": step,
             "decision": decision,
@@ -744,6 +890,11 @@ def build_preprocess_decision_summary(
             "risk_note": risk_note,
             "status": status,
             "downstream_target": downstream_target,
+            "method_semantics": list(step_semantics),
+            "claim_levels": [
+                row.get("claim_level") for row in step_semantics if row.get("claim_level")
+            ],
+            "semantic_review_required": any(row.get("review_required") for row in step_semantics),
         }
 
     normalized_present = config.normalized_layer in adata.layers
@@ -912,15 +1063,29 @@ def build_preprocess_decision_summary(
 
 def build_preprocess_reviewer_table(
     decision_summary: Mapping[str, Any],
+    *,
+    method_semantics: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build a single reviewer table for preprocessing choices and risks."""
     decisions = decision_summary.get("decisions", []) if isinstance(decision_summary, Mapping) else []
     if isinstance(decisions, Mapping):
         decisions = decisions.values()
+    semantics_rows = (
+        method_semantics.get("rows", [])
+        if isinstance(method_semantics, Mapping)
+        else []
+    )
+    if isinstance(semantics_rows, Mapping):
+        semantics_rows = semantics_rows.values()
+    semantics_by_step: dict[str, list[Mapping[str, Any]]] = {}
+    for row in semantics_rows:
+        if isinstance(row, Mapping):
+            semantics_by_step.setdefault(str(row.get("step")), []).append(row)
     rows = []
     for item in decisions:
         if not isinstance(item, Mapping):
             continue
+        step_semantics = semantics_by_step.get(str(item.get("step")), [])
         rows.append(
             _json_safe(
                 {
@@ -935,6 +1100,16 @@ def build_preprocess_reviewer_table(
                     "review_required": bool(item.get("review_required")),
                     "biological_risk_note": item.get("risk_note", ""),
                     "status": item.get("status"),
+                    "claim_levels": item.get("claim_levels", []),
+                    "model_types": [
+                        row.get("model_type")
+                        for row in step_semantics
+                        if row.get("model_type")
+                    ],
+                    "semantic_review_required": bool(
+                        item.get("semantic_review_required")
+                    ),
+                    "scientific_semantics": step_semantics,
                 }
             )
         )
@@ -1658,6 +1833,13 @@ def build_preprocess_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, An
             related_keys=["step_evidence_summary"],
         ),
         EvidenceItem(
+            source="contract",
+            name="preprocess_method_semantics",
+            value=summary.get("preprocess_method_semantics", {}),
+            rationale="Labels preprocessing methods as standard, heuristic, approximate, or experimental for reviewer interpretation.",
+            related_keys=["preprocess_method_semantics", "preprocess_reviewer_table"],
+        ),
+        EvidenceItem(
             source="recommendation",
             name="preprocess_decision_summary",
             value=summary.get("preprocess_decision_summary", {}),
@@ -1719,6 +1901,7 @@ def build_preprocess_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, An
             "layer_transition_summary",
             "preprocess_decision_summary",
             "preprocess_reviewer_table",
+            "preprocess_method_semantics",
             "step_evidence_summary",
             "hvg_selection_evidence_summary",
             "tumor_aware_batch_correction_warnings",
@@ -1740,6 +1923,7 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
     layer_summary = payload.get("layer_transition_summary")
     layer_contract = payload.get("preprocess_layer_contract")
     step_evidence = payload.get("step_evidence_summary")
+    method_semantics = payload.get("preprocess_method_semantics")
     decision_summary = payload.get("preprocess_decision_summary")
     reviewer_table = payload.get("preprocess_reviewer_table")
     parameter_summary = payload.get("applied_parameter_summary")
@@ -1764,6 +1948,10 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
         issues.append("step_evidence_summary must be present.")
     elif not isinstance(step_evidence.get("steps"), list):
         issues.append("step_evidence_summary.steps must be present.")
+    if not isinstance(method_semantics, Mapping):
+        issues.append("preprocess_method_semantics must be present.")
+    elif not isinstance(method_semantics.get("rows"), (list, dict)):
+        issues.append("preprocess_method_semantics.rows must be present.")
     if not isinstance(decision_summary, Mapping):
         issues.append("preprocess_decision_summary must be present.")
     elif not isinstance(decision_summary.get("decisions"), list):
@@ -1800,6 +1988,13 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
             review_required.append(
                 "preprocess_decision_summary.review_required_steps="
                 + ",".join(map(str, decision_review_steps))
+            )
+    if isinstance(method_semantics, Mapping):
+        semantic_review_steps = method_semantics.get("review_required_steps", [])
+        if semantic_review_steps:
+            review_required.append(
+                "preprocess_method_semantics.review_required_steps="
+                + ",".join(map(str, semantic_review_steps))
             )
     if isinstance(layer_contract, Mapping) and layer_contract.get("review_required"):
         review_required.append("preprocess_layer_contract.review_required=True")
@@ -1851,6 +2046,11 @@ def summarize_preprocess_review_summary(summary: Mapping[str, Any]) -> dict[str,
         if isinstance(payload, Mapping)
         else {}
     )
+    method_semantics = (
+        payload.get("preprocess_method_semantics", {})
+        if isinstance(payload, Mapping)
+        else {}
+    )
     params = payload.get("applied_parameter_summary", {}) if isinstance(payload, Mapping) else {}
     qc_context = payload.get("qc_input_context", {}) if isinstance(payload, Mapping) else {}
     downstream = (
@@ -1883,6 +2083,9 @@ def summarize_preprocess_review_summary(summary: Mapping[str, Any]) -> dict[str,
             "review_required_steps": step_evidence.get("review_required_steps"),
             "preprocess_decision_counts": decision_summary.get("decision_counts"),
             "decision_review_required_steps": decision_summary.get("review_required_steps"),
+            "method_semantics_status": method_semantics.get("status"),
+            "method_claim_level_counts": method_semantics.get("claim_level_counts"),
+            "semantic_review_required_steps": method_semantics.get("review_required_steps"),
             "primary_downstream_representation": decision_summary.get(
                 "primary_downstream_representation"
             ),
@@ -1922,6 +2125,13 @@ def validate_preprocessing_review_summary(
         errors.append("Preprocessing review summary field 'step_evidence_summary' must be a mapping.")
     elif not isinstance(step_evidence.get("steps"), (list, dict)):
         errors.append("Preprocessing step_evidence_summary.steps must be a list or dict.")
+    method_semantics = summary.get("preprocess_method_semantics")
+    if not isinstance(method_semantics, Mapping):
+        errors.append(
+            "Preprocessing review summary field 'preprocess_method_semantics' must be a mapping."
+        )
+    elif not isinstance(method_semantics.get("rows"), (list, dict)):
+        errors.append("Preprocessing preprocess_method_semantics.rows must be a list or dict.")
     decision_summary = summary.get("preprocess_decision_summary")
     if not isinstance(decision_summary, Mapping):
         errors.append(
@@ -2131,6 +2341,7 @@ __all__ = [
     "build_normalization_decision_policy",
     "build_preprocess_decision_summary",
     "build_preprocess_layer_contract",
+    "build_preprocess_method_semantics",
     "build_step_evidence_summary",
     "build_preprocess_evidence_bundle",
     "build_preprocess_module_maturity_assessment",

@@ -242,6 +242,8 @@ def analyze_celltype_proportion(
             "condition_col": condition_col,
             "out_dir": out_dir,
         }
+        if config is not None and config.reference_cell_type:
+            sccoda_kwargs["reference_cell_type"] = config.reference_cell_type
         sccoda_kwargs.update(kwargs)
 
         # 运行 scCODA

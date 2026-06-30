@@ -64,8 +64,10 @@ validation_outputs/
 figures/
 
 # Documentation build artifacts
+site/
 docs/_build/
 docs/source/_build/
+docs/archive/sphinx_source_legacy/source/_build/
 docs/build/
 
 # Local data fixtures

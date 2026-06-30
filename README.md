@@ -38,7 +38,7 @@ arguments.
 | Principle | What It Means |
 |-----------|---------------|
 | **Diagnostic-first** | QC, preprocessing, DE, proportion, bulk, and spatial utilities are paired with checks and warnings before results are trusted. |
-| **Audit-ready by default** | Decisions, parameters, warnings, and review summaries are stored under `adata.uns["sclucid"]` and can be exported to an HTML audit report. |
+| **Audit-ready by default** | Decisions, parameters, warnings, contracts, reviewer tables, and review summaries are stored under `adata.uns["sclucid"]` and can be exported to an HTML audit report. |
 | **Explicit inference semantics** | Results distinguish exploratory, descriptive, and sample-level inferences so exploratory signals are not overstated. |
 | **Tumor ecosystem orientation** | Annotation, CNV/malignancy evidence, TME composition, therapy signatures, cell communities, and ecotype-style concepts are first-class design targets. |
 | **Ecosystem-aware, not ecosystem-replacing** | Mature Python/R tools can be wrapped or validated when useful, but scLucid keeps a lightweight core and records method-specific evidence. |
@@ -113,21 +113,42 @@ import matplotlib.pyplot as plt
 plt.savefig("results.pdf", dpi=600, bbox_inches="tight")
 ```
 
-## Project Status
+## Development Boundary
 
-scLucid is in active development and is best described as an **evidence-driven
-tumor single-cell workflow system in late prototype / early hardening stage**.
-The strongest modules today are QC and preprocessing; analysis is the active
-module being raised to the same standard.
+scLucid is built as an evidence-driven tumor single-cell workflow system, not as
+a claim that every automated result is superior to Scanpy, Seurat, scran,
+inferCNV, CopyKAT, CellTypist, or other mature tools.
 
-The package can already provide a traceable, biologically informed workflow, but
-it does **not** claim broad scientific superiority over Scanpy, Seurat, scran,
-inferCNV, CopyKAT, CellTypist, or other mature tools. The next stage is layered
-validation: prove that its decisions are inspectable, biologically concordant,
-safer in their inference claims, and convenient in real tumor projects.
+The stable promise is narrower: make assumptions visible, preserve biological
+caution, label inference boundaries, and keep enough review evidence for another
+analyst to audit the workflow.
 
-See `docs/source/qc_preprocess_maturity.rst` for the module-level maturity
-assessment and `docs/roadmap/` for the staged execution plan.
+Current module maturity, implementation plans, validation status, and roadmap
+details live in `docs/`, especially `docs/README.md`, `docs/user/`,
+`docs/api/`, and `docs/roadmap/`.
+
+## Core Differentiators
+
+scLucid's long-term value is not a larger list of wrappers. Its core
+competition is interpretability and scientific restraint around tumor
+single-cell workflows:
+
+- **Reviewable decisions**: QC, preprocessing, and analysis steps leave behind
+  structured review records that explain what was recommended, what was applied,
+  and what still needs human review.
+- **Tumor-aware caution**: high mitochondrial content, stress programs,
+  doublets, batch correction, malignancy calls, and TME signals are treated as
+  biological-risk decisions rather than simple automatic filters.
+- **Layer and inference contracts**: expression layers, embeddings,
+  annotations, and DE/proportion results are labeled with their intended use so
+  exploratory cell-level findings are not mistaken for sample-level claims.
+- **Evidence bridges**: single-cell results are designed to connect with bulk,
+  spatial, marker, CNV, and external reference evidence without hiding the
+  confidence boundary.
+
+Implementation details, field names, design plans, and roadmaps live in
+`docs/`, especially `docs/README.md`, `docs/api/`, and
+`docs/user/best_practices.md`.
 
 ## Choose Your Analysis Mode
 
@@ -139,15 +160,15 @@ assessment and `docs/roadmap/` for the staged execution plan.
 
 ## Documentation
 
-* **Quick Start**: [docs/source/quickstart.rst](docs/source/quickstart.rst)
-* **Installation Guide**: [docs/source/installation.rst](docs/source/installation.rst)
-* **Best Practices**: [docs/source/best_practices.rst](docs/source/best_practices.rst)
-* **Core Data Contracts**: [docs/source/data_contracts.rst](docs/source/data_contracts.rst)
-* **API Reference**: [docs/source/api/](docs/source/api/)
+* **Quick Start**: [docs/user/quickstart.md](docs/user/quickstart.md)
+* **Installation Guide**: [docs/user/installation.md](docs/user/installation.md)
+* **Best Practices**: [docs/user/best_practices.md](docs/user/best_practices.md)
+* **Core Data Contracts**: [docs/user/data_contracts.md](docs/user/data_contracts.md)
+* **API Reference**: [docs/api/](docs/api/)
 * **Strategic Plan**: [docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md](docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md)
 * **Roadmap**: [docs/roadmap/](docs/roadmap/)
-* **Plugin Development**: [docs/PLUGIN_DEVELOPMENT_GUIDE.md](docs/PLUGIN_DEVELOPMENT_GUIDE.md)
-* **R Parity Matrix**: [docs/source/r_parity.rst](docs/source/r_parity.rst)
+* **Plugin Development**: [docs/dev/PLUGIN_DEVELOPMENT_GUIDE.md](docs/dev/PLUGIN_DEVELOPMENT_GUIDE.md)
+* **R Parity Matrix**: [docs/user/r_parity.md](docs/user/r_parity.md)
 * **PBMC Golden Path**: [scripts/run_pbmc_golden_path.py](scripts/run_pbmc_golden_path.py)
 * **Analysis Acceptance Runner**: [scripts/run_analysis_acceptance.py](scripts/run_analysis_acceptance.py)
 

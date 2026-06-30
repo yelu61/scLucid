@@ -1,9 +1,9 @@
 > **⚠️ ARCHIVED / SUPERSEDED**
 >
 > This coverage summary is kept for provenance only. The live marker resource
-> status is tracked in `docs/marker_curation_literature_index.jsonl`,
-> `docs/marker_resource_quality_gaps.jsonl`, `docs/marker_curation_candidates.jsonl`,
-> and `docs/MARKER_RESOURCE_CURATION.md`.
+> status is tracked in `docs/marker_resources/marker_curation_literature_index.jsonl`,
+> `docs/marker_resources/marker_resource_quality_gaps.jsonl`, `docs/marker_resources/marker_curation_candidates.jsonl`,
+> and `docs/marker_resources/CURATION.md`.
 
 ---
 

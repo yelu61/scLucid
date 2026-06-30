@@ -32,7 +32,7 @@ from ..config import (
     PseudobulkDEConfig,
 )
 from .de_plots import plot_volcano
-from .de_utils import _safe_filename
+from .de_utils import _hierarchical_fdr_correction, _safe_filename
 from .scanpy_compat import _to_frac
 from .scanpy_compat import standardize_pct_columns as _standardize_pct_columns
 
@@ -53,12 +53,60 @@ def _tag_cell_level_de_result(
         return df
     tagged = df.copy()
     tagged["inference_level"] = inference_level
+    tagged["claim_level"] = (
+        "exploratory_marker_screen"
+        if inference_level == "cell_level_marker_discovery"
+        else "exploratory_hypothesis_generation"
+    )
     tagged["analysis_intent"] = analysis_intent
     tagged["valid_for_publication_inference"] = False
     tagged["pseudoreplication_warning"] = True
+    tagged["recommended_formal_inference_api"] = "run_pseudobulk_de"
     tagged["de_warning"] = (
         "Cell-level rank_genes_groups treats cells as independent observations. "
         "Use sample-level pseudobulk DE for publication-grade condition inference."
+    )
+    return tagged
+
+
+def _tag_pseudobulk_de_result(df: pd.DataFrame) -> pd.DataFrame:
+    """Add explicit claim semantics to pseudobulk DE result tables."""
+    if df.empty:
+        return df
+    tagged = df.copy()
+    if "inference_level" not in tagged:
+        tagged["inference_level"] = "sample_level"
+    if "valid_for_publication_inference" not in tagged:
+        tagged["valid_for_publication_inference"] = False
+
+    def _claim(row: pd.Series) -> str:
+        inference = str(row.get("inference_level", ""))
+        valid = bool(row.get("valid_for_publication_inference", False))
+        if inference == "sample_level" and valid:
+            return "replicate_aware_sample_level_condition_inference"
+        if inference == "descriptive_single_sample":
+            return "descriptive_effect_size_only"
+        if inference == "exploratory_cell_level":
+            return "exploratory_hypothesis_generation"
+        return "review_required_condition_inference"
+
+    tagged["claim_level"] = tagged.apply(_claim, axis=1)
+    tagged["recommended_formal_inference_api"] = "run_pseudobulk_de"
+    tagged["de_review_note"] = tagged["claim_level"].map(
+        {
+            "replicate_aware_sample_level_condition_inference": (
+                "Sample-level pseudobulk result with biological replicates; still review design, covariates, and model assumptions."
+            ),
+            "descriptive_effect_size_only": (
+                "Single-sample or unreplicated pseudobulk result; use effect sizes descriptively, not as formal DE."
+            ),
+            "exploratory_hypothesis_generation": (
+                "Cell-level fallback treats cells as observations; use only for screening/hypothesis generation."
+            ),
+            "review_required_condition_inference": (
+                "Condition inference status is ambiguous; review sample replication and method metadata."
+            ),
+        }
     )
     return tagged
 
@@ -164,7 +212,7 @@ def find_markers(
     names_field = raw["names"]
     if not hasattr(names_field, "dtype") or names_field.dtype.names is None:
         raise ValueError(
-            "Scanpy 'names' field lacks structured dtype. " "Cannot extract group-wise results."
+            "Scanpy 'names' field lacks structured dtype. Cannot extract group-wise results."
         )
 
     groups_tested = names_field.dtype.names
@@ -225,6 +273,7 @@ def find_markers(
     params = active_config.to_dict()
     params["scanpy_version"] = version("scanpy")
     params["inference_level"] = "cell_level_marker_discovery"
+    params["claim_level"] = "exploratory_marker_screen"
     params["valid_for_publication_inference"] = False
     params["de_warning"] = (
         "find_markers is for marker discovery; use run_pseudobulk_de for formal condition DE."
@@ -379,6 +428,12 @@ def filter_markers(
             log.warning("'pct_nz_reference' not found; specificity-related filters skipped")
 
     filtered_df = df[filt].copy()
+    if not filtered_df.empty and "claim_level" not in filtered_df.columns:
+        filtered_df = _tag_cell_level_de_result(
+            filtered_df,
+            inference_level="cell_level_marker_discovery",
+            analysis_intent="filtered_marker_discovery",
+        )
     log.info(f"Retained {len(filtered_df)} genes after all filters")
 
     # Post-filter: Keep top N per group
@@ -391,8 +446,7 @@ def filter_markers(
                 filtered_df["diff_pct"] = pct_group_frac[filt] - pct_ref_frac[filt]
             else:
                 log.warning(
-                    "Cannot sort by 'diff_pct' without 'pct_nz_reference'. "
-                    "Falling back to 'scores'"
+                    "Cannot sort by 'diff_pct' without 'pct_nz_reference'. Falling back to 'scores'"
                 )
                 sort_by_col = "scores"
 
@@ -401,16 +455,14 @@ def filter_markers(
             fallback_col = (
                 "logfoldchanges"
                 if "logfoldchanges" in filtered_df.columns
-                else "scores" if "scores" in filtered_df.columns else filtered_df.columns[0]
+                else "scores"
+                if "scores" in filtered_df.columns
+                else filtered_df.columns[0]
             )
-            log.warning(
-                f"Sort key '{config.sort_by}' not found. " f"Falling back to '{fallback_col}'"
-            )
+            log.warning(f"Sort key '{config.sort_by}' not found. Falling back to '{fallback_col}'")
             sort_by_col = fallback_col
 
-        log.info(
-            f"Selecting top {config.keep_top_n} genes per group, " f"sorted by '{sort_by_col}'"
-        )
+        log.info(f"Selecting top {config.keep_top_n} genes per group, sorted by '{sort_by_col}'")
 
         parts = []
         for g in filtered_df["group"].unique():
@@ -421,7 +473,12 @@ def filter_markers(
 
     # Store results
     root[key_added] = filtered_df
-    root[f"{key_added}_params"] = {**config.to_dict(), "n_retained": len(filtered_df)}
+    root[f"{key_added}_params"] = {
+        **config.to_dict(),
+        "n_retained": len(filtered_df),
+        "claim_level": "exploratory_marker_screen",
+        "valid_for_publication_inference": False,
+    }
 
     log.info(
         f"Final filtered markers: {len(filtered_df)} rows -> "
@@ -459,7 +516,8 @@ def compare_groups(
         ...     min_log2fc=1.0,
         ...     max_padj=0.01,
         ...     n_top_genes=50,
-        ...     plot=True
+        ...     plot=True,
+        ...     acknowledge_exploratory=True,
         ... )
         >>> degs = compare_groups(adata, config)
 
@@ -478,6 +536,14 @@ def compare_groups(
     group1 = config.group1
     group2 = config.group2
     key_added = config.key_added or f"compare_{group1}_vs_{group2}".replace(" ", "_")
+
+    if not config.acknowledge_exploratory:
+        raise ValueError(
+            "compare_groups performs exploratory cell-level DE that treats cells as independent "
+            "observations and is not valid for formal condition inference. "
+            "Set acknowledge_exploratory=True in CompareGroupsConfig to proceed after reviewing "
+            "this warning, or use run_pseudobulk_de for sample-level inference."
+        )
 
     if config.verbose:
         log.info(f"Comparing DE genes: '{group1}' vs '{group2}' in '{groupby}'")
@@ -552,6 +618,7 @@ def compare_groups(
     root[key_added] = final
     params = config.to_dict()
     params["inference_level"] = "exploratory_cell_level"
+    params["claim_level"] = "exploratory_hypothesis_generation"
     params["valid_for_publication_inference"] = False
     params["de_warning"] = (
         "compare_groups is cell-level exploratory DE; use run_pseudobulk_de for formal condition DE."
@@ -610,7 +677,8 @@ def compare_conditions(
         ...     condition1="Treated",
         ...     condition2="Control",
         ...     min_log2fc=0.5,
-        ...     max_padj=0.05
+        ...     max_padj=0.05,
+        ...     acknowledge_exploratory=True,
         ... )
         >>> degs = compare_conditions(adata, config)
     """
@@ -619,13 +687,20 @@ def compare_conditions(
     else:
         config = config.model_copy(update=kwargs)
 
+    if not config.acknowledge_exploratory:
+        raise ValueError(
+            "compare_conditions performs exploratory cell-level DE that treats cells as independent "
+            "observations and is not valid for formal condition inference. "
+            "Set acknowledge_exploratory=True in CompareConditionsConfig to proceed after reviewing "
+            "this warning, or use run_pseudobulk_de for sample-level inference."
+        )
+
     groupby = config.groupby
     group_name = config.group_name
     condition_key = config.condition_key
 
     log.info(
-        f"Comparing conditions '{config.condition1}' vs '{config.condition2}' "
-        f"within '{group_name}'"
+        f"Comparing conditions '{config.condition1}' vs '{config.condition2}' within '{group_name}'"
     )
     log.warning(
         "compare_conditions runs exploratory cell-level DE. For condition-level "
@@ -652,13 +727,11 @@ def compare_conditions(
         layer=config.layer,
         use_raw=config.use_raw,
         key_added=config.key_added
-        or (
-            f"compare_{config.condition1}_vs_{config.condition2}_"
-            f"in_{_safe_filename(group_name)}"
-        ),
+        or (f"compare_{config.condition1}_vs_{config.condition2}_in_{_safe_filename(group_name)}"),
         plot=config.plot,
         save_dir=config.save_dir,
         verbose=config.verbose,
+        acknowledge_exploratory=True,
     )
 
     # Run comparison on subset
@@ -672,6 +745,7 @@ def compare_conditions(
     root[comp_config.key_added] = results_df
     params = config.to_dict()
     params["inference_level"] = "exploratory_cell_level"
+    params["claim_level"] = "exploratory_hypothesis_generation"
     params["valid_for_publication_inference"] = False
     params["de_warning"] = (
         "compare_conditions is cell-level exploratory DE; use run_pseudobulk_de for formal condition DE."
@@ -731,7 +805,9 @@ def _aggregate_counts_by_sample(
         if n_cells < min_cells_per_sample:
             continue
         block = X[mask]
-        summed = np.asarray(block.sum(axis=0)).ravel() if sparse.issparse(block) else block.sum(axis=0)
+        summed = (
+            np.asarray(block.sum(axis=0)).ravel() if sparse.issparse(block) else block.sum(axis=0)
+        )
         rows.append(summed)
         cond_values = adata.obs.loc[mask, condition_key].astype(str).unique()
         if len(cond_values) != 1:
@@ -892,7 +968,9 @@ def _run_linear_model_logcpm_de(
         return pd.DataFrame()
     missing_covariates = [cov for cov in covariates if cov not in selected.columns]
     if missing_covariates:
-        raise KeyError(f"Covariate column(s) missing from pseudobulk metadata: {missing_covariates}")
+        raise KeyError(
+            f"Covariate column(s) missing from pseudobulk metadata: {missing_covariates}"
+        )
 
     selected_counts = counts.loc[selected.index]
     keep = selected_counts.sum(axis=0) >= min_counts
@@ -1004,6 +1082,332 @@ def _run_linear_model_logcpm_de(
     return result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(drop=True)
 
 
+def _make_pseudobulk_adata(
+    counts: pd.DataFrame,
+    meta: pd.DataFrame,
+    sample_col: str,
+    condition_key: str,
+    covariates: Optional[List[str]] = None,
+    min_counts: int = 0,
+) -> AnnData:
+    """Convert sample-level counts and metadata into an AnnData for statsmodels backends."""
+    covariates = list(dict.fromkeys(covariates or []))
+    obs = meta.copy()
+    if sample_col not in obs.columns:
+        obs[sample_col] = obs.index.astype(str)
+    if condition_key not in obs.columns:
+        raise KeyError(f"Condition key '{condition_key}' not found in pseudobulk metadata")
+    for cov in covariates:
+        if cov not in obs.columns:
+            raise KeyError(f"Covariate '{cov}' not found in pseudobulk metadata")
+    filtered_counts = counts
+    if min_counts > 0:
+        keep = counts.sum(axis=0) >= min_counts
+        filtered_counts = counts.loc[:, keep]
+    return AnnData(
+        X=np.asarray(filtered_counts.values, dtype=float),
+        obs=obs,
+        var=pd.DataFrame(index=filtered_counts.columns),
+    )
+
+
+def _run_statsmodels_glm_de(
+    pseudobulk_adata: AnnData,
+    design_col: str,
+    sample_col: str,
+    covariates: Optional[List[str]] = None,
+    family: str = "NegativeBinomial",
+    condition1: Optional[str] = None,
+    condition2: Optional[str] = None,
+    p_adjust_method: str = "fdr_bh",
+    pseudocount: float = 0.5,
+) -> pd.DataFrame:
+    """
+    Run per-gene GLM on pseudobulk counts using statsmodels.
+
+    Supports NegativeBinomial (raw counts, log link), Gamma (counts + pseudocount,
+    log link), and Gaussian (logCPM, identity link with HC3 sandwich covariance).
+    """
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+
+    covariates = list(dict.fromkeys(covariates or []))
+    df = pseudobulk_adata.obs.copy()
+    if sample_col not in df.columns:
+        df[sample_col] = df.index.astype(str)
+
+    cond_values = pd.unique(df[design_col].astype(str))
+    if condition1 is None and condition2 is None:
+        if len(cond_values) != 2:
+            raise ValueError(
+                "Exactly two conditions required when condition1/condition2 are not specified"
+            )
+        condition1, condition2 = sorted(cond_values)
+    elif condition1 is None or condition2 is None:
+        raise ValueError("Provide both condition1 and condition2 or neither")
+
+    selected_mask = df[design_col].astype(str).isin([condition1, condition2])
+    df = df[selected_mask].copy()
+    X = pseudobulk_adata.X[selected_mask.to_numpy()]
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+
+    df["__condition"] = pd.Categorical(
+        df[design_col].astype(str),
+        categories=[condition1, condition2],
+        ordered=False,
+    )
+    terms = ["C(__condition)"]
+    valid_covariates: List[str] = []
+    for idx, cov in enumerate(covariates):
+        if cov in df.columns and df[cov].nunique(dropna=True) >= 2:
+            safe = f"__cov_{idx}"
+            df[safe] = df[cov].astype(str)
+            terms.append(f"C({safe})")
+            valid_covariates.append(cov)
+
+    formula = "value ~ " + " + ".join(terms)
+    term = f"C(__condition)[T.{condition2}]"
+
+    family_norm = str(family).strip().lower()
+    if family_norm == "negativebinomial":
+        sm_family = sm.families.NegativeBinomial(alpha=1.0)
+        use_logcpm = False
+        log_link = True
+    elif family_norm == "gamma":
+        sm_family = sm.families.Gamma(link=sm.families.links.Log())
+        use_logcpm = False
+        log_link = True
+    elif family_norm == "gaussian":
+        sm_family = sm.families.Gaussian()
+        use_logcpm = True
+        log_link = False
+    else:
+        raise ValueError(f"Unsupported GLM family: {family}")
+
+    counts_df = pd.DataFrame(X, index=df.index, columns=pseudobulk_adata.var_names)
+    if use_logcpm:
+        lib_sizes = counts_df.sum(axis=1)
+        nonzero = lib_sizes > 0
+        if not nonzero.all():
+            counts_df = counts_df.loc[nonzero]
+            df = df.loc[nonzero]
+        cpm = counts_df.div(lib_sizes.loc[nonzero], axis=0) * 1e6
+        response = np.log2(cpm + pseudocount)
+    else:
+        response = counts_df + pseudocount
+
+    n1 = int((df["__condition"].astype(str) == condition1).sum())
+    n2 = int((df["__condition"].astype(str) == condition2).sum())
+
+    records = []
+    for gene in pseudobulk_adata.var_names:
+        if gene not in response.columns:
+            continue
+        model_df = df.copy()
+        model_df["value"] = response[gene].astype(float)
+        if model_df["value"].notna().sum() < 3:
+            continue
+        try:
+            if family_norm == "gaussian":
+                fit = smf.glm(formula, data=model_df, family=sm_family).fit(cov_type="HC3")
+            else:
+                fit = smf.glm(formula, data=model_df, family=sm_family).fit()
+        except Exception as exc:
+            log.warning("Statsmodels GLM failed for gene '%s': %s", gene, exc)
+            continue
+        exog_names = list(getattr(fit.model, "exog_names", []))
+        if term not in exog_names:
+            continue
+        term_idx = exog_names.index(term)
+        coef = float(np.asarray(fit.params)[term_idx])
+        pval = float(np.asarray(fit.pvalues)[term_idx])
+        stat = float(np.asarray(fit.tvalues)[term_idx])
+        if log_link:
+            log2fc = float(coef / np.log(2))
+        else:
+            log2fc = float(coef)
+        records.append(
+            {
+                "names": gene,
+                "gene": gene,
+                "logFC": log2fc,
+                "log2fc": log2fc,
+                "logfoldchanges": log2fc,
+                "scores": stat,
+                "statistic": stat,
+                "pvals": pval,
+                "pval": pval,
+                "condition1": condition1,
+                "condition2": condition2,
+                "contrast": f"{condition2}_vs_{condition1}",
+                "direction": f"{condition2} - {condition1}",
+                "n_samples_condition1": n1,
+                "n_samples_condition2": n2,
+                "method": f"statsmodels_glm_{family_norm}",
+                "glm_family": family_norm,
+                "design_formula": formula,
+                "design_covariates": ",".join(valid_covariates),
+            }
+        )
+
+    result = pd.DataFrame(records)
+    if result.empty:
+        return result
+    result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
+    result["padj"] = result["pvals_adj"]
+    return result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(drop=True)
+
+
+def _run_statsmodels_gee_de(
+    pseudobulk_adata: AnnData,
+    design_col: str,
+    sample_col: str,
+    covariates: Optional[List[str]] = None,
+    family: str = "NegativeBinomial",
+    condition1: Optional[str] = None,
+    condition2: Optional[str] = None,
+    p_adjust_method: str = "fdr_bh",
+    pseudocount: float = 0.5,
+) -> pd.DataFrame:
+    """
+    Run per-gene GEE on pseudobulk counts using statsmodels.
+
+    Uses an exchangeable working correlation within ``sample_col`` to account
+    for within-sample correlation. This is a Python-native sample-aware
+    alternative to mixed models for pseudobulk data.
+    """
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+    from statsmodels.genmod.cov_struct import Exchangeable, Independence
+
+    covariates = list(dict.fromkeys(covariates or []))
+    df = pseudobulk_adata.obs.copy()
+    if sample_col not in df.columns:
+        df[sample_col] = df.index.astype(str)
+
+    cond_values = pd.unique(df[design_col].astype(str))
+    if condition1 is None and condition2 is None:
+        if len(cond_values) != 2:
+            raise ValueError(
+                "Exactly two conditions required when condition1/condition2 are not specified"
+            )
+        condition1, condition2 = sorted(cond_values)
+    elif condition1 is None or condition2 is None:
+        raise ValueError("Provide both condition1 and condition2 or neither")
+
+    selected_mask = df[design_col].astype(str).isin([condition1, condition2])
+    df = df[selected_mask].copy()
+    X = pseudobulk_adata.X[selected_mask.to_numpy()]
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+
+    df["__condition"] = pd.Categorical(
+        df[design_col].astype(str),
+        categories=[condition1, condition2],
+        ordered=False,
+    )
+    terms = ["C(__condition)"]
+    valid_covariates: List[str] = []
+    for idx, cov in enumerate(covariates):
+        if cov in df.columns and df[cov].nunique(dropna=True) >= 2:
+            safe = f"__cov_{idx}"
+            df[safe] = df[cov].astype(str)
+            terms.append(f"C({safe})")
+            valid_covariates.append(cov)
+
+    formula = "value ~ " + " + ".join(terms)
+    term = f"C(__condition)[T.{condition2}]"
+
+    family_norm = str(family).strip().lower()
+    if family_norm == "negativebinomial":
+        sm_family = sm.families.NegativeBinomial(alpha=1.0)
+        log_link = True
+    elif family_norm == "gamma":
+        sm_family = sm.families.Gamma(link=sm.families.links.Log())
+        log_link = True
+    elif family_norm == "gaussian":
+        sm_family = sm.families.Gaussian()
+        log_link = False
+    else:
+        raise ValueError(f"Unsupported GEE family: {family}")
+
+    counts_df = pd.DataFrame(X, index=df.index, columns=pseudobulk_adata.var_names)
+    response = counts_df + pseudocount
+
+    n1 = int((df["__condition"].astype(str) == condition1).sum())
+    n2 = int((df["__condition"].astype(str) == condition2).sum())
+
+    records = []
+    for gene in pseudobulk_adata.var_names:
+        if gene not in response.columns:
+            continue
+        model_df = df.copy()
+        model_df["value"] = response[gene].astype(float)
+        if model_df["value"].notna().sum() < 3:
+            continue
+        # Try exchangeable first; fall back to independence if it fails
+        # (e.g. one observation per sample).
+        fit = None
+        for cov_struct in [Exchangeable(), Independence()]:
+            try:
+                fit = smf.gee(
+                    formula,
+                    data=model_df,
+                    groups=model_df[sample_col],
+                    family=sm_family,
+                    cov_struct=cov_struct,
+                ).fit()
+                break
+            except Exception as exc:
+                log.debug("GEE %s failed for gene '%s': %s", type(cov_struct).__name__, gene, exc)
+                continue
+        if fit is None:
+            log.warning("Statsmodels GEE failed for gene '%s'", gene)
+            continue
+        exog_names = list(getattr(fit.model, "exog_names", []))
+        if term not in exog_names:
+            continue
+        term_idx = exog_names.index(term)
+        coef = float(np.asarray(fit.params)[term_idx])
+        pval = float(np.asarray(fit.pvalues)[term_idx])
+        stat = float(np.asarray(fit.tvalues)[term_idx])
+        if log_link:
+            log2fc = float(coef / np.log(2))
+        else:
+            log2fc = float(coef)
+        records.append(
+            {
+                "names": gene,
+                "gene": gene,
+                "logFC": log2fc,
+                "log2fc": log2fc,
+                "logfoldchanges": log2fc,
+                "scores": stat,
+                "statistic": stat,
+                "pvals": pval,
+                "pval": pval,
+                "condition1": condition1,
+                "condition2": condition2,
+                "contrast": f"{condition2}_vs_{condition1}",
+                "direction": f"{condition2} - {condition1}",
+                "n_samples_condition1": n1,
+                "n_samples_condition2": n2,
+                "method": f"statsmodels_gee_{family_norm}",
+                "gee_family": family_norm,
+                "design_formula": formula,
+                "design_covariates": ",".join(valid_covariates),
+            }
+        )
+
+    result = pd.DataFrame(records)
+    if result.empty:
+        return result
+    result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
+    result["padj"] = result["pvals_adj"]
+    return result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(drop=True)
+
+
 def _run_descriptive_single_sample_pseudobulk(
     counts: pd.DataFrame,
     meta: pd.DataFrame,
@@ -1077,7 +1481,9 @@ def _run_descriptive_single_sample_pseudobulk(
         )
 
     result = pd.DataFrame(records)
-    return result.sort_values("logfoldchanges", key=lambda s: s.abs(), ascending=False).reset_index(drop=True)
+    return result.sort_values("logfoldchanges", key=lambda s: s.abs(), ascending=False).reset_index(
+        drop=True
+    )
 
 
 def _run_pydeseq2_de(
@@ -1228,7 +1634,9 @@ def run_pseudobulk_de(
         if meta.empty:
             return pd.DataFrame()
 
-        selected = meta[meta[active_config.condition_key].astype(str).isin([condition1, condition2])]
+        selected = meta[
+            meta[active_config.condition_key].astype(str).isin([condition1, condition2])
+        ]
         n1 = int((selected[active_config.condition_key].astype(str) == condition1).sum())
         n2 = int((selected[active_config.condition_key].astype(str) == condition2).sum())
 
@@ -1255,14 +1663,20 @@ def run_pseudobulk_de(
             active_config.method == "linear_model_logcpm"
             or (active_config.method == "auto" and bool(design_covariates))
         ) and min(n1, n2) >= 2
+        should_use_statsmodels_glm = active_config.method == "statsmodels_glm" and min(n1, n2) >= 2
+        should_use_statsmodels_gee = active_config.method == "statsmodels_gee" and min(n1, n2) >= 2
         should_try_deseq2 = (
             active_config.method in {"auto", "deseq2"}
             and not should_use_linear_model
+            and not should_use_statsmodels_glm
+            and not should_use_statsmodels_gee
             and min(n1, n2) >= 2
         )
         should_use_welch = (
             active_config.method in {"auto", "welch_logcpm"}
             and not should_use_linear_model
+            and not should_use_statsmodels_glm
+            and not should_use_statsmodels_gee
             and min(n1, n2) >= 2
         )
 
@@ -1282,7 +1696,10 @@ def run_pseudobulk_de(
                     "returned descriptive pseudobulk effect sizes without formal p-values."
                 )
         elif should_use_cell_fallback:
-            if active_config.method != "cell_level_fallback" and not active_config.fallback_to_cell_level:
+            if (
+                active_config.method != "cell_level_fallback"
+                and not active_config.fallback_to_cell_level
+            ):
                 log.warning(
                     f"Skipping {group_label} {condition2} vs {condition1}: "
                     "cell-level fallback is disabled"
@@ -1296,10 +1713,13 @@ def run_pseudobulk_de(
                     group2=condition1,
                     min_log2fc=0.0,
                     max_padj=1.0,
-                    n_top_genes=active_config.n_genes if hasattr(active_config, "n_genes") else 5000,
+                    n_top_genes=active_config.n_genes
+                    if hasattr(active_config, "n_genes")
+                    else 5000,
                     layer=active_config.layer,
                     use_raw=active_config.use_raw,
                     plot=False,
+                    acknowledge_exploratory=True,
                 )
                 result = compare_groups(adata_sub, fallback_config)
             else:
@@ -1315,6 +1735,7 @@ def run_pseudobulk_de(
                     layer=active_config.layer,
                     use_raw=active_config.use_raw,
                     plot=False,
+                    acknowledge_exploratory=True,
                 )
                 result = compare_conditions(adata, fallback_config)
             result = result.copy()
@@ -1322,7 +1743,9 @@ def run_pseudobulk_de(
             if min(n1, n2) < 2:
                 result["pseudobulk_warning"] = "Only one sample in at least one condition"
             else:
-                result["pseudobulk_warning"] = "Cell-level fallback forced by method='cell_level_fallback'"
+                result["pseudobulk_warning"] = (
+                    "Cell-level fallback forced by method='cell_level_fallback'"
+                )
         elif should_use_linear_model:
             result = _run_linear_model_logcpm_de(
                 counts,
@@ -1335,6 +1758,46 @@ def run_pseudobulk_de(
                 p_adjust_method=active_config.p_adjust_method,
                 covariates=design_covariates,
                 robust_cov_type=active_config.robust_cov_type,
+            )
+        elif should_use_statsmodels_glm:
+            pb_adata = _make_pseudobulk_adata(
+                counts,
+                meta,
+                sample_col=active_config.sample_col,
+                condition_key=active_config.condition_key,
+                covariates=design_covariates,
+                min_counts=active_config.min_counts,
+            )
+            result = _run_statsmodels_glm_de(
+                pb_adata,
+                design_col=active_config.condition_key,
+                sample_col=active_config.sample_col,
+                covariates=design_covariates,
+                family=active_config.statsmodels_glm_family,
+                condition1=condition1,
+                condition2=condition2,
+                p_adjust_method=active_config.p_adjust_method,
+                pseudocount=active_config.pseudocount,
+            )
+        elif should_use_statsmodels_gee:
+            pb_adata = _make_pseudobulk_adata(
+                counts,
+                meta,
+                sample_col=active_config.sample_col,
+                condition_key=active_config.condition_key,
+                covariates=design_covariates,
+                min_counts=active_config.min_counts,
+            )
+            result = _run_statsmodels_gee_de(
+                pb_adata,
+                design_col=active_config.condition_key,
+                sample_col=active_config.sample_col,
+                covariates=design_covariates,
+                family=active_config.statsmodels_glm_family,
+                condition1=condition1,
+                condition2=condition2,
+                p_adjust_method=active_config.p_adjust_method,
+                pseudocount=active_config.pseudocount,
             )
         elif should_try_deseq2:
             try:
@@ -1417,7 +1880,7 @@ def run_pseudobulk_de(
             result["pseudoreplication_warning"] = True
         if not has_formal_replicates and "pseudobulk_warning" not in result:
             result["pseudobulk_warning"] = "Insufficient biological replicates for formal inference"
-        return result
+        return _tag_pseudobulk_de_result(result)
 
     if active_config.n_jobs > 1 and len(tasks) > 1:
         with ThreadPoolExecutor(max_workers=active_config.n_jobs) as pool:
@@ -1428,10 +1891,214 @@ def run_pseudobulk_de(
     result_parts = [part for part in result_parts if part is not None and not part.empty]
     results = pd.concat(result_parts, ignore_index=True) if result_parts else pd.DataFrame()
 
+    if active_config.hierarchical_correction and not results.empty and "pvals" in results.columns:
+        group_cols = []
+        if "group" in results.columns:
+            group_cols.append("group")
+        if "contrast" in results.columns:
+            group_cols.append("contrast")
+        results = _hierarchical_fdr_correction(
+            results,
+            pval_col="pvals",
+            group_cols=group_cols or ["contrast"],
+            global_method="benjamini_yekutieli",
+        )
+
     root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     root[active_config.key_added] = results
-    root[f"{active_config.key_added}_params"] = sanitize_for_hdf5(active_config.to_dict())
+    params = active_config.to_dict()
+    params["recommended_primary_method"] = "sample_level_pseudobulk"
+    params["cell_level_fallback_policy"] = "exploratory_only"
+    params["claim_level"] = (
+        "replicate_aware_sample_level_condition_inference"
+        if not results.empty and results["valid_for_publication_inference"].all()
+        else "review_required_condition_inference"
+    )
+    root[f"{active_config.key_added}_params"] = sanitize_for_hdf5(params)
     return results
+
+
+def run_mixedlm_de(
+    adata: AnnData,
+    sample_col: str,
+    condition_col: str,
+    condition1: Optional[str] = None,
+    condition2: Optional[str] = None,
+    covariates: Optional[List[str]] = None,
+    layer: Optional[str] = None,
+    use_raw: bool = False,
+    p_adjust_method: str = "fdr_bh",
+    max_genes: Optional[int] = 5000,
+    key_added: str = "mixedlm_de",
+) -> pd.DataFrame:
+    """
+    Cell-level sample-aware differential expression using statsmodels MixedLM.
+
+    For each gene, fits a linear mixed model with a random intercept per sample
+    and tests the condition coefficient. This accounts for within-sample
+    correlation but is still cell-level and therefore tagged as not valid for
+    publication inference on its own.
+
+    Args:
+        adata: AnnData object.
+        sample_col: Column in ``adata.obs`` containing sample identifiers.
+        condition_col: Column in ``adata.obs`` containing condition labels.
+        condition1: Reference condition. If None, inferred from the data.
+        condition2: Test condition. If None, inferred from the data.
+        covariates: Additional fixed-effect covariates.
+        layer: Layer to use for expression values.
+        use_raw: Use ``adata.raw``.
+        p_adjust_method: Multiple-testing method.
+        max_genes: Maximum number of genes to test. Warns if exceeded.
+        key_added: Key for storing results in ``adata.uns``.
+
+    Returns:
+        DataFrame with logFC, pvalue, padj and sample-aware tags.
+    """
+    from statsmodels.regression.mixed_linear_model import MixedLM
+
+    if sample_col not in adata.obs.columns:
+        raise KeyError(f"Column '{sample_col}' not found in adata.obs")
+    if condition_col not in adata.obs.columns:
+        raise KeyError(f"Column '{condition_col}' not found in adata.obs")
+
+    covariates = list(dict.fromkeys(covariates or []))
+    for cov in covariates:
+        if cov not in adata.obs.columns:
+            raise KeyError(f"Covariate '{cov}' not found in adata.obs")
+
+    X, var_names = _get_expression_matrix(adata, layer=layer, use_raw=use_raw)
+    if sparse.issparse(X):
+        X = np.asarray(X.toarray())
+    else:
+        X = np.asarray(X)
+
+    # Log1p-transform counts to put coefficients on approximately log scale.
+    if X.max() > 50 and layer is None and not use_raw:
+        endog_matrix = np.log1p(X)
+    else:
+        endog_matrix = X
+
+    n_genes = len(var_names)
+    if max_genes is not None and n_genes > max_genes:
+        log.warning(
+            "MixedLM DE requested for %d genes, exceeding max_genes=%d. "
+            "Testing only the first %d genes; increase max_genes to test more.",
+            n_genes,
+            max_genes,
+            max_genes,
+        )
+        endog_matrix = endog_matrix[:, :max_genes]
+        var_names = var_names[:max_genes]
+        n_genes = max_genes
+
+    obs = adata.obs.copy()
+    cond_values = pd.unique(obs[condition_col].astype(str))
+    if condition1 is None and condition2 is None:
+        if len(cond_values) != 2:
+            raise ValueError(
+                "Exactly two conditions required when condition1/condition2 are not specified"
+            )
+        condition1, condition2 = sorted(cond_values)
+    elif condition1 is None or condition2 is None:
+        raise ValueError("Provide both condition1 and condition2 or neither")
+
+    selected_mask = obs[condition_col].astype(str).isin([condition1, condition2]).to_numpy()
+    if selected_mask.sum() < 3:
+        raise ValueError("Need at least 3 cells for MixedLM DE")
+
+    obs = obs.loc[selected_mask].copy()
+    obs["__condition"] = pd.Categorical(
+        obs[condition_col].astype(str),
+        categories=[condition1, condition2],
+        ordered=False,
+    )
+    groups = obs[sample_col].astype(str)
+    n_samples = groups.nunique()
+    if n_samples < 2:
+        raise ValueError("Need at least 2 samples for MixedLM DE")
+
+    exog = pd.DataFrame(
+        {
+            "intercept": 1.0,
+            "condition": (obs["__condition"].astype(str) == condition2).astype(float),
+        }
+    )
+    for idx, cov in enumerate(covariates):
+        if obs[cov].nunique(dropna=True) >= 2:
+            safe = f"__cov_{idx}"
+            obs[safe] = obs[cov].astype(str)
+            dummies = pd.get_dummies(obs[safe], prefix=safe, drop_first=True)
+            exog = pd.concat([exog, dummies.astype(float)], axis=1)
+
+    term = "condition"
+    records = []
+    for gene_idx, gene in enumerate(var_names):
+        endog = endog_matrix[selected_mask, gene_idx].astype(float)
+        try:
+            model = MixedLM(endog, exog, groups=groups)
+            fit = model.fit(reml=False)
+        except Exception as exc:
+            log.warning("MixedLM failed for gene '%s': %s", gene, exc)
+            continue
+        exog_names = list(fit.model.exog_names)
+        if term not in exog_names:
+            continue
+        term_idx = exog_names.index(term)
+        coef = float(np.asarray(fit.params)[term_idx])
+        pval = float(np.asarray(fit.pvalues)[term_idx])
+        stat = float(np.asarray(fit.tvalues)[term_idx])
+        records.append(
+            {
+                "names": gene,
+                "gene": gene,
+                "logFC": coef,
+                "log2fc": coef,
+                "logfoldchanges": coef,
+                "scores": stat,
+                "statistic": stat,
+                "pvals": pval,
+                "pval": pval,
+                "condition1": condition1,
+                "condition2": condition2,
+                "contrast": f"{condition2}_vs_{condition1}",
+                "direction": f"{condition2} - {condition1}",
+                "n_samples": n_samples,
+                "n_cells": int(selected_mask.sum()),
+                "method": "statsmodels_mixedlm",
+                "model": "statsmodels_mixedlm",
+                "inference_level": "cell_level_sample_aware",
+                "valid_for_publication_inference": False,
+            }
+        )
+
+    result = pd.DataFrame(records)
+    if not result.empty:
+        result["pvals_adj"] = _benjamini_hochberg(result["pvals"], method=p_adjust_method)
+        result["padj"] = result["pvals_adj"]
+        result = result.sort_values(["pvals_adj", "pvals"], na_position="last").reset_index(
+            drop=True
+        )
+
+    root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
+    root[key_added] = result
+    root[f"{key_added}_params"] = sanitize_for_hdf5(
+        {
+            "sample_col": sample_col,
+            "condition_col": condition_col,
+            "condition1": condition1,
+            "condition2": condition2,
+            "covariates": covariates,
+            "layer": layer,
+            "use_raw": use_raw,
+            "p_adjust_method": p_adjust_method,
+            "max_genes": max_genes,
+            "inference_level": "cell_level_sample_aware",
+            "valid_for_publication_inference": False,
+            "model": "statsmodels_mixedlm",
+        }
+    )
+    return result
 
 
 def get_conserved_markers(

@@ -6,8 +6,8 @@ explicit inference semantics, and audit-ready workflow outputs.
 
 This document covers the practical mechanics. The architectural philosophy
 lives in `README.md`, `docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md`,
-`docs/source/usage_layers.rst`, `docs/source/data_contracts.rst`, and
-`docs/source/qc_preprocess_maturity.rst`. Read those before proposing a major
+`docs/user/usage_layers.md`, `docs/user/data_contracts.md`, and
+`docs/user/qc_preprocess_maturity.md`. Read those before proposing a major
 change.
 
 ---
@@ -28,6 +28,12 @@ gates at it:
 MAMBA_EXE=/opt/homebrew/bin/mamba \
 SCLUCID_TEST_ENV_PATH=/path/to/your/scrna-env \
 scripts/run_test_gates.sh
+```
+
+Clean deterministic local artifacts before reviewing `git status`:
+
+```bash
+python scripts/clean_workspace.py
 ```
 
 ---
@@ -82,14 +88,14 @@ tumor single-cell workflow need and have a validation story.
 
 - `docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md` — current five-direction
   strategic plan and implementation milestones.
-- `docs/source/data_contracts.rst` — the stable AnnData and review-summary
+- `docs/user/data_contracts.md` — the stable AnnData and review-summary
   conventions. Most contributions should preserve them; if you change them,
   bump `SCHEMA_VERSION` in `src/scLucid/utils/contracts.py`.
-- `docs/source/workflow_hardening.rst` — how real-data validation works
+- `docs/user/workflow_hardening.md` — how real-data validation works
   (PBMC + PDAC golden paths).
-- `docs/BULK_SPATIAL_DESIGN.md` — namespace and storage contract for
+- `docs/archive/design_notes/BULK_SPATIAL_DESIGN.md` — historical namespace and storage contract for
   `scLucid.tools.bulk` and `scLucid.tools.spatial`.
-- `docs/PLUGIN_DEVELOPMENT_GUIDE.md` — extension points for custom
+- `docs/dev/PLUGIN_DEVELOPMENT_GUIDE.md` — extension points for custom
   scoring/annotation/filter methods.
 
 ---
@@ -167,7 +173,7 @@ Before opening a PR:
 - [ ] `pre-commit run --all-files` clean
 - [ ] `pytest` clean
 - [ ] Added or updated tests for new code paths
-- [ ] Updated relevant documentation (`docs/source/*.rst`, examples, README)
+- [ ] Updated relevant documentation (`docs/user/*.md`, `docs/api/*.md`, examples, README)
 - [ ] Added an entry under "Unreleased" in the changelog if user-facing
 - [ ] Confirmed `import scLucid` produces zero `ImportWarning`
 - [ ] Confirmed no generated artifacts are included (`htmlcov/`, `coverage.xml`,
@@ -176,7 +182,7 @@ Before opening a PR:
 When the PR touches a workflow contract, the AnnData layout, or a public API:
 
 - [ ] Bumped `SCHEMA_VERSION` if needed
-- [ ] Updated `docs/source/data_contracts.rst`
+- [ ] Updated `docs/user/data_contracts.md`
 - [ ] Verified PBMC golden path still runs:
       `scripts/run_pbmc_golden_path.py --n-cells 300 --output-dir /tmp/pbmc_check --overwrite`
 

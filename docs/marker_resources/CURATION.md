@@ -164,7 +164,7 @@ than pretending they are universal identifiers.
 
 1. Extract candidate marker evidence from a review, atlas table, figure legend,
    supplement, or author-provided annotation table.
-2. Register every batch-md source in `docs/marker_curation_literature_index.jsonl`
+2. Register every batch-md source in `docs/marker_resources/marker_curation_literature_index.jsonl`
    and link it to `resources/references.toml` when a stable DOI/source id exists.
 3. Normalize names to official gene symbols for the target species.
 4. Classify each candidate into one resource section and one biological role.
@@ -194,7 +194,7 @@ The audit checks:
   state, tumor, or program entries;
 - geneset JSON resources have valid categories, usage metadata, source
   provenance, and gene symbols;
-- `docs/marker_curation_literature_index.jsonl` keeps all 12 curation batches
+- `docs/marker_resources/marker_curation_literature_index.jsonl` keeps all 12 curation batches
   represented and records remaining queued literature;
 - `audit_marker_entry_quality()` reports curation debt such as thin marker sets,
   missing effective negative markers, and entries still waiting for review.
@@ -226,12 +226,12 @@ Run these tests after marker or geneset edits:
 
 Two machine-readable queues guide the next curation pass:
 
-- `docs/marker_curation_literature_index.jsonl`: source-level queue. Each row
+- `docs/marker_resources/marker_curation_literature_index.jsonl`: source-level queue. Each row
   records `resource_utility`, `target_resources`, `curation_priority`,
   `fulltext_review_required`, and `extraction_status`.
-- `docs/marker_resource_quality_gaps.jsonl`: entry-level queue. Each row records
-  marker resource gaps such as `thin_marker_set` or
-  `missing_effective_negative_markers`.
+- `docs/marker_resources/marker_resource_quality_gaps.jsonl`: optional
+  generated entry-level queue. Each row records marker resource gaps such as
+  `thin_marker_set` or `missing_effective_negative_markers`.
 
 Negative marker quality is evaluated with inheritance. A subtype can inherit
 exclusion evidence from its lineage parent; only entries without direct or

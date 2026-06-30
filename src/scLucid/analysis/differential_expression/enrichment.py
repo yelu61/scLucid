@@ -499,6 +499,7 @@ def batch_celltype_deg_enrichment(
             save_dir=outdir,
             plot=False,
             verbose=verbose,
+            acknowledge_exploratory=True,
         )
 
         try:

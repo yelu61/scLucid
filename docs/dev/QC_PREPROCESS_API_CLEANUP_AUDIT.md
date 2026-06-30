@@ -1,5 +1,10 @@
 # QC / Preprocess API Cleanup Audit
 
+> Developer note: this audit records cleanup decisions from a specific
+> hardening round. It should guide compatibility maintenance, but current
+> user-facing contracts live in `docs/api/*.md`,
+> `docs/user/module_features_and_plan.md`, and code/tests.
+
 This audit records low-value wrappers and boundary risks found while building
 real-data validation benchmarks. The goal is to keep scLucid's public surface
 small without breaking older notebooks abruptly.

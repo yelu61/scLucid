@@ -6,13 +6,32 @@ import logging
 from importlib.metadata import version
 from typing import Literal, Optional, Union
 
+import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
+from scipy.stats import wilcoxon
 
 from ...utils import Manager, sanitize_for_hdf5
 
 log = logging.getLogger(__name__)
+
+
+def _benjamini_hochberg(pvalues: pd.Series) -> pd.Series:
+    """Apply Benjamini-Hochberg FDR correction to a Series of p-values."""
+    p = pvalues.copy()
+    n = len(p)
+    if n == 0:
+        return p
+    sorted_idx = p.argsort().values
+    sorted_p = p.iloc[sorted_idx].values
+    adjusted = sorted_p * n / np.arange(1, n + 1)
+    # enforce monotonicity from the bottom up
+    adjusted = np.minimum.accumulate(adjusted[::-1])[::-1]
+    adjusted = np.clip(adjusted, 0.0, 1.0)
+    fdr = pd.Series(np.nan, index=p.index)
+    fdr.iloc[sorted_idx] = adjusted
+    return fdr
 
 
 def annotate_clusters(
@@ -25,6 +44,8 @@ def annotate_clusters(
     min_confidence: float = 0.3,
     confidence_key: Optional[str] = None,
     min_score: float = 0.1,
+    significance_threshold: float = 0.05,
+    min_score_margin: float = 0.0,
     n_genes: int = 100,
     score_weight: float = 0.6,
     enrichment_weight: float = 0.4,
@@ -64,18 +85,60 @@ def annotate_clusters(
         if not score_cols:
             raise RuntimeError("No *_score columns found. Please run score_cell_types first.")
         means = adata.obs.groupby(cluster_key, observed=False)[score_cols].mean()
+        global_medians = adata.obs[score_cols].median()
         result = {}
+        evidence = {}
         for cluster in means.index:
             cluster_means = means.loc[cluster]
             # Guard against all-NaN for this cluster
             if cluster_means.isna().all():
                 result[str(cluster)] = "Unknown"
+                evidence[str(cluster)] = {"assigned_label": "Unknown", "reason": "all_nan"}
                 continue
-            best = cluster_means.idxmax()
-            best_score = float(cluster_means[best])
+
+            cluster_scores = adata.obs.loc[adata.obs[cluster_key] == cluster, score_cols]
+            pvals = {}
+            for col in score_cols:
+                scores = cluster_scores[col].dropna()
+                median = global_medians[col]
+                if len(scores) < 2:
+                    pvals[col] = 1.0
+                    continue
+                try:
+                    diff = scores - median
+                    if diff.nunique() <= 1:
+                        pvals[col] = 1.0
+                    else:
+                        _, p = wilcoxon(diff, zero_method="zsplit", alternative="greater")
+                        pvals[col] = float(p)
+                except Exception:
+                    pvals[col] = 1.0
+
+            pval_series = pd.Series(pvals)
+            fdr = _benjamini_hochberg(pval_series)
+
+            sorted_means = cluster_means.sort_values(ascending=False)
+            best = sorted_means.index[0]
+            best_score = float(sorted_means.iloc[0])
+            runner_up_score = float(sorted_means.iloc[1]) if len(sorted_means) > 1 else 0.0
+            margin = best_score - runner_up_score
             cell_type = best[:-6] if best.endswith("_score") else best
-            result[str(cluster)] = cell_type if best_score >= min_score else "Unknown"
-        return result
+
+            passed = (
+                best_score >= min_score
+                and fdr[best] <= significance_threshold
+                and margin >= min_score_margin
+            )
+            result[str(cluster)] = cell_type if passed else "Unknown"
+            evidence[str(cluster)] = {
+                "pvalues": {k: float(v) for k, v in pvals.items()},
+                "fdr": {k: float(v) for k, v in fdr.items()},
+                "margin": float(margin),
+                "best_score": float(best_score),
+                "runner_up_score": float(runner_up_score),
+                "assigned_label": result[str(cluster)],
+            }
+        return result, evidence
 
     # 2. Enrichment-based
     def annotate_by_enrichment():
@@ -161,11 +224,13 @@ def annotate_clusters(
 
     # Select method
     if method == "max_score":
-        mapping = annotate_by_max_score()
+        mapping, max_score_evidence = annotate_by_max_score()
     elif method == "enrichment":
         mapping = annotate_by_enrichment()
+        max_score_evidence = {}
     elif method == "combined":
         mapping = annotate_by_combined()
+        max_score_evidence = {}
     else:
         raise ValueError(f"Unknown annotation method: {method}")
 
@@ -181,11 +246,14 @@ def annotate_clusters(
         {
             "method": method,
             "min_score": min_score,
+            "significance_threshold": significance_threshold,
+            "min_score_margin": min_score_margin,
             "score_weight": score_weight,
             "enrichment_weight": enrichment_weight,
             "mapping": mapping,
             "scanpy_version": version("scanpy"),
             "n_markers": {k: len(v.markers) for k, v in getattr(mgr, "CELLS", {}).items()},
+            "max_score_evidence": max_score_evidence,
         }
     )
     adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_params"] = params_dict

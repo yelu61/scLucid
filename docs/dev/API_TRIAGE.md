@@ -1,5 +1,9 @@
 # API Triage Staging Area
 
+> Developer note: this is a triage log for uncertain, deprecated, or
+> private-but-exposed symbols. It is not the current public API contract. Verify
+> active user-facing behavior against code, tests, and `docs/api/*.md`.
+
 This document tracks symbols whose public/internal status is uncertain. Each
 entry follows the template below. Decisions are made by maintainers and
 recorded here; resolved entries are moved to the **Resolved** section.

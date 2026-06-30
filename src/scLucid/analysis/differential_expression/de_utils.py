@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Literal, Union
 
+import numpy as np
 import pandas as pd
 from anndata import AnnData
 
@@ -30,6 +31,99 @@ log = logging.getLogger(__name__)
 def _safe_filename(s: str) -> str:
     """Convert string to filesystem-safe filename."""
     return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fa5\-_\.]", "_", s)
+
+
+def _hierarchical_fdr_correction(
+    df: pd.DataFrame,
+    pval_col: str = "pvals",
+    group_cols: List[str] = ["cell_type", "contrast"],
+    global_method: str = "benjamini_yekutieli",
+    alpha: float = 0.05,
+    two_stage: bool = False,
+) -> pd.DataFrame:
+    """
+    Hierarchical multiple-testing correction for grouped DE results.
+
+    Procedure:
+    1. Apply Benjamini-Hochberg within each group -> ``padj_within_group``.
+    2. Apply the specified global method (default Benjamini-Yekutieli) across
+       all tests -> ``padj_global_by``.
+    3. Optionally run a two-stage hierarchical procedure: reject using
+       within-group BH at level ``alpha``, then re-apply the global method to
+       the rejected subset as a sensitivity check -> ``padj_two_stage``.
+
+    Args:
+        df: DE result DataFrame containing p-values.
+        pval_col: Name of the raw p-value column.
+        group_cols: Columns defining the hierarchical groups. Missing group
+            columns are ignored.
+        global_method: Method passed to statsmodels ``multipletests`` for the
+            global correction step. Default is Benjamini-Yekutieli.
+        alpha: Significance level for the optional two-stage rejection step.
+        two_stage: If True, compute the two-stage sensitivity column.
+
+    Returns:
+        Copy of ``df`` with additional columns:
+        - ``padj_within_group``: BH-adjusted p-values within each group.
+        - ``padj_global_by``: globally adjusted p-values.
+        - ``hierarchical_rejected`` (optional): genes rejected by within-group BH
+          at ``alpha``.
+        - ``padj_two_stage`` (optional): global correction on rejected subset.
+    """
+    from statsmodels.stats.multitest import multipletests
+
+    result = df.copy()
+    if pval_col not in result.columns:
+        raise KeyError(f"p-value column '{pval_col}' not found in DataFrame")
+
+    pvals = pd.to_numeric(result[pval_col], errors="coerce")
+    valid_mask = pvals.notna() & (pvals >= 0) & (pvals <= 1)
+
+    # Determine usable group columns present in the data.
+    usable_group_cols = [c for c in group_cols if c in result.columns]
+    if not usable_group_cols:
+        usable_group_cols = ["__all__"]
+        result["__all__"] = "all"
+
+    # 1. BH within each group.
+    within = pd.Series(np.nan, index=result.index, dtype=float)
+    for _, sub in result[valid_mask].groupby(usable_group_cols, observed=False):
+        idx = sub.index
+        if len(idx) == 0:
+            continue
+        _, padj, _, _ = multipletests(pvals.loc[idx].to_numpy(), method="fdr_bh")
+        within.loc[idx] = padj
+    result["padj_within_group"] = within
+
+    # 2. Global correction across all valid tests.
+    global_padj = pd.Series(np.nan, index=result.index, dtype=float)
+    if valid_mask.any():
+        try:
+            _, padj, _, _ = multipletests(pvals[valid_mask].to_numpy(), method=global_method)
+        except ValueError:
+            # Fall back to BH if the requested global method is unrecognized.
+            _, padj, _, _ = multipletests(pvals[valid_mask].to_numpy(), method="fdr_bh")
+        global_padj.loc[valid_mask] = padj
+    result["padj_global_by"] = global_padj
+
+    # 3. Optional two-stage hierarchical procedure.
+    if two_stage:
+        rejected = within <= alpha
+        result["hierarchical_rejected"] = rejected.fillna(False)
+        two_stage_padj = pd.Series(np.nan, index=result.index, dtype=float)
+        if rejected.any():
+            try:
+                _, padj, _, _ = multipletests(pvals[rejected].to_numpy(), method=global_method)
+            except ValueError:
+                _, padj, _, _ = multipletests(pvals[rejected].to_numpy(), method="fdr_bh")
+            two_stage_padj.loc[rejected.index[rejected]] = padj
+        result["padj_two_stage"] = two_stage_padj
+
+    # Remove temporary placeholder column if we added it.
+    if "__all__" in result.columns and "__all__" not in df.columns:
+        result = result.drop(columns=["__all__"])
+
+    return result
 
 
 def _store_results(
@@ -124,8 +218,7 @@ class ResultManager:
         """
         if format not in self.SUPPORTED_FORMATS:
             raise ValueError(
-                f"Unsupported format: {format}. "
-                f"Supported: {list(self.SUPPORTED_FORMATS.keys())}"
+                f"Unsupported format: {format}. Supported: {list(self.SUPPORTED_FORMATS.keys())}"
             )
 
         ext = self.SUPPORTED_FORMATS[format]
@@ -173,8 +266,7 @@ class ResultManager:
         """
         if format not in self.SUPPORTED_FORMATS:
             raise ValueError(
-                f"Unsupported format: {format}. "
-                f"Supported: {list(self.SUPPORTED_FORMATS.keys())}"
+                f"Unsupported format: {format}. Supported: {list(self.SUPPORTED_FORMATS.keys())}"
             )
 
         ext = self.SUPPORTED_FORMATS[format]

@@ -100,7 +100,7 @@ class HVGConfig(SclucidBaseConfig):
     sample_key: str = Field(default="sampleID")
     min_n_samples: int = Field(default=2, ge=1)
     n_highly_expressed_genes: int = Field(default=50, ge=0)
-    n_specific_genes: int = Field(default=20, ge=0)
+    n_specific_genes: int = Field(default=0, ge=0)
     exclude_gene_types: Optional[List[str]] = Field(
         default_factory=lambda: ["mitochondrial", "ribosomal"]
     )

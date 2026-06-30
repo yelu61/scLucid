@@ -106,6 +106,10 @@ or reorganizing modules.
 
 ### Review / Trace Functions
 - `enrich_preprocessing_review_summary`
+- `build_normalization_decision_policy`
+- `build_preprocess_layer_contract`
+- `build_preprocess_decision_summary`
+- `build_preprocess_reviewer_table`
 - `validate_preprocessing_review_summary`
 - `summarize_preprocess_review_summary`
 - `validate_preprocess_module_completeness`
@@ -146,6 +150,10 @@ or reorganizing modules.
 - `EnrichmentConfig`
 
 ### Review / Trace Functions
+- `build_analysis_inference_policy`
+- `build_analysis_output_contract`
+- `build_analysis_decision_summary`
+- `build_analysis_reviewer_table`
 - `build_posthoc_qc_review_summary`
 - `validate_analysis_review_summary`
 - `summarize_analysis_review_summary`

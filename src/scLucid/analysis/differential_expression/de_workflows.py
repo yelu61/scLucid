@@ -65,7 +65,18 @@ def _build_characterization_tables(
     """Build notebook-friendly cluster marker and enrichment summary tables."""
     marker_rows: List[Dict[str, object]] = []
     enrichment_rows: List[Dict[str, object]] = []
-    marker_columns = ["cluster", "rank", "gene", "logfoldchanges", "scores", "pvals_adj"]
+    marker_columns = [
+        "cluster",
+        "rank",
+        "gene",
+        "logfoldchanges",
+        "scores",
+        "pvals_adj",
+        "inference_level",
+        "claim_level",
+        "valid_for_publication_inference",
+        "de_review_note",
+    ]
     enrichment_columns = [
         "cluster",
         "method",
@@ -94,6 +105,18 @@ def _build_characterization_tables(
                         "logfoldchanges": row.get("logfoldchanges"),
                         "scores": row.get("scores"),
                         "pvals_adj": row.get("pvals_adj"),
+                        "inference_level": row.get("inference_level", "cell_level_marker_discovery"),
+                        "claim_level": row.get("claim_level", "exploratory_marker_screen"),
+                        "valid_for_publication_inference": bool(
+                            row.get("valid_for_publication_inference", False)
+                        ),
+                        "de_review_note": row.get(
+                            "de_review_note",
+                            row.get(
+                                "de_warning",
+                                "Cluster marker rows are cell-level exploratory marker evidence, not formal condition DE.",
+                            ),
+                        ),
                     }
                 )
 

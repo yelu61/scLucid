@@ -58,7 +58,18 @@ def test_run_preprocessing_review_summary_has_benchmark_sections():
     norm_policy = review["normalization_decision_policy"]
     assert norm_policy["schema_version"] == "normalization_decision_policy_v1"
     assert norm_policy["applied_method"] == "standard"
+    assert norm_policy["claim_level"] == "standard_preprocessing"
     assert norm_policy["recommended_input_layer"] == "counts"
+    method_semantics = review["preprocess_method_semantics"]
+    assert method_semantics["schema_version"] == "preprocess_method_semantics_v1"
+    assert method_semantics["claim_level_counts"]["standard_preprocessing"] >= 1
+    semantics_row_values = (
+        method_semantics["rows"].values()
+        if isinstance(method_semantics["rows"], dict)
+        else method_semantics["rows"]
+    )
+    semantics_rows = {row["source_key"]: row for row in semantics_row_values}
+    assert semantics_rows["normalization"]["claim_level"] == "standard_preprocessing"
     assert review["applied_parameter_summary"]["hvg_selection"]["requested_n_top_genes"] == 100
     layer_contract = review["preprocess_layer_contract"]
     assert layer_contract["canonical_flow"] == "counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph"
@@ -127,6 +138,8 @@ def test_run_preprocessing_review_summary_has_benchmark_sections():
     }
     for row in reviewer_table:
         assert required_reviewer_columns.issubset(row)
+        assert "claim_levels" in row
+        assert "scientific_semantics" in row
     assert review["downstream_analysis_recommendations"]["ready_for_analysis"] is True
     assert review["preprocess_readiness"]["status"] in {"ready", "review_required"}
 
@@ -148,12 +161,14 @@ def test_run_preprocessing_review_summary_contains_evidence_bundle():
     assert any(item["name"] == "normalization_decision_policy" for item in bundle["evidence_chain"])
     assert any(item["name"] == "preprocess_layer_contract" for item in bundle["evidence_chain"])
     assert any(item["name"] == "step_evidence_summary" for item in bundle["evidence_chain"])
+    assert any(item["name"] == "preprocess_method_semantics" for item in bundle["evidence_chain"])
     assert any(item["name"] == "preprocess_decision_summary" for item in bundle["evidence_chain"])
     assert "applied_parameter_summary" in bundle["related_review_keys"]
     assert "normalization_decision_policy" in bundle["related_review_keys"]
     assert "preprocess_layer_contract" in bundle["related_review_keys"]
     assert "preprocess_decision_summary" in bundle["related_review_keys"]
     assert "preprocess_reviewer_table" in bundle["related_review_keys"]
+    assert "preprocess_method_semantics" in bundle["related_review_keys"]
     assert "step_evidence_summary" in bundle["related_review_keys"]
 
 
@@ -205,6 +220,8 @@ def test_preprocess_module_maturity_and_compact_summary():
     assert compact["canonical_layer_flow"] == "counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph"
     assert compact["recommended_counts_layer"] == "counts"
     assert compact["normalization_applied_method"] == "standard"
+    assert compact["method_semantics_status"] == "ok"
+    assert compact["method_claim_level_counts"]["standard_preprocessing"] >= 1
     assert compact["step_status_counts"]["complete"] >= 5
     assert compact["preprocess_decision_counts"]["use"] >= 4
     assert compact["primary_downstream_representation"] == "X_pca"
@@ -236,10 +253,12 @@ def test_preprocess_module_contract_is_public():
     assert contract["step_evidence_key"] == "step_evidence_summary"
     assert "preprocess_decision_summary" in contract["required_review_sections"]
     assert "preprocess_reviewer_table" in contract["required_review_sections"]
+    assert "preprocess_method_semantics" in contract["required_review_sections"]
     assert "normalization_decision_policy" in contract["required_review_sections"]
     assert contract["normalization_policy_key"] == "normalization_decision_policy"
     assert contract["decision_summary_key"] == "preprocess_decision_summary"
     assert contract["reviewer_table_key"] == "preprocess_reviewer_table"
+    assert contract["method_semantics_key"] == "preprocess_method_semantics"
     assert "adata.layers['normalized']" in contract["expected_outputs"]
 
 

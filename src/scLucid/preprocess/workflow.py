@@ -938,6 +938,23 @@ def _run_pca(
         vr = adata.uns["pca"]["variance_ratio"]
         n_comps = _select_n_pcs(vr, method=config.n_pcs_selection_method)
         log.info(f"Auto-selected {n_comps} PCs ({config.n_pcs_selection_method} method)")
+        adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+            "pca_n_pcs_selection"
+        ] = {
+            "schema_version": "pca_n_pcs_selection_v1",
+            "method": config.n_pcs_selection_method,
+            "selected_n_pcs": int(n_comps),
+            "model_type": "log_variance_ratio_kneedle_heuristic"
+            if config.n_pcs_selection_method == "elbow"
+            else "cumulative_variance_threshold",
+            "claim_level": "heuristic_pca_dimension_recommendation",
+            "review_note": (
+                "The elbow method uses a log-transformed variance-ratio curve and should "
+                "be treated as a heuristic recommendation, not a formal optimum."
+                if config.n_pcs_selection_method == "elbow"
+                else "Cumulative variance threshold is a rule-of-thumb dimension choice."
+            ),
+        }
         # Re-run with selected n_comps
         sc.tl.pca(adata, n_comps=n_comps)
     else:

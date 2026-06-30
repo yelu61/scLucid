@@ -97,14 +97,20 @@ def _interpret_integration_evaluation(results: Dict[str, Any]) -> Dict[str, Any]
         else:
             warnings.append("Batch silhouette is intermediate; compare integrated and unintegrated embeddings.")
 
-    kbet = results.get("kbet_acceptance")
-    if kbet is not None:
-        if kbet >= 0.7:
-            strengths.append("kBET acceptance suggests local batch mixing is acceptable.")
-        elif kbet < 0.3:
-            warnings.append("kBET acceptance is low; local neighborhoods may still be batch-biased.")
+    local_batch_acceptance = results.get("local_batch_chi2_acceptance")
+    if local_batch_acceptance is not None:
+        if local_batch_acceptance >= 0.7:
+            strengths.append(
+                "Local batch chi-square acceptance suggests local batch mixing is acceptable."
+            )
+        elif local_batch_acceptance < 0.3:
+            warnings.append(
+                "Local batch chi-square acceptance is low; local neighborhoods may still be batch-biased."
+            )
         else:
-            warnings.append("kBET acceptance is intermediate; review local batch mixing visually.")
+            warnings.append(
+                "Local batch chi-square acceptance is intermediate; review local batch mixing visually."
+            )
 
     label_sil = results.get("label_silhouette")
     if label_sil is not None:
@@ -134,7 +140,7 @@ def _interpret_integration_evaluation(results: Dict[str, Any]) -> Dict[str, Any]
         "recommendation": recommendation,
         "metric_notes": {
             "batch_silhouette": "Stored as negative silhouette; values closer to 0 are generally better for batch mixing.",
-            "kbet_acceptance": "Higher values indicate better local batch mixing.",
+            "local_batch_chi2_acceptance": "Higher values indicate better local batch mixing.",
             "label_silhouette": "Higher values indicate better preservation of biological labels.",
             "graph_connectivity": "Higher values indicate better within-label graph connectivity.",
         },
@@ -893,10 +899,18 @@ def _integrate_combat(
     inplace: bool = True,
     output_layer: str = "combat_corrected",
     copy: bool = False,
+    force_dense: bool = False,
     **kwargs,
 ) -> AnnData:
     """
     Wrapper for ComBat batch correction.
+
+    Args:
+        force_dense: If True, allow ComBat to densify a sparse input matrix.
+            If False and the input is sparse, a warning is issued for small
+            matrices and a ``MemoryError`` is raised for large matrices
+            (>50 million elements or non-zeros), because ComBat requires a
+            dense array. Consider Harmony or scVI integration for large datasets.
     """
     if batch_key not in adata.obs:
         raise ValueError(f"batch_key '{batch_key}' not in adata.obs")
@@ -919,6 +933,31 @@ def _integrate_combat(
     import scipy.sparse
 
     if scipy.sparse.issparse(X_combat):
+        n_elements = X_combat.shape[0] * X_combat.shape[1]
+        n_nonzero = X_combat.nnz
+        large_threshold = 50_000_000
+        is_large = n_elements > large_threshold or n_nonzero > large_threshold
+
+        if is_large and not force_dense:
+            raise MemoryError(
+                f"ComBat would densify a {X_combat.shape[0]}x{X_combat.shape[1]} sparse matrix "
+                f"({n_elements} elements, {n_nonzero} non-zeros). Set force_dense=True to "
+                f"proceed, or use Harmony/scVI integration for large datasets."
+            )
+
+        if is_large:
+            log.warning(
+                "ComBat is densifying a large sparse matrix (%d elements, %d non-zeros). "
+                "Consider Harmony or scVI integration for large datasets.",
+                n_elements,
+                n_nonzero,
+            )
+        else:
+            log.warning(
+                "ComBat is densifying a sparse input matrix. "
+                "Consider Harmony or scVI integration for large datasets."
+            )
+
         X_combat = X_combat.toarray()
     import anndata
 
@@ -944,20 +983,23 @@ def _integrate_combat(
     return adata
 
 
-def _compute_kbet_score(
+def _compute_local_batch_chi2_acceptance(
     X: np.ndarray,
     batch_labels: pd.Series,
     n_neighbors: int = 25,
     alpha: float = 0.05,
     n_sample_cells: int = 1000,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
-    Compute proper k-BET (k-nearest neighbor Batch Effect Test) score.
+    Compute an approximate local batch-mixing score using chi-square tests.
 
-    Based on: Büttner et al., Nature Methods 2019
+    This is a k-BET-like heuristic: for each sampled cell, the batch composition
+    of its local neighborhood is compared to the global batch distribution using
+    a chi-square goodness-of-fit test. It is useful as an audit diagnostic, but
+    should not be reported as an exact reproduction of the original kBET package.
 
     Returns:
-        Dict with 'rejection_rate', 'acceptance_rate', and 'kbet_score'
+        Dict with 'rejection_rate' and 'acceptance_rate'.
     """
     from scipy.stats import chi2
     from sklearn.neighbors import NearestNeighbors
@@ -1015,22 +1057,126 @@ def _compute_kbet_score(
             rejections += 1
 
     if valid_tests == 0:
-        log.warning("k-BET: No valid tests could be performed")
-        return {"rejection_rate": np.nan, "acceptance_rate": np.nan, "kbet_score": np.nan}
+        log.warning("Local batch chi-square: No valid tests could be performed")
+        return {
+            "rejection_rate": np.nan,
+            "acceptance_rate": np.nan,
+            "n_tests": 0,
+            "n_neighbors": int(n_neighbors),
+            "alpha": float(alpha),
+            "model_type": "chi_square_local_batch_approximation",
+            "claim_level": "batch_mixing_diagnostic_heuristic",
+            "review_note": (
+                "No valid chi-square neighborhood tests were available; local batch "
+                "mixing should be treated as unavailable for this run."
+            ),
+        }
 
     rejection_rate = rejections / valid_tests
     acceptance_rate = 1 - rejection_rate
 
-    # k-BET score: lower rejection rate = better integration
-    # Scale to [0, 1] where 1 is perfect
-    kbet_score = acceptance_rate
-
     return {
         "rejection_rate": rejection_rate,
         "acceptance_rate": acceptance_rate,
-        "kbet_score": kbet_score,
         "n_tests": valid_tests,
+        "n_neighbors": int(n_neighbors),
+        "alpha": float(alpha),
+        "model_type": "chi_square_local_batch_approximation",
+        "claim_level": "batch_mixing_diagnostic_heuristic",
+        "review_note": (
+            "Local batch mixing is approximated with chi-square goodness-of-fit tests "
+            "over sampled neighborhoods; inspect alongside silhouette, graph connectivity, "
+            "and biology preservation evidence."
+        ),
     }
+
+
+def _compute_kbet_score(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Deprecated alias for :func:`_compute_local_batch_chi2_acceptance`."""
+    import warnings
+
+    warnings.warn(
+        "_compute_kbet_score is deprecated; use _compute_local_batch_chi2_acceptance.",
+        FutureWarning,
+        stacklevel=2,
+    )
+    return _compute_local_batch_chi2_acceptance(*args, **kwargs)
+
+
+def _compute_kbet_reference(
+    adata: AnnData,
+    batch_key: str,
+    use_rep: Optional[str] = None,
+    n_neighbors: int = 25,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """
+    Compute kBET using ``scib.metrics.kBET`` when available.
+
+    Falls back to the local chi-square approximation with a clear warning if
+    scib is not installed or if the reference computation fails.
+
+    Returns:
+        Dict matching the contract of :func:`_compute_local_batch_chi2_acceptance`,
+        with an additional ``reference_backend`` key indicating whether the scib
+        reference or the approximation was used.
+    """
+    try:
+        import scib
+    except ImportError:
+        log.warning(
+            "scib is not installed; falling back to the local chi-square approximation "
+            "for kBET. Install scib for the reference implementation."
+        )
+        X = adata.obsm[use_rep] if use_rep and use_rep in adata.obsm else adata.X
+        if hasattr(X, "toarray"):
+            X = X.toarray()
+        result = _compute_local_batch_chi2_acceptance(
+            X, adata.obs[batch_key], n_neighbors=n_neighbors, **kwargs
+        )
+        result["reference_backend"] = "chi_square_approximation"
+        return result
+
+    try:
+        # scib.metrics.kBET returns a float acceptance rate by default.
+        acceptance_rate = float(
+            scib.metrics.kBET(
+                adata,
+                batch_key=batch_key,
+                label_key=batch_key,
+                type_=None if use_rep is None else "embed",
+                embed=use_rep,
+                k0=n_neighbors,
+                **kwargs,
+            )
+        )
+        return {
+            "rejection_rate": 1.0 - acceptance_rate,
+            "acceptance_rate": acceptance_rate,
+            "n_tests": None,
+            "n_neighbors": int(n_neighbors),
+            "alpha": float(kwargs.get("alpha", 0.05)),
+            "model_type": "scib_kbet_reference",
+            "claim_level": "batch_mixing_diagnostic_reference",
+            "reference_backend": "scib",
+            "review_note": (
+                "kBET computed via scib.metrics.kBET reference implementation."
+            ),
+        }
+    except Exception as exc:
+        log.warning(
+            "scib kBET reference computation failed (%s); falling back to the local "
+            "chi-square approximation.",
+            exc,
+        )
+        X = adata.obsm[use_rep] if use_rep and use_rep in adata.obsm else adata.X
+        if hasattr(X, "toarray"):
+            X = X.toarray()
+        result = _compute_local_batch_chi2_acceptance(
+            X, adata.obs[batch_key], n_neighbors=n_neighbors, **kwargs
+        )
+        result["reference_backend"] = "chi_square_approximation"
+        return result
 
 
 # ==============================================================================
@@ -1313,10 +1459,17 @@ def evaluate_integration(
     methods: List[str] = ["silhouette", "kbet", "graph_connectivity"],
     plot: bool = True,
     save_path: Optional[str] = None,
+    use_reference_kbet: bool = True,
 ) -> Dict[str, float]:
     """
-    Evaluate integration quality using batch/label silhouette, kBET, and graph connectivity.
-    Automatically finds the best embedding if not given.
+    Evaluate integration quality using batch/label silhouette, local batch
+    chi-square, and graph connectivity. Automatically finds the best embedding
+    if not given.
+
+    Args:
+        use_reference_kbet: If True, attempt to use ``scib.metrics.kBET`` as the
+            reference implementation. Falls back to the local chi-square
+            approximation if scib is unavailable or fails.
 
     Returns:
         Dict of scores (higher is better).
@@ -1378,25 +1531,59 @@ def evaluate_integration(
         except Exception as e:
             log.warning(f"Silhouette failed: {e}")
 
-    # 2. k-BET (batch effect test - measures batch mixing in local neighborhoods)
+    # 2. Local batch chi-square (k-BET-like batch mixing in local neighborhoods)
     if "kbet" in methods:
         try:
-            log.info("Computing k-BET score...")
-            kbet_result = _compute_kbet_score(
-                X,
-                adata.obs[batch_key],
-                n_neighbors=n_neighbors,
-                n_sample_cells=min(2000, adata.n_obs),
-            )
+            log.info("Computing local batch mixing score...")
+            if use_reference_kbet:
+                kbet_result = _compute_kbet_reference(
+                    adata,
+                    batch_key=batch_key,
+                    use_rep=use_rep,
+                    n_neighbors=n_neighbors,
+                    n_sample_cells=min(2000, adata.n_obs),
+                )
+            else:
+                kbet_result = _compute_local_batch_chi2_acceptance(
+                    X,
+                    adata.obs[batch_key],
+                    n_neighbors=n_neighbors,
+                    n_sample_cells=min(2000, adata.n_obs),
+                )
 
+            results["local_batch_chi2_acceptance"] = kbet_result["acceptance_rate"]
+            results["local_batch_chi2_rejection_rate"] = kbet_result["rejection_rate"]
+            results["local_batch_chi2_model_type"] = kbet_result.get("model_type")
+            results["local_batch_chi2_claim_level"] = kbet_result.get("claim_level")
+            results["local_batch_chi2_review_note"] = kbet_result.get("review_note")
+            results["local_batch_chi2_n_neighbors"] = kbet_result.get("n_neighbors")
+            if "reference_backend" in kbet_result:
+                results["local_batch_chi2_reference_backend"] = kbet_result[
+                    "reference_backend"
+                ]
+
+            # Backward-compatible aliases (deprecated)
+            import warnings
+
+            warnings.warn(
+                "The 'kbet_acceptance' and 'kbet_rejection_rate' keys are deprecated; "
+                "use 'local_batch_chi2_acceptance' and "
+                "'local_batch_chi2_rejection_rate' instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
             results["kbet_acceptance"] = kbet_result["acceptance_rate"]
             results["kbet_rejection_rate"] = kbet_result["rejection_rate"]
+            results["kbet_model_type"] = kbet_result.get("model_type")
+            results["kbet_claim_level"] = kbet_result.get("claim_level")
+            results["kbet_review_note"] = kbet_result.get("review_note")
+            results["kbet_n_neighbors"] = kbet_result.get("n_neighbors")
 
-            log.info(f"k-BET acceptance rate: {kbet_result['acceptance_rate']:.4f}")
-            log.info(f"k-BET tests performed: {kbet_result['n_tests']}")
+            log.info(f"Local batch chi-square acceptance rate: {kbet_result['acceptance_rate']:.4f}")
+            log.info(f"Local batch chi-square tests performed: {kbet_result['n_tests']}")
 
         except Exception as e:
-            log.warning(f"Failed to compute k-BET: {str(e)}")
+            log.warning(f"Failed to compute local batch mixing: {str(e)}")
 
     # 3. Graph connectivity (measures label preservation)
     if "graph_connectivity" in methods and label_key is not None:
@@ -1455,7 +1642,7 @@ def evaluate_integration(
         except Exception as e:
             log.warning(f"Failed to compute graph connectivity: {str(e)}")
 
-    # 4. Batch ASW (Adjusted Silhouette Width) - more sophisticated batch mixing metric
+    # 4. Batch ASW approximation based on nearest within/between-batch distances.
     if "batch_asw" in methods:
         try:
             # Compute average silhouette width per batch
@@ -1508,6 +1695,12 @@ def evaluate_integration(
             if batch_asw_scores:
                 # Sum weighted ASW scores
                 results["batch_asw"] = sum(batch_asw_scores)
+                results["batch_asw_model_type"] = "nearest_distance_asw_approximation"
+                results["batch_asw_claim_level"] = "batch_separation_diagnostic_heuristic"
+                results["batch_asw_review_note"] = (
+                    "batch_asw is computed from nearest within/between-batch distances, "
+                    "not the standard per-cell silhouette implementation."
+                )
                 log.info(f"Batch ASW: {results['batch_asw']:.4f}")
             else:
                 log.warning("Could not compute batch ASW: insufficient data")

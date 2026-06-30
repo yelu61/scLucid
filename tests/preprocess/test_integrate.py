@@ -2,10 +2,14 @@
 
 import numpy as np
 import pytest
+import scipy.sparse
 from anndata import AnnData
 
 from scLucid.preprocess.config import IntegrationConfig
 from scLucid.preprocess.integrate import (
+    _compute_kbet_reference,
+    _compute_kbet_score,
+    _compute_local_batch_chi2_acceptance,
     batch_correction,
     decide_integration,
     diagnose_integration_risk,
@@ -16,6 +20,35 @@ from scLucid.preprocess.integrate import (
 @pytest.mark.unit
 class TestBatchCorrection:
     """Tests for batch_correction function."""
+
+    def test_kbet_metadata_marks_chi_square_approximation(self):
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=(40, 5))
+        batch_labels = pytest.importorskip("pandas").Series(["a", "b"] * 20)
+
+        result = _compute_local_batch_chi2_acceptance(
+            x, batch_labels, n_neighbors=10, alpha=0.05, n_sample_cells=40
+        )
+
+        assert result["n_neighbors"] == 10
+        assert result["alpha"] == 0.05
+        assert result["model_type"] == "chi_square_local_batch_approximation"
+        assert result["claim_level"] == "batch_mixing_diagnostic_heuristic"
+        assert "approximated" in result["review_note"]
+        assert "kbet_score" not in result
+
+    def test_kbet_deprecated_alias_warns(self):
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=(40, 5))
+        batch_labels = pytest.importorskip("pandas").Series(["a", "b"] * 20)
+
+        with pytest.warns(FutureWarning, match="deprecated"):
+            result = _compute_kbet_score(
+                x, batch_labels, n_neighbors=10, alpha=0.05, n_sample_cells=40
+            )
+
+        assert "acceptance_rate" in result
+        assert "rejection_rate" in result
 
     def test_no_method_returns_adata_unchanged(self, minimal_adata):
         adata = minimal_adata.copy()
@@ -303,6 +336,79 @@ class TestBatchCorrection:
             in result.uns.get("sclucid", {}).get("preprocess", {}).get("integration", {})
         )
 
+    def test_combat_warns_on_sparse_densification(self, minimal_adata, caplog):
+        import logging
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.X = scipy.sparse.csr_matrix(adata.X.copy())
+
+        with caplog.at_level(logging.WARNING):
+            batch_correction(
+                adata,
+                config=IntegrationConfig(
+                    method="combat",
+                    batch_key="batch",
+                    plot=False,
+                    report=False,
+                    verbose=False,
+                ),
+            )
+
+        messages = [record.message.lower() for record in caplog.records]
+        assert any("densifying" in m and ("harmony" in m or "scvi" in m) for m in messages)
+
+    def test_combat_raises_memory_error_on_large_sparse_without_force_dense(self):
+        import scipy.sparse
+
+        # Create a sparse matrix above the 50M threshold.
+        large_sparse = scipy.sparse.random(10000, 6000, density=0.01, format="csr", random_state=0)
+        adata = AnnData(X=large_sparse)
+        adata.obs["batch"] = ["a"] * 5000 + ["b"] * 5000
+
+        with pytest.raises(MemoryError):
+            batch_correction(
+                adata,
+                config=IntegrationConfig(
+                    method="combat",
+                    batch_key="batch",
+                    plot=False,
+                    report=False,
+                    verbose=False,
+                ),
+            )
+
+    def test_combat_allows_large_sparse_with_force_dense(self, monkeypatch):
+        import scipy.sparse
+
+        import scLucid.preprocess.integrate as integrate_module
+
+        large_sparse = scipy.sparse.random(10000, 6000, density=0.01, format="csr", random_state=0)
+        adata = AnnData(X=large_sparse)
+        adata.obs["batch"] = ["a"] * 5000 + ["b"] * 5000
+
+        combat_called = [False]
+
+        def fake_combat(temp_adata, *args, **kwargs):
+            combat_called[0] = True
+            temp_adata.X = (
+                temp_adata.X.toarray() if hasattr(temp_adata.X, "toarray") else temp_adata.X
+            )
+
+        monkeypatch.setattr(integrate_module.sc.pp, "combat", fake_combat)
+
+        # Without force_dense, a large sparse matrix raises MemoryError.
+        with pytest.raises(MemoryError):
+            integrate_module._integrate_combat(adata, batch_key="batch", force_dense=False)
+
+        # With force_dense=True, the call proceeds past the guard.
+        result = integrate_module._integrate_combat(
+            adata, batch_key="batch", force_dense=True
+        )
+
+        assert combat_called[0] is True
+        assert "combat" in result.uns["sclucid"]["preprocess"]["integration"]
+
     def test_no_method_returns_early_without_error(self, minimal_adata):
         adata = minimal_adata.copy()
         result = batch_correction(
@@ -544,6 +650,106 @@ class TestEvaluateIntegration:
         assert result["n_batches"] == 2
         assert result["interpretation"]["status"] in {"acceptable", "review"}
         assert "evaluation" in adata.uns["sclucid"]["preprocess"]["integration"]
+
+    def test_evaluate_integration_exposes_local_batch_chi2_semantics(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 10))
+
+        result = evaluate_integration(
+            adata,
+            batch_key="batch",
+            use_rep="X_pca",
+            n_neighbors=10,
+            methods=["kbet"],
+            plot=False,
+        )
+
+        assert result["local_batch_chi2_model_type"] == "chi_square_local_batch_approximation"
+        assert result["local_batch_chi2_claim_level"] == "batch_mixing_diagnostic_heuristic"
+        assert "approximated" in result["local_batch_chi2_review_note"]
+        stored = adata.uns["sclucid"]["preprocess"]["integration"]["evaluation"]
+        assert stored["local_batch_chi2_model_type"] == "chi_square_local_batch_approximation"
+
+    def test_evaluate_integration_backward_compatible_kbet_aliases(self, minimal_adata):
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 10))
+
+        with pytest.warns(FutureWarning, match="deprecated"):
+            result = evaluate_integration(
+                adata,
+                batch_key="batch",
+                use_rep="X_pca",
+                n_neighbors=10,
+                methods=["kbet"],
+                plot=False,
+            )
+
+        assert result["kbet_acceptance"] == result["local_batch_chi2_acceptance"]
+        assert result["kbet_rejection_rate"] == result["local_batch_chi2_rejection_rate"]
+
+    def test_evaluate_integration_reference_kbet_fallback(self, monkeypatch, minimal_adata):
+        import scLucid.preprocess.integrate as integrate_module
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 10))
+
+        def fake_kbet_reference(*args, **kwargs):
+            return {
+                "acceptance_rate": 0.85,
+                "rejection_rate": 0.15,
+                "model_type": "scib_kbet_reference",
+                "claim_level": "batch_mixing_diagnostic_reference",
+                "review_note": "Reference kBET used.",
+                "n_neighbors": kwargs.get("n_neighbors", 25),
+                "reference_backend": "scib",
+            }
+
+        monkeypatch.setattr(integrate_module, "_compute_kbet_reference", fake_kbet_reference)
+
+        result = evaluate_integration(
+            adata,
+            batch_key="batch",
+            use_rep="X_pca",
+            n_neighbors=10,
+            methods=["kbet"],
+            plot=False,
+            use_reference_kbet=True,
+        )
+
+        assert result["local_batch_chi2_acceptance"] == 0.85
+        assert result["local_batch_chi2_rejection_rate"] == 0.15
+        assert result["local_batch_chi2_reference_backend"] == "scib"
+
+    def test_compute_kbet_reference_fallback_when_scib_missing(self, monkeypatch, minimal_adata):
+        import builtins
+
+        adata = minimal_adata.copy()
+        adata.obs["batch"] = ["a"] * (adata.n_obs // 2) + ["b"] * (adata.n_obs - adata.n_obs // 2)
+        adata.obsm["X_pca"] = np.random.default_rng(0).normal(size=(adata.n_obs, 10))
+
+        real_import = builtins.__import__
+
+        def fail_scib_import(name, *args, **kwargs):
+            if name == "scib":
+                raise ImportError("No module named 'scib'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fail_scib_import)
+
+        result = _compute_kbet_reference(
+            adata,
+            batch_key="batch",
+            use_rep="X_pca",
+            n_neighbors=10,
+            n_sample_cells=adata.n_obs,
+        )
+
+        assert result["reference_backend"] == "chi_square_approximation"
+        assert "acceptance_rate" in result
+        assert "rejection_rate" in result
 
     def test_evaluate_integration_missing_batch_key(self, minimal_adata):
         adata = minimal_adata.copy()

@@ -21,8 +21,8 @@ from .backend import (
     set_backend,
 )
 from .config import (
-    GraphConfig,
     GeneBiotypeConfig,
+    GraphConfig,
     HVGConfig,
     IntegrationConfig,
     NeighborsConfig,
@@ -83,6 +83,7 @@ from .trace import (
     build_normalization_decision_policy,
     build_preprocess_decision_summary,
     build_preprocess_layer_contract,
+    build_preprocess_method_semantics,
     build_preprocess_module_maturity_assessment,
     build_preprocess_reviewer_table,
     build_qc_input_context,
@@ -127,6 +128,7 @@ __all__ = [
     "build_normalization_decision_policy",
     "build_preprocess_decision_summary",
     "build_preprocess_layer_contract",
+    "build_preprocess_method_semantics",
     "build_preprocess_module_maturity_assessment",
     "build_preprocess_reviewer_table",
     "build_qc_input_context",

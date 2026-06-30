@@ -9,7 +9,7 @@ from .evidence import (
     run_subset_annotation_refinement,
 )
 from .mapping import apply_annotation_mapping, remap_labels
-from .reference import run_celltypist, transfer_labels
+from .reference import recommend_celltypist_model, run_celltypist, transfer_labels
 from .review import (
     build_annotation_review_table,
     filter_marker_table_for_annotation,
@@ -22,6 +22,7 @@ from .workflow import evaluate_annotation, run_annotation, run_lineage_state_ann
 __all__ = [
     "score_cell_types",
     "annotate_clusters",
+    "recommend_celltypist_model",
     "run_celltypist",
     "transfer_labels",
     "evaluate_annotation",

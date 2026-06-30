@@ -135,7 +135,10 @@ class TestScaleDataRobust:
             ),
         )
         assert "scaled" in result.layers
-        assert scipy.sparse.issparse(result.layers["scaled"])
+        # Values must match the dense reference that includes zeros in median/MAD.
+        expected = _robust_scale(x.toarray(), max_value=10.0)
+        scaled = result.layers["scaled"].toarray() if scipy.sparse.issparse(result.layers["scaled"]) else result.layers["scaled"]
+        np.testing.assert_allclose(scaled, expected)
 
     def test_robust_max_value_clipping(self, minimal_adata):
         adata = minimal_adata.copy()
@@ -403,6 +406,14 @@ class TestScaleDataHelpers:
         medians = np.median(scaled, axis=0)
         np.testing.assert_allclose(medians, 0, atol=1e-6)
 
+    def test_robust_scale_uses_gaussian_consistent_mad(self):
+        x = np.array([[1.0], [2.0], [3.0], [4.0], [100.0]])
+        scaled = _robust_scale(x, max_value=None)
+        median = np.median(x[:, 0])
+        mad = np.median(np.abs(x[:, 0] - median))
+        expected = (x[:, 0] - median) / (1.4826 * mad)
+        np.testing.assert_allclose(scaled[:, 0], expected)
+
     def test_minmax_scale_dense(self):
         x = np.random.default_rng(0).normal(size=(30, 10))
         scaled = _minmax_scale(x)
@@ -415,7 +426,7 @@ class TestScaleDataHelpers:
         assert np.max(scaled) <= 2
         assert np.min(scaled) >= -2
 
-    def test_robust_scale_sparse_preserves_sparse_semantics(self):
+    def test_robust_scale_sparse_matches_dense_reference(self):
         x = scipy.sparse.csr_matrix(
             np.array(
                 [
@@ -428,21 +439,57 @@ class TestScaleDataHelpers:
         )
 
         scaled = _robust_scale_sparse(x, max_value=2)
+        expected = _robust_scale(x.toarray(), max_value=2)
+
+        np.testing.assert_allclose(scaled, expected)
+
+    def test_robust_scale_sparse_zero_median_preserves_sparsity(self):
+        # Each column has median 0, so scaled zeros remain zero and output can stay sparse.
+        x = scipy.sparse.csr_matrix(
+            np.array(
+                [
+                    [0.0, -2.0, 0.0],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 2.0, -5.0],
+                    [0.0, 0.0, 5.0],
+                ]
+            )
+        )
+
+        scaled = _robust_scale_sparse(x, max_value=None)
+        expected = _robust_scale(x.toarray(), max_value=None)
 
         assert scipy.sparse.isspmatrix_csr(scaled)
-        assert np.isfinite(scaled.data).all()
-        assert scaled.data.max() <= 2
-        assert scaled.data.min() >= -2
+        np.testing.assert_allclose(scaled.toarray(), expected)
 
-        expected = x.tocsc(copy=True)
-        for i in range(expected.shape[1]):
-            col = expected.getcol(i)
-            if col.nnz:
-                median = np.median(col.data)
-                mad = np.median(np.abs(col.data - median))
-                if mad == 0:
-                    mad = 1e-8
-                col.data = np.clip((col.data - median) / mad, -2, 2)
-                expected[:, i] = col
+    def test_robust_scale_sparse_warns_on_small_matrix(self):
+        import warnings
 
-        np.testing.assert_allclose(scaled.toarray(), expected.tocsr().toarray())
+        x = scipy.sparse.csr_matrix(np.array([[0.0, 1.0], [2.0, 3.0]]))
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _robust_scale_sparse(x, max_value=None)
+        assert any("densifying" in str(warning.message).lower() for warning in w)
+
+    def test_robust_scale_sparse_large_path_matches_dense_reference(self, monkeypatch):
+        from scLucid.preprocess import scale as scale_module
+
+        # Force the large-matrix sparse-aware path by lowering the threshold.
+        monkeypatch.setattr(
+            scale_module, "SPARSE_ROBUST_SCALE_DENSE_THRESHOLD_ELEMENTS", 0
+        )
+        x = scipy.sparse.csr_matrix(
+            np.array(
+                [
+                    [0.0, 2.0, 0.0],
+                    [1.0, 4.0, 0.0],
+                    [3.0, 0.0, 5.0],
+                    [0.0, 8.0, 7.0],
+                ]
+            )
+        )
+
+        scaled = _robust_scale_sparse(x, max_value=2)
+        expected = _robust_scale(x.toarray(), max_value=2)
+
+        np.testing.assert_allclose(scaled, expected)

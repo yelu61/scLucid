@@ -22,6 +22,7 @@ from .config import ScalingConfig, apply_config_overrides
 from .utils import validate_matrix_input
 
 log = logging.getLogger(__name__)
+MAD_NORMAL_CONSISTENCY_FACTOR = 1.4826
 
 __all__ = [
     "diagnose_cell_cycle_regression",
@@ -190,8 +191,8 @@ def diagnose_cell_cycle_regression(
 def _robust_scale(X: np.ndarray, max_value: Optional[float]) -> np.ndarray:
     """Robustly scales a dense matrix X."""
     gene_medians = np.median(X, axis=0)
-    # MAD calculation corrected for robustness
-    gene_mads = np.median(np.abs(X - gene_medians), axis=0)
+    # MAD calculation with normal-consistency factor so robust z-scores share the z-score scale.
+    gene_mads = MAD_NORMAL_CONSISTENCY_FACTOR * np.median(np.abs(X - gene_medians), axis=0)
     gene_mads[gene_mads == 0] = 1e-8  # Avoid division by zero
 
     X_scaled = (X - gene_medians) / gene_mads
@@ -210,55 +211,136 @@ def _minmax_scale(X: np.ndarray) -> np.ndarray:
     return (X - gene_mins) / gene_ranges
 
 
+SPARSE_ROBUST_SCALE_DENSE_THRESHOLD_ELEMENTS = 50_000_000
+
+
 def _robust_scale_sparse(
     X: scipy.sparse.spmatrix, max_value: Optional[float]
-) -> scipy.sparse.spmatrix:
+) -> Union[np.ndarray, scipy.sparse.spmatrix]:
     """
-    Robust scaling for sparse matrices (memory efficient).
+    Robust scaling for sparse matrices that includes zeros in median/MAD.
 
-    Uses median and MAD computed in a sparse-aware manner.
+    Zeros are biologically informative in scRNA-seq data, so they must participate
+    in the median and MAD calculations. Because subtracting a non-zero median turns
+    implicit zeros into non-zero values, the output is dense whenever any feature
+    has a non-zero median.
+
+    For matrices below ``SPARSE_ROBUST_SCALE_DENSE_THRESHOLD_ELEMENTS`` elements,
+    the input is densified and the dense implementation is used (with a warning).
+    For larger matrices, medians and MADs are computed from the sparse structure
+    without materializing the full input, then the output is produced in column
+    chunks to limit peak memory.
     """
+    import warnings
+
     import scipy.sparse as sp
 
     if not sp.issparse(X):
         return _robust_scale(X, max_value)  # Fallback to dense version
 
-    # Convert to CSC format for efficient column operations
     X_csc = X.tocsc()
+    n_obs, n_genes = X_csc.shape
+    n_elements = n_obs * n_genes
 
-    n_genes = X_csc.shape[1]
-    medians = np.zeros(n_genes)
-    mads = np.zeros(n_genes)
+    # Compute sparse-aware medians and MADs column by column. This is done first
+    # so we can preserve sparsity when every feature has median 0.
+    medians = np.empty(n_genes, dtype=np.float64)
+    mads = np.empty(n_genes, dtype=np.float64)
 
-    # Compute median and MAD per gene
-    for i in range(n_genes):
-        col_data = X_csc.getcol(i).data  # Only non-zero values
+    for j in range(n_genes):
+        start, end = X_csc.indptr[j], X_csc.indptr[j + 1]
+        col_data = X_csc.data[start:end]
+        n_nnz = len(col_data)
+        n_zeros = n_obs - n_nnz
 
-        if len(col_data) > 0:
-            medians[i] = np.median(col_data)
+        if n_nnz == 0:
+            medians[j] = 0.0
+            mads[j] = 1e-8
+            continue
 
-            # MAD calculation
-            deviations = np.abs(col_data - medians[i])
-            mads[i] = np.median(deviations)
+        sorted_data = np.sort(col_data)
+        neg_count = int(np.searchsorted(sorted_data, 0.0, side="left"))
+
+        def _value_at(k: int) -> float:
+            if k < neg_count:
+                return float(sorted_data[k])
+            if k < neg_count + n_zeros:
+                return 0.0
+            return float(sorted_data[k - n_zeros])
+
+        if n_obs % 2 == 1:
+            median = _value_at(n_obs // 2)
         else:
-            medians[i] = 0
-            mads[i] = 1e-8
+            median = (_value_at(n_obs // 2 - 1) + _value_at(n_obs // 2)) / 2.0
 
-    # Avoid division by zero
+        medians[j] = median
+        abs_median = abs(median)
+
+        # MAD: median(|x - median|) over the full column, including zeros.
+        dev_data = np.abs(sorted_data - median)
+        dev_sorted = np.sort(dev_data)
+        n_dev_less = int(np.searchsorted(dev_sorted, abs_median, side="left"))
+        n_dev_equal = int(np.searchsorted(dev_sorted, abs_median, side="right")) - n_dev_less
+
+        def _dev_value_at(k: int) -> float:
+            if k < n_dev_less:
+                return float(dev_sorted[k])
+            if k < n_dev_less + n_dev_equal + n_zeros:
+                return abs_median
+            return float(dev_sorted[k - n_zeros])
+
+        if n_obs % 2 == 1:
+            mad = _dev_value_at(n_obs // 2)
+        else:
+            mad = (_dev_value_at(n_obs // 2 - 1) + _dev_value_at(n_obs // 2)) / 2.0
+
+        mads[j] = max(mad * MAD_NORMAL_CONSISTENCY_FACTOR, 1e-8)
+
     mads[mads == 0] = 1e-8
 
-    # Scale: (X - median) / MAD
-    X_scaled = X_csc.copy()
-    if X_scaled.nnz:
-        counts_per_gene = np.diff(X_scaled.indptr)
-        gene_indices = np.repeat(np.arange(n_genes), counts_per_gene)
-        X_scaled.data = (X_scaled.data - medians[gene_indices]) / mads[gene_indices]
+    # If every median is zero, implicit zeros stay zero and we can keep a sparse
+    # output. This is rare for positive count data but handles the edge case.
+    if np.allclose(medians, 0.0):
+        X_scaled = X_csc.copy()
+        if X_scaled.nnz:
+            counts_per_gene = np.diff(X_scaled.indptr)
+            gene_indices = np.repeat(np.arange(n_genes), counts_per_gene)
+            X_scaled.data = (X_scaled.data - medians[gene_indices]) / mads[gene_indices]
+            if max_value is not None:
+                X_scaled.data = np.clip(X_scaled.data, -max_value, max_value)
+        return X_scaled.tocsr()
 
-    # Clip values if max_value specified
+    # Small matrices: densify and use the dense implementation. This is the
+    # simplest correct path and matches the reference implementation exactly.
+    if n_elements <= SPARSE_ROBUST_SCALE_DENSE_THRESHOLD_ELEMENTS:
+        warnings.warn(
+            f"Sparse robust scaling is densifying the {n_obs}x{n_genes} matrix because "
+            "zeros must be included in median/MAD. For very large datasets consider "
+            "z-score scaling or Harmony/scVI integration.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return _robust_scale(X_csc.toarray(), max_value)
+
+    warnings.warn(
+        "Robust scaling produced a dense output because at least one feature has a "
+        "non-zero median; scaled zero entries are no longer zero. For very large "
+        "datasets consider z-score scaling or Harmony/scVI integration.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+    # Large matrices: materialize the dense scaled matrix in column chunks.
+    X_scaled = np.empty((n_obs, n_genes), dtype=np.float64)
+    chunk_size = max(1, SPARSE_ROBUST_SCALE_DENSE_THRESHOLD_ELEMENTS // n_obs)
+    for j_start in range(0, n_genes, chunk_size):
+        j_end = min(j_start + chunk_size, n_genes)
+        chunk = X_csc[:, j_start:j_end].toarray()
+        X_scaled[:, j_start:j_end] = (chunk - medians[j_start:j_end]) / mads[j_start:j_end]
+
     if max_value is not None:
-        X_scaled.data = np.clip(X_scaled.data, -max_value, max_value)
-
-    return X_scaled.tocsr()  # Convert back to CSR
+        X_scaled = np.clip(X_scaled, -max_value, max_value)
+    return X_scaled
 
 
 def _minmax_scale_sparse(X: scipy.sparse.spmatrix) -> scipy.sparse.spmatrix:
@@ -408,6 +490,21 @@ def scale_data(
     adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["scaling"] = {
         "params": active_config.to_dict(),  # Pydantic's built-in serialization
         "output_layer": output_layer,
+        "zero_center": active_config.scale_method == "zscore",
+        "model_type": (
+            "gaussian_consistent_mad_robust_zscore"
+            if active_config.scale_method == "robust"
+            else active_config.scale_method
+        ),
+        "claim_level": "standard_preprocessing",
+        "mad_consistency_factor": (
+            MAD_NORMAL_CONSISTENCY_FACTOR if active_config.scale_method == "robust" else None
+        ),
+        "review_note": (
+            "Robust scaling uses median and MAD with the 1.4826 normal-consistency factor."
+            if active_config.scale_method == "robust"
+            else "Scaling is intended for PCA/graph construction, not expression-level interpretation."
+        ),
     }
 
     log.info("Scaling complete. adata.X has been updated.")

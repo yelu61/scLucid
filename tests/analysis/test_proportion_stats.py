@@ -9,7 +9,11 @@ from pydantic import ValidationError
 from scLucid.analysis.config import ProportionConfig as PublicProportionConfig
 from scLucid.analysis.proportion.config import ProportionConfig
 from scLucid.analysis.proportion.pseudobulk import celltype_proportion_analysis
-from scLucid.analysis.proportion.stats import composition_transform, run_statistical_test
+from scLucid.analysis.proportion.stats import (
+    _run_ancom_like_clr_test,
+    composition_transform,
+    run_statistical_test,
+)
 
 
 def test_proportion_config_accepts_kruskal():
@@ -94,6 +98,7 @@ def test_two_group_statistics_use_condition2_minus_condition1_direction():
         test_method="t-test",
         sample_to_cond=sample_to_cond,
         multiple_testing_correction=None,
+        legacy_exploratory=True,
     )
 
     row = result.iloc[0]
@@ -102,6 +107,8 @@ def test_two_group_statistics_use_condition2_minus_condition1_direction():
     assert row["direction"] == "B - A"
     assert row["mean_diff"] == pytest.approx(0.6)
     assert row["inference_level"] == "exploratory_legacy_proportion"
+    assert row["claim_level"] == "exploratory_hypothesis_generation"
+    assert row["model_type"] == "raw_proportion_legacy_test"
     assert bool(row["valid_for_publication_inference"]) is False
     assert "compositional" in row["compositional_data_warning"]
 
@@ -132,6 +139,8 @@ def test_clr_ttest_reports_compositional_effect_ci_and_fdr():
     )
     assert set(result["method"]) == {"clr-t-test"}
     assert set(result["inference_level"]) == {"sample_level"}
+    assert set(result["claim_level"]) == {"sample_level_clr_compositional_inference"}
+    assert set(result["model_type"]) == {"sample_level_clr_test"}
 
 
 def test_composition_transform_closes_count_input():
@@ -199,6 +208,7 @@ def test_pseudobulk_single_replicate_proportion_marked_descriptive():
 
     assert not stat_df.empty
     assert set(stat_df["inference_level"]) == {"descriptive_sample_level"}
+    assert set(stat_df["claim_level"]) == {"descriptive_effect_size_only"}
     assert not stat_df["valid_for_publication_inference"].any()
     assert stat_df["pval"].isna().all()
 
@@ -220,6 +230,8 @@ def test_chi_square_returns_global_pvalue_and_celltype_contributions():
 
     assert set(result["cell_type"]) == {"T", "B"}
     assert {"overall_pval", "method_note", "observed_A", "expected_A"}.issubset(result.columns)
+    assert set(result["claim_level"]) == {"exploratory_global_composition_screen"}
+    assert set(result["model_type"]) == {"global_chi_square_contingency_contribution"}
     assert result["statistic"].gt(0).all()
 
 
@@ -241,6 +253,7 @@ def test_run_statistical_test_kruskal():
         condition_col="condition",
         test_method="kruskal",
         sample_to_cond=sample_to_cond,
+        legacy_exploratory=True,
     )
 
     assert set(result["cell_type"]) == {"T", "B"}
@@ -259,6 +272,7 @@ def test_pseudobulk_kruskal_uses_sample_level_metadata():
         condition_col="condition",
         test_method="kruskal",
         auto_configure=True,
+        legacy_exploratory=True,
         plot_types=[],
     )
 
@@ -267,6 +281,83 @@ def test_pseudobulk_kruskal_uses_sample_level_metadata():
     assert list(prop_df.index) == ["s1", "s2", "s3"]
     assert not stat_df.empty
     assert set(stat_df["cell_type"]) == {"T", "B"}
+
+
+def test_recommend_sccoda_reference_selects_stable_abundant_cell_type():
+    from scLucid.analysis.proportion.sccoda import recommend_sccoda_reference
+
+    count_df = pd.DataFrame(
+        {
+            "Stable": [500, 520, 480, 510],
+            "Rare": [10, 15, 8, 12],
+            "Variable": [100, 300, 50, 250],
+        },
+        index=["s1", "s2", "s3", "s4"],
+    )
+
+    ref, diag = recommend_sccoda_reference(count_df)
+
+    assert ref == "Stable"
+    assert {"mean_frac", "cv"}.issubset(diag.columns)
+    assert diag.loc["Stable", "mean_frac"] > diag.loc["Rare", "mean_frac"]
+
+
+def test_ancom_like_clr_test_returns_expected_columns_and_tags():
+    count_df = pd.DataFrame(
+        {
+            "T": [70, 65, 20, 25],
+            "B": [20, 25, 60, 55],
+            "NK": [10, 10, 20, 20],
+        },
+        index=["a1", "a2", "b1", "b2"],
+    )
+    metadata_df = pd.DataFrame(
+        {
+            "sample": ["a1", "a2", "b1", "b2"],
+            "condition": ["A", "A", "B", "B"],
+        }
+    )
+
+    result = _run_ancom_like_clr_test(
+        count_df,
+        metadata_df,
+        condition_col="condition",
+        sample_col="sample",
+    )
+
+    assert set(result["cell_type"]) == {"T", "B", "NK"}
+    assert {"pval", "padj", "w_statistic", "significant", "method"}.issubset(result.columns)
+    assert set(result["method"]) == {"ancom-like-clr"}
+    assert set(result["inference_level"]) == {"sample_level"}
+    assert set(result["claim_level"]) == {"ancom_like_clr_heuristic"}
+    assert "ANCOM-BC" in result["proportion_review_note"].iloc[0]
+
+
+def test_raw_proportion_tests_require_legacy_exploratory_flag():
+    count_df = pd.DataFrame(
+        {"T": [0.2, 0.3, 0.8, 0.9]},
+        index=["s1", "s2", "s3", "s4"],
+    )
+    sample_to_cond = pd.Series(["A", "A", "B", "B"], index=count_df.index)
+
+    with pytest.raises(ValueError, match="legacy_exploratory=True"):
+        run_statistical_test(
+            count_df,
+            condition_col="condition",
+            test_method="t-test",
+            sample_to_cond=sample_to_cond,
+        )
+
+    result = run_statistical_test(
+        count_df,
+        condition_col="condition",
+        test_method="t-test",
+        sample_to_cond=sample_to_cond,
+        legacy_exploratory=True,
+    )
+    assert not result.empty
+    assert set(result["inference_level"]) == {"exploratory_legacy_proportion"}
+    assert "compositional" in result["compositional_data_warning"].iloc[0]
 
 
 def test_pseudobulk_two_group_plots_use_sample_level_metadata():
@@ -283,6 +374,7 @@ def test_pseudobulk_two_group_plots_use_sample_level_metadata():
         pairing_col="patient",
         test_method="t-test",
         auto_configure=False,
+        legacy_exploratory=True,
         plot_types=["box", "diff", "shift", "paired_shift", "composition_pca", "clr_heatmap"],
     )
 

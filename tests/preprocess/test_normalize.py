@@ -98,6 +98,8 @@ class TestNormalizeDataStandard:
             config=NormalizationConfig(method="standard", plot=False, report=False, verbose=False),
             force=False,
         )
+        assert result is adata
+        np.testing.assert_array_equal(result.layers["normalized"], original_layer)
 
     def test_set_raw_creates_raw_slot(self, minimal_adata):
         adata = minimal_adata.copy()
@@ -199,6 +201,9 @@ class TestNormalizeDataCLR:
         expected = np.log(counts + 1.0)
         expected = expected - expected.mean(axis=1, keepdims=True)
         np.testing.assert_allclose(result.layers["normalized"], expected)
+        meta = result.uns["sclucid"]["preprocess"]["normalization"]
+        assert meta["transformation_type"] == "clr_compositional_log_ratio"
+        assert meta["claim_level"] == "compositional_transform_not_standard_scrna_lognorm"
 
 
 @pytest.mark.unit
@@ -216,7 +221,7 @@ class TestNormalizeDataPearson:
         )
         assert "normalized" in result.layers
 
-    def test_pearson_metadata_flagged_as_log_transformed(self, minimal_adata):
+    def test_pearson_metadata_records_residual_not_log_transform(self, minimal_adata):
         pytest.importorskip("scanpy.experimental.pp")
         adata = minimal_adata.copy()
         result = normalize_data(
@@ -226,7 +231,10 @@ class TestNormalizeDataPearson:
             ),
         )
         meta = result.uns["sclucid"]["preprocess"]["normalization"]
-        assert meta["log_transformed"] is True
+        assert meta["log_transformed"] is False
+        assert meta["transformation_type"] == "pearson_residuals"
+        assert meta["claim_level"] == "model_based_residual_transform_experimental"
+        assert "not log-transformed" in meta["review_note"]
 
 
 @pytest.mark.unit

@@ -19,15 +19,18 @@ from scLucid.analysis.annotation import (
     annotate_clusters,
     apply_final_annotation,
     apply_subset_annotation_reconciliation,
+    build_annotation_evidence_report,
     build_annotation_review_table,
     build_hierarchical_annotation_plan,
     build_llm_annotation_bundle,
     build_subset_annotation_reconciliation,
     evaluate_annotation,
     evaluate_annotation_benchmark,
+    export_annotation_evidence_report,
     filter_marker_table_for_annotation,
     flag_suspect_clusters,
     merge_annotation_evidence,
+    recommend_celltypist_model,
     run_lineage_state_annotation,
     run_marker_annotation_evidence,
     run_program_annotation_evidence,
@@ -103,6 +106,42 @@ class TestScoring:
         # This test requires marker databases
         pytest.skip("Marker database not available in test environment")
 
+    def test_aucell_ucell_correlates_with_marker_expression(self, tmp_path):
+        """AUCell and UCell scores should increase with marker gene expression."""
+        rng = np.random.default_rng(42)
+        n_cells, n_genes = 80, 50
+        markers = [f"marker{i}" for i in range(5)]
+        others = [f"gene{i}" for i in range(n_genes - 5)]
+        var_names = markers + others
+
+        X = rng.poisson(2, size=(n_cells, n_genes)).astype(float)
+        # First half of cells strongly expresses marker genes
+        X[: n_cells // 2, :5] += 10.0
+        adata = AnnData(X=X)
+        adata.obs_names = [f"cell{i}" for i in range(n_cells)]
+        adata.var_names = var_names
+
+        marker_file = _write_marker_toml(
+            tmp_path / "markers.toml", markers, others[:5]
+        )
+        marker_manager = Manager(marker_file, case_sensitive=True)
+
+        for backend in ("aucell", "ucell"):
+            scored = score_cell_types(
+                adata.copy(),
+                marker_config=marker_manager,
+                use_raw=False,
+                layer=None,
+                score_name_suffix="_score",
+                scoring_backend=backend,
+            )
+            high_group = scored.obs["Type_A_score"].iloc[: n_cells // 2].mean()
+            low_group = scored.obs["Type_A_score"].iloc[n_cells // 2 :].mean()
+            assert high_group > low_group, f"{backend} did not increase with expression"
+            assert scored.uns["sclucid"]["analysis"]["annotation"]["scoring_params"][
+                "backend"
+            ] == backend
+
 
 @pytest.mark.integration
 class TestAnnotation:
@@ -135,6 +174,38 @@ class TestAnnotation:
 
         # Check annotation was added
         assert "leiden_clusters_annotated" in result.obs.columns
+
+    def test_max_score_significance_assigns_unknown_for_uniform_noise(self, tmp_path):
+        """When scores lack significant separation, all clusters should be Unknown."""
+        rng = np.random.default_rng(7)
+        adata = AnnData(X=rng.poisson(2, size=(60, 20)).astype(float))
+        adata.obs_names = [f"cell{i}" for i in range(60)]
+        adata.var_names = [f"gene{i}" for i in range(20)]
+        adata.obs["cluster"] = pd.Categorical(["0"] * 30 + ["1"] * 30)
+
+        # Identical uniform scores -> no cluster is significantly above background
+        adata.obs["Type_A_score"] = 0.5
+        adata.obs["Type_B_score"] = 0.5
+
+        marker_file = _write_marker_toml(tmp_path / "markers.toml", ["gene0"], ["gene1"])
+        marker_manager = Manager(marker_file, case_sensitive=True)
+
+        result = annotate_clusters(
+            adata,
+            cluster_key="cluster",
+            marker_config=marker_manager,
+            method="max_score",
+            significance_threshold=0.05,
+            min_score_margin=0.0,
+        )
+
+        assert result.obs["cluster_annotated"].astype(str).eq("Unknown").all()
+        evidence = result.uns["sclucid"]["analysis"]["annotation"][
+            "cluster_annotated_params"
+        ]["max_score_evidence"]
+        assert "0" in evidence
+        assert "margin" in evidence["0"]
+        assert "fdr" in evidence["0"]
 
     def test_filter_marker_table_for_annotation_removes_noise_markers(self):
         """Noise-like ribosomal and stress genes should be filtered from marker review tables."""
@@ -819,6 +890,136 @@ class TestAnnotationConfigValidation:
         """Test that invalid method raises error."""
         with pytest.raises(ValueError):
             AnnotationConfig(final_method="invalid_method")
+
+
+
+@pytest.mark.unit
+class TestCellTypistModelRecommendation:
+    """Tests for CellTypist model recommendation."""
+
+    def test_recommend_immune_models(self):
+        """PBMC/blood/immune tissues map to the immune atlas."""
+        for tissue in ("PBMC", "blood", "immune"):
+            rec = recommend_celltypist_model(tissue)
+            assert rec["model"] == "Immune_All_Low.pkl"
+            assert rec["tissue_match_warning"] is False
+
+    def test_recommend_tissue_specific_models(self):
+        """Intestine and lung map to their dedicated CellTypist models."""
+        assert recommend_celltypist_model("colon")["model"] == "Cells_Intestinal_Tract.pkl"
+        assert recommend_celltypist_model("lung")["model"] == "Cells_Lung_Airway.pkl"
+
+    def test_tumor_tissue_warns(self):
+        """Tumor/cancer tissues warn that the immune atlas may be inappropriate."""
+        rec = recommend_celltypist_model("tumor")
+        assert rec["model"] == "Immune_All_Low.pkl"
+        assert rec["tissue_match_warning"] is True
+        assert "immune atlas may be inappropriate" in rec["message"]
+
+    def test_unrecognized_tissue_falls_back_with_warning(self):
+        """Unknown tissues fall back to the immune atlas and warn."""
+        rec = recommend_celltypist_model("xxxxx")
+        assert rec["model"] == "Immune_All_Low.pkl"
+        assert rec["tissue_match_warning"] is True
+
+
+@pytest.mark.unit
+class TestAnnotationEvidenceReport:
+    """Tests for the annotation evidence report."""
+
+    def _make_annotated_adata(self):
+        """Build a tiny annotated AnnData with review and suspect tables."""
+        adata = AnnData(X=np.ones((40, 6), dtype=float))
+        adata.obs_names = [f"cell_{i}" for i in range(40)]
+        adata.var_names = [f"gene_{i}" for i in range(6)]
+        adata.obs["leiden_clusters"] = pd.Categorical(
+            ["0"] * 20 + ["1"] * 20
+        )
+        adata.obs["cell_type"] = pd.Categorical(
+            ["T cells"] * 20 + ["B cells"] * 20
+        )
+        adata.obs["cell_type_confidence"] = np.concatenate(
+            [np.full(20, 0.8), np.full(20, 0.9)]
+        )
+        adata.obs["sampleID"] = np.tile(["S1", "S2"], 20)
+
+        review = pd.DataFrame(
+            {
+                "cluster": ["0", "1"],
+                "reference_label": ["T cell", "B cell"],
+                "marker_label": ["T cell", "B cell"],
+                "final_label": ["T cells", "B cells"],
+                "annotation_confidence": [0.8, 0.9],
+                "needs_review": [False, False],
+                "conflicts": ["", ""],
+                "warnings": ["", ""],
+                "top_markers": ["CD3D, IL7R", "CD79A, MS4A1"],
+                "top_terms": ["", ""],
+                "n_cells": [20, 20],
+                "pct_cells": [0.5, 0.5],
+            }
+        )
+        suspect = pd.DataFrame(
+            {
+                "cluster": ["0", "1"],
+                "suspect_flag": ["clean", "doublet_suspect"],
+                "suspect_reasons": ["", "doublet_suspect"],
+            }
+        )
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault(
+            "annotation", {}
+        )["annotation_review_table"] = review
+        adata.uns["sclucid"]["analysis"]["annotation"][
+            "leiden_clusters_suspect_flags"
+        ] = suspect
+        return adata
+
+    def test_build_annotation_evidence_report_structure(self):
+        """Report should contain per-cluster, per-cell-type, and global sections."""
+        adata = self._make_annotated_adata()
+        report = build_annotation_evidence_report(
+            adata, sample_col="sampleID", confidence_threshold=0.5
+        )
+
+        assert "per_cluster" in report
+        assert "per_cell_type" in report
+        assert "global" in report
+        assert report["schema_version"] == "annotation_evidence_report_v1"
+
+        per_cluster = {row["cluster"]: row for row in report["per_cluster"]}
+        assert "0" in per_cluster
+        assert "1" in per_cluster
+        assert per_cluster["0"]["top_marker_label"] == "T cell"
+        assert per_cluster["1"]["suspect_flag"] == "doublet_suspect"
+        assert "doublet_suspect" in per_cluster["1"]["suspect_reasons"]
+
+        per_celltype = report["per_cell_type"]
+        assert "T cells" in per_celltype
+        assert "B cells" in per_celltype
+        assert per_celltype["T cells"]["n_cells"] == 20
+        assert per_celltype["T cells"]["cluster_purity"] == 1.0
+        assert per_celltype["T cells"]["sample_distribution"] != ""
+
+        global_section = report["global"]
+        assert "annotation_method" in global_section
+        assert "confidence_threshold" in global_section
+        assert global_section["n_low_confidence_cells"] == 0
+        assert any("suspect" in item for item in global_section["action_items"])
+
+        assert "annotation_evidence_report" in adata.uns["sclucid"]["analysis"]
+
+    def test_export_annotation_evidence_report_writes_markdown(self, tmp_path):
+        """Markdown export should write a readable file."""
+        adata = self._make_annotated_adata()
+        out = tmp_path / "annotation_report"
+        path = export_annotation_evidence_report(
+            adata, str(out), sample_col="sampleID"
+        )
+        assert Path(path).exists()
+        content = Path(path).read_text()
+        assert "# Annotation Evidence Report" in content
+        assert "Per-Cluster Evidence" in content
+        assert "Per-Cell-Type Summary" in content
 
 
 if __name__ == "__main__":

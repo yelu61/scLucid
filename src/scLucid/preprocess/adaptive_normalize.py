@@ -21,7 +21,6 @@ from typing import List, Literal, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import scanpy as sc
 import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
@@ -171,7 +170,7 @@ def estimate_cell_size_factors(
 
     elif method == "deconvolution":
         # Simplified deconvolution without R dependency
-        log.info("Estimating size factors using deconvolution method...")
+        log.info("Estimating size factors using simplified total-count pooled deconvolution heuristic...")
 
         # 1. Create cell pools based on similarity
         from sklearn.cluster import KMeans
@@ -389,6 +388,22 @@ def quality_aware_normalize(
     # Cells with higher quality get higher weights in downstream analysis
     # This is stored but not automatically applied
     adata.obs["quality_weight"] = quality_scores
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "quality_aware_normalization_policy"
+    ] = {
+        "schema_version": "quality_aware_normalization_policy_v1",
+        "model_type": "quality_stratified_library_size_heuristic",
+        "claim_level": "heuristic_preprocessing",
+        "quality_metrics": list(quality_metrics),
+        "n_quality_bins": int(n_bins),
+        "target_sum": target_sum,
+        "log_transform": bool(log_transform),
+        "review_note": (
+            "This method scales cells within quality-score bins using total counts. "
+            "It stores quality_weight for downstream review but does not formally "
+            "correct systematic low-quality-cell bias."
+        ),
+    }
 
     log.info(f"Quality-aware normalization complete. Stored in layer '{output_layer}'")
     log.info("=" * 60)
@@ -442,6 +457,10 @@ def adaptive_normalize(
             target_sum=config.target_sum,
             log_transform=config.log_transform,
         )
+        method_policy = adata.uns.get("sclucid", {}).get("preprocess", {}).get(
+            "quality_aware_normalization_policy",
+            {},
+        )
 
     elif config.method == "deconvolution_pool":
         # Use Python-only pooled size factors
@@ -465,6 +484,18 @@ def adaptive_normalize(
 
         adata.layers[config.output_layer] = X_normalized
         adata.obs["deconvolution_size_factors"] = size_factors
+        method_policy = {
+            "schema_version": "adaptive_normalization_policy_v1",
+            "model_type": "total_count_pooled_deconvolution_heuristic",
+            "claim_level": "heuristic_size_factor_estimate",
+            "pooling_basis": "log_total_counts_kmeans",
+            "pool_size": config.pool_size,
+            "min_mean": config.min_mean,
+            "review_note": (
+                "This Python-only pooled size-factor estimate clusters cells by total counts, "
+                "not cell-type composition; it should not be treated as scran-equivalent."
+            ),
+        }
 
     elif config.method == "quantile_regression":
         # Quantile normalization
@@ -496,6 +527,15 @@ def adaptive_normalize(
             X_normalized = scipy.sparse.csr_matrix(X_normalized)
 
         adata.layers[config.output_layer] = X_normalized
+        method_policy = {
+            "schema_version": "adaptive_normalization_policy_v1",
+            "model_type": "quantile_transform_heuristic",
+            "claim_level": "heuristic_distribution_transform",
+            "review_note": (
+                "Quantile transformation can alter biological distributional differences; "
+                "use as exploratory preprocessing with downstream sensitivity checks."
+            ),
+        }
 
     else:
         raise ValueError(f"Unknown method: {config.method}")
@@ -510,6 +550,10 @@ def adaptive_normalize(
             "log_transform": config.log_transform,
         },
         "output_layer": config.output_layer,
+        "model_type": method_policy.get("model_type"),
+        "claim_level": method_policy.get("claim_level"),
+        "review_note": method_policy.get("review_note"),
+        "method_policy": method_policy,
     }
 
     # === Generate diagnostic plots ===

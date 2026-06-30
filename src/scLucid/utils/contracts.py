@@ -105,7 +105,7 @@ class LayerSemanticKeys:
 
 
 class UnsKeys:
-    """Canonical uns keys under adata.uns['sclucid'][module]."""
+    """Canonical uns keys under ``adata.uns['sclucid'][module]``."""
 
     NAMESPACE_METADATA = "_metadata"
     WORKFLOW_CONFIG = "workflow_config"

@@ -15,6 +15,7 @@ from scLucid.analysis.workflow import (
     WorkflowError,
     compare_clustering_resolutions,
     run_custom_analysis,
+    run_pseudobulk_first_analysis,
     run_standard_analysis,
 )
 
@@ -339,3 +340,117 @@ class TestAnalysisStepResults:
         out = tmp_path / "analysis_with_hook.h5ad"
         result.write_h5ad(out)
         assert out.exists()
+
+
+def _make_pb_adata(n_obs=120, n_vars=50, conditions=None, samples=None, random_seed=0):
+    """Create a minimal preprocessed AnnData with sample/condition/cell_type columns."""
+    import anndata
+    rng = np.random.default_rng(random_seed)
+    counts = rng.poisson(5, size=(n_obs, n_vars)).astype(np.float32)
+    adata = anndata.AnnData(X=counts)
+    adata.obs_names = [f"cell_{i}" for i in range(n_obs)]
+    adata.var_names = [f"gene_{i}" for i in range(n_vars)]
+    adata.layers["counts"] = counts.copy()
+
+    if conditions is None:
+        conditions = ["A", "B"]
+    if samples is None:
+        samples = ["S1", "S2"]
+    adata.obs["condition"] = np.tile(conditions, n_obs // len(conditions) + 1)[:n_obs]
+    adata.obs["sample"] = np.tile(samples, n_obs // len(samples) + 1)[:n_obs]
+    # Ensure each sample belongs to a single condition.
+    sample_to_condition = dict(zip(adata.obs["sample"], adata.obs["condition"]))
+    adata.obs["condition"] = adata.obs["sample"].map(sample_to_condition)
+
+    adata.obs["cell_type"] = rng.choice(["Type_A", "Type_B"], size=n_obs)
+
+    sc.pp.normalize_total(adata, target_sum=1e4)
+    sc.pp.log1p(adata)
+    sc.pp.highly_variable_genes(adata, n_top_genes=20, flavor="seurat")
+    sc.pp.scale(adata)
+    sc.tl.pca(adata, svd_solver="arpack")
+    sc.pp.neighbors(adata)
+    adata.raw = adata
+    return adata
+
+
+class TestPseudobulkFirstAnalysis:
+    """Tests for the pseudobulk-first workflow."""
+
+    def test_pseudobulk_first_runs_and_stores_sample_level_results(self):
+        """The workflow should produce sample-level pseudobulk DE per cell type."""
+        adata = _make_pb_adata(
+            conditions=["A", "B"], samples=["S1", "S2", "S3", "S4"]
+        )
+        # Map samples to conditions explicitly for two samples per condition.
+        adata.obs["condition"] = adata.obs["sample"].map(
+            {"S1": "A", "S2": "A", "S3": "B", "S4": "B"}
+        )
+        config = AnalysisWorkflowConfig(
+            annotation=None,
+            characterize=False,
+            run_clustering_review=False,
+        )
+        result = run_pseudobulk_first_analysis(
+            adata,
+            condition_col="condition",
+            sample_col="sample",
+            method="welch_logcpm",
+            config=config,
+            show_progress=False,
+        )
+        pb = result.uns["sclucid"]["analysis"]["pseudobulk_first"]
+        assert pb["inference_level"] == "sample_level"
+        assert "per_cell_type_results" in pb
+        assert "contrasts" in pb
+        assert isinstance(pb["valid_for_publication_inference"], bool)
+        # With two samples per condition results should be publication-ready.
+        assert pb["valid_for_publication_inference"] is True
+        assert "pseudobulk_first_review_summary" in result.uns["sclucid"]["analysis"]
+
+    def test_pseudobulk_first_warns_and_flags_under_replicated_design(self):
+        """Under-replicated designs should warn and set valid_for_publication_inference=False."""
+        adata = _make_pb_adata(conditions=["A", "B"], samples=["S1", "S2"])
+        adata.obs["condition"] = adata.obs["sample"].map({"S1": "A", "S2": "B"})
+        config = AnalysisWorkflowConfig(
+            annotation=None,
+            characterize=False,
+            run_clustering_review=False,
+        )
+        with pytest.warns(UserWarning, match="descriptive only"):
+            result = run_pseudobulk_first_analysis(
+                adata,
+                condition_col="condition",
+                sample_col="sample",
+                method="auto",
+                config=config,
+                show_progress=False,
+            )
+        pb = result.uns["sclucid"]["analysis"]["pseudobulk_first"]
+        assert pb["valid_for_publication_inference"] is False
+
+    def test_run_standard_analysis_routes_pseudobulk_first(self):
+        """run_standard_analysis should route to pseudobulk-first when configured."""
+        adata = _make_pb_adata(
+            conditions=["A", "B"], samples=["S1", "S2", "S3", "S4"]
+        )
+        adata.obs["condition"] = adata.obs["sample"].map(
+            {"S1": "A", "S2": "A", "S3": "B", "S4": "B"}
+        )
+        config = AnalysisWorkflowConfig(
+            annotation=None,
+            characterize=False,
+            run_clustering_review=False,
+            pseudobulk_first=True,
+        )
+        result = run_standard_analysis(
+            adata,
+            config=config,
+            condition_col="condition",
+            sample_col="sample",
+            method="welch_logcpm",
+            show_progress=False,
+        )
+        assert "pseudobulk_first" in result.uns["sclucid"]["analysis"]
+        steps = result.uns["sclucid"]["analysis"]["steps_executed"]
+        assert "pseudobulk_first" in steps

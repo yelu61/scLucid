@@ -294,6 +294,7 @@ def celltype_proportion_analysis(
             sample_to_pair=sample_to_pair,
             sample_to_batch=sample_to_batch,
             composition_pseudocount=config.composition_pseudocount,
+            legacy_exploratory=config.legacy_exploratory,
         )
 
         if not stat_df.empty:
@@ -306,6 +307,7 @@ def celltype_proportion_analysis(
             stat_df["valid_for_publication_inference"] = bool(formal)
             if not formal:
                 stat_df["inference_level"] = "descriptive_sample_level"
+                stat_df["claim_level"] = "descriptive_effect_size_only"
                 stat_df["proportion_warning"] = (
                     "Insufficient biological replicates for publication-level "
                     "cell-type proportion inference."

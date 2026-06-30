@@ -149,9 +149,7 @@ def _patch_cmaps() -> None:
             cdat[ii, 1] = curcol[1] * scale_factor
             cdat[ii, 2] = curcol[2] * scale_factor
             cdat[ii, 3] = 1
-        return mcolors.LinearSegmentedColormap.from_list(
-            f"{cmap.name}_darkened", cdat, N=cmap.N
-        )
+        return mcolors.LinearSegmentedColormap.from_list(f"{cmap.name}_darkened", cdat, N=cmap.N)
 
     def custom_cmap(rgb_list: Any) -> Any:
         rgb_list = np.array(rgb_list)

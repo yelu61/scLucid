@@ -109,9 +109,9 @@ adata = sc.read_h5ad(pbmc_path)
 ## Related Documents
 
 - `docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md`
-- `docs/source/workflow_hardening.rst`
-- `docs/source/data_contracts.rst`
-- `docs/source/validation_scaffold.rst`
+- `docs/user/workflow_hardening.md`
+- `docs/user/data_contracts.md`
+- `docs/user/validation_scaffold.md`
 - `docs/validation/qc_preprocess_evidence_pilot.md`
 - `validation/README.md`
 - `data/DATASETS.md`

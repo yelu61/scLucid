@@ -384,6 +384,65 @@ class TestFindHVGs:
         assert report["evidence_key"] == "highly_variable_custom_sample_count"
         assert "sample_count_distribution" in report
 
+    def test_default_hvg_config_preserves_sample_specific_genes(self):
+        """Default n_specific_genes should be 0 so tumor heterogeneity is not discarded."""
+        from scLucid.preprocess.config import HVGConfig
+
+        config = HVGConfig()
+        assert config.n_specific_genes == 0
+
+    def test_preserve_tumor_heterogeneity_skips_sample_specific_exclusion(self):
+        """Even when n_specific_genes > 0, preserve_tumor_heterogeneity should skip exclusion."""
+        from scLucid.preprocess.config import HVGConfig
+
+        rng = np.random.default_rng(3)
+        # Create data with a clear sample-specific gene; use 60 cells per sample
+        # to satisfy the default min_cells_per_sample=50 in per-sample HVG computation.
+        X = rng.poisson(2, size=(180, 60)).astype(float)
+        # Make gene 59 highly specific to sample s1
+        X[:60, 59] = rng.poisson(50, size=60).astype(float)
+        adata = AnnData(X=X)
+        adata.var_names = [f"Gene{i}" for i in range(60)]
+        adata.obs["sampleID"] = ["s1"] * 60 + ["s2"] * 60 + ["s3"] * 60
+        adata.layers["counts"] = adata.X.copy()
+
+        config = HVGConfig(
+            method="custom",
+            flavor="seurat",
+            n_top_genes=100,
+            auto_n_top_genes=False,
+            min_n_samples=1,
+            n_highly_expressed_genes=0,
+            n_specific_genes=5,
+            exclude_gene_types=[],
+        )
+
+        result_with_exclusion = find_hvgs(
+            adata.copy(),
+            config=config,
+            force=True,
+            input_layer="counts",
+            n_jobs=1,
+            plot=False,
+        )
+        result_preserve = find_hvgs(
+            adata.copy(),
+            config=config,
+            force=True,
+            input_layer="counts",
+            n_jobs=1,
+            plot=False,
+            preserve_tumor_heterogeneity=True,
+        )
+
+        hvg_key = "highly_variable_custom"
+        n_hvgs_with_exclusion = result_with_exclusion.var[hvg_key].sum()
+        n_hvgs_preserve = result_preserve.var[hvg_key].sum()
+
+        # Preserving tumor heterogeneity should retain at least as many HVGs
+        assert n_hvgs_preserve >= n_hvgs_with_exclusion
+        assert result_preserve.var[f"{hvg_key}_sample_specific"].sum() == 0
+
 
 class TestEvaluateHVGStability:
     def test_stability_runs(self, minimal_adata):

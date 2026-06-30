@@ -3,7 +3,7 @@
 >
 > This document is kept for historical reference only. The current design,
 > contracts, and implementation plans are maintained in the top-level `docs/`
-> files and in `docs/source/`. Do not use this document as a source of truth.
+> files and in `docs/user/`. Do not use this document as a source of truth.
 > See `docs/README.md` for the documentation map.
 
 ---
@@ -14,8 +14,8 @@
 
 This document was an early inventory of the QC module. File line counts and
 module boundaries have changed. The current authoritative documentation is in
-`docs/source/api/qc.rst`, `docs/source/best_practices.rst`, and
-`docs/source/qc_preprocess_maturity.rst`.
+`docs/api/qc.md`, `docs/user/best_practices.md`, and
+`docs/user/qc_preprocess_maturity.md`.
 
 The default path remains Python-native, light-dependency, and
 review-summary-first.

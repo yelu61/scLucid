@@ -287,7 +287,7 @@ AnalysisStepFactory.register("interactive_plot", InteractivePlotter)
 ### Inside the Project
 - `src/scLucid/base_interfaces.py` — abstract base class definitions
 - `examples/plugin_development_example.py` — complete example
-- `docs/NAMING_CONVENTIONS.md` — naming conventions
+- `docs/dev/NAMING_CONVENTIONS.md` — naming conventions
 
 ### External Resources
 - Python ABC: https://docs.python.org/3/library/abc.html

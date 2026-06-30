@@ -1,8 +1,14 @@
 # scLucid 投稿倒逼式 Phase Execution Playbook
 
 **Status**: 当前执行手册  
-**Updated**: 2026-06-12  
+**Updated**: 2026-06-30  
 **Goal**: 按 Nature Methods 的方法学标准倒逼建设 scLucid，并以 Nature Computational Science / Genome Biology / Nature Communications 为主攻投稿目标。
+
+> Documentation note: this directory is the phase-level execution playbook.
+> It records where scLucid is going and how claims should be validated. For
+> the current user-facing module contract, start with
+> `docs/user/module_features_and_plan.md` and
+> `docs/CURRENT_IMPLEMENTATION_AND_DOCS_POLICY.md`.
 
 ## 总策略
 

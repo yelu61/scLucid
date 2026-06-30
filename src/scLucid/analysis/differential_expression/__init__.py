@@ -34,6 +34,7 @@ from .de_core import (
     filter_markers,
     find_markers,
     get_conserved_markers,
+    run_mixedlm_de,
     run_pseudobulk_de,
 )
 
@@ -71,6 +72,7 @@ __all__ = [
     "compare_groups",
     "compare_conditions",
     "run_pseudobulk_de",
+    "run_mixedlm_de",
     "get_conserved_markers",
     # Enrichment
     "run_enrichment",

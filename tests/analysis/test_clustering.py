@@ -6,17 +6,27 @@ Tests clustering, practical resolution review, and cluster merging.
 
 import sys
 
+import anndata
+import numpy as np
+import pandas as pd
 import pytest
 import scanpy as sc
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
 from scLucid.analysis.clustering import (
+    build_clustree_summary,
     cluster_cells,
+    evaluate_clustering_stability,
     merge_clusters,
     run_clustering_review,
 )
-from scLucid.analysis.config import ClusteringConfig, MergeClustersConfig
+from scLucid.analysis.config import (
+    AnalysisWorkflowConfig,
+    ClusteringConfig,
+    MergeClustersConfig,
+)
+from scLucid.analysis.workflow import run_standard_analysis
 
 
 @pytest.fixture
@@ -170,6 +180,93 @@ class TestClusteringConfigValidation:
         """Test that invalid method raises error."""
         with pytest.raises(ValueError):
             ClusteringConfig(method="invalid_method")
+
+
+@pytest.mark.integration
+class TestClusteringStability:
+    """Test suite for clustering stability diagnostics."""
+
+    def test_evaluate_clustering_stability_returns_expected_columns(
+        self, preprocessed_adata
+    ):
+        """Stability evaluation returns the required DataFrame columns."""
+        df = evaluate_clustering_stability(
+            preprocessed_adata,
+            resolutions=[0.4, 0.8],
+            n_replicates=2,
+            subsample_frac=0.8,
+            random_state=42,
+            n_neighbors=10,
+            n_pcs=20,
+        )
+        expected = {
+            "resolution",
+            "n_clusters",
+            "mean_ari",
+            "std_ari",
+            "silhouette_score",
+            "marker_jaccard_to_prev",
+        }
+        assert expected.issubset(df.columns)
+        assert len(df) == 2
+        assert df["resolution"].tolist() == [0.4, 0.8]
+        assert ((df["mean_ari"] >= -1.0) & (df["mean_ari"] <= 1.0)).all()
+        # Silhouette is only defined when a resolution yields >1 cluster.
+        multi_cluster = df["n_clusters"] > 1
+        if multi_cluster.any():
+            assert pd.notna(df.loc[multi_cluster, "silhouette_score"]).all()
+
+    def test_build_clustree_summary_identifies_known_split(self):
+        """Clustree summary correctly flags a parent cluster that splits."""
+        adata = anndata.AnnData(X=np.zeros((9, 10)))
+        adata.obs_names = [f"cell_{i}" for i in range(9)]
+        adata.obs["leiden_0.5"] = pd.Categorical(["0"] * 5 + ["1"] * 4)
+        adata.obs["leiden_1.0"] = pd.Categorical(
+            ["0", "0", "1", "1", "1", "2", "2", "3", "3"]
+        )
+
+        summary = build_clustree_summary(
+            adata,
+            resolution_key_prefix="leiden_",
+            resolutions=[0.5, 1.0],
+        )
+
+        transition = summary[(0.5, 1.0)]
+        assert "0" in transition["splits"]
+        assert not transition["merges"]
+        assert set(transition["parent_clusters"]) == {"0", "1"}
+        assert set(transition["child_clusters"]) == {"0", "1", "2", "3"}
+
+    def test_use_recommended_resolution_false_preserves_original_resolution(
+        self, preprocessed_adata
+    ):
+        """When disabled, the review recommendation must not override the configured resolution."""
+        original_resolution = 0.3
+        config = AnalysisWorkflowConfig(
+            clustering=ClusteringConfig(
+                method="leiden",
+                resolution=original_resolution,
+                key_added="leiden_clusters",
+            ),
+            annotation=None,
+            characterize=False,
+            candidate_resolutions=[0.5, 1.0],
+            use_recommended_resolution=False,
+        )
+
+        result = run_standard_analysis(
+            preprocessed_adata,
+            config=config,
+            steps=["clustering_review", "clustering"],
+            show_progress=False,
+        )
+
+        assert config.clustering.resolution == original_resolution
+        assert "leiden_clusters" in result.obs.columns
+        review_summary = result.uns["sclucid"]["analysis"]["clustering"][
+            "clustering_review_summary"
+        ]
+        assert review_summary["recommended_resolution"] is not None
 
 
 if __name__ == "__main__":

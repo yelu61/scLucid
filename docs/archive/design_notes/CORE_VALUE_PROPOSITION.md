@@ -3,7 +3,7 @@
 >
 > This document is kept for historical reference only. The current design,
 > contracts, and implementation plans are maintained in the top-level `docs/`
-> files and in `docs/source/`. Do not use this document as a source of truth.
+> files and in `docs/user/`. Do not use this document as a source of truth.
 > See `docs/README.md` for the documentation map.
 
 ---
@@ -17,7 +17,7 @@ sketches for scLucid. Many of the classes shown here (e.g.,
 `IntelligentQCRecommender`, `BiologyAwareHVGSelector`,
 `CancerPurityAwareAnnotation`) were exploratory design probes and do not
 represent the current public API. The actual implementation is documented in
-`docs/source/` and the top-level `README.md`.
+`docs/user/` and the top-level `README.md`.
 
 Key ideas that survived into the current design:
 - Data-driven, evidence-based QC recommendations.

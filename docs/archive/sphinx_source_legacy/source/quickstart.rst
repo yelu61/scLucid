@@ -39,11 +39,15 @@ Minimal End-To-End Example
 What This Path Gives You
 ------------------------
 
-- QC trace under ``adata.uns["sclucid"]["qc"]``
+- QC trace and ``qc_reviewer_table`` under ``adata.uns["sclucid"]["qc"]``
 - QC review sidecars when ``save_dir`` is set
-- standard preprocessing outputs such as normalized layers, HVG metadata, PCA, and neighbors/UMAP
+- standard preprocessing outputs such as normalized layers, HVG metadata, PCA,
+  and neighbors/UMAP
+- preprocessing layer contract and reviewer table describing
+  ``counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph``
 - clustering labels in ``adata.obs``
-- annotation evidence and annotation outputs in ``adata.obs`` and ``adata.uns``
+- annotation evidence, analysis output contract, inference policy, and
+  analysis reviewer table in ``adata.obs`` and ``adata.uns``
 
 Light Default, Optional Enhancements
 ------------------------------------

@@ -1,6 +1,10 @@
 QC And Preprocessing Maturity Plan
 ==================================
 
+This page started as a QC/preprocess maturity plan and now also records nearby
+module maturity context. For the compact current module map and documentation
+source-of-truth hierarchy, see :doc:`module_features_and_plan`.
+
 QC and preprocessing should become the first benchmark modules for scLucid.
 They define the user's trust in the rest of the workflow: if filtering,
 normalization, feature selection, and graph construction are not explainable,
@@ -13,16 +17,64 @@ The table below is a snapshot of where each module stands today. It should be
 updated as modules move through the maturity gates described later in this
 document.
 
-| Area | Current Level | What Works Now | Main Gaps |
-|------|---------------|----------------|-----------|
-| QC | Candidate benchmark module with Figure 2 evidence package | Adaptive/sample-aware/tumor-aware threshold decisions, reviewer tables, tumor biological-fidelity benchmarks, Kang demuxlet doublet calibration, Python/R scDblFinder parity, and claim-level scorecards | More ground-truth-like doublet/ambient datasets and stronger homotypic/solid-tissue doublet evidence |
-| Preprocessing | Candidate benchmark module | Layer contracts, normalization/HVG/PCA/neighbors/UMAP evidence, batch-correction cautions, maturity contract | Larger multi-sample validation, stronger batch-correction recommendation evidence |
-| Analysis | Second benchmark module in active hardening | ``clustering_review -> markers -> annotation_evidence -> annotation_consensus -> posthoc_qc_review -> malignancy_interpretation``, manager-routed marker resources, review-summary contract | Real-data acceptance runs, richer CellTypist/reference evidence, better human-facing review tables |
-| Marker Resources | Strong architectural direction | Unified ``Manager``, human/mouse registry resources, tissue/tumor marker views, artifact/program/tumor routing, curation SOP | Source provenance at scale, mouse tissue/tumor parity, atlas-derived marker review |
-| Tumor Module | Feature-rich but needs integration hardening | CNV, malignancy scoring/classification, TME, therapy, heterogeneity, workflow scaffolds | Consume stable analysis outputs more tightly, store tumor-stage review summaries, validate on tumor datasets |
-| Plotting | Useful foundation | Publication-style themes and domain plots | Top-journal figure templates, richer multi-panel reports, visual regression checks |
-| Tools / Evidence Modules | Expanding tumor support | Python-facing wrappers, bulk deconvolution, bulk/spatial clean-room utilities, R parity scaffolds | Selective method validation, dependency isolation, bulk/spatial tumor use cases |
-| Documentation / Examples | Good skeleton | Three usage layers, advanced notebooks, golden-path scripts | Keep docs synchronized with maturity contracts and real-data acceptance results |
+.. list-table::
+   :header-rows: 1
+   :widths: 16 24 36 36
+
+   * - Area
+     - Current Level
+     - What Works Now
+     - Main Gaps
+   * - QC
+     - Candidate benchmark module with Figure 2 evidence package
+     - Adaptive/sample-aware/tumor-aware threshold decisions, reviewer tables,
+       tumor biological-fidelity benchmarks, Kang demuxlet doublet calibration,
+       Python/R scDblFinder parity, and claim-level scorecards
+     - More ground-truth-like doublet/ambient datasets and stronger
+       homotypic/solid-tissue doublet evidence
+   * - Preprocessing
+     - Candidate benchmark module
+     - Layer contracts, normalization/HVG/PCA/neighbors/UMAP evidence,
+       batch-correction cautions, maturity contract
+     - Larger multi-sample validation, stronger batch-correction recommendation
+       evidence
+   * - Analysis
+     - Second benchmark module in active hardening
+     - ``clustering_review -> markers -> annotation_evidence ->
+       annotation_consensus -> posthoc_qc_review ->
+       malignancy_interpretation``, manager-routed marker resources,
+       ``analysis_inference_policy``, ``analysis_output_contract``,
+       ``analysis_decision_summary``, and ``analysis_reviewer_table``
+     - Real-data acceptance runs, richer CellTypist/reference evidence, and a
+       dedicated pseudobulk DE reviewer summary
+   * - Marker Resources
+     - Strong architectural direction
+     - Unified ``Manager``, human/mouse registry resources, tissue/tumor marker
+       views, artifact/program/tumor routing, curation SOP
+     - Source provenance at scale, mouse tissue/tumor parity, atlas-derived
+       marker review
+   * - Tumor Module
+     - Feature-rich but needs integration hardening
+     - CNV, malignancy scoring/classification, TME, therapy, heterogeneity,
+       workflow scaffolds
+     - Consume stable analysis outputs more tightly, store tumor-stage review
+       summaries, validate on tumor datasets
+   * - Plotting
+     - Useful foundation
+     - Publication-style themes and domain plots
+     - Top-journal figure templates, richer multi-panel reports, visual
+       regression checks
+   * - Tools / Evidence Modules
+     - Expanding tumor support
+     - Python-facing wrappers, bulk deconvolution, bulk/spatial clean-room
+       utilities, R parity scaffolds
+     - Selective method validation, dependency isolation, bulk/spatial tumor use
+       cases
+   * - Documentation / Examples
+     - Good skeleton
+     - Three usage layers, advanced notebooks, golden-path scripts
+     - Keep docs synchronized with maturity contracts and real-data acceptance
+       results
 
 Target State
 ------------

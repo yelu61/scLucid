@@ -27,6 +27,7 @@ If you are new to scLucid, start with:
    installation
    quickstart
    usage_layers
+   module_features_and_plan
    data_contracts
    best_practices
    marker_resources

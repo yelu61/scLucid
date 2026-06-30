@@ -144,6 +144,11 @@ class ComparisonConfig(SclucidBaseConfig):
     pts: bool = Field(default=True)
     n_genes: int = Field(default=5000, ge=1)
 
+    # Exploratory-use acknowledgement. Cell-level DE treats cells as independent
+    # observations and is not valid for formal condition inference. Set this to
+    # True only after reviewing the pseudoreplication warning.
+    acknowledge_exploratory: bool = Field(default=False)
+
 
 class CompareGroupsConfig(ComparisonConfig):
     """Configuration for comparing two specific groups."""
@@ -192,6 +197,8 @@ class PseudobulkDEConfig(SclucidBaseConfig):
         "deseq2",
         "welch_logcpm",
         "linear_model_logcpm",
+        "statsmodels_glm",
+        "statsmodels_gee",
         "cell_level_fallback",
     ] = Field(default="auto")
     design_covariates: List[str] = Field(
@@ -207,6 +214,21 @@ class PseudobulkDEConfig(SclucidBaseConfig):
             "Covariance estimator for linear_model_logcpm. HC3 is the default "
             "heteroscedasticity-robust standard error; use nonrobust to keep "
             "ordinary OLS standard errors."
+        ),
+    )
+    statsmodels_glm_family: Literal["NegativeBinomial", "Gaussian", "Gamma"] = Field(
+        default="NegativeBinomial",
+        description=(
+            "GLM family for the statsmodels_glm backend. NegativeBinomial uses raw "
+            "counts; Gaussian uses logCPM with identity link and HC3 sandwich "
+            "covariance; Gamma uses counts with log link."
+        ),
+    )
+    hierarchical_correction: bool = Field(
+        default=False,
+        description=(
+            "Apply hierarchical multiple-testing correction: BH within each "
+            "(group, contrast) and Benjamini-Yekutieli across all tests."
         ),
     )
     block_col: Optional[str] = Field(
@@ -345,6 +367,9 @@ class ProportionConfig(SclucidBaseConfig):
     batch_col: Optional[str] = Field(default=None)
     timepoint_col: Optional[str] = Field(default=None)
 
+    # scCODA reference selection
+    reference_cell_type: Optional[str] = Field(default="auto")
+
     auto_configure: bool = Field(default=True)
     test_method: Literal[
         "deseq2",
@@ -353,6 +378,7 @@ class ProportionConfig(SclucidBaseConfig):
         "clr-paired-t-test",
         "clr-paired-wilcoxon",
         "clr-ols",
+        "ancom-like-clr",
         "t-test",
         "wilcoxon",
         "anova",
@@ -365,6 +391,7 @@ class ProportionConfig(SclucidBaseConfig):
     composition_pseudocount: float = Field(default=1e-6, gt=0)
     require_biological_replicates: bool = Field(default=True)
     min_samples_per_condition: int = Field(default=2, ge=1)
+    legacy_exploratory: bool = Field(default=False)
     correction_scope: str = Field(default="per_test")
 
     # Plotting
@@ -434,19 +461,28 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
         ),
     )
     candidate_resolutions: Optional[List[float]] = Field(default=None)
-    use_recommended_resolution: bool = Field(default=True)
+    use_recommended_resolution: bool = Field(default=False)
     run_annotation_evidence: bool = Field(default=True)
     annotation_methods: Tuple[str, ...] = Field(
         default=("reference", "marker_manager", "data_driven")
     )
     final_annotation_strategy: Literal["consensus", "legacy"] = Field(default="consensus")
-    annotation_level: Literal["lineage", "cell_type", "subtype", "state"] = Field(
-        default="lineage"
-    )
+    annotation_level: Literal["lineage", "cell_type", "subtype", "state"] = Field(default="lineage")
     llm_annotations: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = Field(default=None)
     find_markers: bool = Field(default=True)
     characterize: bool = Field(default=True)
     marker_method: Literal["wilcoxon", "t-test", "logreg"] = Field(default="wilcoxon")
+
+    # Pseudobulk-first workflow routing. When True, run_standard_analysis will
+    # run clustering and annotation, then immediately aggregate to sample-level
+    # pseudobulk DE per cell type instead of using cell-level condition DE.
+    pseudobulk_first: bool = Field(
+        default=False,
+        description=(
+            "After standard clustering and annotation, run sample-level pseudobulk "
+            "DE per cell type as the primary differential output."
+        ),
+    )
 
     # Deprecated tumor-specific controls kept for backward compatibility.
     # Tumor interpretation should be managed via ``run_tumor_analysis`` or by

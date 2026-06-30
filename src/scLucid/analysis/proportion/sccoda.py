@@ -12,13 +12,68 @@ from typing import Dict, List, Optional, Tuple
 
 import anndata
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-import sccoda.util.comp_ana as sccoda_plot
 import seaborn as sns
-from sccoda.model import compositional_data as com_data
-from sccoda.model import scCODAModel
 
 log = logging.getLogger(__name__)
+
+
+def recommend_sccoda_reference(
+    count_df: pd.DataFrame,
+    method: str = "low_cv_abundant",
+    min_mean_frac: float = 0.05,
+    max_cv: float = 1.0,
+) -> Tuple[str, pd.DataFrame]:
+    """
+    Recommend a stable, abundant cell type as the scCODA reference.
+
+    Parameters
+    ----------
+    count_df : pd.DataFrame
+        Raw count matrix (samples x cell types).
+    method : str
+        Selection heuristic. Only "low_cv_abundant" is implemented.
+    min_mean_frac : float
+        Minimum mean proportion across samples to be considered abundant.
+    max_cv : float
+        Maximum coefficient of variation across samples to be considered stable.
+
+    Returns:
+    -------
+    reference_cell_type : str
+        Recommended reference cell type.
+    diagnostics : pd.DataFrame
+        Per-cell-type mean proportion and coefficient of variation.
+    """
+    if method != "low_cv_abundant":
+        raise ValueError(f"Unknown reference recommendation method: {method}")
+
+    prop_df = count_df.div(count_df.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
+    mean_frac = prop_df.mean(axis=0)
+    std = prop_df.std(axis=0, ddof=1)
+    cv = std / mean_frac.replace(0, np.nan)
+    cv = cv.replace([np.inf, -np.inf], np.nan).fillna(np.inf)
+
+    diagnostics = pd.DataFrame({"mean_frac": mean_frac, "cv": cv})
+
+    candidates = mean_frac[(mean_frac >= min_mean_frac) & (cv <= max_cv)]
+    if not candidates.empty:
+        candidate_diag = diagnostics.loc[candidates.index]
+        chosen = candidate_diag.sort_values(
+            by=["cv", "mean_frac"], ascending=[True, False]
+        ).index[0]
+    else:
+        chosen = mean_frac.sort_values(ascending=False).index[0]
+        log.warning(
+            "No cell type met reference criteria (mean >= %s and CV <= %s). "
+            "Falling back to the most abundant cell type: %s",
+            min_mean_frac,
+            max_cv,
+            chosen,
+        )
+
+    return chosen, diagnostics
 
 
 def run_sccoda(
@@ -27,7 +82,7 @@ def run_sccoda(
     sample_col: str,
     condition_col: str,
     reference_level: Optional[str] = None,
-    reference_cell_type: Optional[str] = None,
+    reference_cell_type: Optional[str] = "auto",
     min_cells: int = 10,
     pseudo_count: float = 0.5,
     n_samples: int = 25000,
@@ -93,13 +148,33 @@ def run_sccoda(
     count_df, covariate_df = count_df.align(covariate_df, axis=0, join="inner")
 
     # 3. scCODA model setup
-    if reference_cell_type is None:
-        reference_cell_type = count_df.columns[-1]
-        log.info(f"Using last cell type as reference: {reference_cell_type}")
+    reference_diagnostics = None
+    if reference_cell_type == "auto":
+        reference_cell_type, reference_diagnostics = recommend_sccoda_reference(count_df)
+        log.info(f"Auto-selected scCODA reference: {reference_cell_type}")
+    else:
+        if reference_cell_type not in count_df.columns:
+            raise ValueError(
+                f"Reference cell type '{reference_cell_type}' not found in cell types: "
+                f"{list(count_df.columns)}"
+            )
+        _, reference_diagnostics = recommend_sccoda_reference(count_df)
+        ref_diag = reference_diagnostics.loc[reference_cell_type]
+        if ref_diag["mean_frac"] < 0.05:
+            log.warning(
+                "User-provided reference cell type '%s' has low abundance (mean_frac=%.4f). "
+                "scCODA results may be unstable; consider a more abundant reference.",
+                reference_cell_type,
+                ref_diag["mean_frac"],
+            )
 
     if reference_level is None:
         reference_level = covariate_df[condition_col].unique()[0]
         log.info(f"Using first condition as reference level: {reference_level}")
+
+    import sccoda.util.comp_ana as sccoda_plot
+    from sccoda.model import compositional_data as com_data
+    from sccoda.model import scCODAModel
 
     data_coda = com_data.from_pandas(count_df, covariate_df, covariate_columns=[condition_col])
 
@@ -121,6 +196,7 @@ def run_sccoda(
         "credible_interval": credible_interval,
         "reference_level": reference_level,
         "reference_cell_type": reference_cell_type,
+        "reference_diagnostics": reference_diagnostics,
         "params": {
             "cell_type_col": cell_type_col,
             "sample_col": sample_col,

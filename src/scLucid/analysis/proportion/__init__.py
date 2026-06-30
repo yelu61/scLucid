@@ -57,11 +57,12 @@ from .workflow import (
 
 # Optional scCODA import (may fail if sccoda not installed)
 try:
-    from .sccoda import run_sccoda, summarize_sccoda
+    from .sccoda import recommend_sccoda_reference, run_sccoda, summarize_sccoda
 
     _sccoda_available = True
 except ImportError:
     _sccoda_available = False
+    recommend_sccoda_reference = None
     run_sccoda = None
     summarize_sccoda = None
 
@@ -83,6 +84,7 @@ __all__ = [
     "composition_transform",
     "run_statistical_test",
     # scCODA (optional)
+    "recommend_sccoda_reference",
     "run_sccoda",
     "summarize_sccoda",
     # Utility

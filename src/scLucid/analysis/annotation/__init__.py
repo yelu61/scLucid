@@ -12,6 +12,7 @@ from .core import (
     evaluate_annotation,
     filter_marker_table_for_annotation,
     flag_suspect_clusters,
+    recommend_celltypist_model,
     remap_labels,
     run_annotation,
     run_celltypist,
@@ -37,12 +38,17 @@ from .evidence import (
     run_subset_annotation_refinement,
     standardize_cluster_marker_table,
 )
+from .report import (
+    build_annotation_evidence_report,
+    export_annotation_evidence_report,
+)
 
 __all__ = [
     "ANALYSIS_REVIEW_SUMMARY_SCHEMA",
     "ANNOTATION_REVIEW_SCHEMA",
     "score_cell_types",
     "annotate_clusters",
+    "recommend_celltypist_model",
     "run_celltypist",
     "transfer_labels",
     "evaluate_annotation",
@@ -67,4 +73,6 @@ __all__ = [
     "apply_annotation_mapping",
     "remap_labels",
     "run_annotation",
+    "build_annotation_evidence_report",
+    "export_annotation_evidence_report",
 ]

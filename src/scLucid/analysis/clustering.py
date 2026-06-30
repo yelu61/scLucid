@@ -9,9 +9,10 @@ This module provides:
 """
 
 import logging
+from collections import defaultdict
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -19,6 +20,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score
 
 from ..base_config import apply_config_overrides
 from ..utils import sanitize_for_hdf5
@@ -28,6 +30,8 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "run_clustering_review",
+    "evaluate_clustering_stability",
+    "build_clustree_summary",
     "cluster_cells",
     "merge_clusters",
 ]
@@ -81,6 +85,396 @@ def _hdf5_safe_review_table(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ====================== Clustering Evaluation Helpers ======================
+
+
+def _subsample_obs_names(
+    obs_names: pd.Index,
+    fraction: float,
+    random_state: int,
+    strata: Optional[pd.Series] = None,
+) -> pd.Index:
+    """Return a subsampled set of observation names.
+
+    When ``strata`` is provided, sampling is stratified so that each stratum
+    contributes ``fraction`` of its cells (at least one cell).
+    """
+    rng = np.random.default_rng(random_state)
+    if strata is not None:
+        strata = pd.Series(strata, index=obs_names)
+        selected: List[Any] = []
+        for _, sub in strata.groupby(strata, observed=False, sort=False):
+            n = max(1, int(np.round(len(sub) * fraction)))
+            chosen = rng.choice(sub.index, size=n, replace=False)
+            selected.extend(chosen)
+        return pd.Index(selected)
+    n = max(2, int(np.round(len(obs_names) * fraction)))
+    chosen = rng.choice(obs_names, size=n, replace=False)
+    return pd.Index(chosen)
+
+
+def _run_leiden_on_subsample(
+    adata: AnnData,
+    obs_names: pd.Index,
+    resolution: float,
+    random_state: int,
+    key_added: str,
+    use_rep: str,
+    n_neighbors: Optional[int],
+    n_pcs: Optional[int],
+    metric: str,
+) -> pd.Series:
+    """Cluster a subsample of ``adata`` with Leiden and return its labels."""
+    sub = adata[obs_names].copy()
+    neighbors_kwargs: Dict[str, Any] = {
+        "use_rep": use_rep,
+        "random_state": random_state,
+        "metric": metric,
+    }
+    if n_neighbors is not None:
+        neighbors_kwargs["n_neighbors"] = n_neighbors
+    if n_pcs is not None:
+        neighbors_kwargs["n_pcs"] = n_pcs
+    sc.pp.neighbors(sub, **neighbors_kwargs)
+    sc.tl.leiden(
+        sub,
+        resolution=resolution,
+        key_added=key_added,
+        random_state=random_state,
+    )
+    return sub.obs[key_added].astype(str)
+
+
+def _top_markers_per_cluster(
+    adata: AnnData,
+    cluster_key: str,
+    n_top: int,
+    de_method: str = "wilcoxon",
+    use_raw: bool = True,
+) -> Dict[str, List[str]]:
+    """Return top marker gene names per cluster for a given clustering."""
+    try:
+        rank_key = f"rank_genes_{cluster_key}"
+        sc.tl.rank_genes_groups(
+            adata,
+            groupby=cluster_key,
+            method=de_method,
+            use_raw=use_raw and adata.raw is not None,
+            key_added=rank_key,
+        )
+        markers_df = sc.get.rank_genes_groups_df(adata, key=rank_key, group=None)
+    except Exception as exc:
+        log.warning(f"Could not compute markers for '{cluster_key}': {exc}")
+        return {}
+    if markers_df.empty or "names" not in markers_df.columns or "group" not in markers_df.columns:
+        return {}
+    top_markers: Dict[str, List[str]] = {}
+    for group, df in markers_df.groupby("group", observed=False):
+        names = df.sort_values("scores", ascending=False).head(n_top)["names"].astype(str).tolist()
+        top_markers[str(group)] = names
+    return top_markers
+
+
+def _jaccard(a: set, b: set) -> float:
+    """Jaccard similarity between two sets."""
+    if not a and not b:
+        return 1.0
+    denom = len(a | b)
+    return len(a & b) / denom if denom else 0.0
+
+
+def evaluate_clustering_stability(
+    adata: AnnData,
+    resolutions: Sequence[float],
+    *,
+    n_replicates: int = 5,
+    subsample_frac: float = 0.8,
+    random_state: int = 42,
+    n_neighbors: Optional[int] = None,
+    n_pcs: Optional[int] = None,
+    metric: str = "euclidean",
+    sample_key: Optional[str] = None,
+    use_rep: str = "X_pca",
+    key_added_prefix: str = "leiden",
+    n_top_markers: int = 50,
+    de_method: str = "wilcoxon",
+) -> pd.DataFrame:
+    """
+    Evaluate Leiden clustering stability across resolutions.
+
+    For each resolution, Leiden is run repeatedly on 80%% subsamples of cells
+    (stratified by ``sample_key`` when available) with independent random
+    seeds. Pairwise ARI between replicates quantifies stability. Silhouette
+    score is computed on the full data using the first replicate's labels.
+    Marker Jaccard overlap to the previous resolution is computed from the
+    top 50 markers per cluster and the majority-overlap parent-child mapping
+    produced by :func:`build_clustree_summary`.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Preprocessed data with PCA and (ideally) a neighborhood graph.
+    resolutions : sequence of float
+        Leiden resolutions to evaluate.
+    n_replicates : int, default=5
+        Number of subsample clusterings per resolution.
+    subsample_frac : float, default=0.8
+        Fraction of cells to retain in each subsample replicate.
+    random_state : int, default=42
+        Base random seed.
+    n_neighbors : int, optional
+        Number of neighbors for the per-replicate neighbor graph.
+    n_pcs : int, optional
+        Number of principal components used for the neighbor graph.
+    metric : str, default="euclidean"
+        Distance metric for neighbors and silhouette.
+    sample_key : str, optional
+        Column in ``adata.obs`` used to stratify subsampling.
+    use_rep : str, default="X_pca"
+        Embedding used for neighbor computation and silhouette.
+    key_added_prefix : str, default="leiden"
+        Prefix for cluster keys stored in ``adata.obs`` (e.g. ``leiden_0.5``).
+    n_top_markers : int, default=50
+        Number of top markers used for the Jaccard comparison.
+    de_method : str, default="wilcoxon"
+        Differential-expression method for marker calculation.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``resolution``, ``n_clusters``, ``mean_ari``, ``std_ari``,
+        ``silhouette_score``, ``marker_jaccard_to_prev``.
+    """
+    if use_rep not in adata.obsm:
+        raise ValueError(
+            f"Representation '{use_rep}' not found in adata.obsm. "
+            "Please compute PCA or the selected embedding first."
+        )
+    if not resolutions:
+        raise ValueError("resolutions must contain at least one value.")
+    if n_replicates < 2:
+        raise ValueError("n_replicates must be at least 2 to compute pairwise scores.")
+
+    resolutions = [float(r) for r in resolutions]
+    rows: List[Dict[str, Any]] = []
+    resolution_markers: Dict[float, Dict[str, List[str]]] = {}
+
+    strata = adata.obs[sample_key] if sample_key and sample_key in adata.obs.columns else None
+
+    for resolution in resolutions:
+        cluster_key = f"{key_added_prefix}_{resolution}"
+        labels_per_rep: List[pd.Series] = []
+
+        for rep_idx in range(n_replicates):
+            rep_seed = random_state + rep_idx
+            selected = _subsample_obs_names(
+                adata.obs_names,
+                fraction=subsample_frac,
+                random_state=rep_seed,
+                strata=strata,
+            )
+            rep_labels = _run_leiden_on_subsample(
+                adata,
+                obs_names=selected,
+                resolution=resolution,
+                random_state=rep_seed,
+                key_added=cluster_key,
+                use_rep=use_rep,
+                n_neighbors=n_neighbors,
+                n_pcs=n_pcs,
+                metric=metric,
+            )
+            full_labels = pd.Series(index=adata.obs_names, dtype=object)
+            full_labels.loc[selected] = rep_labels
+            labels_per_rep.append(full_labels)
+
+        # Pairwise ARI between replicates on their common valid cells.
+        ari_scores: List[float] = []
+        for i in range(n_replicates):
+            for j in range(i + 1, n_replicates):
+                common = labels_per_rep[i].notna() & labels_per_rep[j].notna()
+                if common.sum() < 2:
+                    continue
+                ari_scores.append(
+                    float(
+                        adjusted_rand_score(
+                            labels_per_rep[i].loc[common].astype(str),
+                            labels_per_rep[j].loc[common].astype(str),
+                        )
+                    )
+                )
+
+        mean_ari = float(np.mean(ari_scores)) if ari_scores else np.nan
+        std_ari = float(np.std(ari_scores, ddof=1)) if len(ari_scores) >= 2 else 0.0
+
+        # First replicate provides the primary labels for downstream metrics.
+        primary_labels = labels_per_rep[0]
+        valid_cells = primary_labels.notna()
+        n_clusters = int(primary_labels[valid_cells].nunique())
+
+        sil_score: Optional[float] = None
+        if valid_cells.sum() >= 2 and use_rep in adata.obsm:
+            try:
+                sil_score = float(
+                    silhouette_score(
+                        adata.obsm[use_rep][valid_cells.to_numpy()],
+                        primary_labels[valid_cells].astype(str),
+                        metric=metric,
+                    )
+                )
+            except Exception as exc:
+                log.warning(
+                    f"Silhouette computation failed for resolution {resolution:g}: {exc}"
+                )
+
+        # Top markers per cluster using the primary replicate labels.
+        try:
+            if valid_cells.sum() >= 2 and n_clusters >= 2:
+                marker_adata = adata[valid_cells].copy()
+                marker_adata.obs[cluster_key] = primary_labels[valid_cells].astype("category")
+                resolution_markers[resolution] = _top_markers_per_cluster(
+                    marker_adata,
+                    cluster_key=cluster_key,
+                    n_top=n_top_markers,
+                    de_method=de_method,
+                    use_raw=adata.raw is not None,
+                )
+            else:
+                resolution_markers[resolution] = {}
+        except Exception as exc:
+            log.warning(f"Marker computation failed for resolution {resolution:g}: {exc}")
+            resolution_markers[resolution] = {}
+
+        # Persist primary labels so clustree can be built without reclustering.
+        adata.obs[cluster_key] = pd.Categorical(primary_labels.fillna("unassigned"))
+
+        rows.append(
+            {
+                "resolution": resolution,
+                "n_clusters": n_clusters,
+                "mean_ari": mean_ari,
+                "std_ari": std_ari,
+                "silhouette_score": sil_score,
+                "marker_jaccard_to_prev": np.nan,
+            }
+        )
+
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "resolution",
+            "n_clusters",
+            "mean_ari",
+            "std_ari",
+            "silhouette_score",
+            "marker_jaccard_to_prev",
+        ],
+    )
+
+    # Marker Jaccard overlap between adjacent resolutions using clustree edges.
+    if len(resolutions) > 1:
+        clustree = build_clustree_summary(
+            adata,
+            resolution_key_prefix=f"{key_added_prefix}_",
+            resolutions=resolutions,
+        )
+        for i in range(1, len(resolutions)):
+            res_prev = resolutions[i - 1]
+            res_curr = resolutions[i]
+            transition = clustree.get((res_prev, res_curr), {})
+            edges = transition.get("edges", [])
+            jaccards: List[float] = []
+            for edge in edges:
+                parent_markers = set(
+                    resolution_markers.get(res_prev, {}).get(str(edge["parent"]), [])
+                )
+                child_markers = set(
+                    resolution_markers.get(res_curr, {}).get(str(edge["child"]), [])
+                )
+                if parent_markers or child_markers:
+                    jaccards.append(_jaccard(parent_markers, child_markers))
+            if jaccards:
+                df.loc[df["resolution"] == res_curr, "marker_jaccard_to_prev"] = float(
+                    np.mean(jaccards)
+                )
+
+    return df
+
+
+def build_clustree_summary(
+    adata: AnnData,
+    resolution_key_prefix: str = "leiden_",
+    resolutions: Sequence[float] = (),
+) -> Dict[Tuple[float, float], Dict[str, Any]]:
+    """
+    Build a clustree-like summary of split/merge relationships.
+
+    For each adjacent resolution pair, parent-child edges are determined from
+    the overlap of cell barcodes between the lower-resolution (parent) and
+    higher-resolution (child) clusterings. A parent ``splits`` when its cells
+    appear in multiple child clusters; a child is a ``merge`` when it contains
+    cells from multiple parent clusters.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Data with cluster label columns named ``{resolution_key_prefix}{resolution}``.
+    resolution_key_prefix : str, default="leiden_"
+        Prefix used for cluster keys in ``adata.obs``.
+    resolutions : sequence of float
+        Resolutions in increasing order.
+
+    Returns
+    -------
+    dict
+        Mapping ``(lower_resolution, higher_resolution)`` to a dictionary with
+        keys ``parent_clusters``, ``child_clusters``, ``splits``, ``merges``,
+        and ``edges`` (list of ``{parent, child, n_cells}`` dictionaries).
+    """
+    resolutions = [float(r) for r in resolutions]
+    summary: Dict[Tuple[float, float], Dict[str, Any]] = {}
+    for res_lo, res_hi in zip(resolutions[:-1], resolutions[1:]):
+        key_lo = f"{resolution_key_prefix}{res_lo}"
+        key_hi = f"{resolution_key_prefix}{res_hi}"
+        if key_lo not in adata.obs.columns or key_hi not in adata.obs.columns:
+            log.warning(
+                f"Skipping clustree transition {res_lo:g}->{res_hi:g}: "
+                f"missing keys '{key_lo}' or '{key_hi}'."
+            )
+            continue
+
+        lo_labels = adata.obs[key_lo].astype(str)
+        hi_labels = adata.obs[key_hi].astype(str)
+        # Ignore unassigned cells produced by subsample replicates.
+        valid = ~(lo_labels.isin(["unassigned", "nan", "None", ""]) | hi_labels.isin(["unassigned", "nan", "None", ""]))
+        if valid.sum() == 0:
+            continue
+
+        contingency = pd.crosstab(lo_labels[valid], hi_labels[valid])
+        edges: List[Dict[str, Any]] = []
+        parent_children: Dict[str, set] = defaultdict(set)
+        child_parents: Dict[str, set] = defaultdict(set)
+
+        for parent in contingency.index:
+            for child in contingency.columns:
+                n_cells = int(contingency.loc[parent, child])
+                if n_cells == 0:
+                    continue
+                parent_str = str(parent)
+                child_str = str(child)
+                edges.append({"parent": parent_str, "child": child_str, "n_cells": n_cells})
+                parent_children[parent_str].add(child_str)
+                child_parents[child_str].add(parent_str)
+
+        summary[(res_lo, res_hi)] = {
+            "parent_clusters": sorted(parent_children.keys()),
+            "child_clusters": sorted(child_parents.keys()),
+            "splits": sorted([p for p, children in parent_children.items() if len(children) > 1]),
+            "merges": sorted([c for c, parents in child_parents.items() if len(parents) > 1]),
+            "edges": edges,
+        }
+    return summary
+
+
 def run_clustering_review(
     adata: AnnData,
     resolutions: Optional[Sequence[float]] = None,

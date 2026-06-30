@@ -11,10 +11,11 @@ Note: This is a convenience wrapper around individual analysis modules.
 For more control, use the individual functions directly.
 """
 
+import itertools
 import logging
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 from anndata import AnnData
@@ -36,8 +37,8 @@ from ..utils import (
 )
 from .annotation import build_annotation_consensus, run_annotation, run_annotation_evidence
 from .clustering import cluster_cells, run_clustering_review
-from .config import AnalysisWorkflowConfig, AnnotationConfig
-from .differential_expression import characterize_clusters, find_markers
+from .config import AnalysisWorkflowConfig, AnnotationConfig, PseudobulkDEConfig
+from .differential_expression import characterize_clusters, find_markers, run_pseudobulk_de
 from .scoring import score_by_gene_sets
 from .trace import enrich_analysis_review_summary, validate_analysis_review_summary
 
@@ -61,6 +62,7 @@ PartialAnalysisResult = PartialResultManager
 
 __all__ = [
     "run_standard_analysis",
+    "run_pseudobulk_first_analysis",
     "run_custom_analysis",
     "compare_clustering_resolutions",
     "AnalysisWorkflowError",
@@ -135,6 +137,303 @@ def _sync_default_annotation_aliases(
         adata.obs["cell_type"] = adata.obs[annotation_key]
     if lineage_key in adata.obs.columns and "celltype_lineage" not in adata.obs.columns:
         adata.obs["celltype_lineage"] = adata.obs[lineage_key]
+
+
+def _resolve_cell_type_key(adata: AnnData, config: AnalysisWorkflowConfig) -> str:
+    """Pick the cell-type column to use for pseudobulk grouping."""
+    annotation_key = (
+        getattr(config.annotation, "key_added", "cell_type_auto")
+        if getattr(config, "annotation", None) is not None
+        else "cell_type_auto"
+    )
+    if annotation_key in adata.obs.columns:
+        return annotation_key
+    if "cell_type" in adata.obs.columns:
+        return "cell_type"
+    raise ValueError(
+        "No cell-type column found for pseudobulk grouping. "
+        "Run annotation first or provide a 'cell_type' column."
+    )
+
+
+def _build_pseudobulk_first_review_summary(
+    adata: AnnData,
+    config: AnalysisWorkflowConfig,
+    successful_steps: List[str],
+    cluster_key: str,
+    key_added: str,
+    under_replicated: bool,
+    warning_message: str,
+) -> Dict[str, Any]:
+    """Build a trace.py-compatible review summary for the pseudobulk-first workflow."""
+    summary: Dict[str, Any] = {
+        "module": "analysis",
+        "workflow_name": key_added,
+        "steps_executed": list(successful_steps),
+        "cluster_key": cluster_key,
+        "warnings": [warning_message] if under_replicated else [],
+        "artifacts": {
+            key_added: f'adata.uns["sclucid"]["analysis"]["{key_added}"]',
+        },
+    }
+    enriched_summary = enrich_analysis_review_summary(
+        summary,
+        adata=adata,
+        config=config,
+        successful_steps=successful_steps,
+        cluster_key=cluster_key,
+    )
+    config_dict = sanitize_for_hdf5(config.to_dict())
+    readiness = enriched_summary.get("analysis_readiness", {})
+    review_reasons = (
+        readiness.get("review_reasons", [])
+        if isinstance(readiness, dict)
+        else []
+    )
+    review_summary = normalize_review_summary(
+        enriched_summary,
+        module="analysis",
+        workflow_name=key_added,
+        adata=adata,
+        steps_executed=successful_steps,
+        config=config_dict,
+        warnings=review_reasons,
+    )
+    validate_review_summary_schema(review_summary, module="analysis", raise_on_error=True)
+    validate_analysis_review_summary(review_summary, raise_on_error=True)
+    return sanitize_for_hdf5(review_summary)
+
+
+def _run_pseudobulk_first_de(
+    adata: AnnData,
+    condition_col: str,
+    sample_col: str,
+    cell_types: Optional[List[str]],
+    config: AnalysisWorkflowConfig,
+    *,
+    contrasts: Optional[List[Tuple[str, str]]] = None,
+    layer: Optional[str] = None,
+    method: str = "auto",
+    min_cells_per_sample: int = 5,
+    min_samples_per_condition: int = 1,
+    key_added: str = "pseudobulk_first",
+) -> Tuple[AnnData, Dict[str, Any]]:
+    """Run sample-level pseudobulk DE per cell type after clustering/annotation."""
+    if condition_col not in adata.obs.columns:
+        raise KeyError(f"Condition column '{condition_col}' not found in adata.obs")
+    if sample_col not in adata.obs.columns:
+        raise KeyError(f"Sample column '{sample_col}' not found in adata.obs")
+
+    cell_type_key = _resolve_cell_type_key(adata, config)
+    condition_values = sorted(pd.unique(adata.obs[condition_col].astype(str)).tolist())
+    if len(condition_values) < 2:
+        raise ValueError(
+            f"Pseudobulk DE requires at least two conditions; found {condition_values}"
+        )
+
+    if contrasts is None:
+        contrasts = list(itertools.combinations(condition_values, 2))
+
+    group_names = cell_types
+    if group_names is None:
+        group_names = sorted(pd.unique(adata.obs[cell_type_key].astype(str)).tolist())
+    if not group_names:
+        raise ValueError("No cell types selected for pseudobulk-first DE.")
+
+    pb_config = PseudobulkDEConfig(
+        sample_col=sample_col,
+        condition_key=condition_col,
+        contrasts=contrasts,
+        groupby=cell_type_key,
+        group_names=group_names,
+        layer=layer,
+        use_raw=False,
+        method=method,
+        min_cells_per_sample=min_cells_per_sample,
+        min_samples_per_condition=min_samples_per_condition,
+        key_added=f"{key_added}_de",
+        fallback_to_cell_level=False,
+        single_sample_mode="descriptive",
+    )
+    results_df = run_pseudobulk_de(adata, config=pb_config)
+
+    per_cell_type_results: Dict[str, pd.DataFrame] = {}
+    if not results_df.empty and "group" in results_df.columns:
+        for cell_type, sub_df in results_df.groupby(results_df["group"].astype(str)):
+            per_cell_type_results[cell_type] = sub_df.reset_index(drop=True)
+
+    # Build contrast records with per-cell-type replication information.
+    contrast_records: List[Dict[str, Any]] = []
+    under_replicated = False
+    warning_message = ""
+    for cell_type, sub_df in per_cell_type_results.items():
+        for contrast in contrasts:
+            condition1, condition2 = contrast
+            rows = sub_df[
+                (sub_df["condition1"] == condition1) & (sub_df["condition2"] == condition2)
+            ]
+            if rows.empty:
+                continue
+            first_row = rows.iloc[0]
+            n1 = int(first_row.get("n_samples_condition1", 0))
+            n2 = int(first_row.get("n_samples_condition2", 0))
+            valid = bool(first_row.get("valid_for_publication_inference", False))
+            if min(n1, n2) < 3:
+                under_replicated = True
+                warning_message = (
+                    f"Contrast '{condition2}_vs_{condition1}' in '{cell_type}' has "
+                    f"fewer than 3 samples per group ({n1} vs {n2}). "
+                    "Treat results as descriptive only and do not use for formal inference."
+                )
+            contrast_records.append(
+                {
+                    "cell_type": cell_type,
+                    "condition1": condition1,
+                    "condition2": condition2,
+                    "contrast": f"{condition2}_vs_{condition1}",
+                    "n_samples_condition1": n1,
+                    "n_samples_condition2": n2,
+                    "valid_for_publication_inference": valid,
+                }
+            )
+
+    overall_valid = (
+        bool(per_cell_type_results)
+        and all(
+            bool(df["valid_for_publication_inference"].all())
+            for df in per_cell_type_results.values()
+        )
+    )
+
+    analysis_ns = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {})
+    analysis_ns[key_added] = {
+        "contrasts": sanitize_for_hdf5(contrast_records),
+        "per_cell_type_results": {
+            ct: sanitize_for_hdf5(df) for ct, df in per_cell_type_results.items()
+        },
+        "inference_level": "sample_level",
+        "valid_for_publication_inference": overall_valid,
+        "params": sanitize_for_hdf5(pb_config.to_dict()),
+    }
+
+    meta = {
+        "under_replicated": under_replicated,
+        "warning_message": warning_message,
+        "valid_for_publication_inference": overall_valid,
+    }
+    return adata, meta
+
+
+def run_pseudobulk_first_analysis(
+    adata: AnnData,
+    condition_col: str,
+    sample_col: str,
+    cell_types: Optional[List[str]] = None,
+    *,
+    config: Optional[AnalysisWorkflowConfig] = None,
+    contrasts: Optional[List[Tuple[str, str]]] = None,
+    layer: Optional[str] = None,
+    method: str = "auto",
+    min_cells_per_sample: int = 5,
+    min_samples_per_condition: int = 1,
+    key_added: str = "pseudobulk_first",
+    show_progress: bool = True,
+    **kwargs,
+) -> AnnData:
+    """
+    Run a pseudobulk-first analysis workflow.
+
+    This workflow first runs standard clustering and annotation, then immediately
+    aggregates cells to sample-level pseudobulk per cell type for condition DE.
+    Cell-level condition DE is avoided as the primary inference output.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Preprocessed single-cell data.
+    condition_col : str
+        Column in ``adata.obs`` with condition labels.
+    sample_col : str
+        Column in ``adata.obs`` with biological sample identifiers.
+    cell_types : list of str, optional
+        Subset of cell types to test. If None, all observed cell types are used.
+    config : AnalysisWorkflowConfig, optional
+        Workflow configuration. If None, defaults are used.
+    contrasts : list of tuple[str, str], optional
+        Condition contrasts to test. If None, all pairwise contrasts are used.
+    layer : str, optional
+        Layer containing count values for pseudobulk aggregation.
+    method : str, default="auto"
+        Pseudobulk DE method passed to ``run_pseudobulk_de``.
+    min_cells_per_sample : int, default=5
+        Minimum cells per sample to include the sample.
+    min_samples_per_condition : int, default=1
+        Minimum samples per condition required to test a contrast.
+    key_added : str, default="pseudobulk_first"
+        Namespace for stored results.
+    show_progress : bool, default=True
+        Show progress bars.
+    **kwargs
+        Additional overrides for ``AnalysisWorkflowConfig``.
+
+    Returns
+    -------
+    AnnData
+        Annotated data with results in
+        ``adata.uns["sclucid"]["analysis"][key_added]``.
+    """
+    if config is None:
+        from .config import AnalysisWorkflowConfig as DefaultConfig
+
+        config = apply_config_overrides(DefaultConfig(), **kwargs)
+    else:
+        config = apply_config_overrides(config, **kwargs)
+
+    # Prevent recursion when the function is called from run_standard_analysis.
+    if getattr(config, "pseudobulk_first", False):
+        config = config.model_copy(update={"pseudobulk_first": False})
+
+    adata = run_standard_analysis(adata, config=config, show_progress=show_progress)
+
+    adata, meta = _run_pseudobulk_first_de(
+        adata,
+        condition_col=condition_col,
+        sample_col=sample_col,
+        cell_types=cell_types,
+        config=config,
+        contrasts=contrasts,
+        layer=layer,
+        method=method,
+        min_cells_per_sample=min_cells_per_sample,
+        min_samples_per_condition=min_samples_per_condition,
+        key_added=key_added,
+    )
+
+    if meta["under_replicated"]:
+        warnings.warn(meta["warning_message"], UserWarning, stacklevel=2)
+
+    cluster_key = (
+        config.clustering.key_added
+        if config.clustering and config.clustering.key_added in adata.obs.columns
+        else _default_groupby_key(adata)
+    )
+    successful_steps = list(
+        adata.uns.get("sclucid", {}).get("analysis", {}).get("steps_executed", [])
+    )
+    if f"{key_added}_analysis" not in successful_steps:
+        successful_steps.append(f"{key_added}_analysis")
+
+    review_summary = _build_pseudobulk_first_review_summary(
+        adata,
+        config=config,
+        successful_steps=successful_steps,
+        cluster_key=cluster_key,
+        key_added=key_added,
+        under_replicated=meta["under_replicated"],
+        warning_message=meta["warning_message"],
+    )
+    adata.uns["sclucid"]["analysis"][f"{key_added}_review_summary"] = review_summary
+    return adata
 
 
 def run_standard_analysis(
@@ -322,18 +621,23 @@ def run_standard_analysis(
                 review_summary = clustering_ns.get("clustering_review_summary", {})
                 recommended = review_summary.get("recommended_resolution")
                 if (
-                    getattr(config, "use_recommended_resolution", True)
-                    and recommended is not None
+                    recommended is not None
                     and cluster_config.method in {"leiden", "louvain"}
                 ):
-                    cluster_config = cluster_config.model_copy(
-                        update={"resolution": float(recommended)}
-                    )
-                    config.clustering = cluster_config
-                    log.info(
-                        "  Using recommended first-pass resolution: "
-                        f"{cluster_config.resolution:g}"
-                    )
+                    if getattr(config, "use_recommended_resolution", False):
+                        cluster_config = cluster_config.model_copy(
+                            update={"resolution": float(recommended)}
+                        )
+                        config.clustering = cluster_config
+                        log.info(
+                            "  Applying recommended resolution: "
+                            f"{cluster_config.resolution:g}"
+                        )
+                    else:
+                        log.info(
+                            f"Review recommends resolution {recommended:g}; "
+                            "set use_recommended_resolution=True to apply automatically."
+                        )
                 log.info(f"  Reviewed {len(review_df)} clustering resolution candidate(s)")
                 successful_steps.append(step_name)
                 step_results.append(
@@ -700,6 +1004,52 @@ def run_standard_analysis(
             original_error=e,
         )
 
+    # Optional pseudobulk-first routing: replace cell-level condition DE with
+    # sample-level pseudobulk DE per cell type.
+    if getattr(config, "pseudobulk_first", False):
+        log.info("Routing to pseudobulk-first DE")
+        pb_condition_col = kwargs.get("condition_col")
+        pb_sample_col = kwargs.get("sample_col")
+        if not pb_condition_col or not pb_sample_col:
+            raise ValueError(
+                "pseudobulk_first=True requires condition_col and sample_col arguments."
+            )
+        adata, pb_meta = _run_pseudobulk_first_de(
+            adata,
+            condition_col=pb_condition_col,
+            sample_col=pb_sample_col,
+            cell_types=kwargs.get("cell_types"),
+            config=config,
+            contrasts=kwargs.get("contrasts"),
+            layer=kwargs.get("layer"),
+            method=kwargs.get("method", "auto"),
+            min_cells_per_sample=kwargs.get("min_cells_per_sample", 5),
+            min_samples_per_condition=kwargs.get("min_samples_per_condition", 1),
+            key_added=kwargs.get("key_added", "pseudobulk_first"),
+        )
+        successful_steps.append("pseudobulk_first")
+        step_results.append(
+            StepResult(
+                name="pseudobulk_first",
+                status="completed",
+                evidence_level="validated_core",
+                outputs={
+                    "n_cell_types_tested": len(
+                        adata.uns.get("sclucid", {})
+                        .get("analysis", {})
+                        .get("pseudobulk_first", {})
+                        .get("per_cell_type_results", {})
+                    ),
+                    "valid_for_publication_inference": pb_meta[
+                        "valid_for_publication_inference"
+                    ],
+                },
+                warnings=[pb_meta["warning_message"]] if pb_meta["under_replicated"] else [],
+            )
+        )
+        if pb_meta["under_replicated"]:
+            warnings.warn(pb_meta["warning_message"], UserWarning, stacklevel=2)
+
     # Store final config
     config_dict = sanitize_for_hdf5(config.to_dict())
     adata.uns.setdefault("sclucid", {}).setdefault("analysis", {})[
@@ -850,6 +1200,21 @@ def _build_analysis_review_summary(
                 low_conf = pd.to_numeric(adata.obs[confidence_key], errors="coerce") < 0.5
                 if bool(low_conf.any()):
                     summary["warnings"].append("low_confidence_annotation_cells_present")
+
+    # Pseudobulk-first summary
+    if "pseudobulk_first" in successful_steps:
+        pb_ns = adata.uns.get("sclucid", {}).get("analysis", {}).get("pseudobulk_first", {})
+        summary["pseudobulk_first"] = {
+            "n_cell_types_tested": len(pb_ns.get("per_cell_type_results", {})),
+            "n_contrasts": len(pb_ns.get("contrasts", [])),
+            "inference_level": pb_ns.get("inference_level"),
+            "valid_for_publication_inference": pb_ns.get("valid_for_publication_inference", False),
+        }
+        summary["artifacts"][
+            "pseudobulk_first"
+        ] = 'adata.uns["sclucid"]["analysis"]["pseudobulk_first"]'
+        if not pb_ns.get("valid_for_publication_inference", False):
+            summary["warnings"].append("pseudobulk_first_results_not_valid_for_publication_inference")
 
     # Characterization summary
     if "characterization" in successful_steps:

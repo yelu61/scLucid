@@ -20,6 +20,9 @@ class ProportionConfig(SclucidBaseConfig):
     batch_col: Optional[str] = Field(default=None)
     timepoint_col: Optional[str] = Field(default=None)
 
+    # scCODA reference selection
+    reference_cell_type: Optional[str] = Field(default="auto")
+
     auto_configure: bool = Field(default=True)
     test_method: Literal[
         "deseq2",
@@ -28,6 +31,7 @@ class ProportionConfig(SclucidBaseConfig):
         "clr-paired-t-test",
         "clr-paired-wilcoxon",
         "clr-ols",
+        "ancom-like-clr",
         "t-test",
         "wilcoxon",
         "anova",
@@ -40,6 +44,7 @@ class ProportionConfig(SclucidBaseConfig):
     composition_pseudocount: float = Field(default=1e-6, gt=0)
     require_biological_replicates: bool = Field(default=True)
     min_samples_per_condition: int = Field(default=2, ge=1)
+    legacy_exploratory: bool = Field(default=False)
 
     # Plotting
     plot_types: List[str] = Field(

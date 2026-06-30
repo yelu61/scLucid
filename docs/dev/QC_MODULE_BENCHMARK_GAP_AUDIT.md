@@ -1,5 +1,14 @@
 # QC Module Benchmark Gap Audit
 
+> **Developer audit note**
+>
+> This file is a point-in-time engineering audit, not the current QC module
+> contract. Several gap items below have been addressed by later work on
+> tumor-aware threshold guardrails, QC reviewer tables, iterative QC, doublet
+> backend evidence, and contamination/stress review fields. For current user
+> behavior, prefer `docs/api/qc.md`, `docs/user/best_practices.md`,
+> code/tests, and `docs/CURRENT_IMPLEMENTATION_AND_DOCS_POLICY.md`.
+
 This note tracks the remaining gap between the current QC module and a
 benchmark-grade reference module.
 
@@ -41,16 +50,12 @@ benchmark-grade reference module.
   doublet improvement should calibrate thresholds by expected rate and external
   evidence, not treat default binary calls as final truth.
 
-## Remaining QC Gaps
+## Historical QC Gaps From This Audit
 
-- The refined tumor-aware policy currently lives in validation logic. It should
-  be promoted into the canonical QC threshold decision path so `run_standard_qc`
-  and notebook/manual APIs use the same policy that the benchmark tests.
-- Threshold decision output should expose a single reviewer table per strategy:
-  recommended, applied, source, confidence, evidence, affected cells,
-  biological-risk note, and final action. The pieces exist, but the user-facing
-  narrative is still split between suggestion, sample thresholds, filtering, and
-  tumor flags.
+- **Superseded/implemented since this audit**: the refined tumor-aware policy
+  and single user-facing QC reviewer table should be checked against current
+  `scLucid.qc.filtering`, `scLucid.qc.workflow`, and `qc_reviewer_table`
+  behavior before treating these older notes as open gaps.
 - Sample-aware thresholds need clearer boundaries: pooled, hierarchical, and
   independent modes should be reported as policy choices, not mixed with
   threshold estimation details.

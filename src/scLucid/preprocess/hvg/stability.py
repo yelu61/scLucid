@@ -36,7 +36,7 @@ def evaluate_hvg_stability(
 ) -> AnnData:
     """
     Evaluates the stability of HVG selection through bootstrap resampling.
-    Adds stability info to .uns['sclucid']['preprocess']['hvg_stability'].
+    Adds stability info to ``.uns['sclucid']['preprocess']['hvg_stability']``.
     """
 
     if hvg_key not in adata.var:
@@ -143,5 +143,4 @@ def evaluate_hvg_stability(
         except Exception as e:
             log.warning(f"[HVG stability] Failed to create stability plot: {str(e)}")
     return adata
-
 

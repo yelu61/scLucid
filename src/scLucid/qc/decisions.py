@@ -184,6 +184,116 @@ def _high_by_quantile(values: pd.Series, *, minimum: float, quantile: float = 0.
     return values.fillna(0.0) >= threshold
 
 
+def diagnose_stress_sources(
+    adata: AnnData,
+    *,
+    sample_key: str | None = "sampleID",
+    cell_type_key: str | None = None,
+    stress_score_col: str = "stress_score",
+    minimum_cells: int = 10,
+    sample_bias_threshold: float = 0.60,
+    cell_type_concordance_threshold: float = 0.70,
+) -> dict[str, Any]:
+    """Determine whether stress signal is technical (sample-driven) or biological.
+
+    Returns a diagnostic summary with flags for:
+
+    - ``sample_driven``: one or a few samples contribute a disproportionate
+      fraction of stress-high cells.
+    - ``cell_type_concordant``: stress is elevated consistently across many cell
+      types, suggesting a shared biological response (e.g., hypoxia, inflammation).
+    - ``sample_dominant``: list of samples flagged as drivers.
+    - ``dominant_cell_types``: cell types with the highest stress-high fraction.
+
+    The function does not modify ``adata``; it only reads ``.obs`` columns.
+    """
+    if stress_score_col not in adata.obs.columns:
+        return {
+            "schema_version": "stress_source_diagnosis_v1",
+            "available": False,
+            "reason": f"{stress_score_col} not found in adata.obs",
+        }
+
+    stress = adata.obs[stress_score_col].fillna(0.0)
+    high_mask = stress >= stress.quantile(0.9)
+    n_high = int(high_mask.sum())
+
+    result: dict[str, Any] = {
+        "schema_version": "stress_source_diagnosis_v1",
+        "available": n_high >= minimum_cells,
+        "n_high_stress_cells": n_high,
+        "sample_driven": False,
+        "cell_type_concordant": False,
+        "sample_dominant": [],
+        "dominant_cell_types": [],
+    }
+
+    if n_high < minimum_cells:
+        result["reason"] = "too_few_stress_high_cells"
+        return result
+
+    # Sample-level bias
+    if sample_key is not None and sample_key in adata.obs.columns:
+        sample_counts = (
+            adata.obs.loc[high_mask, sample_key].astype(str).value_counts(normalize=True)
+        )
+        if not sample_counts.empty and float(sample_counts.iloc[0]) >= sample_bias_threshold:
+            result["sample_driven"] = True
+            result["sample_dominant"] = [str(sample_counts.index[0])]
+            # Check for additional samples crossing half the bias threshold
+            for sample, frac in sample_counts.iloc[1:].items():
+                if float(frac) >= sample_bias_threshold * 0.5:
+                    result["sample_dominant"].append(str(sample))
+
+    # Cell-type-level concordance
+    if cell_type_key is not None and cell_type_key in adata.obs.columns:
+        ct_table = adata.obs.groupby(cell_type_key, observed=True).apply(
+            lambda g: pd.Series(
+                {
+                    "n_cells": len(g),
+                    "stress_high": int(g[stress_score_col].fillna(0.0) >= g[stress_score_col].quantile(0.9)),
+                }
+            )
+        )
+        ct_table["fraction"] = ct_table["stress_high"] / ct_table["n_cells"].clip(lower=1)
+        ct_table = ct_table[ct_table["n_cells"] >= minimum_cells].sort_values(
+            "fraction", ascending=False
+        )
+        result["dominant_cell_types"] = [
+            {"cell_type": str(idx), "fraction": float(row["fraction"]), "n_cells": int(row["n_cells"])}
+            for idx, row in ct_table.head(5).iterrows()
+        ]
+        # Concordant if >= threshold fraction of cell types (with enough cells) show elevated stress.
+        elevated = ct_table[ct_table["fraction"] >= 0.2]
+        if len(ct_table) > 0 and (len(elevated) / len(ct_table)) >= cell_type_concordance_threshold:
+            result["cell_type_concordant"] = True
+
+    # Interpretation note
+    if result["sample_driven"] and not result["cell_type_concordant"]:
+        result["interpretation"] = "technical_stress_sample_bias"
+        result["recommendation"] = (
+            "Stress signal is concentrated in one or a few samples; treat as technical "
+            "dissociation/artefact and consider sample-level sensitivity analysis."
+        )
+    elif result["cell_type_concordant"] and not result["sample_driven"]:
+        result["interpretation"] = "biological_stress_response"
+        result["recommendation"] = (
+            "Stress signal is shared across many cell types; likely reflects a true "
+            "biological condition (e.g., hypoxia, inflammation, treatment response)."
+        )
+    elif result["sample_driven"] and result["cell_type_concordant"]:
+        result["interpretation"] = "mixed_stress_pattern"
+        result["recommendation"] = (
+            "Stress signal has both sample-driven and cross-cell-type components; "
+            "review sample quality and biological context before removal."
+        )
+    else:
+        result["interpretation"] = "no_clear_stress_pattern"
+        result["recommendation"] = "Stress signal is diffuse; retain cells for review."
+
+    return result
+
+
 def build_qc_decisions(
     adata: AnnData,
     *,
@@ -192,6 +302,8 @@ def build_qc_decisions(
     score_layer: str | None = None,
     score_panels: bool = True,
     overwrite_scores: bool = False,
+    sample_key: str | None = "sampleID",
+    cell_type_key: str | None = None,
 ) -> dict[str, Any]:
     """Build a unified cell-level QC decision table in ``adata.obs``.
 
@@ -236,6 +348,17 @@ def build_qc_decisions(
     adata.obs["stress_high"] = stress_high.to_numpy(dtype=bool)
     adata.obs["apoptosis_high"] = apoptosis_high.to_numpy(dtype=bool)
     adata.obs["ambient_risk"] = ambient_high.to_numpy(dtype=bool)
+
+    # Record stress source diagnosis when stress_high is present, so reviewers can
+    # distinguish technical dissociation artefacts from biological stress responses.
+    stress_diagnosis = diagnose_stress_sources(
+        adata,
+        sample_key=sample_key if sample_key in adata.obs.columns else None,
+        cell_type_key=None,
+    )
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["stress_source_diagnosis"] = (
+        sanitize_for_hdf5(stress_diagnosis)
+    )
 
     evidence_count = (
         low_counts.astype(int)

@@ -138,17 +138,110 @@ def _combine_marker_and_celltypist_mappings(
     return final_mapping, audit
 
 
+def recommend_celltypist_model(
+    tissue: Optional[str], species: str = "human"
+) -> Dict[str, Union[str, bool]]:
+    """
+    Recommend a CellTypist model for a given tissue and species.
+
+    Returns a dictionary with keys ``model``, ``tissue_match_warning`` and
+    ``message``. Common tissues are mapped to well-known CellTypist model
+    names; unrecognized or mismatched tissues fall back to the immune atlas
+    with a warning.
+    """
+    tissue_norm = (tissue or "").lower().strip()
+    warning = False
+    message = ""
+
+    immune_keywords = ["pbmc", "blood", "immune", "lymphocyte", "leukocyte"]
+    intestine_keywords = [
+        "intestine",
+        "intestinal",
+        "colon",
+        "colorectal",
+        "gut",
+        "bowel",
+    ]
+    lung_keywords = ["lung", "airway", "bronch", "pulmonary"]
+    pancreas_keywords = ["pancreas", "pancreatic", "islet"]
+    tumor_keywords = [
+        "tumor",
+        "tumour",
+        "cancer",
+        "malignant",
+        "neoplasm",
+        "carcinoma",
+    ]
+
+    if any(k in tissue_norm for k in immune_keywords):
+        model = "Immune_All_Low.pkl"
+    elif any(k in tissue_norm for k in intestine_keywords):
+        model = "Cells_Intestinal_Tract.pkl"
+    elif any(k in tissue_norm for k in lung_keywords):
+        model = "Cells_Lung_Airway.pkl"
+    elif any(k in tissue_norm for k in pancreas_keywords):
+        model = "Pancreas_CellTypist.pkl"
+        warning = True
+        message = (
+            "Pancreas model availability is not verified; verify the model exists "
+            "in CellTypist or supply a custom model."
+        )
+    elif any(k in tissue_norm for k in tumor_keywords):
+        model = "Immune_All_Low.pkl"
+        warning = True
+        message = (
+            "Tumor/cancer tissue: the immune atlas may be inappropriate; "
+            "consider a user-supplied model."
+        )
+    else:
+        model = "Immune_All_Low.pkl"
+        if tissue_norm:
+            warning = True
+            message = (
+                f"Tissue '{tissue}' not recognized; falling back to '{model}'. "
+                "Consider supplying a custom model."
+            )
+
+    if species.lower() != "human":
+        warning = True
+        message = (message + " " if message else "") + (
+            f"Species '{species}' may not be supported by the recommended human "
+            "CellTypist model; verify compatibility or supply a custom model."
+        )
+
+    return {
+        "model": model,
+        "tissue_match_warning": warning,
+        "message": message.strip(),
+    }
+
+
 def run_celltypist(
     adata: AnnData,
-    model: str = "Immune_All_Low.pkl",
+    model: str = "auto",
+    tissue: Optional[str] = None,
     majority_voting: bool = True,
     use_raw: bool = True,
     key_added: str = "celltypist",
 ) -> AnnData:
     """
     Run CellTypist for automated annotation. Stores results in adata.obs.
+
+    Parameters
+    ----------
+    model
+        CellTypist model name. Use ``"auto"`` to select a model based on
+        ``tissue`` via :func:`recommend_celltypist_model`.
+    tissue
+        Tissue hint used when ``model="auto"``.
     """
     import celltypist
+
+    if model == "auto":
+        recommendation = recommend_celltypist_model(tissue)
+        model = recommendation["model"]
+        if recommendation["tissue_match_warning"]:
+            log.warning(recommendation["message"])
 
     input_adata = adata.raw.to_adata() if use_raw and adata.raw is not None else adata
     pred = celltypist.annotate(input_adata, model=model, majority_voting=majority_voting)
@@ -162,15 +255,35 @@ def run_celltypist(
         adata.obs[f"{key_added}_majority_voting"] = pred.predicted_labels[
             "majority_voting"
         ].reindex(adata.obs.index)
-    adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
+
+    confidences = pd.to_numeric(adata.obs[f"{key_added}_conf_score"], errors="coerce")
+    median_conf = float(confidences.median()) if len(confidences) else 0.0
+    low_conf_fraction = float((confidences < 0.5).mean()) if len(confidences) else 0.0
+
+    annotation_ns = (
+        adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("annotation", {})
+    )
     celltypist_info = {
         "model": model,
         "majority_voting": majority_voting,
         "timestamp": str(pd.Timestamp.now()),
+        "median_confidence": median_conf,
+        "low_confidence_fraction": low_conf_fraction,
     }
-    adata.uns["sclucid"]["analysis"]["annotation"][f"{key_added}_results"] = sanitize_for_hdf5(
-        celltypist_info
-    )
+    annotation_ns[f"{key_added}_results"] = sanitize_for_hdf5(celltypist_info)
+
+    if low_conf_fraction > 0.2:
+        annotation_ns["out_of_reference_warning"] = {
+            "warning": True,
+            "median_confidence": median_conf,
+            "low_confidence_fraction": low_conf_fraction,
+            "threshold": 0.5,
+            "message": (
+                f"{low_conf_fraction:.1%} of cells have CellTypist confidence < 0.5; "
+                "the query may be out-of-reference."
+            ),
+        }
+
     return adata
 
 

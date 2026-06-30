@@ -271,12 +271,19 @@ def normalize_data(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", FutureWarning)
             adata = adaptive_normalize(adata, config=adaptive_config, **adaptive_overrides)
+        adaptive_meta = adata.uns.get("sclucid", {}).get("preprocess", {}).get(
+            "adaptive_normalization",
+            {},
+        )
         adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["normalization"] = {
             "dispatcher": "normalize_data",
             "method": active_config.method,
             "input_layer": input_layer,
             "output_layer": output_layer,
             "routed_to": "adaptive_normalize",
+            "model_type": adaptive_meta.get("model_type"),
+            "claim_level": adaptive_meta.get("claim_level"),
+            "review_note": adaptive_meta.get("review_note"),
         }
         return adata
 
@@ -322,6 +329,13 @@ def normalize_data(
 
     temp_adata = AnnData(X=source_data.copy(), obs=adata.obs.copy(), var=adata.var.copy())
     method_is_log_transformed = False
+    apply_log1p_after_method = True
+    transformation_type = "library_size_log_normalization"
+    normalization_claim_level = "standard_preprocessing"
+    normalization_review_note = (
+        "Standard total-count normalization followed by log1p is appropriate for common "
+        "PCA/visualization workflows; use count-aware methods for formal DE."
+    )
 
     try:
         if active_config.method == "standard":
@@ -345,12 +359,26 @@ def normalize_data(
             )
             sce.pp.scran_normalize(temp_adata, inplace=True)
             method_is_log_transformed = True
+            apply_log1p_after_method = False
+            transformation_type = "scran_size_factor_log_normalized"
+            normalization_claim_level = "external_method_when_available"
+            normalization_review_note = (
+                "scran normalization is delegated to Scanpy external/R scran when available; "
+                "verify optional dependency behavior and size-factor diagnostics."
+            )
         elif active_config.method == "pearson_residuals":
-            log.info("Applying Pearson residuals normalization (experimental).")
+            log.info("Applying Pearson residual transformation (experimental).")
             sc.experimental.pp.normalize_pearson_residuals(temp_adata, inplace=True)
-            method_is_log_transformed = True
+            method_is_log_transformed = False
+            apply_log1p_after_method = False
+            transformation_type = "pearson_residuals"
+            normalization_claim_level = "model_based_residual_transform_experimental"
+            normalization_review_note = (
+                "Pearson residuals are residualized signed values, not log-transformed expression; "
+                "use downstream methods that accept residual representations and avoid treating them as counts."
+            )
         elif active_config.method == "clr":
-            log.info("Applying pseudocount Centered Log-Ratio (CLR) transformation.")
+            log.info("Applying pseudocount Centered Log-Ratio (CLR) compositional transformation.")
             X = temp_adata.X.toarray() if scipy.sparse.issparse(temp_adata.X) else np.asarray(temp_adata.X)
             if np.min(X) < 0:
                 raise ValueError("CLR requires non-negative count-like input.")
@@ -358,6 +386,13 @@ def normalize_data(
             mean_logs = log_values.mean(axis=1)
             temp_adata.X = log_values - mean_logs[:, np.newaxis]
             method_is_log_transformed = True
+            apply_log1p_after_method = False
+            transformation_type = "clr_compositional_log_ratio"
+            normalization_claim_level = "compositional_transform_not_standard_scrna_lognorm"
+            normalization_review_note = (
+                "CLR is applied directly as log(x + pseudocount) minus the per-cell mean log value; "
+                "it is a compositional transform, not standard library-size-normalized scRNA log-normalization."
+            )
         else:
             valid_methods = ["standard", "scran", "pearson_residuals", "clr"]
             raise ValueError(
@@ -372,7 +407,7 @@ def normalize_data(
 
     # --- 5. Log transform and store results ---
     final_log_transformed = method_is_log_transformed
-    if not method_is_log_transformed:
+    if apply_log1p_after_method:
         log.info("Applying log1p transformation.")
         temp_adata.X = apply_log1p(temp_adata.X)
         final_log_transformed = True
@@ -394,6 +429,9 @@ def normalize_data(
         "output_stats": stats_after,
         "scanpy_version": version("scanpy"),
         "log_transformed": final_log_transformed,
+        "transformation_type": transformation_type,
+        "claim_level": normalization_claim_level,
+        "review_note": normalization_review_note,
         "input_layer": input_layer,
         "output_layer": output_layer,
     }

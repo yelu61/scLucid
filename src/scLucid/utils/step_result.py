@@ -23,21 +23,21 @@ STEP_STATUS_ORDER = ("failed", "degraded", "skipped", "completed")
 class StepResult(SclucidBaseConfig):
     """A single auditable workflow step result.
 
-    Parameters
+    Attributes
     ----------
-    name : str
+    name
         Stable step identifier (e.g., ``"malignancy_interpretation"``).
-    status : StepStatus
+    status
         One of ``completed``, ``skipped``, ``failed``, ``degraded``.
-    evidence_level : EvidenceLevel
+    evidence_level
         Claim boundary for outputs produced by this step.
-    outputs : dict
+    outputs
         Compact summary of produced keys/artifacts (not the full data).
-    warnings : list of str
+    warnings
         Human-readable warnings that do not block the step.
-    error : str, optional
+    error
         Error message when ``status`` is ``failed`` or ``degraded``.
-    duration_seconds : float, optional
+    duration_seconds
         Step wall-clock duration, when available.
     """
 

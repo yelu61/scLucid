@@ -84,6 +84,9 @@ def test_characterize_clusters_stores_review_tables_and_exports(tmp_path, monkey
         review["summary_table"].columns
     )
     assert review["top_markers"]["cluster"].astype(str).isin(["0", "1"]).all()
+    assert set(review["top_markers"]["claim_level"]) == {"exploratory_marker_screen"}
+    assert set(review["top_markers"]["inference_level"]) == {"cell_level_marker_discovery"}
+    assert not review["top_markers"]["valid_for_publication_inference"].any()
     assert review["enrichment_summary"]["term"].str.len().gt(0).all()
 
     export_paths = review["export_paths"]
@@ -131,3 +134,26 @@ def test_characterize_clusters_accepts_base_csv_path(tmp_path, monkeypatch):
 
     assert result.uns["cluster_characterization"]["export_paths"]["summary"] == str(output)
     assert output.exists()
+
+
+@pytest.mark.unit
+def test_hierarchical_fdr_correction_produces_expected_columns():
+    """Hierarchical FDR utility produces within-group and global adjusted p-values."""
+    from scLucid.analysis.differential_expression.de_utils import _hierarchical_fdr_correction
+
+    df = pd.DataFrame(
+        {
+            "names": ["g1", "g2", "g3", "g4", "g5"],
+            "cell_type": ["A", "A", "A", "B", "B"],
+            "contrast": ["c1", "c1", "c2", "c1", "c2"],
+            "pvals": [0.01, 0.20, 0.001, 0.05, 0.10],
+        }
+    )
+    corrected = _hierarchical_fdr_correction(df, group_cols=["cell_type", "contrast"])
+    assert "padj_within_group" in corrected.columns
+    assert "padj_global_by" in corrected.columns
+    # Within-group BH should be <= raw p-values for the smallest p-value in each group.
+    assert (
+        corrected.loc[corrected["pvals"].idxmin(), "padj_within_group"]
+        <= corrected["pvals"].min() * 1.01
+    )
