@@ -70,19 +70,11 @@ docs/source/_build/
 docs/archive/sphinx_source_legacy/source/_build/
 docs/build/
 
-# Local data fixtures
-# These are downloaded or generated during tests/golden-path runs and should
-# not be committed. See docs/DATA_USAGE_GUIDE.md for data handling rules.
-data/pbmc3k_raw.h5ad
-data/processed/
+# Local data directory
+# All datasets are kept locally only and never committed. See
+# docs/DATA_USAGE_GUIDE.md for data handling rules.
+data/
 
 # Local editor / tool caches
 .claude/
 
-# Local benchmark/analysis datasets (not for commit)
-data/baron2016.pancreas.h5ad
-data/cellbender_tiny.h5ad
-data/kang2018.pbmc.h5ad
-data/lee2020.crc.h5ad
-data/moncada2020.pdac.h5ad
-data/zilionis2019.nsclc.h5ad
