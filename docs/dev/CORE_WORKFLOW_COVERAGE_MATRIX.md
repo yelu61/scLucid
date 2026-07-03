@@ -34,15 +34,12 @@ or reorganizing modules.
 | Function | Role | Status |
 |----------|------|--------|
 | `calculate_qc_metric` | Core metric computation | Stable |
-| `suggest_qc_thresholds` | Distribution-based threshold recommendation | Stable |
-| `resolve_qc_thresholds` | Merge intelligent / MAD / manual thresholds | Stable |
+| `recommend_qc_thresholds` | Structured threshold recommendation bundle | Stable |
+| `run_qc_threshold_decision` | Threshold decision, evidence marking, and optional filtering chain | Stable |
 | `predict_doublets` | Doublet detection | Stable |
 | `audit_doublets` | Post-filter doublet audit | Stable |
 | `diagnose_ambient_rna` | Ambient RNA diagnosis | Stable |
-| `mark_low_quality_cell` | Low-quality marking (single-threshold) | Stable |
-| `mark_low_quality_cells_adaptive` | Adaptive low-quality marking | Stable |
 | `filter_cells` | Final filtering | Stable |
-| `audit_filtering` | Retention audit before/after filtering | Stable |
 | `generate_qc_report` | QC report generation | Stable |
 
 ### Config Classes
@@ -63,7 +60,7 @@ or reorganizing modules.
 ### Gaps / TODO
 - [x] No dedicated `run_qc_review` workflow orchestrator (review is currently manual). *Addressed by `run_qc_threshold_decision` for threshold/marking decisions; full review summary is automated.*
 - [ ] Benchmark utilities (`build_qc_benchmark_assessment`) are public but not integrated into `run_standard_qc`.
-- [x] Intelligent QC (`recommend_intelligent_qc`) is optional and may be promoted to a core workflow step. *Addressed by `resolve_qc_thresholds` being wired into threshold application when no explicit thresholds are provided.*
+- [x] Intelligent QC (`recommend_intelligent_qc`) is optional and may be promoted to a core workflow step. *Addressed by the threshold decision chain consuming intelligent, distribution, and manual threshold sources.*
 
 ---
 
@@ -89,7 +86,7 @@ or reorganizing modules.
 | `regress_out` | Covariate regression | Stable |
 | `optimize_neighbors_pcs` | Neighbor/PCA optimization | Stable |
 | `run_embedding_pipeline` | Optimized graph + named UMAP generation | Stable |
-| `is_raw_count_matrix` | Raw-count semantic guard | Stable |
+| `assess_matrix_semantics` | Matrix semantics guard | Stable |
 | `build_metadata_dicts` | Build `metadata_dicts` for multi-sample loaders | Stable |
 
 ### Config Classes

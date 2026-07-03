@@ -26,8 +26,8 @@ import pandas as pd
 from anndata import AnnData
 from scipy import stats
 
-from ..base_config import Field, SclucidBaseConfig
-from ..utils.context import is_tumor_context, resolve_cell_type_key
+from ...base_config import Field, SclucidBaseConfig
+from ...utils.context import is_tumor_context, resolve_cell_type_key
 from .adaptive_threshold import (
     AdaptiveThresholdLearner as AdaptiveThresholdQC,
 )
@@ -36,7 +36,7 @@ from .adaptive_threshold import (
     fit_count_mixture_threshold_model,
     fit_gmm_threshold_model,
 )
-from .metrics import calculate_qc_metric
+from ..metrics import calculate_qc_metric
 
 log = logging.getLogger(__name__)
 

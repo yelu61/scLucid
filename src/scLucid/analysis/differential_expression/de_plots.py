@@ -20,7 +20,7 @@ from anndata import AnnData
 from matplotlib import get_backend
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
-from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
+from scLucid.plotting.plotting_utils import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 

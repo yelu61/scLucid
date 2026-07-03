@@ -5,17 +5,15 @@ Extracted from core.py for maintainability.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from anndata import AnnData
 
+from ..artifacts import record_qc_artifact_contract
 from ..config import DoubletConfig
 from .algorithms import (
     _run_doubletdetection,
@@ -44,13 +42,112 @@ from .heuristic import _plot_doublet_summary, _run_heuristic
 
 log = logging.getLogger(__name__)
 
-def _normalize_01(values: pd.Series) -> pd.Series:
+
+__all__: list[str] = ["predict_doublets"]
+
+
+# --- Helper Functions ---
+def _score_distribution_stats(
+    scores: pd.Series, groups: Optional[pd.Series] = None
+) -> Dict[str, Any]:
+    """Compute per-group score distribution statistics for audit purposes."""
+    scores = pd.to_numeric(scores, errors="coerce").fillna(0.0).astype(float)
+    if groups is None:
+        return {
+            "global": {
+                "min": float(scores.min()),
+                "max": float(scores.max()),
+                "median": float(scores.median()),
+                "p95": float(scores.quantile(0.95)),
+                "n": int(scores.shape[0]),
+            }
+        }
+    groups = pd.Series(groups, index=scores.index)
+    stats: Dict[str, Any] = {}
+    for group_name, idx in groups.groupby(groups, observed=False).groups.items():
+        vals = scores.loc[idx]
+        stats[str(group_name)] = {
+            "min": float(vals.min()),
+            "max": float(vals.max()),
+            "median": float(vals.median()),
+            "p95": float(vals.quantile(0.95)),
+            "n": int(vals.shape[0]),
+        }
+    return stats
+
+
+def _rank_normalize_within_group(
+    values: pd.Series, groups: Optional[pd.Series] = None
+) -> pd.Series:
+    """Convert scores to percentile ranks within each detection group.
+
+    Constant or single-value groups return zeros to avoid artificial signal.
+    """
     values = pd.to_numeric(values, errors="coerce").fillna(0.0).astype(float)
-    min_v = values.min()
-    max_v = values.max()
-    if pd.isna(max_v) or max_v <= min_v:
-        return pd.Series(0.0, index=values.index)
-    return (values - min_v) / (max_v - min_v)
+    if groups is None:
+        if values.max() <= values.min() or values.nunique() <= 1:
+            return pd.Series(0.0, index=values.index)
+        return values.rank(method="min", pct=True).fillna(0.0)
+
+    groups = pd.Series(groups, index=values.index)
+    normalized = pd.Series(0.0, index=values.index, dtype=float)
+    for _, idx in groups.groupby(groups, observed=False).groups.items():
+        group_vals = values.loc[idx]
+        if group_vals.max() <= group_vals.min() or group_vals.nunique() <= 1:
+            normalized.loc[idx] = 0.0
+        else:
+            normalized.loc[idx] = group_vals.rank(method="min", pct=True).fillna(0.0)
+    return normalized
+
+
+def _zscore_within_group(values: pd.Series, groups: Optional[pd.Series] = None) -> pd.Series:
+    """Z-score normalize values within each detection group, clipping negatives to 0."""
+    values = pd.to_numeric(values, errors="coerce").fillna(0.0).astype(float)
+    if groups is None:
+        std = values.std()
+        if pd.isna(std) or std == 0:
+            return pd.Series(0.0, index=values.index)
+        return ((values - values.mean()) / std).clip(lower=0.0)
+
+    groups = pd.Series(groups, index=values.index)
+    normalized = pd.Series(0.0, index=values.index, dtype=float)
+    for _, idx in groups.groupby(groups, observed=False).groups.items():
+        group_vals = values.loc[idx]
+        std = group_vals.std()
+        if pd.isna(std) or std == 0:
+            normalized.loc[idx] = 0.0
+        else:
+            normalized.loc[idx] = ((group_vals - group_vals.mean()) / std).clip(lower=0.0)
+    return normalized
+
+
+def _normalize_score(
+    values: pd.Series,
+    method: str,
+    groups: Optional[pd.Series] = None,
+) -> pd.Series:
+    """Normalize an evidence score using the configured method."""
+    values = pd.to_numeric(values, errors="coerce").fillna(0.0).astype(float)
+    if method == "raw":
+        return values
+    if method == "rank":
+        return _rank_normalize_within_group(values, groups=groups)
+    if method == "zscore":
+        return _zscore_within_group(values, groups=groups)
+
+    # method == "minmax" (default fallback)
+    if groups is None:
+        min_v = values.min()
+        max_v = values.max()
+        if pd.isna(max_v) or max_v <= min_v:
+            return pd.Series(0.0, index=values.index)
+        return (values - min_v) / (max_v - min_v)
+
+    groups = pd.Series(groups, index=values.index)
+    normalized = pd.Series(0.0, index=values.index, dtype=float)
+    for _, idx in groups.groupby(groups, observed=False).groups.items():
+        normalized.loc[idx] = _normalize_score(values.loc[idx], method="minmax", groups=None)
+    return normalized
 
 
 def _compute_merged_doublet_score(
@@ -59,10 +156,18 @@ def _compute_merged_doublet_score(
     heuristic_score_col: str,
     strategy: str = "weighted_average",
     algo_weight: float = 0.6,
+    algorithm_score_normalization: str = "rank",
+    heuristic_score_normalization: str = "rank",
+    merge_rank_normalize: bool = True,
+    groups: Optional[pd.Series] = None,
 ) -> pd.Series:
-    """Compute the merged doublet score while keeping score semantics explicit."""
-    algo_scores = adata.obs[algorithm_score_col].fillna(0)
-    heur_scores = adata.obs[heuristic_score_col].fillna(0)
+    """Compute the merged doublet evidence score from normalized inputs."""
+    algo_scores = _normalize_score(
+        adata.obs[algorithm_score_col], method=algorithm_score_normalization, groups=groups
+    )
+    heur_scores = _normalize_score(
+        adata.obs[heuristic_score_col], method=heuristic_score_normalization, groups=groups
+    )
 
     if strategy == "weighted_average":
         final_score = (algo_weight * algo_scores) + ((1 - algo_weight) * heur_scores)
@@ -70,13 +175,18 @@ def _compute_merged_doublet_score(
         final_score = pd.DataFrame({"algo": algo_scores, "heur": heur_scores}).max(axis=1)
     elif strategy == "heuristic_boost":
         final_score = algo_scores + (heur_scores * 0.5)
+    elif strategy == "calibrated_threshold":
+        # For calibrated threshold, use the rank-normalized merged score directly.
+        final_score = (algo_weight * algo_scores) + ((1 - algo_weight) * heur_scores)
     else:
         log.warning(
             f"Unknown enhanced merge strategy '{strategy}', falling back to 'weighted_average'."
         )
         final_score = (algo_weight * algo_scores) + ((1 - algo_weight) * heur_scores)
 
-    return _normalize_01(final_score)
+    if merge_rank_normalize:
+        return _rank_normalize_within_group(final_score, groups=groups)
+    return final_score
 
 
 def _merge_doublet_predictions(
@@ -85,65 +195,138 @@ def _merge_doublet_predictions(
     heuristic_score_col: str,
     strategy: str = "weighted_average",
     algo_weight: float = 0.6,
+    algorithm_score_normalization: str = "rank",
+    heuristic_score_normalization: str = "rank",
+    merge_rank_normalize: bool = True,
     expected_rate: Optional[Union[float, Dict[str, float]]] = 0.1,
     score_threshold: Optional[float] = None,
     sample_key: Optional[str] = None,
+    final_label_strategy: str = "expected_rate_rank",
+    algorithm_pred_col: Optional[str] = None,
 ) -> pd.Series:
     """
-    Merge algorithmic and heuristic doublet scores for a final, more robust prediction.
-    This function combines two continuous score series instead of binary predictions.
+    Merge algorithmic and heuristic doublet scores for a final prediction.
 
-    Args:
-        adata: AnnData object containing the scores.
-        algorithm_score_col: Column name in adata.obs for the algorithm's score (e.g., 'scrublet_score').
-        heuristic_score_col: Column name in adata.obs for the heuristic confidence score.
-        strategy: The merge strategy ('weighted_average', 'max_score', 'heuristic_boost').
-        algo_weight: The weight for the algorithm's score in 'weighted_average' strategy.
-
-    Returns:
-        A boolean pandas Series with the final merged doublet predictions.
+    Both inputs are normalized within detection groups according to the configured
+    methods, then combined. The final score is optionally rank-normalized again
+    before thresholding. This keeps scores comparable across samples.
     """
+    calibration_groups = (
+        adata.obs[sample_key]
+        if sample_key is not None and sample_key in adata.obs.columns
+        else None
+    )
     final_score = _compute_merged_doublet_score(
         adata,
         algorithm_score_col=algorithm_score_col,
         heuristic_score_col=heuristic_score_col,
         strategy=strategy,
         algo_weight=algo_weight,
+        algorithm_score_normalization=algorithm_score_normalization,
+        heuristic_score_normalization=heuristic_score_normalization,
+        merge_rank_normalize=merge_rank_normalize,
+        groups=calibration_groups,
     )
     adata.obs[COMBINED_SCORE_COL] = final_score
+
+    doublet_params = (
+        adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("doublet_params", {})
+    )
+    doublet_params["score_calibration"] = {
+        "schema_version": "doublet_score_calibration_v2",
+        "calibration_group_key": sample_key if calibration_groups is not None else None,
+        "algorithm_score_input": algorithm_score_col,
+        "heuristic_score_input": heuristic_score_col,
+        "combined_score": COMBINED_SCORE_COL,
+        "algorithm_score_normalization": algorithm_score_normalization,
+        "heuristic_score_normalization": heuristic_score_normalization,
+        "merge_rank_normalize": merge_rank_normalize,
+        "merge_strategy": strategy,
+        "final_label_strategy": final_label_strategy,
+        "score_semantics": "Scores are rank-like evidence indices, not calibrated probabilities.",
+        "algorithm_score_distribution": _score_distribution_stats(
+            adata.obs[algorithm_score_col], groups=calibration_groups
+        ),
+        "heuristic_score_distribution": _score_distribution_stats(
+            adata.obs[heuristic_score_col], groups=calibration_groups
+        ),
+        "merged_score_distribution": _score_distribution_stats(
+            final_score, groups=calibration_groups
+        ),
+    }
+
+    if final_label_strategy == "algorithm_label":
+        if algorithm_pred_col is None or algorithm_pred_col not in adata.obs:
+            raise ValueError(
+                "algorithm_pred_col must exist when final_label_strategy='algorithm_label'"
+            )
+        doublet_params["score_calibration"]["thresholding"] = {
+            "method": "algorithm_label",
+            "note": (
+                "predicted_doublet follows the algorithm binary call directly. "
+                "Merged and heuristic scores are retained as review evidence only."
+            ),
+        }
+        return adata.obs[algorithm_pred_col].fillna(False).astype(bool)
 
     if score_threshold is not None:
         threshold = score_threshold
         log.info(
             f"Using user-provided doublet score threshold of {threshold:.3f} for merged predictions."
         )
+        doublet_params["score_calibration"]["thresholding"] = {
+            "method": "score_threshold",
+            "score_threshold": float(threshold),
+        }
         return final_score > threshold
-    else:
-        if expected_rate is None:
-            log.warning("expected_doublet_rate is None, using a default of 0.1 for thresholding.")
-            expected_rate = 0.1
 
-        grouped_scores = adata.obs[sample_key] if isinstance(expected_rate, dict) and sample_key in adata.obs else None
-        merged_pred, threshold = _expected_rate_grouped_predictions(
-            final_score,
-            expected_rate=expected_rate,
-            groups=grouped_scores,
-        )
-        if isinstance(threshold, dict):
-            fallback = float(np.mean(list(expected_rate.values()))) if expected_rate else 0.1
-            for sample, sample_threshold in threshold.items():
-                sample_rate = float(expected_rate.get(sample, fallback))
-                log.info(
-                    "Using final score threshold %.3f for sample '%s' based on expected doublet rate %.3f.",
-                    sample_threshold,
-                    sample,
-                    sample_rate,
-                )
-            return merged_pred
+    if expected_rate is None:
+        log.warning("expected_doublet_rate is None, using a default of 0.1 for thresholding.")
+        expected_rate = 0.1
 
-        log.info(
-            f"Using a final score threshold of {threshold:.3f} based on expected doublet rate for merged predictions."
-        )
+    grouped_scores = (
+        adata.obs[sample_key]
+        if isinstance(expected_rate, dict) and sample_key in adata.obs
+        else None
+    )
+    merged_pred, threshold = _expected_rate_grouped_predictions(
+        final_score,
+        expected_rate=expected_rate,
+        groups=grouped_scores,
+    )
+    if isinstance(threshold, dict):
+        fallback = float(np.mean(list(expected_rate.values()))) if expected_rate else 0.1
+        for sample, sample_threshold in threshold.items():
+            sample_rate = float(expected_rate.get(sample, fallback))
+            log.info(
+                "Using final score threshold %.3f for sample '%s' based on expected doublet rate %.3f.",
+                sample_threshold,
+                sample,
+                sample_rate,
+            )
+        doublet_params["score_calibration"]["thresholding"] = {
+            "method": "expected_rate_rank",
+            "expected_doublet_rate": expected_rate,
+            "thresholds": threshold,
+            "note": (
+                "Final labels are assigned to the top-ranked merged evidence scores "
+                "within detection groups according to expected_doublet_rate."
+            ),
+        }
+        return merged_pred
+
+    log.info(
+        f"Using a final score threshold of {threshold:.3f} based on expected doublet rate for merged predictions."
+    )
+    doublet_params["score_calibration"]["thresholding"] = {
+        "method": "expected_rate_rank",
+        "expected_doublet_rate": expected_rate,
+        "threshold": float(threshold),
+        "note": (
+            "Final labels are assigned to the top-ranked merged evidence scores "
+            "according to expected_doublet_rate."
+        ),
+    }
 
     return merged_pred
 
@@ -197,6 +380,7 @@ def _collect_external_doublet_evidence(
         "per_column": per_column,
     }
 
+
 def _lineage_mixture_fraction(adata: AnnData) -> tuple[pd.Series, Dict[str, float]]:
     """Estimate heterotypic opportunity from dominant lineage composition."""
     if LINEAGE_SCORES_KEY not in adata.obsm:
@@ -237,12 +421,17 @@ def _add_doublet_risk_decomposition(
     sample_key: str,
 ) -> Dict[str, object]:
     """Add heterotypic/homotypic risk columns and expected-rate decomposition."""
-    algo_score = _normalize_01(adata.obs[algorithm_score_col])
-    heur_score = _normalize_01(adata.obs[heuristic_score_col])
+    calibration_groups = adata.obs[sample_key] if sample_key in adata.obs.columns else None
+    algo_score = _normalize_score(
+        adata.obs[algorithm_score_col], method="rank", groups=calibration_groups
+    )
+    heur_score = _normalize_score(
+        adata.obs[heuristic_score_col], method="rank", groups=calibration_groups
+    )
     combined_score = (
-        _normalize_01(adata.obs[COMBINED_SCORE_COL])
+        _normalize_score(adata.obs[COMBINED_SCORE_COL], method="rank", groups=calibration_groups)
         if COMBINED_SCORE_COL in adata.obs
-        else _normalize_01(algo_score + heur_score)
+        else _normalize_score(algo_score + heur_score, method="rank", groups=calibration_groups)
     )
 
     heterotypic_opportunity, lineage_meta = _lineage_mixture_fraction(adata)
@@ -259,12 +448,20 @@ def _add_doublet_risk_decomposition(
                 complexity_terms.append(((z - z.mean()) / std).clip(lower=0.0))
     if complexity_terms:
         complexity = pd.concat(complexity_terms, axis=1).mean(axis=1)
-        complexity = _normalize_01(complexity)
+        complexity = _normalize_score(complexity, method="rank", groups=calibration_groups)
     else:
         complexity = pd.Series(0.0, index=adata.obs_names)
 
-    heterotypic_risk = _normalize_01(0.75 * heur_score + 0.25 * combined_score)
-    homotypic_risk = _normalize_01(0.55 * algo_score + 0.35 * complexity + 0.10 * combined_score)
+    heterotypic_risk = _normalize_score(
+        0.75 * heur_score + 0.25 * combined_score,
+        method="rank",
+        groups=calibration_groups,
+    )
+    homotypic_risk = _normalize_score(
+        0.55 * algo_score + 0.35 * complexity + 0.10 * combined_score,
+        method="rank",
+        groups=calibration_groups,
+    )
     # Heterotypic co-expression explains the risk better than homotypic complexity.
     homotypic_risk = (homotypic_risk * (1.0 - 0.5 * heterotypic_risk)).clip(0.0, 1.0)
 
@@ -277,13 +474,17 @@ def _add_doublet_risk_decomposition(
     adata.obs[EXPECTED_HOMOTYPIC_RATE_COL] = expected_homotypic
 
     return {
-        "schema_version": "doublet_risk_decomposition_v1",
+        "schema_version": "doublet_risk_decomposition_v2",
         "score_semantics": {
             ALGORITHM_SCORE_COL: "Normalized algorithm score; not calibrated probability.",
             HEURISTIC_SCORE_COL: "Marker co-expression evidence score; not calibrated probability.",
             COMBINED_SCORE_COL: "Merge score used for thresholding; not calibrated probability.",
             HETEROTYPIC_RISK_COL: "Evidence for cross-lineage doublets.",
             HOMOTYPIC_RISK_COL: "Evidence for same-lineage doublets using algorithm score and transcript complexity.",
+        },
+        "score_calibration": {
+            "calibration_group_key": sample_key if calibration_groups is not None else None,
+            "normalization": "rank_within_detection_group",
         },
         "expected_rates": {
             "mean_total": float(total_expected.mean()),
@@ -297,10 +498,12 @@ def _add_doublet_risk_decomposition(
                 "cells remain final positives unless the merge score threshold excludes them."
             ),
             "heterotypic_sources": ["lineage co-expression", "heuristic_confidence_score"],
-            "homotypic_sources": ["algorithm score", "high gene/UMI complexity within similar lineage"],
+            "homotypic_sources": [
+                "algorithm score",
+                "high gene/UMI complexity within similar lineage",
+            ],
         },
     }
-
 
 
 def _export_doublet_stats(
@@ -415,7 +618,7 @@ def _export_doublet_stats(
     return {"sample": sample_df, "global": global_df}
 
 
-
+# --- Main Functions ---
 def predict_doublets(
     adata: AnnData,
     config: DoubletConfig,
@@ -458,6 +661,11 @@ def predict_doublets(
 
     log.info(f"Starting doublet prediction for {adata.n_obs} cells across {len(samples)} samples")
     log.info(f"Configuration: method={cfg.method}, merge_strategy={cfg.merge_strategy}, ")
+    log.info(
+        "Doublet detection is grouped by '%s'. Use a capture/library/GEM-well key "
+        "rather than a broad biological condition when possible.",
+        sample_key,
+    )
 
     # Initialize result columns
     algo_score_col = f"{cfg.method}_score"
@@ -531,8 +739,13 @@ def predict_doublets(
         strategy=cfg.merge_strategy,
         expected_rate=cfg.expected_doublet_rate,
         algo_weight=cfg.algorithm_weight,
+        algorithm_score_normalization=cfg.algorithm_score_normalization,
+        heuristic_score_normalization=cfg.heuristic_score_normalization,
+        merge_rank_normalize=cfg.merge_rank_normalize,
         score_threshold=cfg.score_threshold,
         sample_key=sample_key,
+        final_label_strategy=cfg.final_label_strategy,
+        algorithm_pred_col=algo_pred_col,
     )
     adata.obs[FINAL_PRED_COL] = merged_pred
 
@@ -549,9 +762,7 @@ def predict_doublets(
         allowlist_priority_records = []
         for lin1, lin2 in cfg.ignore_coexpression_pairs:
             if lin1 in lineage_scores_df.columns and lin2 in lineage_scores_df.columns:
-                allowlist_mask = (
-                    (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
-                )
+                allowlist_mask = (lineage_scores_df[lin1] > 0.1) & (lineage_scores_df[lin2] > 0.1)
                 # Only downgrade if algorithm did not flag the cell.
                 # NaN values in algo_pred_col correspond to skipped samples and must
                 # be treated as "not flagged" rather than "not doublet".
@@ -605,6 +816,26 @@ def predict_doublets(
             "score_threshold": cfg.score_threshold,
             "method": cfg.method,
             "detection_group_key": sample_key,
+            "final_label_strategy": cfg.final_label_strategy,
+            "label_strategy_note": (
+                "expected_rate_rank thresholds merged evidence scores by expected rate. "
+                "algorithm_label uses the algorithm binary call directly and keeps "
+                "heuristic evidence for review."
+            ),
+            "heuristic_evidence": {
+                "enabled": bool(cfg.use_heuristics),
+                "semantics": (
+                    "Marker co-expression is heterotypic doublet evidence, not a "
+                    "standalone truth label or calibrated probability."
+                ),
+                "marker_source": "manual_marker_configs"
+                if cfg.marker_configs is not None
+                else "marker_manager",
+                "marker_species": cfg.marker_species,
+                "marker_tissue": cfg.marker_tissue,
+                "ignore_coexpression_pairs": [list(pair) for pair in cfg.ignore_coexpression_pairs],
+                "score_normalization": cfg.heuristic_score_normalization,
+            },
             "external_doublet_evidence": external_evidence,
             "risk_decomposition": risk_decomposition,
             "threshold_evidence": {
@@ -703,407 +934,6 @@ def predict_doublets(
         _export_doublet_stats(adata, sample_key, Path(cfg.save_dir))
 
     log.info("Doublet prediction workflow completed.")
-
-    return adata
-
-
-class DoubletEvidenceProfiler:
-    """
-    Generate interpretable evidence profiles for doublet predictions.
-
-    This class creates detailed reports explaining WHY each cell was
-    flagged as a doublet, combining multiple lines of evidence.
-    """
-
-    def __init__(self, adata: AnnData):
-        self.adata = adata
-        self.evidence_table = None
-
-    def generate_evidence_table(self) -> pd.DataFrame:
-        """
-        Create a comprehensive evidence table for each cell.
-
-        Returns:
-            DataFrame with one row per cell, columns for different evidence types
-        """
-        def _safe_zscore(values: pd.Series) -> pd.Series:
-            std = values.std()
-            if pd.isna(std) or std == 0:
-                return pd.Series(0.0, index=values.index)
-            return (values - values.mean()) / std
-
-        evidence = pd.DataFrame(index=self.adata.obs_names)
-
-        # Evidence 1: Algorithmic score
-        if ALGORITHM_SCORE_COL in self.adata.obs:
-            evidence[ALGORITHM_SCORE_COL] = self.adata.obs[ALGORITHM_SCORE_COL]
-        if "scrublet_score" in self.adata.obs:
-            evidence["scrublet_score"] = self.adata.obs["scrublet_score"]
-            evidence["scrublet_evidence"] = pd.cut(
-                evidence["scrublet_score"],
-                bins=[-np.inf, 0.2, 0.4, 0.6, np.inf],
-                labels=["Weak", "Moderate", "Strong", "Very Strong"],
-            )
-
-        # Evidence 2: Lineage co-expression
-        if "lineage_module_scores" in self.adata.obsm:
-            lineage_scores = self.adata.obsm["lineage_module_scores"]
-
-            # Count how many lineages are significantly expressed
-            threshold = 0.5
-            n_lineages = (lineage_scores > threshold).sum(axis=1)
-            evidence["n_coexpressed_lineages"] = n_lineages
-
-            # Identify the top 2 co-expressed lineages
-            top_lineages = lineage_scores.apply(
-                lambda row: (
-                    lineage_scores.columns[np.argsort(row.values)[-2:]].tolist()
-                    if row.max() > threshold
-                    else []
-                ),
-                axis=1,
-            )
-            evidence["top_coexpressed_lineages"] = top_lineages.apply(
-                lambda x: " + ".join(x) if len(x) >= 2 else "None"
-            )
-
-            # Strength of co-expression (product of top 2 scores)
-            evidence["coexpression_strength"] = lineage_scores.apply(
-                lambda row: np.prod(sorted(row.values)[-2:]) if row.max() > threshold else 0, axis=1
-            )
-
-        if HEURISTIC_SCORE_COL in self.adata.obs:
-            evidence["heuristic_evidence_score"] = self.adata.obs[HEURISTIC_SCORE_COL]
-        if COMBINED_SCORE_COL in self.adata.obs:
-            evidence[COMBINED_SCORE_COL] = self.adata.obs[COMBINED_SCORE_COL]
-        if HETEROTYPIC_RISK_COL in self.adata.obs:
-            evidence[HETEROTYPIC_RISK_COL] = self.adata.obs[HETEROTYPIC_RISK_COL]
-        if HOMOTYPIC_RISK_COL in self.adata.obs:
-            evidence[HOMOTYPIC_RISK_COL] = self.adata.obs[HOMOTYPIC_RISK_COL]
-        if EXPECTED_TOTAL_RATE_COL in self.adata.obs:
-            evidence[EXPECTED_TOTAL_RATE_COL] = self.adata.obs[EXPECTED_TOTAL_RATE_COL]
-            evidence[EXPECTED_HETEROTYPIC_RATE_COL] = self.adata.obs.get(
-                EXPECTED_HETEROTYPIC_RATE_COL, np.nan
-            )
-            evidence[EXPECTED_HOMOTYPIC_RATE_COL] = self.adata.obs.get(
-                EXPECTED_HOMOTYPIC_RATE_COL, np.nan
-            )
-
-        # Evidence 3: Gene count anomaly
-        if "n_genes_by_counts" in self.adata.obs:
-            # Z-score of gene counts
-            gene_counts = self.adata.obs["n_genes_by_counts"]
-            z_scores = _safe_zscore(gene_counts)
-            evidence["gene_count_zscore"] = z_scores
-            evidence["gene_count_anomaly"] = z_scores > 2  # High gene count
-
-        # Evidence 4: Total UMI anomaly
-        if "total_counts" in self.adata.obs:
-            umi_counts = self.adata.obs["total_counts"]
-            z_scores = _safe_zscore(umi_counts)
-            evidence["umi_count_zscore"] = z_scores
-            evidence["umi_count_anomaly"] = z_scores > 2
-
-        # Evidence 5: Mitochondrial percentage is descriptive QC context only.
-        if "pct_counts_mt" in self.adata.obs:
-            mt_pct = self.adata.obs["pct_counts_mt"]
-            z_scores = _safe_zscore(mt_pct)
-            evidence["mt_pct_zscore"] = z_scores
-
-        # Combined evidence score (weighted combination)
-        weights = {
-            ALGORITHM_SCORE_COL: 0.25,
-            "scrublet_score": 0.15,
-            "heuristic_evidence_score": 0.20,
-            HETEROTYPIC_RISK_COL: 0.20,
-            HOMOTYPIC_RISK_COL: 0.15,
-            "gene_count_zscore": 0.05,
-        }
-
-        evidence["combined_evidence_score"] = 0
-        for feature, weight in weights.items():
-            if feature in evidence.columns:
-                # Normalize to [0, 1]
-                normalized = (evidence[feature] - evidence[feature].min()) / (
-                    evidence[feature].max() - evidence[feature].min() + 1e-10
-                )
-                evidence["combined_evidence_score"] += weight * normalized
-
-        # Final classification with confidence
-        evidence["doublet_confidence"] = pd.cut(
-            evidence["combined_evidence_score"],
-            bins=[0, 0.3, 0.5, 0.7, 1.0],
-            labels=["Low", "Moderate", "High", "Very High"],
-        )
-
-        self.evidence_table = evidence
-        return evidence
-
-    def generate_doublet_report(self, cell_id: str, save_path: Optional[str] = None) -> str:
-        """
-        Generate a detailed textual report for a specific cell.
-
-        Args:
-            cell_id: Cell barcode
-            save_path: Optional path to save the report
-
-        Returns:
-            Formatted report string
-        """
-        if self.evidence_table is None:
-            self.generate_evidence_table()
-
-        if cell_id not in self.evidence_table.index:
-            raise ValueError(f"Cell {cell_id} not found")
-
-        row = self.evidence_table.loc[cell_id]
-
-        report = f"""
-╔══════════════════════════════════════════════════════════════╗
-║              DOUBLET EVIDENCE REPORT                         ║
-║  Cell ID: {cell_id:<48}║
-╚══════════════════════════════════════════════════════════════╝
-
-┌──────────────────────────────────────────────────────────────┐
-│ OVERALL ASSESSMENT                                           │
-└──────────────────────────────────────────────────────────────┘
-  Doublet Confidence: {row.get('doublet_confidence', 'N/A')}
-  Combined Evidence Score: {row.get('combined_evidence_score', 0):.3f}
-
-┌──────────────────────────────────────────────────────────────┐
-│ EVIDENCE BREAKDOWN                                           │
-└──────────────────────────────────────────────────────────────┘
-
-1. ALGORITHMIC EVIDENCE
-   • Algorithm Score: {row.get(ALGORITHM_SCORE_COL, row.get('scrublet_score', 0)):.3f}
-   • Scrublet Score: {row.get('scrublet_score', 0):.3f}
-   • Strength: {row.get('scrublet_evidence', 'N/A')}
-
-2. LINEAGE CO-EXPRESSION EVIDENCE
-   • Number of Co-expressed Lineages: {row.get('n_coexpressed_lineages', 0)}
-   • Top Co-expressed: {row.get('top_coexpressed_lineages', 'None')}
-   • Co-expression Strength: {row.get('coexpression_strength', 0):.3f}
-   • Heuristic Evidence Score: {row.get('heuristic_evidence_score', 0):.3f}
-
-3. TRANSCRIPT COMPLEXITY EVIDENCE
-   • Gene Count Z-score: {row.get('gene_count_zscore', 0):.2f}
-   • Gene Count Anomaly: {'Yes' if row.get('gene_count_anomaly', False) else 'No'}
-   • UMI Count Z-score: {row.get('umi_count_zscore', 0):.2f}
-   • UMI Count Anomaly: {'Yes' if row.get('umi_count_anomaly', False) else 'No'}
-
-4. RISK DECOMPOSITION
-   • Heterotypic Risk: {row.get(HETEROTYPIC_RISK_COL, 0):.3f}
-   • Homotypic Risk: {row.get(HOMOTYPIC_RISK_COL, 0):.3f}
-   • Combined Score: {row.get(COMBINED_SCORE_COL, row.get('combined_evidence_score', 0)):.3f}
-   • Scores are evidence indices, not calibrated probabilities.
-
-5. QUALITY METRICS
-   • MT% Z-score: {row.get('mt_pct_zscore', 0):.2f}
-   • MT% is shown as descriptive QC context, not as doublet evidence.
-
-┌──────────────────────────────────────────────────────────────┐
-│ INTERPRETATION                                               │
-└──────────────────────────────────────────────────────────────┘
-"""
-
-        # Add interpretation based on evidence
-        if row.get("doublet_confidence") in ["High", "Very High"]:
-            report += """
-⚠️  This cell shows STRONG evidence of being a doublet:
-"""
-            if row.get("n_coexpressed_lineages", 0) >= 2:
-                report += (
-                    f"   • Co-expresses {row.get('n_coexpressed_lineages')} distinct lineages\n"
-                )
-                report += f"     ({row.get('top_coexpressed_lineages')})\n"
-
-            if row.get("gene_count_anomaly", False):
-                report += "   • Unusually high gene count (possible merged cells)\n"
-
-            if row.get("scrublet_score", 0) > 0.5:
-                report += "   • High algorithmic doublet score\n"
-
-            report += "\n➤ RECOMMENDATION: Remove this cell from downstream analysis\n"
-
-        elif row.get("doublet_confidence") == "Moderate":
-            report += """
-⚡ This cell shows MODERATE evidence of being a doublet:
-   • Consider context-specific filtering
-   • May be a transient cell state or true biological heterogeneity
-
-➤ RECOMMENDATION: Review in biological context before filtering
-"""
-        else:
-            report += """
-✓ This cell shows LOW evidence of being a doublet:
-   • Likely a true singlet
-
-➤ RECOMMENDATION: Keep for downstream analysis
-"""
-
-        report += "\n" + "═" * 64 + "\n"
-
-        if save_path:
-            with open(save_path, "w") as f:
-                f.write(report)
-            log.info(f"Saved doublet report to {save_path}")
-
-        return report
-
-    def plot_evidence_heatmap(self, top_n: int = 100, save_path: Optional[str] = None):
-        """
-        Create a heatmap of evidence features for top doublets.
-        """
-        if self.evidence_table is None:
-            self.generate_evidence_table()
-
-        # Select top doublets by combined score
-        top_doublets = self.evidence_table.nlargest(top_n, "combined_evidence_score")
-
-        # Select numeric evidence columns
-        evidence_cols = [
-            ALGORITHM_SCORE_COL,
-            "heuristic_evidence_score",
-            HETEROTYPIC_RISK_COL,
-            HOMOTYPIC_RISK_COL,
-            COMBINED_SCORE_COL,
-            "coexpression_strength",
-            "gene_count_zscore",
-            "umi_count_zscore",
-            "mt_pct_zscore",
-        ]
-        evidence_cols = [col for col in evidence_cols if col in top_doublets.columns]
-
-        # Create heatmap
-        fig, ax = plt.subplots(figsize=(10, max(6, top_n * 0.15)))
-
-        # Normalize data for better visualization
-        from sklearn.preprocessing import StandardScaler
-
-        scaler = StandardScaler()
-        normalized_data = scaler.fit_transform(top_doublets[evidence_cols])
-
-        sns.heatmap(
-            normalized_data,
-            xticklabels=[col.replace("_", " ").title() for col in evidence_cols],
-            yticklabels=False,  # Too many cells to label
-            cmap="RdYlBu_r",
-            center=0,
-            cbar_kws={"label": "Standardized Score"},
-            ax=ax,
-        )
-
-        ax.set_title(f"Evidence Heatmap for Top {top_n} Doublets")
-        ax.set_xlabel("Evidence Type")
-        ax.set_ylabel(f"Cells (n={top_n})")
-
-        plt.tight_layout()
-
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches="tight")
-            log.info(f"Saved evidence heatmap to {save_path}")
-
-        return fig
-
-    def export_evidence_summary(
-        self,
-        output_dir: str,
-        top_n_reports: int = 50,
-        max_table_rows: Optional[int] = 100_000,
-    ):
-        """
-        Export comprehensive evidence summaries.
-
-        Creates:
-        - evidence_table.csv: Evidence table, capped to the highest-risk rows
-          when ``max_table_rows`` is set.
-        - evidence_export_summary.json: Export provenance and truncation status.
-        - top_doublets_reports/: Individual reports for top doublets
-        - evidence_heatmap.png: Heatmap visualization
-        """
-        from pathlib import Path
-
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        # Export full table
-        if self.evidence_table is None:
-            self.generate_evidence_table()
-
-        total_rows = int(len(self.evidence_table))
-        export_table = self.evidence_table
-        truncated = False
-        if max_table_rows is not None and total_rows > max_table_rows:
-            truncated = True
-            export_table = self.evidence_table.nlargest(
-                max_table_rows, "combined_evidence_score"
-            )
-        export_table.to_csv(output_path / "evidence_table.csv")
-        export_summary = {
-            "schema_version": "doublet_evidence_export_summary_v1",
-            "total_rows": total_rows,
-            "exported_rows": int(len(export_table)),
-            "truncated": truncated,
-            "max_table_rows": max_table_rows,
-            "sort_key": "combined_evidence_score" if truncated else None,
-        }
-        (output_path / "evidence_export_summary.json").write_text(
-            json.dumps(export_summary, indent=2),
-            encoding="utf-8",
-        )
-        log.info(f"Exported evidence table to {output_path / 'evidence_table.csv'}")
-
-        # Generate individual reports for top doublets
-        reports_dir = output_path / "top_doublets_reports"
-        reports_dir.mkdir(exist_ok=True)
-
-        top_doublets = self.evidence_table.nlargest(top_n_reports, "combined_evidence_score")
-
-        for i, (cell_id, row) in enumerate(top_doublets.iterrows(), 1):
-            report = self.generate_doublet_report(cell_id)
-            report_path = reports_dir / f"rank_{i:03d}_{cell_id}.txt"
-            with open(report_path, "w") as f:
-                f.write(report)
-
-        log.info(f"Generated {top_n_reports} individual reports in {reports_dir}")
-
-        # Generate heatmap
-        self.plot_evidence_heatmap(
-            top_n=min(100, top_n_reports), save_path=output_path / "evidence_heatmap.png"
-        )
-
-
-def predict_doublets_with_profiling(
-    adata: AnnData,
-    config: DoubletConfig,
-    sample_key: str = "sampleID",
-    generate_reports: bool = True,
-    top_n_reports: int = 50,
-    **kwargs,
-) -> AnnData:
-    """
-    Enhanced doublet prediction with evidence profiling.
-
-    This wrapper adds biological interpretability to doublet predictions.
-    """
-    # Run standard doublet detection
-    adata = predict_doublets(adata, config, sample_key, **kwargs)
-
-    if generate_reports:
-        log.info("Generating doublet evidence profiles...")
-
-        profiler = DoubletEvidenceProfiler(adata)
-        profiler.generate_evidence_table()
-
-        # Export comprehensive reports
-        if config.save_dir:
-            profiler.export_evidence_summary(
-                output_dir=Path(config.save_dir) / "evidence_profiles", top_n_reports=top_n_reports
-            )
-
-        # Add evidence table to AnnData
-        adata.obs = adata.obs.join(
-            profiler.evidence_table[["combined_evidence_score", "doublet_confidence"]]
-        )
+    record_qc_artifact_contract(adata)
 
     return adata

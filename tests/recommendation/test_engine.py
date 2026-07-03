@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from scLucid.qc.intelligent_qc import (
+from scLucid.qc.policy.intelligent_qc import (
     QCRecommendation,
     StrategyType,
     ThresholdRecommendation,

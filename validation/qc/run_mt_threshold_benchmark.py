@@ -15,7 +15,7 @@ import scipy.sparse as sp
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scLucid.qc.intelligent_qc import (
+from scLucid.qc.policy.intelligent_qc import (
     IntelligentQCConfig,
     IntelligentQCRecommender,
     StrategyType,

@@ -504,6 +504,9 @@ _BACKEND_REGISTRY: Dict[str, Dict[str, Any]] = {
         "matrix_types": {"raw_like"},
         "python": True,
         "r": False,
+        "experimental": False,
+        "auto_select": True,
+        "recommended_for_filtered_matrix": False,
     },
     "soupx": {
         "run": run_soupx,
@@ -511,6 +514,9 @@ _BACKEND_REGISTRY: Dict[str, Dict[str, Any]] = {
         "matrix_types": {"raw_like", "filtered_like"},
         "python": False,
         "r": True,
+        "experimental": True,
+        "auto_select": False,
+        "recommended_for_filtered_matrix": False,
     },
     "decontx": {
         "run": run_decontx,
@@ -518,6 +524,9 @@ _BACKEND_REGISTRY: Dict[str, Dict[str, Any]] = {
         "matrix_types": {"filtered_like"},
         "python": False,
         "r": True,
+        "experimental": True,
+        "auto_select": False,
+        "recommended_for_filtered_matrix": False,
     },
 }
 
@@ -538,15 +547,24 @@ def _choose_backend(
     backend: str,
     risk_level: str,
 ) -> Optional[str]:
-    """Choose a concrete backend given matrix type and availability."""
+    """Choose a concrete backend given matrix type and availability.
+
+    Auto-selection only considers backends marked ``auto_select=True``.
+    R-based backends (SoupX, DecontX) are kept available for explicit calls
+    but are not chosen automatically because they require fragile rpy2/R setup.
+    """
     if backend != "auto" and backend in _BACKEND_REGISTRY:
         chosen = backend
     elif backend == "auto":
-        candidates = []
-        if matrix_type == "raw_like":
-            candidates = ["cellbender", "soupx"]
-        elif matrix_type == "filtered_like":
-            candidates = ["decontx", "soupx"]
+        candidates = [
+            name
+            for name, meta in _BACKEND_REGISTRY.items()
+            if meta.get("auto_select", False)
+            and matrix_type in meta.get("matrix_types", set())
+        ]
+        # Preserve the historical preference order within auto-selectable backends.
+        order = {"cellbender": 0}
+        candidates = sorted(candidates, key=lambda name: order.get(name, 1))
         chosen = None
         for cand in candidates:
             if _BACKEND_REGISTRY[cand]["available"]():
@@ -565,9 +583,70 @@ def _choose_backend(
             chosen,
             matrix_type,
         )
+    if meta.get("experimental", False):
+        log.warning(
+            "Backend '%s' is experimental and requires additional dependencies; "
+            "results should be reviewed carefully.",
+            chosen,
+        )
     if not meta["available"]():
         return None
     return chosen
+
+
+def _record_diagnostic_only_ambient_result(
+    adata: AnnData,
+    *,
+    layer: Optional[str],
+    output_layer: str,
+    reason: str,
+    backend_requested: str,
+    key_added: str = "ambient_correction_summary",
+) -> Dict[str, Any]:
+    """Record that ambient correction was intentionally deferred for review."""
+    from .ambient import diagnose_ambient_rna
+
+    context = infer_ambient_input_context(adata, layer=layer)
+    diagnostic = diagnose_ambient_rna(adata, layer=layer)
+    summary = {
+        "corrected": False,
+        "output_layer": output_layer,
+        "backend": None,
+        "backend_requested": backend_requested,
+        "method": "diagnostic_only",
+        "reason": reason,
+        "matrix_type": context.get("matrix_type"),
+        "diagnostic": diagnostic,
+        "review_required": True,
+        "risk_note": (
+            "Filtered matrices do not contain the empty-droplet background needed "
+            "for CellBender-style modeling. Prefer external DecontX/SoupX-like "
+            "correction and register the result, or explicitly request method='linear' "
+            "for conservative background subtraction."
+        ),
+        "recommendation": (
+            "Run a validated filtered-matrix ambient workflow externally when correction "
+            "is needed, then call register_external_ambient_result."
+        ),
+    }
+    if key_added:
+        adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[key_added] = sanitize_for_hdf5(
+            summary
+        )
+    record_ambient_correction_status(
+        adata,
+        corrected=False,
+        backend="diagnostic_only",
+        output_layer=None,
+        details=summary,
+    )
+    record_ambient_layer_contract(
+        adata,
+        input_context=context,
+        correction_summary=summary,
+        output_layer=output_layer,
+    )
+    return summary
 
 
 def correct_ambient_rna(
@@ -614,12 +693,37 @@ def correct_ambient_rna(
 
     if method == "auto":
         risk = diagnose_ambient_rna(adata, layer=layer)
-        use_external = risk.get("risk_level", "low") in {"moderate", "high"}
-        method = "external" if use_external else "linear"
+        if matrix_type == "filtered_like":
+            chosen = (
+                _choose_backend(matrix_type, backend, risk.get("risk_level", "low"))
+                if risk.get("risk_level", "low") in {"moderate", "high"}
+                else None
+            )
+            if chosen is None:
+                return _record_diagnostic_only_ambient_result(
+                    adata,
+                    layer=layer,
+                    output_layer=output_layer,
+                    reason="filtered_matrix_requires_external_or_explicit_linear_correction",
+                    backend_requested=backend,
+                )
+            method = "external"
+            backend = chosen
+        else:
+            use_external = risk.get("risk_level", "low") in {"moderate", "high"}
+            method = "external" if use_external else "linear"
 
     if method == "external":
         chosen = _choose_backend(matrix_type, backend, "moderate")
         if chosen is None:
+            if matrix_type == "filtered_like":
+                return _record_diagnostic_only_ambient_result(
+                    adata,
+                    layer=layer,
+                    output_layer=output_layer,
+                    reason="no_filtered_matrix_backend_available",
+                    backend_requested=backend,
+                )
             log.warning(
                 "No suitable ambient backend available for %s matrix; "
                 "falling back to linear correction.",

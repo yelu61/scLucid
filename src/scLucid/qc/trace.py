@@ -66,7 +66,8 @@ QC_STABLE_ENTRYPOINTS = (
     "scLucid.qc.run_standard_qc",
     "scLucid.qc.calculate_qc_metric",
     "scLucid.qc.recommend_intelligent_qc",
-    "scLucid.qc.mark_low_quality_cell",
+    "scLucid.qc.run_qc_threshold_decision",
+    "scLucid.qc.build_qc_decisions",
     "scLucid.qc.filter_cells",
 )
 
@@ -1763,6 +1764,15 @@ def summarize_qc_review_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(payload, Mapping)
         else {}
     )
+    benchmark = payload.get("benchmark_summary", {}) if isinstance(payload, Mapping) else {}
+    benchmark_assessment = (
+        benchmark.get("assessment", {}) if isinstance(benchmark, Mapping) else {}
+    )
+    benchmark_guide = (
+        benchmark_assessment.get("interpretation_guide", {})
+        if isinstance(benchmark_assessment, Mapping)
+        else {}
+    )
 
     applied_thresholds = {
         row.get("parameter"): row.get("applied")
@@ -1822,6 +1832,27 @@ def summarize_qc_review_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
                 if isinstance(retention_audit, Mapping)
                 else {}
             ),
+            "benchmark_status": benchmark.get("status") if isinstance(benchmark, Mapping) else None,
+            "benchmark_risk_level": (
+                benchmark_assessment.get("risk_level")
+                if isinstance(benchmark_assessment, Mapping)
+                else None
+            ),
+            "benchmark_summary": (
+                benchmark_assessment.get("summary")
+                if isinstance(benchmark_assessment, Mapping)
+                else None
+            ),
+            "benchmark_main_risk": (
+                benchmark_guide.get("main_risk")
+                if isinstance(benchmark_guide, Mapping)
+                else None
+            ),
+            "benchmark_next_step": (
+                benchmark_guide.get("next_step")
+                if isinstance(benchmark_guide, Mapping)
+                else None
+            ),
             "doublet_status": doublet_summary.get("status") if isinstance(doublet_summary, Mapping) else None,
             "predicted_doublets": final_doublets.get("count") if isinstance(final_doublets, Mapping) else None,
             "predicted_doublet_fraction": (
@@ -1844,6 +1875,13 @@ def summarize_qc_review_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
             ),
             "applied_thresholds": applied_thresholds,
             "threshold_sources": threshold_sources,
+            "top_review_action": (
+                action_items[0].get("action")
+                if isinstance(action_items, list)
+                and action_items
+                and isinstance(action_items[0], Mapping)
+                else None
+            ),
             "n_review_action_items": len(action_items) if isinstance(action_items, list) else None,
         }
     )

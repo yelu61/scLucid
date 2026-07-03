@@ -14,7 +14,7 @@ import pytest
 class TestFindSamplePaths:
     def test__find_sample_paths_standard_subdirs(self, tmp_path):
         """_find_sample_paths checks standard 10x subdirectories."""
-        from scLucid.utils.helpers import _find_sample_paths
+        from scLucid.utils.io import _find_sample_paths
 
         s1_dir = tmp_path / "s1" / "outs" / "filtered_feature_bc_matrix"
         s1_dir.mkdir(parents=True)
@@ -27,7 +27,7 @@ class TestFindSamplePaths:
 
     def test__find_sample_paths_falls_back_to_root(self, tmp_path):
         """If no standard subdirs exist, falls back to sample root."""
-        from scLucid.utils.helpers import _find_sample_paths
+        from scLucid.utils.io import _find_sample_paths
 
         s1_dir = tmp_path / "s1"
         s1_dir.mkdir(parents=True)
@@ -40,7 +40,7 @@ class TestFindSamplePaths:
 
     def test__find_sample_paths_missing_sample(self, tmp_path):
         """Missing samples are omitted from the result dict."""
-        from scLucid.utils.helpers import _find_sample_paths
+        from scLucid.utils.io import _find_sample_paths
 
         s1_dir = tmp_path / "s1"
         s1_dir.mkdir(parents=True)
@@ -53,7 +53,7 @@ class TestFindSamplePaths:
 
     def test__find_sample_paths_prefers_mtx_gz(self, tmp_path):
         """Prefers .mtx.gz over .mtx when both present."""
-        from scLucid.utils.helpers import _find_sample_paths
+        from scLucid.utils.io import _find_sample_paths
 
         s1_dir = tmp_path / "s1" / "outs" / "filtered_feature_bc_matrix"
         s1_dir.mkdir(parents=True)

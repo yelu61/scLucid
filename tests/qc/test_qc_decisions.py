@@ -3,7 +3,7 @@
 import numpy as np
 from anndata import AnnData
 
-from scLucid.qc.decisions import (
+from scLucid.qc.policy.decisions import (
     QC_DECISION_SCHEMA_VERSION,
     build_qc_decisions,
     score_qc_gene_panels,

@@ -8,6 +8,7 @@ auto-detection of sample keys, and user-friendly logging.
 
 import logging
 import re
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -15,13 +16,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import scipy.sparse as sparse
 import seaborn as sns
 from anndata import AnnData
-from matplotlib import get_backend
 
+from scLucid.plotting.plotting_utils import _show_or_close
+from scLucid.utils.helpers import assess_matrix_semantics
+
+from .artifacts import record_qc_artifact_contract
 from .config import MetricsReportingConfig
-from importlib.metadata import PackageNotFoundError, version
-from scLucid.utils.helpers import _is_interactive_backend, _show_or_close
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +68,95 @@ def _coerce_metrics_reporting_config(
         )
     config_data.update(overrides)
     return MetricsReportingConfig(**config_data)
+
+
+def _assess_count_like_matrix(adata: AnnData) -> Dict[str, Any]:
+    """Return lightweight evidence about whether ``adata.X`` looks count-like."""
+    result = assess_matrix_semantics(
+        adata,
+        semantics="raw_counts",
+        max_cells=adata.n_obs,
+        max_genes=adata.n_vars,
+    )
+    diagnostics = result.get("diagnostics", {})
+    warnings = result.get("warnings", [])
+    # Map assess_matrix_semantics warnings to stable machine-readable codes.
+    code_map = {
+        "Matrix is None": "missing_matrix",
+        "Matrix is empty": "empty_matrix",
+        "No finite values in matrix": "no_finite_values",
+        "Matrix contains negative values": "matrix_contains_negative_values",
+        "Matrix contains too many non-integer positive values": "matrix_contains_fractional_positive_values",
+        "Matrix is too dense for raw counts": "matrix_has_low_sparsity",
+        "Matrix max value": "matrix_max_value_too_small",
+    }
+    coded_warnings = []
+    for w in warnings:
+        matched_code = None
+        for prefix, code in code_map.items():
+            if w.startswith(prefix):
+                matched_code = code
+                break
+        coded_warnings.append(matched_code or w)
+
+    if result["is_count_like"]:
+        reason: Optional[str] = None
+    elif not coded_warnings:
+        reason = "unknown"
+    else:
+        reason = coded_warnings[0]
+
+    return {
+        "count_like": result["is_count_like"],
+        "warnings": coded_warnings,
+        "reason": reason,
+        "min_value": diagnostics.get("min_value"),
+        "max_value": diagnostics.get("max_value"),
+        "fractional_positive_fraction": diagnostics.get("fractional_positive_rate"),
+        "zero_fraction": diagnostics.get("zero_fraction"),
+        "matrix_kind": "sparse" if sparse.issparse(adata.X) else "dense",
+        "note": (
+            "QC metrics are most interpretable on raw or count-like UMI matrices. "
+            "Fractional, negative, or unusually dense matrices may already be normalized."
+        ),
+    }
+
+
+def _build_gene_set_provenance(
+    *,
+    validated_patterns: Dict[str, str],
+    extra_gene_sets: Optional[Dict[str, Union[str, List[str]]]],
+    qc_vars: List[str],
+    adata: AnnData,
+) -> Dict[str, Dict[str, Any]]:
+    """Record how each QC gene-set mask was defined and how many genes matched."""
+    provenance: Dict[str, Dict[str, Any]] = {}
+    extra_gene_sets = extra_gene_sets or {}
+    for name in qc_vars:
+        source = "existing_var_column"
+        definition_type = "var_mask"
+        if name in validated_patterns:
+            source = "regex"
+            definition_type = "regex"
+        elif name in extra_gene_sets and isinstance(extra_gene_sets[name], list):
+            source = "provided_gene_list"
+            definition_type = "gene_list"
+
+        matched = (
+            int(pd.Series(adata.var[name]).fillna(False).astype(bool).sum())
+            if name in adata.var
+            else 0
+        )
+        provenance[name] = {
+            "source": source,
+            "definition_type": definition_type,
+            "matched_genes": matched,
+        }
+        if name in validated_patterns:
+            provenance[name]["pattern"] = validated_patterns[name]
+        if name in extra_gene_sets and isinstance(extra_gene_sets[name], list):
+            provenance[name]["requested_genes"] = len(extra_gene_sets[name])
+    return provenance
 
 
 def _find_sample_key(adata: AnnData, sample_key: Optional[str] = None) -> str:
@@ -151,34 +243,62 @@ def _export_qc_stats(
     return {"sample": sample_stats, "global": global_stats}
 
 
+def _get_outlier_thresholds(tissue_type: Optional[str] = None) -> Dict[str, float]:
+    """Return review-only warning thresholds that respect tissue context.
+
+    Tumor tissues often carry elevated mitochondrial signal as a biological
+    feature rather than a purely technical artifact, so the mitochondrial
+    warning threshold is relaxed. These thresholds only generate reviewer tips;
+    formal filtering is handled by the filtering module.
+    """
+    is_tumor = bool(tissue_type) and any(
+        hint in str(tissue_type).lower() for hint in ("tumor", "cancer", "carcinoma")
+    )
+    return {
+        "mt_percent": 25.0 if is_tumor else 15.0,
+        "min_median_genes": 1000.0,
+        "top_gene_percent": 60.0,
+    }
+
+
 def _detect_qc_outliers(
     adata: AnnData,
     sample_key: str,
     percent_top_cols: List[str],
     outdir: Optional[str] = None,
+    tissue_type: Optional[str] = None,
 ) -> List[str]:
     """
-    Detect and log potential outlier samples/metrics.
+    Detect and log potential review-only outlier samples/metrics.
+
+    This helper does not create ``.obs`` filtering labels and does not affect
+    downstream cell filtering. It only records reviewer-facing warnings.
 
     Args:
         adata: AnnData object with QC metrics.
         sample_key: obs key for grouping.
         percent_top_cols: obs keys for percent of top genes.
         outdir: Directory to save tips/warnings.
+        tissue_type: Optional tissue hint used to pick MT threshold.
 
     Returns:
         List of textual warnings or suggestions.
     """
     tips = []
     warn = log.warning
+    thresholds = _get_outlier_thresholds(tissue_type)
+    mt_threshold = thresholds["mt_percent"]
+    min_gene_threshold = int(thresholds["min_median_genes"])
+    top_gene_threshold = thresholds["top_gene_percent"]
 
     # Mitochondrial percentage warning
     if "pct_counts_mt" in adata.obs.columns:
         mt_stats = adata.obs.groupby(sample_key, observed=False)["pct_counts_mt"].mean()
         for s, v in mt_stats.items():
-            if v > 15:
+            if v > mt_threshold:
                 warn(
-                    f"[QC Alert] Sample {s} has a high mean mitochondrial content: {v:.1f}%. Recommended is typically ≤ 15%."
+                    f"[QC Alert] Sample {s} has a high mean mitochondrial content: {v:.1f}%. "
+                    f"Threshold for this tissue context is {mt_threshold:.1f}%."
                 )
                 tips.append(f"{s} mt_mean={v:.1f}%")
 
@@ -189,7 +309,7 @@ def _detect_qc_outliers(
             top_n = int(m.group(1)) if m else "N"
             top_gene_stats = adata.obs.groupby(sample_key, observed=False)[col].mean()
             for s, v in top_gene_stats.items():
-                if v > 60:
+                if v > top_gene_threshold:
                     warn(
                         f"[QC Alert] Sample {s} has a high mean Top-{top_n} gene fraction: {v:.1f}%. "
                         "This could indicate low-complexity libraries or technical artifacts."
@@ -200,7 +320,7 @@ def _detect_qc_outliers(
     if "n_genes_by_counts" in adata.obs.columns:
         gene_stats = adata.obs.groupby(sample_key, observed=False)["n_genes_by_counts"].median()
         for s, v in gene_stats.items():
-            if v < 1000:
+            if v < min_gene_threshold:
                 warn(
                     f"[QC Alert] Sample {s} has a low median of genes detected: {int(v)}. Possible low quality."
                 )
@@ -212,23 +332,106 @@ def _detect_qc_outliers(
     return tips
 
 
+def _sample_context_metadata(
+    adata: AnnData,
+    *,
+    sample_key: str,
+    sample_context_key: Optional[str],
+    tissue_type: Optional[str],
+) -> Dict[str, Any]:
+    """Summarize sample-level context metadata for QC review."""
+    metadata: Dict[str, Any] = {
+        "global_tissue_type": tissue_type,
+        "sample_context_key": sample_context_key,
+        "source": "global_tissue_type_only",
+        "available": False,
+        "note": (
+            "Global tissue_type describes project context only. Use sample_context_key "
+            "for sample-level roles such as tumor, normal, adjacent, or control."
+        ),
+    }
+    if sample_context_key is None:
+        return metadata
+    if sample_context_key not in adata.obs.columns:
+        metadata["source"] = "missing_obs_column"
+        metadata["missing_column"] = sample_context_key
+        return metadata
+
+    metadata["available"] = True
+    metadata["source"] = "obs_column"
+    metadata["value_counts"] = {
+        str(k): int(v) for k, v in adata.obs[sample_context_key].value_counts(dropna=False).items()
+    }
+    if sample_key in adata.obs.columns:
+        grouped = (
+            adata.obs[[sample_key, sample_context_key]]
+            .astype(str)
+            .drop_duplicates()
+            .groupby(sample_key, observed=False)[sample_context_key]
+            .apply(lambda values: sorted(set(values)))
+        )
+        metadata["sample_context_by_sample"] = {
+            str(sample): [str(v) for v in values] for sample, values in grouped.items()
+        }
+    return metadata
+
+
+def _produced_qc_columns(adata: AnnData) -> Dict[str, List[str]]:
+    """Classify QC columns produced or preserved by metrics calculation."""
+    metric_cols = [
+        col
+        for col in adata.obs.columns
+        if col in {"total_counts", "n_genes_by_counts", "log1p_total_counts", "log1p_n_genes_by_counts"}
+        or col.startswith("pct_counts_")
+        or col.startswith("log1p_")
+    ]
+    downstream_consumed = [
+        col
+        for col in [
+            "total_counts",
+            "n_genes_by_counts",
+            "log1p_total_counts",
+            "log1p_n_genes_by_counts",
+            "pct_counts_mt",
+            "pct_counts_hb",
+            "pct_counts_in_top_20_genes",
+        ]
+        if col in adata.obs.columns
+    ]
+    return {
+        "produced_obs_columns": sorted(metric_cols),
+        "downstream_consumed_obs_columns": downstream_consumed,
+        "review_only_obs_columns": [
+            col
+            for col in sorted(metric_cols)
+            if col.startswith("pct_counts_in_top_") or col == "pct_counts_ribo"
+        ],
+    }
+
+
 def _sample_for_plotting(
     adata: AnnData,
     max_cells: int = 50000,
     sample_key: str = "sampleID",
+    min_cells_per_sample: int = 100,
     random_state: int = 61,
 ) -> AnnData:
     """
-    Sample cells for plotting when dataset is too large.
+    Sample cells for plotting when the dataset is too large.
+
+    Samples are represented in proportion to their size, with a small floor to
+    keep rare samples visible. If ``sample_key`` is absent, simple random
+    sampling is used.
 
     Args:
-        adata: Input AnnData object
-        max_cells: Maximum number of cells to sample for plotting
-        sample_key: Key to stratify sampling by samples
-        random_state: Random state for reproducibility
+        adata: Input AnnData object.
+        max_cells: Maximum number of cells to sample for plotting.
+        sample_key: Key to stratify sampling by samples.
+        min_cells_per_sample: Minimum cells retained per sample.
+        random_state: Random state for reproducibility.
 
     Returns:
-        Sampled AnnData object
+        Sampled AnnData object.
     """
     if adata.n_obs <= max_cells:
         return adata
@@ -239,23 +442,28 @@ def _sample_for_plotting(
 
     rng = np.random.default_rng(random_state)
 
-    # Stratified sampling by sample to maintain representation
+    # Stratified sampling by sample, proportional to sample size.
     if sample_key in adata.obs.columns:
-        sampled_indices = []
-        samples = adata.obs[sample_key].unique()
-        cells_per_sample = max_cells // len(samples)
+        sample_counts = adata.obs[sample_key].value_counts()
+        n_samples = len(sample_counts)
+        available_budget = max_cells - min_cells_per_sample * n_samples
+        if available_budget < 0:
+            min_cells_per_sample = max(1, max_cells // n_samples)
+            available_budget = max_cells - min_cells_per_sample * n_samples
 
-        for sample in samples:
+        sampled_indices = []
+        for sample, n_cells in sample_counts.items():
             sample_mask = adata.obs[sample_key] == sample
             sample_indices = np.where(sample_mask)[0]
-
-            if len(sample_indices) <= cells_per_sample:
+            sample_budget = min_cells_per_sample + int(available_budget * (n_cells / adata.n_obs))
+            sample_budget = min(sample_budget, len(sample_indices), max_cells)
+            if len(sample_indices) <= sample_budget:
                 sampled_indices.extend(sample_indices)
             else:
-                selected = rng.choice(sample_indices, size=cells_per_sample, replace=False)
+                selected = rng.choice(sample_indices, size=sample_budget, replace=False)
                 sampled_indices.extend(selected)
 
-        # If we still have room, randomly sample more cells
+        sampled_indices = np.unique(sampled_indices)
         remaining_slots = max_cells - len(sampled_indices)
         if remaining_slots > 0:
             all_indices = set(range(adata.n_obs))
@@ -266,13 +474,68 @@ def _sample_for_plotting(
                     size=min(remaining_slots, len(available_indices)),
                     replace=False,
                 )
-                sampled_indices.extend(additional)
+                sampled_indices = np.unique(np.concatenate([sampled_indices, additional]))
 
     else:
         # Simple random sampling if no sample key
         sampled_indices = rng.choice(adata.n_obs, size=max_cells, replace=False)
 
     return adata[sampled_indices].copy()
+
+
+def _plot_qc_joint_scatter(
+    adata: AnnData,
+    sample_key: str = "sampleID",
+    save_dir: Optional[str] = None,
+    show: bool = True,
+    max_cells_for_plotting: int = 50000,
+    random_state: int = 61,
+) -> Optional[plt.Figure]:
+    """Plot a joint total_counts vs n_genes_by_counts scatter, colored by MT%."""
+    if "total_counts" not in adata.obs.columns or "n_genes_by_counts" not in adata.obs.columns:
+        log.warning("Cannot create joint QC scatter: required metrics missing.")
+        return None
+
+    adata_plot = _sample_for_plotting(
+        adata,
+        max_cells=max_cells_for_plotting,
+        sample_key=sample_key,
+        random_state=random_state,
+    )
+
+    fig, ax = plt.subplots(figsize=(10, 8), facecolor="white")
+    color = (
+        adata_plot.obs["pct_counts_mt"]
+        if "pct_counts_mt" in adata_plot.obs.columns
+        else "lightgray"
+    )
+    scatter = ax.scatter(
+        adata_plot.obs["total_counts"],
+        adata_plot.obs["n_genes_by_counts"],
+        c=color,
+        cmap="YlOrRd",
+        alpha=0.6,
+        s=3,
+        rasterized=True,
+    )
+    if "pct_counts_mt" in adata_plot.obs.columns:
+        cbar = fig.colorbar(scatter, ax=ax)
+        cbar.set_label("% Mitochondrial")
+
+    ax.set_xlabel("Total Counts")
+    ax.set_ylabel("Number of Genes")
+    ax.set_title("Joint QC Scatter (colored by mitochondrial %)")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    fig.tight_layout()
+
+    if save_dir:
+        save_path = Path(save_dir) / "qc_joint_scatter.png"
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        log.info(f"Saved joint QC scatter to {save_path}")
+
+    _show_or_close(fig, show=show)
+    return fig
 
 
 def _plot_top_genes_distribution(
@@ -488,6 +751,7 @@ def _plot_qc_violin(
     save_dir: Optional[str] = None,
     show: bool = False,
     max_cells_for_plotting: int = 10000,
+    random_state: int = 61,
 ) -> None:
     """
     Internal helper to plot QC violin plots for a sample.
@@ -496,7 +760,8 @@ def _plot_qc_violin(
     # Sample data if too large
     if adata_view.n_obs > max_cells_for_plotting:
         log.info(f"Sampling {max_cells_for_plotting} cells from {adata_view.n_obs} for violin plot")
-        indices = np.random.choice(adata_view.n_obs, max_cells_for_plotting, replace=False)
+        rng = np.random.default_rng(random_state)
+        indices = rng.choice(adata_view.n_obs, max_cells_for_plotting, replace=False)
         adata_plot = adata_view[indices]
     else:
         adata_plot = adata_view
@@ -539,6 +804,7 @@ def _plot_qc_scatter(
     save_dir: Optional[str] = None,
     show: bool = False,
     max_cells_for_plotting: int = 10000,
+    random_state: int = 61,
 ) -> None:
     """
     Plot total_counts vs n_genes_by_counts scatter for a sample.
@@ -548,7 +814,8 @@ def _plot_qc_scatter(
         log.info(
             f"Sampling {max_cells_for_plotting} cells from {adata_view.n_obs} for scatter plot"
         )
-        indices = np.random.choice(adata_view.n_obs, max_cells_for_plotting, replace=False)
+        rng = np.random.default_rng(random_state)
+        indices = rng.choice(adata_view.n_obs, max_cells_for_plotting, replace=False)
         adata_plot = adata_view[indices]
     else:
         adata_plot = adata_view
@@ -648,6 +915,8 @@ def calculate_qc_metric(
     cell_cycle_species: str = "human",
     cell_cycle_kwargs: Optional[dict] = None,
     reporting_config: Optional[MetricsReportingConfig] = None,
+    tissue_type: Optional[str] = None,
+    sample_context_key: Optional[str] = None,
     **kwargs,
 ) -> AnnData:
     """
@@ -658,12 +927,6 @@ def calculate_qc_metric(
         sample_key: The key in adata.obs to identify different samples.
         extra_gene_sets: Dictionary of additional gene sets to calculate metrics for.
             Can contain either regex patterns (str) or gene lists (List[str]).
-            Example: {
-                'stress': r'^(HSP|HSPA|HSPB)',
-                'cell_cycle': ['MKI67', 'TOP2A', 'PCNA'],
-                'custom_set': r'^CUSTOM'
-            }
-        show: Whether to display the plots.
         max_cells_for_plotting: Maximum number of cells to use for plotting (large dataset optimization).
         random_state: Random state for reproducible sampling.
         percent_top: List of top gene percentages to calculate. Default is [20, 50, 100],
@@ -671,6 +934,10 @@ def calculate_qc_metric(
         calculate_cell_cycle: Also compute cell cycle scores.
         cell_cycle_species: Species for cell cycle scoring.
         cell_cycle_kwargs: Extra kwargs for cell cycle scoring function.
+        reporting_config: MetricsReportingConfig controlling exports and plots.
+        tissue_type: Optional tissue hint (e.g. 'lung_tumor') to adjust outlier thresholds.
+        sample_context_key: Optional obs column containing sample-level roles such as
+            tumor, normal, adjacent, control, or unknown.
 
     Returns:
         AnnData object with QC metrics added to .obs and .var.
@@ -687,6 +954,13 @@ def calculate_qc_metric(
         raise ValueError("Input AnnData object has no expression matrix")
 
     log.info(f"Calculating QC metrics for {adata.n_obs} cells and {adata.n_vars} genes...")
+    count_like_input = _assess_count_like_matrix(adata)
+    if not count_like_input.get("count_like", False):
+        log.warning(
+            "Input matrix may not be raw/count-like: %s",
+            ", ".join(count_like_input.get("warnings", []))
+            or count_like_input.get("reason", "unknown"),
+        )
 
     # --- Prepare gene sets for QC ---
     gene_patterns: Dict[str, str] = {}
@@ -775,7 +1049,7 @@ def calculate_qc_metric(
     log.info("QC metrics calculation complete.")
 
     # Ensure standard percentage columns exist even when no genes matched the
-    # corresponding pattern. Downstream tools (e.g., mark_low_quality_cell) expect
+    # corresponding pattern. Downstream QC evidence marking expects
     # these columns to be present and treat a zero column as "no signal".
     for col in ("pct_counts_mt", "pct_counts_ribo", "pct_counts_hb"):
         if col not in adata.obs.columns:
@@ -783,16 +1057,48 @@ def calculate_qc_metric(
 
     # --- Centralized .uns storage ---
     metrics_uns = adata.uns.setdefault("sclucid", {}).setdefault("qc", {}).setdefault("metrics", {})
+    produced_columns = _produced_qc_columns(adata)
     params = {
         "sample_key": sample_key,
+        "tissue_type": tissue_type,
+        "sample_context": _sample_context_metadata(
+            adata,
+            sample_key=sample_key,
+            sample_context_key=sample_context_key,
+            tissue_type=tissue_type,
+        ),
+        "matrix_source": "X",
+        "matrix_layer": None,
+        "count_like_input": count_like_input,
         "include_standard_qc": cfg.include_standard_qc,
         "extra_gene_sets_provided": bool(extra_gene_sets),
         "qc_vars": qc_vars,
+        "gene_set_provenance": _build_gene_set_provenance(
+            validated_patterns=validated_patterns,
+            extra_gene_sets=extra_gene_sets,
+            qc_vars=qc_vars,
+            adata=adata,
+        ),
         "percent_top_calculated": percent_top_list,
+        **produced_columns,
+        "plot_sampling_policy": {
+            "max_cells_for_plotting": int(max_cells_for_plotting),
+            "random_state": int(random_state),
+            "stratified_by": sample_key,
+            "triggered_only_when_n_obs_exceeds_max_cells": True,
+            "sampling_applied": bool(adata.n_obs > max_cells_for_plotting),
+        },
+        "review_only_warning_thresholds": _get_outlier_thresholds(tissue_type),
+        "review_only_warning_note": (
+            "QC outlier tips are reviewer warnings only. Formal filtering labels are "
+            "created by the filtering module, not by calculate_qc_metric."
+        ),
+        "reporting_config": cfg.to_dict(),
         "scanpy_version": version("scanpy"),
     }
     metrics_uns["params"] = params
     metrics_uns.setdefault("runs", []).append(dict(params))
+    record_qc_artifact_contract(adata)
 
     # --- Optional: Cell cycle scoring ---
     if calculate_cell_cycle:
@@ -816,7 +1122,7 @@ def calculate_qc_metric(
                 **cell_cycle_kwargs,
             )
             log.info("Cell cycle scores and phase added to .obs.")
-        except Exception as exc:
+        except (ValueError, RuntimeError, KeyError) as exc:
             log.warning(f"Cell cycle scoring failed: {exc}")
             adata.uns["sclucid"]["qc"]["cell_cycle_error"] = {
                 "error_type": type(exc).__name__,
@@ -836,69 +1142,83 @@ def calculate_qc_metric(
         )
 
     # --- Detect and log outlier warnings ---
-    _detect_qc_outliers(
+    review_tips = _detect_qc_outliers(
         adata,
         sample_key=sample_key,
         percent_top_cols=percent_top_cols,
         outdir=cfg.save_dir if cfg.save_dir else None,
+        tissue_type=tissue_type,
     )
+    metrics_uns["review_only_outlier_tips"] = review_tips
 
     # --- Plotting ---
     if cfg.save_dir:
         Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
-    if cfg.plot_top_genes:
-        for col_name in percent_top_cols:
-            _plot_top_genes_distribution(
-                adata,
-                sample_key=sample_key,
-                percent_top_col=col_name,
-                save_dir=cfg.save_dir,
-                show=cfg.show_plots,
-                max_cells_for_plotting=max_cells_for_plotting,
-                random_state=random_state,
+    if cfg.export_plots:
+        if cfg.plot_top_genes:
+            for col_name in percent_top_cols:
+                _plot_top_genes_distribution(
+                    adata,
+                    sample_key=sample_key,
+                    percent_top_col=col_name,
+                    save_dir=cfg.save_dir,
+                    show=cfg.show_plots,
+                    max_cells_for_plotting=max_cells_for_plotting,
+                    random_state=random_state,
+                )
+
+        _plot_qc_joint_scatter(
+            adata,
+            sample_key=sample_key,
+            save_dir=cfg.save_dir,
+            show=cfg.show_plots,
+            max_cells_for_plotting=max_cells_for_plotting,
+            random_state=random_state,
+        )
+
+        if cfg.plot_violin or cfg.plot_scatter:
+            # Determine which metrics to plot
+            keys_to_plot = ["total_counts", "n_genes_by_counts"]
+            # Gather all potential pct_counts_* columns that exist in adata.obs
+            potential_metrics = [c for c in adata.obs.columns if c.startswith("pct_counts_")]
+            keys_to_plot.extend(
+                [metric for metric in potential_metrics if metric in adata.obs.columns]
             )
+            # We don't want to plot all 50 top gene %s, so we exclude them here.
+            keys_to_plot = [k for k in keys_to_plot if "in_top" not in k]
 
-    if cfg.plot_violin or cfg.plot_scatter:
-        # Determine which metrics to plot
-        keys_to_plot = ["total_counts", "n_genes_by_counts"]
-        # Gather all potential pct_counts_* columns that exist in adata.obs
-        potential_metrics = [c for c in adata.obs.columns if c.startswith("pct_counts_")]
-        keys_to_plot.extend([metric for metric in potential_metrics if metric in adata.obs.columns])
-        # We don't want to plot all 50 top gene %s, so we exclude them here.
-        keys_to_plot = [k for k in keys_to_plot if "in_top" not in k]
+            # Limit to reasonable number for plotting
+            if len(keys_to_plot) > 6:
+                log.info(f"Too many metrics ({len(keys_to_plot)}), selecting first 6 for plotting")
+                keys_to_plot = keys_to_plot[:6]
 
-        # Limit to reasonable number for plotting
-        if len(keys_to_plot) > 6:
-            log.info(f"Too many metrics ({len(keys_to_plot)}), selecting first 6 for plotting")
-            keys_to_plot = keys_to_plot[:6]
+            for sample in adata.obs[sample_key].unique():
+                log.info(f"Plotting QC for sample: {sample}")
+                adata_view = adata[adata.obs[sample_key] == sample]
 
-        for sample in adata.obs[sample_key].unique():
-            log.info(f"Plotting QC for sample: {sample}")
-            adata_view = adata[adata.obs[sample_key] == sample]
+                if adata_view.n_obs == 0:
+                    log.warning(f"No cells found for sample {sample}, skipping plots")
+                    continue
 
-            if adata_view.n_obs == 0:
-                log.warning(f"No cells found for sample {sample}, skipping plots")
-                continue
-
-            if cfg.plot_violin:
-                _plot_qc_violin(
-                    adata_view,
-                    keys_to_plot,
-                    sample,
-                    save_dir=cfg.save_dir,
-                    show=cfg.show_plots,
-                    max_cells_for_plotting=max_cells_for_plotting
-                    // max(1, len(adata.obs[sample_key].unique())),
-                )
-            if cfg.plot_scatter:
-                _plot_qc_scatter(
-                    adata_view,
-                    sample,
-                    save_dir=cfg.save_dir,
-                    show=cfg.show_plots,
-                    max_cells_for_plotting=max_cells_for_plotting
-                    // max(1, len(adata.obs[sample_key].unique())),
-                )
+                if cfg.plot_violin:
+                    _plot_qc_violin(
+                        adata_view,
+                        keys_to_plot,
+                        sample,
+                        save_dir=cfg.save_dir,
+                        show=cfg.show_plots,
+                        max_cells_for_plotting=max_cells_for_plotting,
+                        random_state=random_state,
+                    )
+                if cfg.plot_scatter:
+                    _plot_qc_scatter(
+                        adata_view,
+                        sample,
+                        save_dir=cfg.save_dir,
+                        show=cfg.show_plots,
+                        max_cells_for_plotting=max_cells_for_plotting,
+                        random_state=random_state,
+                    )
 
     return adata

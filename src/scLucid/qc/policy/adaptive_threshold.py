@@ -7,9 +7,10 @@ optimal QC thresholds from data distributions.
 
 import logging
 import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
 from scipy import optimize, stats
 from scipy.special import gammaln
@@ -17,7 +18,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.mixture import GaussianMixture
 from sklearn.neighbors import NearestNeighbors
 
-from ..runtime import effective_n_jobs
+from ...runtime import effective_n_jobs
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,196 @@ MAD_SCALE_FACTOR: float = 1.4826
 #: Maximum number of observations used for k-distance estimation in DBSCAN eps selection.
 #: This avoids O(N^2) k-NN computations on very large datasets.
 KDISTANCE_MAX_SAMPLES: int = 20000
+
+THRESHOLD_RESULT_SCHEMA_VERSION = "qc_threshold_result_v1"
+
+COUNT_METRIC_HINTS = (
+    "n_genes_by_counts",
+    "total_counts",
+    "n_counts",
+)
+
+PERCENT_METRIC_HINTS = (
+    "pct_counts_",
+    "percent_",
+    "percentage_",
+)
+
+REVIEW_ONLY_METRIC_HINTS = (
+    "ambient",
+    "stress",
+    "apoptosis",
+    "hypoxia",
+    "inflammatory",
+    "doublet",
+)
+
+
+def infer_qc_metric_type(metric_name: str) -> str:
+    """Infer the QC metric family used to select threshold defaults."""
+    name = str(metric_name).lower()
+    if any(hint in name for hint in REVIEW_ONLY_METRIC_HINTS):
+        return "review_evidence"
+    if name.startswith("log1p_"):
+        return "log_count"
+    if name in COUNT_METRIC_HINTS or any(name.endswith(hint) for hint in COUNT_METRIC_HINTS):
+        return "count"
+    if any(name.startswith(hint) for hint in PERCENT_METRIC_HINTS) or name.endswith("_pct"):
+        return "percentage"
+    if "score" in name:
+        return "score"
+    return "continuous"
+
+
+def recommended_threshold_methods(metric_name: str, *, n_cells: int) -> List[str]:
+    """Return recommended threshold methods for a metric family.
+
+    The first method is the default for ``AdaptiveThresholdLearner(method='auto')``.
+    More complex methods are used as evidence only when sample size and metric
+    semantics support them.
+    """
+    metric_type = infer_qc_metric_type(metric_name)
+    if n_cells < 50:
+        return ["percentile", "mad"]
+    if metric_type == "count":
+        return ["count_mixture", "mad", "percentile"]
+    if metric_type == "log_count":
+        return ["mad", "percentile", "gmm"]
+    if metric_type == "percentage":
+        return ["mad", "percentile", "bimodal_gmm"]
+    if metric_type == "review_evidence":
+        return ["percentile", "mad"]
+    if metric_type == "score":
+        return ["percentile", "mad"]
+    return ["mad", "percentile", "gmm"]
+
+
+def _clean_threshold_values(values: np.ndarray) -> np.ndarray:
+    """Return finite numeric values for threshold learning."""
+    clean = np.asarray(values, dtype=float).ravel()
+    clean = clean[np.isfinite(clean)]
+    return clean
+
+
+def _threshold_bounds(threshold: float, direction: str) -> Tuple[Optional[float], Optional[float]]:
+    """Map a direction-aware threshold to lower/upper bounds."""
+    if not np.isfinite(threshold):
+        return None, None
+    if direction == "lower":
+        return float(threshold), None
+    if direction == "upper":
+        return None, float(threshold)
+    return float(threshold), float(threshold)
+
+
+def _estimate_removal(values: np.ndarray, threshold: float, direction: str) -> Dict[str, Any]:
+    """Estimate removal/retention at a candidate threshold."""
+    clean = _clean_threshold_values(values)
+    if clean.size == 0 or not np.isfinite(threshold):
+        return {
+            "n_removed_estimate": 0,
+            "removed_fraction_estimate": 0.0,
+            "retention_fraction_estimate": 1.0,
+        }
+    if direction == "lower":
+        removed = int(np.sum(clean < threshold))
+    elif direction == "upper":
+        removed = int(np.sum(clean > threshold))
+    else:
+        removed = int(np.sum(clean != threshold))
+    return {
+        "n_removed_estimate": removed,
+        "removed_fraction_estimate": float(removed / clean.size),
+        "retention_fraction_estimate": float((clean.size - removed) / clean.size),
+    }
+
+
+def _confidence_from_result(
+    *,
+    method: str,
+    n_cells: int,
+    fallback_used: bool = False,
+    adjusted_by_guardrail: bool = False,
+    model_evidence: Optional[Dict[str, Any]] = None,
+) -> float:
+    """Assign a conservative confidence score for a threshold recommendation."""
+    confidence = 0.55
+    if n_cells >= 200:
+        confidence += 0.10
+    if n_cells >= 1000:
+        confidence += 0.10
+    if method in {"mad", "percentile"}:
+        confidence += 0.05
+    if method in {"count_mixture", "bimodal_gmm", "gmm"}:
+        confidence += 0.10
+    if method in {"kde", "dbscan"}:
+        confidence -= 0.05
+    if fallback_used:
+        confidence -= 0.15
+    if adjusted_by_guardrail:
+        confidence -= 0.05
+    if model_evidence and model_evidence.get("is_bimodal") is False:
+        confidence -= 0.10
+    return float(np.clip(confidence, 0.05, 0.95))
+
+
+def _threshold_review_note(metric_type: str, method: str) -> str:
+    """Return reviewer-facing semantics for a threshold result."""
+    if metric_type == "review_evidence":
+        return (
+            "This metric is treated as review evidence. Use the threshold for "
+            "annotation or sensitivity analysis rather than default hard filtering."
+        )
+    if method in {"kde", "dbscan", "bimodal_gmm", "gmm"}:
+        return (
+            "Model-based threshold; inspect distributions and benchmark retention "
+            "before using it as a hard filter."
+        )
+    return "Conservative distribution-derived threshold; still review retention by sample."
+
+
+def build_threshold_result(
+    *,
+    metric_name: str,
+    direction: str,
+    method: str,
+    threshold: float,
+    values: np.ndarray,
+    metric_type: Optional[str] = None,
+    fallback_reason: Optional[str] = None,
+    model_evidence: Optional[Dict[str, Any]] = None,
+    adjusted_by_guardrail: bool = False,
+) -> Dict[str, Any]:
+    """Build a stable, audit-friendly threshold result dictionary."""
+    metric_type = metric_type or infer_qc_metric_type(metric_name)
+    lower, upper = _threshold_bounds(threshold, direction)
+    removal = _estimate_removal(values, threshold, direction)
+    fallback_used = fallback_reason is not None
+    result = {
+        "schema_version": THRESHOLD_RESULT_SCHEMA_VERSION,
+        "metric_name": metric_name,
+        "metric_type": metric_type,
+        "direction": direction,
+        "method": method,
+        "threshold": float(threshold) if np.isfinite(threshold) else np.nan,
+        "lower": lower,
+        "upper": upper,
+        "n_cells": int(_clean_threshold_values(values).size),
+        **removal,
+        "confidence": _confidence_from_result(
+            method=method,
+            n_cells=int(_clean_threshold_values(values).size),
+            fallback_used=fallback_used,
+            adjusted_by_guardrail=adjusted_by_guardrail,
+            model_evidence=model_evidence,
+        ),
+        "fallback_reason": fallback_reason,
+        "adjusted_by_guardrail": bool(adjusted_by_guardrail),
+        "model_evidence": model_evidence or {},
+        "review_note": _threshold_review_note(metric_type, method),
+        "score_semantics": "Threshold recommendation, not an automatic removal decision.",
+    }
+    return result
 
 
 def _nb_cdf(y: np.ndarray, mu: float, alpha: float) -> np.ndarray:
@@ -486,7 +677,7 @@ def fit_count_mixture_threshold_model(
     if fit.get("is_success"):
         threshold = float(fit["threshold_func"](percentile))
         threshold = max(0.0, threshold)
-        return {
+        result = {
             "threshold": threshold,
             "model": fit["model"],
             "params": fit["params"],
@@ -496,12 +687,30 @@ def fit_count_mixture_threshold_model(
             "fallback_used": False,
             "is_success": True,
         }
+        result.update(
+            build_threshold_result(
+                metric_name="count_metric",
+                direction=direction,
+                method="count_mixture",
+                threshold=threshold,
+                values=values,
+                metric_type="count",
+                model_evidence={
+                    "model": fit["model"],
+                    "params": fit["params"],
+                    "aic": fit.get("aic"),
+                    "all_aic": fit.get("all_aic"),
+                },
+            )
+        )
+        result["method"] = f"count_mixture ({fit['model']})"
+        return result
 
     if fallback:
         log.debug("Count mixture fitting failed; falling back to GMM threshold model.")
         values_arr = np.asarray(values)
         if values_arr.size == 0:
-            return {
+            result = {
                 "threshold": np.nan,
                 "model": "none",
                 "params": None,
@@ -510,10 +719,24 @@ def fit_count_mixture_threshold_model(
                 "fallback_used": True,
                 "is_success": True,
             }
+            result.update(
+                build_threshold_result(
+                    metric_name="count_metric",
+                    direction=direction,
+                    method="count_mixture",
+                    threshold=np.nan,
+                    values=values_arr,
+                    metric_type="count",
+                    fallback_reason="empty_input",
+                    model_evidence={"fallback_model": "none"},
+                )
+            )
+            result["method"] = "count mixture (empty input fallback)"
+            return result
         gmm_fit = fit_gmm_threshold_model(
             values_arr, direction=direction, random_state=random_state
         )
-        return {
+        result = {
             "threshold": gmm_fit["threshold"],
             "model": "gmm",
             "params": None,
@@ -523,8 +746,22 @@ def fit_count_mixture_threshold_model(
             "is_success": True,
             "gmm_fit": gmm_fit,
         }
+        result.update(
+            build_threshold_result(
+                metric_name="count_metric",
+                direction=direction,
+                method="count_mixture",
+                threshold=float(gmm_fit["threshold"]),
+                values=values_arr,
+                metric_type="count",
+                fallback_reason="count_distribution_fit_failed",
+                model_evidence={"fallback_model": "gmm"},
+            )
+        )
+        result["method"] = "gmm (count mixture fallback)"
+        return result
 
-    return {
+    result = {
         "threshold": np.nan,
         "model": "none",
         "params": None,
@@ -533,6 +770,19 @@ def fit_count_mixture_threshold_model(
         "fallback_used": False,
         "is_success": False,
     }
+    result.update(
+        build_threshold_result(
+            metric_name="count_metric",
+            direction=direction,
+            method="count_mixture",
+            threshold=np.nan,
+            values=values,
+            metric_type="count",
+            fallback_reason="count_distribution_fit_failed",
+        )
+    )
+    result["method"] = "count mixture (failed)"
+    return result
 
 
 def fit_bimodal_gmm_threshold_model(
@@ -864,6 +1114,314 @@ def compute_mad_bounds(
     return lower, upper
 
 
+class AdaptiveThresholdCalculator:
+    """
+    Batch-aware adaptive threshold calculator using empirical shrinkage.
+
+    This addresses the common issue where different batches/samples have
+    inherently different QC distributions (e.g., fresh vs. frozen samples).
+    The ``hierarchical`` strategy is an empirical-Bayes-style heuristic, not a
+    formal mixed-effects model; thresholds should remain reviewer-visible.
+    """
+
+    def __init__(self, adata: AnnData, batch_key: str, reference_batch: Optional[str] = None):
+        """
+        Initialize adaptive threshold calculator.
+
+        Args:
+            adata: AnnData object with QC metrics
+            batch_key: Column in .obs for batch identification
+            reference_batch: Optional reference batch for normalization
+        """
+        self.adata = adata
+        self.batch_key = batch_key
+        self.reference_batch = reference_batch
+        self.batch_statistics = {}
+
+    def _calculate_batch_effects(self, metric: str, plot: bool = True) -> pd.DataFrame:
+        """
+        Quantify batch effects for a QC metric.
+
+        Returns:
+            DataFrame with batch-specific statistics and effect sizes
+        """
+        batches = self.adata.obs[self.batch_key].unique()
+        stats_list = []
+
+        for batch in batches:
+            batch_mask = self.adata.obs[self.batch_key] == batch
+            values = self.adata.obs.loc[batch_mask, metric].dropna()
+
+            stats_list.append(
+                {
+                    "batch": batch,
+                    "n_cells": len(values),
+                    "mean": values.mean(),
+                    "median": values.median(),
+                    "std": values.std(),
+                    "q25": values.quantile(0.25),
+                    "q75": values.quantile(0.75),
+                    "iqr": values.quantile(0.75) - values.quantile(0.25),
+                }
+            )
+
+        stats_df = pd.DataFrame(stats_list)
+
+        # Calculate effect sizes (Cohen's d between each batch and reference)
+        if self.reference_batch and self.reference_batch in batches:
+            ref_mask = self.adata.obs[self.batch_key] == self.reference_batch
+            ref_values = self.adata.obs.loc[ref_mask, metric].dropna()
+            ref_mean = ref_values.mean()
+            ref_std = ref_values.std()
+
+            for batch in batches:
+                if batch == self.reference_batch:
+                    stats_df.loc[stats_df["batch"] == batch, "cohens_d"] = 0.0
+                else:
+                    batch_mask = self.adata.obs[self.batch_key] == batch
+                    batch_values = self.adata.obs.loc[batch_mask, metric].dropna()
+                    batch_mean = batch_values.mean()
+
+                    # Cohen's d
+                    pooled_std = np.sqrt(
+                        (
+                            (len(ref_values) - 1) * ref_std**2
+                            + (len(batch_values) - 1) * batch_values.std() ** 2
+                        )
+                        / (len(ref_values) + len(batch_values) - 2)
+                    )
+                    cohens_d = (batch_mean - ref_mean) / pooled_std
+                    stats_df.loc[stats_df["batch"] == batch, "cohens_d"] = cohens_d
+
+        # Kruskal-Wallis test for overall batch effect
+        batch_groups = [
+            self.adata.obs.loc[self.adata.obs[self.batch_key] == b, metric].dropna()
+            for b in batches
+        ]
+        h_stat, p_value = stats.kruskal(*batch_groups)
+
+        log.info(f"Batch effect analysis for {metric}:")
+        log.info(f"  Kruskal-Wallis H-statistic: {h_stat:.4f}, p-value: {p_value:.4e}")
+
+        if p_value < 0.001:
+            log.warning(
+                f"⚠️  Strong batch effect detected for {metric} (p < 0.001). "
+                "Consider batch-specific thresholds."
+            )
+
+        self.batch_statistics[metric] = {
+            "stats": stats_df,
+            "h_statistic": h_stat,
+            "p_value": p_value,
+        }
+
+        return stats_df
+
+    def _suggest_adaptive_thresholds(
+        self, metric: str, method: str = "hierarchical", percentile: float = 95.0
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Suggest batch-specific thresholds using pooled, independent, or
+        empirical-shrinkage strategy.
+
+        Args:
+            metric: QC metric name
+            method: 'hierarchical', 'independent', or 'pooled'. ``hierarchical``
+                uses empirical shrinkage toward the global distribution and is
+                intended as reviewable threshold guidance.
+            percentile: Percentile for threshold calculation
+
+        Returns:
+            Dictionary mapping batch names to threshold dictionaries
+        """
+        if metric not in self.batch_statistics:
+            self._calculate_batch_effects(metric, plot=False)
+
+        batches = self.adata.obs[self.batch_key].unique()
+        thresholds = {}
+
+        if method == "independent":
+            # Each batch gets its own threshold independently
+            for batch in batches:
+                batch_mask = self.adata.obs[self.batch_key] == batch
+                values = self.adata.obs.loc[batch_mask, metric].dropna()
+
+                thresholds[batch] = {
+                    "lower": values.quantile((100 - percentile) / 100),
+                    "upper": values.quantile(percentile / 100),
+                    "method": "independent",
+                    "model_type": "nonparametric_quantile",
+                    "review_note": "Independent per-batch quantile thresholds are heuristic QC guidance.",
+                }
+
+        elif method == "pooled":
+            # Single threshold for all batches (traditional approach)
+            values = self.adata.obs[metric].dropna()
+            global_threshold = {
+                "lower": values.quantile((100 - percentile) / 100),
+                "upper": values.quantile(percentile / 100),
+                "method": "pooled",
+                "model_type": "pooled_nonparametric_quantile",
+                "review_note": "Pooled quantile thresholds ignore sample-specific QC distribution shifts.",
+            }
+            thresholds = dict.fromkeys(batches, global_threshold)
+
+        elif method == "hierarchical":
+            # Hierarchical: adjust batch-specific thresholds toward global mean
+            # using empirical-Bayes shrinkage estimated from the data.
+
+            # Global statistics
+            global_values = self.adata.obs[metric].dropna()
+            global_mean = global_values.mean()
+            global_std = global_values.std()
+
+            # --- Empirical Bayes: estimate between- vs within-batch variance ---
+            batch_stats = []
+            for batch in batches:
+                batch_mask = self.adata.obs[self.batch_key] == batch
+                batch_values = self.adata.obs.loc[batch_mask, metric].dropna()
+                if len(batch_values) > 1:
+                    batch_stats.append(
+                        {
+                            "mean": batch_values.mean(),
+                            "var": batch_values.var(ddof=1),
+                            "n": len(batch_values),
+                        }
+                    )
+
+            # Between-batch variance (tau^2)
+            if len(batch_stats) > 1:
+                batch_means = np.array([b["mean"] for b in batch_stats])
+                tau_sq = float(np.var(batch_means, ddof=1))
+            else:
+                tau_sq = 0.0
+
+            # Pooled within-batch variance (sigma^2)
+            if batch_stats:
+                pooled_var = np.average(
+                    [b["var"] for b in batch_stats],
+                    weights=[b["n"] - 1 for b in batch_stats],
+                )
+                sigma_sq = float(pooled_var) if pooled_var > 0 else global_std**2
+            else:
+                sigma_sq = global_std**2 if global_std > 0 else 1.0
+
+            for batch in batches:
+                batch_mask = self.adata.obs[self.batch_key] == batch
+                batch_values = self.adata.obs.loc[batch_mask, metric].dropna()
+                batch_mean = batch_values.mean()
+                batch_std = batch_values.std()
+                n_batch = len(batch_values)
+
+                # Empirical Bayes shrinkage:
+                #   lambda = tau^2 / (tau^2 + sigma^2 / n_batch)
+                # Small batches or similar batches -> shrink toward global mean
+                # Large batches or very different batches -> keep batch estimate
+                denom = tau_sq + sigma_sq / max(n_batch, 1)
+                shrinkage = tau_sq / denom if denom > 0 else 0.5
+                shrinkage = float(np.clip(shrinkage, 0.05, 0.95))
+
+                # Shrunken estimates
+                adjusted_mean = (1 - shrinkage) * batch_mean + shrinkage * global_mean
+                adjusted_std = (1 - shrinkage) * batch_std + shrinkage * global_std
+
+                # Calculate thresholds from the adjusted distribution using the
+                # empirical quantiles of the batch values shrunk toward the global
+                # distribution, rather than assuming normality. This avoids
+                # nonsensical thresholds for skewed count metrics.
+                global_q_low = global_values.quantile((100 - percentile) / 100)
+                global_q_high = global_values.quantile(percentile / 100)
+                batch_q_low = batch_values.quantile((100 - percentile) / 100)
+                batch_q_high = batch_values.quantile(percentile / 100)
+
+                lower = (1 - shrinkage) * batch_q_low + shrinkage * global_q_low
+                upper = (1 - shrinkage) * batch_q_high + shrinkage * global_q_high
+
+                # Domain-aware clipping
+                if metric in ("n_genes_by_counts", "total_counts"):
+                    lower = max(0.0, lower)
+                elif metric.startswith("pct_counts_") or metric in (
+                    "pct_counts_mt",
+                    "pct_counts_hb",
+                    "pct_counts_ribo",
+                ):
+                    lower = max(0.0, lower)
+                    upper = min(100.0, upper)
+
+                thresholds[batch] = {
+                    "lower": lower,
+                    "upper": upper,
+                    "method": "hierarchical",
+                    "model_type": "empirical_shrinkage_heuristic",
+                    "shrinkage_factor": shrinkage,
+                    "n_cells": n_batch,
+                    "review_note": (
+                        "Empirical-shrinkage threshold guidance; not a formal mixed-effects model."
+                    ),
+                }
+
+                log.info(
+                    f"Batch '{batch}': adjusted threshold = "
+                    f"[{thresholds[batch]['lower']:.2f}, {thresholds[batch]['upper']:.2f}] "
+                    f"(shrinkage: {shrinkage:.3f})"
+                )
+
+        else:
+            raise ValueError(f"Unknown method: {method}")
+
+        return thresholds
+
+    def _plot_batch_distributions(
+        self,
+        metric: str,
+        thresholds: Optional[Dict] = None,
+        save_path: Optional[str] = None,
+    ):
+        """
+        Visualize batch-specific distributions with adaptive thresholds.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Violin plot
+        sns.violinplot(data=self.adata.obs, x=self.batch_key, y=metric, ax=axes[0], inner="box")
+        axes[0].set_title(f"{metric} Distribution by Batch")
+        axes[0].tick_params(axis="x", rotation=45)
+
+        if thresholds:
+            # Add threshold lines
+            for i, batch in enumerate(self.adata.obs[self.batch_key].unique()):
+                if batch in thresholds:
+                    y_lower = thresholds[batch]["lower"]
+                    y_upper = thresholds[batch]["upper"]
+                    axes[0].hlines(
+                        y=[y_lower, y_upper],
+                        xmin=i - 0.4,
+                        xmax=i + 0.4,
+                        colors="red",
+                        linestyles="--",
+                        alpha=0.7,
+                    )
+
+        # KDE plot
+        for batch in self.adata.obs[self.batch_key].unique():
+            batch_mask = self.adata.obs[self.batch_key] == batch
+            values = self.adata.obs.loc[batch_mask, metric].dropna()
+            sns.kdeplot(values, ax=axes[1], label=batch)
+
+        axes[1].set_title(f"{metric} Density by Batch")
+        axes[1].legend()
+
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+            log.info(f"Saved batch distribution plot to {save_path}")
+
+        return fig
+
 class AdaptiveThresholdLearner:
     """
     Automatically learn optimal QC thresholds using statistical methods.
@@ -901,6 +1459,7 @@ class AdaptiveThresholdLearner:
         self.dbscan_subsample_size = max(1000, int(dbscan_subsample_size))
 
         self._learned_thresholds = {}
+        self._learned_threshold_results = {}
         self._fitted_models = {}
 
     def learn_threshold(
@@ -920,38 +1479,177 @@ class AdaptiveThresholdLearner:
         Returns:
             Learned threshold value
         """
-        # Remove NaN and infinite values
-        clean_values = metric_values[~np.isnan(metric_values)]
-        clean_values = clean_values[~np.isinf(clean_values)]
+        warnings.warn(
+            "AdaptiveThresholdLearner.learn_threshold returns only a numeric threshold "
+            "and is retained for compatibility. Use learn_threshold_result for "
+            "threshold provenance and audit metadata.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        result = self.learn_threshold_result(metric_values, metric_name, direction)
+        return float(result["threshold"])
 
+    def learn_threshold_result(
+        self,
+        metric_values: np.ndarray,
+        metric_name: str,
+        direction: str = "upper",
+    ) -> Dict[str, Any]:
+        """Learn a threshold and return a stable audit/result schema.
+
+        This is the preferred API for new QC code. ``learn_threshold`` remains
+        available for backward compatibility and returns only the numeric
+        threshold.
+        """
+        clean_values = _clean_threshold_values(metric_values)
+        metric_type = infer_qc_metric_type(metric_name)
         if len(clean_values) == 0:
             log.warning(f"No valid values for metric {metric_name}")
-            return np.nan
+            result = build_threshold_result(
+                metric_name=metric_name,
+                direction=direction,
+                method=self.method,
+                threshold=np.nan,
+                values=clean_values,
+                metric_type=metric_type,
+                fallback_reason="no_finite_values",
+            )
+            self._learned_thresholds[metric_name] = np.nan
+            self._learned_threshold_results[metric_name] = result
+            return result
 
-        if self.method == "gmm":
+        method = self.method
+        fallback_reason = None
+        model_evidence: Dict[str, Any] = {}
+        if method == "auto":
+            method = recommended_threshold_methods(metric_name, n_cells=len(clean_values))[0]
+
+        if method == "count_mixture":
+            if metric_type != "count":
+                fallback_reason = "count_mixture_requires_count_metric"
+                method = "mad"
+            else:
+                fit = fit_count_mixture_threshold_model(
+                    clean_values,
+                    direction=direction,
+                    percentile=10.0 if direction == "lower" else 5.0,
+                    random_state=self.random_state,
+                )
+                threshold = float(fit["threshold"])
+                fallback_reason = (
+                    "count_mixture_fallback_used" if fit.get("fallback_used") else None
+                )
+                model_evidence = {
+                    "model": fit.get("model"),
+                    "params": fit.get("params"),
+                    "aic": fit.get("aic"),
+                    "all_aic": fit.get("all_aic"),
+                    "is_success": fit.get("is_success"),
+                }
+                return self._finalize_threshold_result(
+                    metric_name=metric_name,
+                    metric_type=metric_type,
+                    direction=direction,
+                    method="count_mixture",
+                    threshold=threshold,
+                    values=clean_values,
+                    fallback_reason=fallback_reason,
+                    model_evidence=model_evidence,
+                )
+
+        if method == "bimodal_gmm":
+            fit = fit_bimodal_gmm_threshold_model(
+                clean_values,
+                direction=direction,
+                random_state=self.random_state,
+            )
+            threshold = float(fit["threshold"])
+            model_evidence = {
+                "is_bimodal": fit.get("is_bimodal"),
+                "separation": fit.get("separation"),
+                "component_means": fit.get("component_means"),
+                "component_stds": fit.get("component_stds"),
+            }
+            fallback_reason = None if fit.get("is_bimodal") else "bimodal_structure_not_strong"
+            return self._finalize_threshold_result(
+                metric_name=metric_name,
+                metric_type=metric_type,
+                direction=direction,
+                method="bimodal_gmm",
+                threshold=threshold,
+                values=clean_values,
+                fallback_reason=fallback_reason,
+                model_evidence=model_evidence,
+            )
+
+        if method == "gmm":
             threshold = self._learn_threshold_gmm(clean_values, direction)
-        elif self.method == "mad":
+            model_evidence = {"model": "GaussianMixture"}
+        elif method == "mad":
             threshold = self._learn_threshold_mad(clean_values, direction)
-        elif self.method == "percentile":
+        elif method == "percentile":
             threshold = self._learn_threshold_percentile(clean_values, direction)
-        elif self.method == "kde":
+        elif method == "kde":
             threshold = self._learn_threshold_kde(clean_values, direction)
-        elif self.method == "dbscan":
+            fallback_reason = "kde_is_review_diagnostic"
+        elif method == "dbscan":
             threshold = self._learn_threshold_dbscan(clean_values, direction)
+            fallback_reason = "dbscan_is_review_diagnostic"
         else:
             raise ValueError(f"Unknown method: {self.method}")
 
-        # Apply minimum quality constraint
-        threshold = self._apply_min_quality_constraint(clean_values, threshold, direction)
-
-        self._learned_thresholds[metric_name] = threshold
-
-        log.info(
-            f"Learned threshold for {metric_name} ({direction}): {threshold:.4f} "
-            f"using {self.method}"
+        return self._finalize_threshold_result(
+            metric_name=metric_name,
+            metric_type=metric_type,
+            direction=direction,
+            method=method,
+            threshold=float(threshold),
+            values=clean_values,
+            fallback_reason=fallback_reason,
+            model_evidence=model_evidence,
         )
 
-        return threshold
+    def _finalize_threshold_result(
+        self,
+        *,
+        metric_name: str,
+        metric_type: str,
+        direction: str,
+        method: str,
+        threshold: float,
+        values: np.ndarray,
+        fallback_reason: Optional[str],
+        model_evidence: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Apply guardrails, store, and return a threshold result."""
+        guarded = self._apply_min_quality_constraint(values, threshold, direction)
+        adjusted = bool(
+            np.isfinite(threshold)
+            and np.isfinite(guarded)
+            and not np.isclose(float(threshold), float(guarded))
+        )
+        result = build_threshold_result(
+            metric_name=metric_name,
+            metric_type=metric_type,
+            direction=direction,
+            method=method,
+            threshold=guarded,
+            values=values,
+            fallback_reason=fallback_reason,
+            model_evidence=model_evidence,
+            adjusted_by_guardrail=adjusted,
+        )
+        result["recommended_methods"] = recommended_threshold_methods(
+            metric_name, n_cells=len(values)
+        )
+        self._learned_thresholds[metric_name] = float(result["threshold"])
+        self._learned_threshold_results[metric_name] = result
+
+        log.info(
+            f"Learned threshold for {metric_name} ({direction}): {result['threshold']:.4f} "
+            f"using {method}"
+        )
+        return result
 
     def _learn_threshold_gmm(
         self,
@@ -1178,6 +1876,13 @@ class AdaptiveThresholdLearner:
         Returns:
             Dictionary of learned thresholds
         """
+        warnings.warn(
+            "AdaptiveThresholdLearner.learn_all_thresholds returns only numeric "
+            "thresholds and is retained for compatibility. Use "
+            "learn_all_threshold_results for threshold provenance and audit metadata.",
+            FutureWarning,
+            stacklevel=2,
+        )
         if metrics is None:
             metrics = {
                 "log1p_n_genes_by_counts": "lower",
@@ -1196,13 +1901,52 @@ class AdaptiveThresholdLearner:
             values = adata.obs[metric_name].values
 
             try:
-                threshold = self.learn_threshold(values, metric_name, direction)
-                learned_thresholds[metric_name] = threshold
+                result = self.learn_threshold_result(values, metric_name, direction)
+                learned_thresholds[metric_name] = float(result["threshold"])
             except Exception as e:
                 log.error(f"Failed to learn threshold for {metric_name}: {e}")
                 continue
 
         return learned_thresholds
+
+    def learn_all_threshold_results(
+        self,
+        adata: AnnData,
+        metrics: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Learn thresholds for QC metrics and return full audit records.
+
+        The numeric-only :meth:`learn_all_thresholds` method is kept for
+        compatibility with existing workflow code. New filtering and review
+        code should prefer this method so threshold provenance, confidence,
+        guardrail adjustments, and removal estimates are available downstream.
+        """
+        if metrics is None:
+            metrics = {
+                "log1p_n_genes_by_counts": "lower",
+                "log1p_total_counts": "lower",
+                "pct_counts_mt": "upper",
+                "pct_counts_in_top_20_genes": "upper",
+            }
+
+        learned_results: Dict[str, Dict[str, Any]] = {}
+
+        for metric_name, direction in metrics.items():
+            if metric_name not in adata.obs:
+                log.warning(f"Metric {metric_name} not found in adata.obs")
+                continue
+
+            values = adata.obs[metric_name].values
+
+            try:
+                learned_results[metric_name] = self.learn_threshold_result(
+                    values, metric_name, direction
+                )
+            except Exception as e:
+                log.error(f"Failed to learn threshold for {metric_name}: {e}")
+                continue
+
+        return learned_results
 
     def predict_quality(
         self,

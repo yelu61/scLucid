@@ -1,13 +1,16 @@
-"""Tests for scLucid.qc.adaptive_threshold module."""
+"""Tests for scLucid.qc.policy.adaptive_threshold module."""
 
 import numpy as np
 import pytest
 
-from scLucid.qc.adaptive_threshold import (
+from scLucid.qc.policy.adaptive_threshold import (
     AdaptiveThresholdLearner,
     MultiMetricAdaptiveLearner,
+    THRESHOLD_RESULT_SCHEMA_VERSION,
     compute_kdistance_eps,
     fit_count_mixture_threshold_model,
+    infer_qc_metric_type,
+    recommended_threshold_methods,
     _zinb_loglik,
     _zinb_loglik_logparams,
 )
@@ -97,7 +100,9 @@ class TestDBSCANLargeSample:
         outliers = rng.uniform(low=1500, high=1600, size=100)
         values = np.concatenate([normal, outliers])
         learner = AdaptiveThresholdLearner(method="dbscan", random_state=99)
-        threshold = learner.learn_threshold(values, "test_metric", direction="upper")
+        threshold = learner.learn_threshold_result(
+            values, "test_metric", direction="upper"
+        )["threshold"]
         assert not np.isnan(threshold)
         # The detected outlier boundary should separate most normal cells from
         # the outlier cloud.
@@ -123,7 +128,9 @@ class TestAdaptiveThresholdLearner:
         """Percentile method should return sensible upper threshold."""
         learner = AdaptiveThresholdLearner(method="percentile")
         values = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        threshold = learner.learn_threshold(values, "test_metric", direction="upper")
+        threshold = learner.learn_threshold_result(
+            values, "test_metric", direction="upper"
+        )["threshold"]
         assert not np.isnan(threshold)
         assert threshold > values.min()
 
@@ -131,7 +138,9 @@ class TestAdaptiveThresholdLearner:
         """Percentile method should return sensible lower threshold."""
         learner = AdaptiveThresholdLearner(method="percentile")
         values = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        threshold = learner.learn_threshold(values, "test_metric", direction="lower")
+        threshold = learner.learn_threshold_result(
+            values, "test_metric", direction="lower"
+        )["threshold"]
         assert not np.isnan(threshold)
         assert threshold < values.max()
 
@@ -143,7 +152,9 @@ class TestAdaptiveThresholdLearner:
             np.random.normal(100, 5, 95),
             np.array([200, 210, 220]),  # outliers
         ])
-        threshold = learner.learn_threshold(values, "test_metric", direction="upper")
+        threshold = learner.learn_threshold_result(
+            values, "test_metric", direction="upper"
+        )["threshold"]
         assert not np.isnan(threshold)
         # Threshold should catch the outliers
         assert threshold < 200
@@ -156,7 +167,9 @@ class TestAdaptiveThresholdLearner:
             np.random.normal(50, 5, 50),
             np.random.normal(150, 10, 50),
         ])
-        threshold = learner.learn_threshold(values, "test_metric", direction="upper")
+        threshold = learner.learn_threshold_result(
+            values, "test_metric", direction="upper"
+        )["threshold"]
         assert not np.isnan(threshold)
         # Threshold should separate the two modes
         assert 50 < threshold < 150
@@ -165,7 +178,9 @@ class TestAdaptiveThresholdLearner:
         """KDE method should learn threshold."""
         learner = AdaptiveThresholdLearner(method="kde")
         values = np.random.normal(100, 20, 100)
-        threshold = learner.learn_threshold(values, "test_metric", direction="upper")
+        threshold = learner.learn_threshold_result(
+            values, "test_metric", direction="upper"
+        )["threshold"]
         assert not np.isnan(threshold)
 
     def test_dbscan_method(self):
@@ -175,37 +190,123 @@ class TestAdaptiveThresholdLearner:
             np.random.normal(100, 5, 90),
             np.array([200, 205, 210]),  # clear outliers
         ])
-        threshold = learner.learn_threshold(values, "test_metric", direction="upper")
+        threshold = learner.learn_threshold_result(
+            values, "test_metric", direction="upper"
+        )["threshold"]
         assert not np.isnan(threshold)
 
     def test_empty_values_returns_nan(self):
         """Empty input should return NaN."""
         learner = AdaptiveThresholdLearner(method="percentile")
-        threshold = learner.learn_threshold(np.array([]), "test_metric")
+        threshold = learner.learn_threshold_result(np.array([]), "test_metric")["threshold"]
         assert np.isnan(threshold)
 
     def test_nan_values_handled(self):
         """NaN values should be ignored."""
         learner = AdaptiveThresholdLearner(method="percentile")
         values = np.array([1, 2, np.nan, 4, 5, np.nan])
-        threshold = learner.learn_threshold(values, "test_metric")
+        threshold = learner.learn_threshold_result(values, "test_metric")["threshold"]
         assert not np.isnan(threshold)
 
     def test_unknown_method_raises(self):
         """Unknown method should raise ValueError."""
         learner = AdaptiveThresholdLearner(method="unknown")
         with pytest.raises(ValueError, match="Unknown method"):
-            learner.learn_threshold(np.array([1, 2, 3]), "test_metric")
+            learner.learn_threshold_result(np.array([1, 2, 3]), "test_metric")
 
     def test_learned_thresholds_stored(self):
         """Learned thresholds should be stored in _learned_thresholds."""
         learner = AdaptiveThresholdLearner(method="percentile")
         values = np.array([1, 2, 3, 4, 5])
-        learner.learn_threshold(values, "metric_a", direction="upper")
-        learner.learn_threshold(values, "metric_b", direction="lower")
+        learner.learn_threshold_result(values, "metric_a", direction="upper")
+        learner.learn_threshold_result(values, "metric_b", direction="lower")
 
         assert "metric_a" in learner._learned_thresholds
         assert "metric_b" in learner._learned_thresholds
+
+    def test_numeric_compatibility_wrapper_warns(self):
+        """Numeric-only wrapper should remain visibly deprecated."""
+        learner = AdaptiveThresholdLearner(method="percentile")
+        with pytest.warns(FutureWarning, match="learn_threshold_result"):
+            threshold = learner.learn_threshold(
+                np.array([1, 2, 3, 4, 5]), "test_metric", direction="upper"
+            )
+        assert isinstance(threshold, float)
+
+    def test_auto_threshold_result_has_audit_schema_for_count_metric(self):
+        """Structured threshold results should expose provenance and removal estimates."""
+        rng = np.random.default_rng(123)
+        values = rng.negative_binomial(n=8, p=0.01, size=500).astype(float)
+        learner = AdaptiveThresholdLearner(method="auto", random_state=123)
+
+        result = learner.learn_threshold_result(
+            values, "n_genes_by_counts", direction="lower"
+        )
+
+        assert result["schema_version"] == THRESHOLD_RESULT_SCHEMA_VERSION
+        assert result["metric_name"] == "n_genes_by_counts"
+        assert result["metric_type"] == "count"
+        assert result["direction"] == "lower"
+        assert result["method"] == "count_mixture"
+        assert result["lower"] == pytest.approx(result["threshold"])
+        assert result["upper"] is None
+        assert result["n_cells"] == len(values)
+        assert 0.0 <= result["removed_fraction_estimate"] <= 1.0
+        assert 0.0 <= result["confidence"] <= 1.0
+        assert "count_mixture" in result["recommended_methods"]
+        assert result["score_semantics"] == (
+            "Threshold recommendation, not an automatic removal decision."
+        )
+
+    def test_learn_all_threshold_results_preserves_numeric_api(self, minimal_adata):
+        """Batch schema API should coexist with legacy float threshold output."""
+        from tests.fixtures.synthetic_data import SyntheticDataGenerator
+
+        gen = SyntheticDataGenerator()
+        adata = gen.generate_adata(n_cells=120, n_genes=200)
+        adata.obs["n_genes_by_counts"] = np.random.randint(100, 500, adata.n_obs)
+        adata.obs["pct_counts_mt"] = np.random.uniform(0, 20, adata.n_obs)
+
+        metrics = {"n_genes_by_counts": "lower", "pct_counts_mt": "upper"}
+        learner = AdaptiveThresholdLearner(method="percentile")
+        with pytest.warns(FutureWarning, match="learn_all_threshold_results"):
+            numeric = learner.learn_all_thresholds(adata, metrics=metrics)
+        structured = learner.learn_all_threshold_results(adata, metrics=metrics)
+
+        assert set(numeric) == set(metrics)
+        assert set(structured) == set(metrics)
+        assert all(isinstance(value, float) for value in numeric.values())
+        assert all(
+            item["schema_version"] == THRESHOLD_RESULT_SCHEMA_VERSION
+            for item in structured.values()
+        )
+
+    def test_review_only_metric_result_is_not_hard_filter_semantics(self):
+        """Review evidence metrics should be explicitly labelled as non-default filters."""
+        values = np.linspace(0, 1, 200)
+        learner = AdaptiveThresholdLearner(method="auto")
+
+        result = learner.learn_threshold_result(values, "ambient_score", direction="upper")
+
+        assert result["metric_type"] == "review_evidence"
+        assert result["method"] == "percentile"
+        assert "review evidence" in result["review_note"]
+        assert "not an automatic removal decision" in result["score_semantics"]
+
+    def test_metric_type_and_recommended_methods_are_explicit(self):
+        """Metric family inference should drive default threshold method selection."""
+        assert infer_qc_metric_type("n_genes_by_counts") == "count"
+        assert infer_qc_metric_type("log1p_total_counts") == "log_count"
+        assert infer_qc_metric_type("pct_counts_mt") == "percentage"
+        assert infer_qc_metric_type("ambient_score") == "review_evidence"
+
+        assert recommended_threshold_methods("n_genes_by_counts", n_cells=500)[0] == (
+            "count_mixture"
+        )
+        assert recommended_threshold_methods("pct_counts_mt", n_cells=500)[0] == "mad"
+        assert recommended_threshold_methods("ambient_score", n_cells=500)[0] == (
+            "percentile"
+        )
 
 
 class TestMultiMetricAdaptiveLearner:

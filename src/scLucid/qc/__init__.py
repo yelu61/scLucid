@@ -48,20 +48,30 @@ _export(
     "ambient",
     [
         "AMBIENT_CORRECTED_COUNTS_LAYER",
-        "build_ambient_layer_contract",
         "diagnose_ambient_rna",
-        "diagnose_empty_droplets",
-        "infer_ambient_input_context",
-        "record_ambient_correction_status",
-        "record_ambient_layer_contract",
         "register_external_ambient_result",
-        "correct_ambient_rna_linear",
     ],
 )
 _export("ambient_backends", ["correct_ambient_rna", "cellbender_available"], optional=True)
 _export("cycle", ["score_cell_cycle"])
 _export(
-    "decisions",
+    "artifacts",
+    [
+        "QC_ARTIFACT_CONTRACT_SCHEMA_VERSION",
+        "QC_ARTIFACT_CONTRACT",
+        "get_qc_artifact_contract",
+        "record_qc_artifact_contract",
+        "record_threshold_recommendation",
+        "record_threshold_decision",
+        "record_mark_evidence",
+        "record_qc_decision_artifact",
+        "record_filter_result",
+        "record_benchmark_review",
+        "cleanup_qc_intermediates",
+    ],
+)
+_export(
+    "policy.decisions",
     [
         "QC_DECISION_SCHEMA_VERSION",
         "QC_DECISION_VALUES",
@@ -76,20 +86,20 @@ _export(
         "generate_doublet_rates",
         "create_custom_marker_dict",
         "predict_doublets",
-        "predict_doublets_with_profiling",
         "audit_doublets",
+        "DOUBLET_OBS_COLUMNS",
     ],
 )
 _export(
     "filtering",
     [
-        "suggest_qc_thresholds",
-        "identify_outliers",
-        "mark_low_quality_cell",
-        "mark_low_quality_cells_adaptive",
         "filter_cells",
-        "audit_filtering",
-        "resolve_qc_thresholds",
+    ],
+)
+_export(
+    "policy.thresholds",
+    [
+        "recommend_qc_thresholds",
         "decide_qc_thresholds",
         "apply_qc_threshold_decision",
         "run_qc_threshold_decision",
@@ -98,13 +108,25 @@ _export(
 
 # Extended QC
 _export(
-    "adaptive_threshold",
-    ["AdaptiveThresholdLearner", "MultiMetricAdaptiveLearner"],
+    "policy.adaptive_threshold",
+    [
+        "AdaptiveThresholdLearner",
+        "MultiMetricAdaptiveLearner",
+        "THRESHOLD_RESULT_SCHEMA_VERSION",
+        "build_threshold_result",
+        "infer_qc_metric_type",
+        "recommended_threshold_methods",
+    ],
     optional=True,
 )
 _export(
     "reporting",
-    ["EnhancedQCReport", "generate_qc_report", "generate_qc_html_report", "InteractiveReportGenerator"],
+    [
+        "EnhancedQCReport",
+        "generate_qc_report",
+        "generate_qc_html_report",
+        "InteractiveReportGenerator",
+    ],
     optional=True,
 )
 _export(
@@ -120,7 +142,7 @@ _export(
     ],
 )
 _export(
-    "benchmark",
+    "policy.benchmark",
     [
         "QC_BENCHMARK_SCHEMA_VERSION",
         "BENCHMARK_PROFILES",
@@ -155,7 +177,7 @@ _export(
 
 # Intelligent QC
 _export(
-    "intelligent_qc",
+    "policy.intelligent_qc",
     [
         "IntelligentQCRecommender",
         "recommend_intelligent_qc",
@@ -168,15 +190,23 @@ _export(
 
 # Transitional aliases stay importable but are intentionally omitted from __all__.
 try:
-    _workflow_decision = import_module(f"{__name__}.filtering.workflow_decision")
-    if hasattr(_workflow_decision, "run_qc_decision_workflow"):
-        run_qc_decision_workflow = getattr(_workflow_decision, "run_qc_decision_workflow")
+    _ambient = import_module(f"{__name__}.ambient")
+    for _name in [
+        "build_ambient_layer_contract",
+        "diagnose_empty_droplets",
+        "infer_ambient_input_context",
+        "record_ambient_correction_status",
+        "record_ambient_layer_contract",
+        "correct_ambient_rna_linear",
+    ]:
+        if hasattr(_ambient, _name):
+            globals()[_name] = getattr(_ambient, _name)
 except Exception:
     pass
 
 try:
     _workflow = import_module(f"{__name__}.workflow")
     if hasattr(_workflow, "run_advanced_qc"):
-        run_advanced_qc = getattr(_workflow, "run_advanced_qc")
+        run_advanced_qc = _workflow.run_advanced_qc
 except Exception:
     pass

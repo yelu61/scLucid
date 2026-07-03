@@ -19,7 +19,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from scLucid.utils.helpers import _show_or_close
+from scLucid.plotting.plotting_utils import _show_or_close
 
 from .config import IntegrationConfig, apply_config_overrides
 

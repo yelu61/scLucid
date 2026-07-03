@@ -12,7 +12,7 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from ...qc.intelligent_qc import QCRecommendation
+from ...qc.policy.intelligent_qc import QCRecommendation
 from ..schema import ParameterRecommendation, RecommendationSection
 
 

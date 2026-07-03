@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Dict, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -33,6 +33,26 @@ EXPECTED_TOTAL_RATE_COL = "expected_total_doublet_rate"
 EXPECTED_HETEROTYPIC_RATE_COL = "expected_heterotypic_doublet_rate"
 EXPECTED_HOMOTYPIC_RATE_COL = "expected_homotypic_doublet_rate"
 
+DOUBLET_OBS_COLUMNS = {
+    "final": [FINAL_PRED_COL, COMBINED_SCORE_COL],
+    "algorithm": [ALGORITHM_SCORE_COL, ALGORITHM_PRED_COL],
+    "heuristic": [HEURISTIC_SCORE_COL, HEURISTIC_PRED_COL],
+    "risk_decomposition": [
+        HETEROTYPIC_RISK_COL,
+        HOMOTYPIC_RISK_COL,
+        EXPECTED_TOTAL_RATE_COL,
+        EXPECTED_HETEROTYPIC_RATE_COL,
+        EXPECTED_HOMOTYPIC_RATE_COL,
+    ],
+    "intermediate_patterns": [
+        "scrublet_",
+        "scanpy_scrublet_",
+        "solo_",
+        "doubletdetection_",
+        "scdblfinder_",
+    ],
+}
+
 __all__ = [
     "LINEAGE_SCORES_KEY",
     "HEURISTIC_SCORE_COL",
@@ -46,6 +66,7 @@ __all__ = [
     "EXPECTED_TOTAL_RATE_COL",
     "EXPECTED_HETEROTYPIC_RATE_COL",
     "EXPECTED_HOMOTYPIC_RATE_COL",
+    "DOUBLET_OBS_COLUMNS",
     "generate_doublet_rates",
     "create_custom_marker_dict",
     "audit_doublets",
@@ -70,9 +91,7 @@ def _expected_rate_series(
     if isinstance(expected_rate, dict) and sample_key in adata.obs.columns:
         mapped = adata.obs[sample_key].map(expected_rate)
         fallback = (
-            float(np.mean(list(expected_rate.values())))
-            if expected_rate
-            else float(default_rate)
+            float(np.mean(list(expected_rate.values()))) if expected_rate else float(default_rate)
         )
         return pd.to_numeric(mapped, errors="coerce").fillna(fallback).astype(float)
     if expected_rate is None:
@@ -142,9 +161,7 @@ def _expected_rate_grouped_predictions(
         predicted = pd.Series(False, index=scores.index, dtype=bool)
         thresholds: Dict[str, float] = {}
         fallback_rate = (
-            float(np.mean(list(expected_rate.values())))
-            if expected_rate
-            else float(default_rate)
+            float(np.mean(list(expected_rate.values()))) if expected_rate else float(default_rate)
         )
         for group_name, idx in groups.groupby(groups, observed=False).groups.items():
             rate = _coerce_expected_rate(expected_rate.get(group_name), default=fallback_rate)
@@ -312,7 +329,6 @@ def _create_doublet_marker_config_from_manager(
     return marker_configs
 
 
-
 def generate_doublet_rates(
     adata: AnnData,
     sample_key: str = "sampleID",
@@ -348,6 +364,13 @@ def generate_doublet_rates(
 
     Returns:
         Dictionary mapping sample IDs to calculated doublet rates.
+
+    Notes:
+        The returned rates can substantially affect final labels when
+        ``DoubletConfig.final_label_strategy='expected_rate_rank'`` because the
+        merged evidence score is thresholded by expected rate within detection
+        groups. Use ``final_label_strategy='algorithm_label'`` when the final
+        call should follow the algorithm's binary prediction directly.
     """
     log.info("Automatically generating doublet rates based on sample chemistry and cell counts...")
 

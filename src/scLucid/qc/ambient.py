@@ -17,6 +17,7 @@ import scipy.sparse as sparse
 from anndata import AnnData
 
 from ..utils import sanitize_for_hdf5
+from .artifacts import record_qc_artifact_contract
 
 AMBIENT_CORRECTED_COUNTS_LAYER = "ambient_corrected_counts"
 
@@ -30,11 +31,19 @@ def _matrix_from_layer(adata: AnnData, layer: Optional[str]):
 
 
 def _row_sums(X) -> np.ndarray:
-    return np.asarray(X.sum(axis=1)).ravel() if sparse.issparse(X) else np.asarray(X.sum(axis=1)).ravel()
+    return (
+        np.asarray(X.sum(axis=1)).ravel()
+        if sparse.issparse(X)
+        else np.asarray(X.sum(axis=1)).ravel()
+    )
 
 
 def _col_sums(X) -> np.ndarray:
-    return np.asarray(X.sum(axis=0)).ravel() if sparse.issparse(X) else np.asarray(X.sum(axis=0)).ravel()
+    return (
+        np.asarray(X.sum(axis=0)).ravel()
+        if sparse.issparse(X)
+        else np.asarray(X.sum(axis=0)).ravel()
+    )
 
 
 def _ambient_risk_method_metadata() -> Dict[str, Any]:
@@ -177,9 +186,10 @@ def record_ambient_layer_contract(
         correction_summary=correction_summary,
         output_layer=output_layer,
     )
-    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
-        "ambient_layer_contract"
-    ] = sanitize_for_hdf5(contract)
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["ambient_layer_contract"] = (
+        sanitize_for_hdf5(contract)
+    )
+    record_qc_artifact_contract(adata)
     return contract
 
 
@@ -199,10 +209,12 @@ def diagnose_ambient_rna(
     users should inspect or run an external correction backend, not to replace
     CellBender/scAR/SoupX-like correction.
     """
+    input_context = infer_ambient_input_context(adata, layer=layer)
     if adata.n_obs == 0 or adata.n_vars == 0:
         return {
             "available": False,
             "diagnostic_only": True,
+            "input_context": input_context,
             **_ambient_risk_method_metadata(),
             "risk_level": "unknown",
             "risk_score": 0.0,
@@ -260,7 +272,9 @@ def diagnose_ambient_rna(
     top_idx = np.argsort(gene_totals)[-top_n:][::-1]
     global_frac = gene_totals[top_idx] / total_counts
     low_frac = low_gene_totals[top_idx] / low_total_counts
-    enrichment = np.divide(low_frac, global_frac, out=np.zeros_like(low_frac), where=global_frac > 0)
+    enrichment = np.divide(
+        low_frac, global_frac, out=np.zeros_like(low_frac), where=global_frac > 0
+    )
 
     top_gene_fraction = float(global_frac.sum())
     low_count_top_gene_fraction = float(low_frac.sum())
@@ -289,8 +303,8 @@ def diagnose_ambient_rna(
         for pos, i in enumerate(top_idx)
     ]
 
-    correction_status = adata.uns.get("sclucid", {}).get("qc", {}).get(
-        "ambient_correction_status", {}
+    correction_status = (
+        adata.uns.get("sclucid", {}).get("qc", {}).get("ambient_correction_status", {})
     )
     if not correction_status:
         correction_status = {
@@ -302,6 +316,7 @@ def diagnose_ambient_rna(
     return {
         "available": True,
         "diagnostic_only": True,
+        "input_context": input_context,
         **_ambient_risk_method_metadata(),
         "method": "python_heuristic_low_count_enrichment",
         "method_note": "Ambient RNA diagnostic only; no expression correction was applied.",
@@ -320,7 +335,7 @@ def diagnose_ambient_rna(
         "top_genes": top_genes,
         "correction_status": correction_status,
         "recommendation": (
-            "Inspect ambient RNA and consider Python backends such as CellBender or scAR."
+            input_context["correction_recommendation"]
             if risk_level in {"moderate", "high"}
             else "Ambient RNA risk appears low by this heuristic diagnostic."
         ),
@@ -342,9 +357,7 @@ def record_ambient_correction_status(
         "output_layer": output_layer,
         "details": details or {},
     }
-    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
-        "ambient_correction_status"
-    ] = status
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["ambient_correction_status"] = status
     return status
 
 
@@ -442,8 +455,8 @@ def diagnose_empty_droplets(
 
     if cell_call_key and cell_call_key in adata.obs.columns:
         calls = adata.obs[cell_call_key]
-        empty_mask = calls.astype(str).str.lower().isin(
-            {"empty", "background", "ambient", "false", "0"}
+        empty_mask = (
+            calls.astype(str).str.lower().isin({"empty", "background", "ambient", "false", "0"})
         )
         called_cell_mask = ~empty_mask
     else:
@@ -496,7 +509,12 @@ def diagnose_empty_droplets(
         diffs = np.diff(log_totals)
         barcode_rank_gap = float(abs(diffs.min())) if diffs.size else np.nan
 
-    risk_score = float(min(1.0, 0.6 * top_background_fraction / 0.5 + 0.4 * np.nan_to_num(barcode_rank_gap, nan=0.0)))
+    risk_score = float(
+        min(
+            1.0,
+            0.6 * top_background_fraction / 0.5 + 0.4 * np.nan_to_num(barcode_rank_gap, nan=0.0),
+        )
+    )
     risk_level = "high" if risk_score >= 0.7 else "moderate" if risk_score >= 0.4 else "low"
 
     result = {
@@ -736,8 +754,8 @@ def correct_ambient_rna_linear(
     # Define empty droplets
     if empty_droplet_key and empty_droplet_key in adata.obs.columns:
         calls = adata.obs[empty_droplet_key]
-        empty_mask = calls.astype(str).str.lower().isin(
-            {"empty", "background", "ambient", "false", "0"}
+        empty_mask = (
+            calls.astype(str).str.lower().isin({"empty", "background", "ambient", "false", "0"})
         )
     else:
         threshold = float(np.quantile(positive, empty_count_quantile))
@@ -917,20 +935,27 @@ def correct_ambient_rna_linear(
     risk_note = (
         "High estimated contamination fraction; review corrected counts before downstream analysis."
         if review_required
-        else "Lightweight linear correction applied; consider CellBender/scAR for a full model-based correction."
+        else (
+            "Conservative linear fallback applied for review. Prefer validated "
+            "model-based or external ambient correction when raw/background data are available."
+        )
     )
 
     # Residual ambient score on low-count cells
     low_count_threshold = float(np.quantile(positive, empty_count_quantile))
     low_count_mask = (totals > 0) & (totals <= low_count_threshold)
-    residual_score = _residual_ambient_score(
-        X, corrected, ambient_gene_mask, low_count_mask
-    )
+    residual_score = _residual_ambient_score(X, corrected, ambient_gene_mask, low_count_mask)
 
     result = {
         "corrected": True,
         "output_layer": output_layer,
         "method": "linear_background_subtraction",
+        "calibration_status": "conservative_fallback_not_model_based",
+        "diagnostic_only": False,
+        "correction_note": (
+            "This Python-native correction is a conservative fallback and is not "
+            "equivalent to CellBender, SoupX, DecontX, or scAR."
+        ),
         "n_cells": int(adata.n_obs),
         "n_putative_empty_droplets": n_empty,
         "n_ambient_genes": int(ambient_gene_mask.sum()),

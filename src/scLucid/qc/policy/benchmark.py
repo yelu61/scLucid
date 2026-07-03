@@ -349,6 +349,13 @@ def build_qc_benchmark_assessment(
                 "evidence_key": "benchmark_summary.assessment",
             }
         )
+    interpretation_guide = _build_benchmark_interpretation_guide(
+        status=status,
+        risk_level=risk_level,
+        failed_checks=failed,
+        retention=retention,
+        marker_fidelity=marker_fidelity,
+    )
 
     return _json_ready(
         {
@@ -366,6 +373,7 @@ def build_qc_benchmark_assessment(
                 str(check.get("interpretation") or check.get("name")) for check in failed
             ],
             "recommendations": recommendations,
+            "interpretation_guide": interpretation_guide,
             "profile_assumptions": {
                 "profile": profile,
                 "label": profile_spec.get("label", profile),
@@ -402,11 +410,20 @@ def _iter_review_records(records: Any) -> list[Mapping[str, Any]]:
     return []
 
 
+def _md_cell(value: Any) -> str:
+    """Render a value safely inside a Markdown table cell."""
+    if value is None:
+        return ""
+    text = str(value).replace("\n", " ").replace("|", "/")
+    return text
+
+
 def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
     """Render a human-reviewable QC benchmark summary."""
     retention = benchmark.get("retention", {})
     marker = benchmark.get("marker_fidelity", {})
     assessment = benchmark.get("assessment", {})
+    guide = assessment.get("interpretation_guide", {}) if isinstance(assessment, Mapping) else {}
     lines = [
         "# QC Benchmark Summary",
         "",
@@ -420,6 +437,12 @@ def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
         "",
         str(assessment.get("summary", "No benchmark assessment was generated.")),
         "",
+        "### How To Read This Benchmark",
+        "",
+        f"- **Decision use**: {guide.get('decision_use', 'Review benchmark evidence before finalizing QC decisions.')}",
+        f"- **Main risk**: {guide.get('main_risk', 'No dominant benchmark risk was identified.')}",
+        f"- **Next step**: {guide.get('next_step', 'Archive the benchmark with the QC record.')}",
+        "",
         "### Recommended Actions",
         "",
         "| Priority | Action | Rationale |",
@@ -427,7 +450,7 @@ def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
     ]
     for item in _iter_review_records(assessment.get("recommendations", [])):
         lines.append(
-            f"| {item.get('priority')} | {item.get('action')} | {item.get('rationale')} |"
+            f"| {_md_cell(item.get('priority'))} | {_md_cell(item.get('action'))} | {_md_cell(item.get('rationale'))} |"
         )
     if not assessment.get("recommendations"):
         lines.append("| optional | No benchmark action required. | All checks passed or unavailable. |")
@@ -441,19 +464,32 @@ def render_qc_benchmark_markdown(benchmark: Mapping[str, Any]) -> str:
             "|-------|--------|----------|-------|-----------|----------------|",
         ]
     )
-    for check in _iter_review_records(benchmark.get("checks", [])):
+    checks = _iter_review_records(benchmark.get("checks", []))
+    for check in checks:
         lines.append(
-            f"| {check.get('name')} | {check.get('passed')} | "
-            f"{check.get('severity', 'review')} | {check.get('value')} | "
-            f"{check.get('threshold')} | {check.get('interpretation', '')} |"
+            f"| {_md_cell(check.get('name'))} | {_md_cell(check.get('passed'))} | "
+            f"{_md_cell(check.get('severity', 'review'))} | {_md_cell(check.get('value'))} | "
+            f"{_md_cell(check.get('threshold'))} | {_md_cell(check.get('interpretation', ''))} |"
         )
+
+    failed_checks = [check for check in checks if not check.get("passed")]
+    if failed_checks:
+        lines.extend(["", "## Review Focus", ""])
+        for check in failed_checks[:5]:
+            lines.append(
+                "- **{name}** ({severity}): {interpretation}".format(
+                    name=_md_cell(check.get("name")),
+                    severity=_md_cell(check.get("severity", "review")),
+                    interpretation=_md_cell(check.get("interpretation")),
+                )
+            )
 
     lines.extend(["", "## Marker Sets", "", "| Marker set | Markers | Fidelity | Status |"])
     lines.append("|------------|---------|----------|--------|")
     for name, payload in marker.get("per_marker_set", {}).items():
         lines.append(
-            f"| {name} | {payload.get('n_markers', 0)} | "
-            f"{_format_float(payload.get('fidelity_score'))} | {payload.get('status')} |"
+            f"| {_md_cell(name)} | {_md_cell(payload.get('n_markers', 0))} | "
+            f"{_format_float(payload.get('fidelity_score'))} | {_md_cell(payload.get('status'))} |"
         )
     return "\n".join(lines)
 
@@ -463,6 +499,7 @@ def render_qc_benchmark_compact_markdown(benchmark: Mapping[str, Any]) -> str:
     assessment = benchmark.get("assessment", {})
     retention = benchmark.get("retention", {})
     marker = benchmark.get("marker_fidelity", {})
+    guide = assessment.get("interpretation_guide", {}) if isinstance(assessment, Mapping) else {}
     lines = [
         "### QC Benchmark",
         "",
@@ -472,6 +509,8 @@ def render_qc_benchmark_compact_markdown(benchmark: Mapping[str, Any]) -> str:
         f"- Retention: {_format_percent(retention.get('retention_rate'))}",
         f"- Marker fidelity: {_format_float(marker.get('overall_marker_fidelity'))}",
         f"- Summary: {assessment.get('summary', 'No assessment generated.')}",
+        f"- Main risk: {guide.get('main_risk', 'No dominant benchmark risk was identified.')}",
+        f"- Next step: {guide.get('next_step', 'Archive the benchmark with the QC record.')}",
         "",
         "Action items:",
         "",
@@ -674,6 +713,61 @@ def _priority_for_severity(severity: str) -> str:
     if severity == "moderate":
         return "review"
     return "optional"
+
+
+def _build_benchmark_interpretation_guide(
+    *,
+    status: str,
+    risk_level: str,
+    failed_checks: list[Mapping[str, Any]],
+    retention: Mapping[str, Any],
+    marker_fidelity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Create concise human guidance for interpreting benchmark output."""
+    failed_names = [str(check.get("name")) for check in failed_checks]
+    if status == "fail":
+        decision_use = (
+            "Treat this benchmark as a stop signal: revise thresholds or inspect sample-level "
+            "filtering before using the filtered object downstream."
+        )
+    elif status == "review_required":
+        decision_use = (
+            "Treat this benchmark as a review signal: automated QC may still be usable, but "
+            "the flagged checks should be inspected before final downstream interpretation."
+        )
+    else:
+        decision_use = (
+            "Treat this benchmark as supporting evidence, not proof of biological correctness; "
+            "archive it with the QC trace and continue to preprocessing review."
+        )
+
+    if any(name in failed_names for name in ("minimum_retention", "maximum_retention")):
+        main_risk = "Overall retention is outside the profile-specific expected range."
+        next_step = "Inspect applied thresholds and the retained/removed cell summaries."
+    elif any("sample_retention" in name for name in failed_names):
+        main_risk = "Retention is uneven across samples, which may create downstream sample bias."
+        next_step = "Review retention by sample/library and consider per-sample threshold decisions."
+    elif any("cell_type" in name or "marker" in name for name in failed_names):
+        main_risk = "Marker or annotation fidelity may have shifted after QC filtering."
+        next_step = "Inspect marker fidelity by cell type and avoid interpreting depleted groups as biology."
+    elif failed_checks:
+        main_risk = "One or more benchmark checks require reviewer interpretation."
+        next_step = "Inspect the failed checks table and decide whether thresholds need revision."
+    else:
+        main_risk = "No benchmark check failed under the inferred profile."
+        next_step = "Archive QC benchmark JSON/Markdown outputs with the analysis record."
+
+    return _json_ready(
+        {
+            "decision_use": decision_use,
+            "main_risk": main_risk,
+            "next_step": next_step,
+            "failed_checks": failed_names,
+            "risk_level": risk_level,
+            "retention_rate": retention.get("retention_rate"),
+            "marker_fidelity": marker_fidelity.get("overall_marker_fidelity"),
+        }
+    )
 
 
 def _benchmark_summary_sentence(

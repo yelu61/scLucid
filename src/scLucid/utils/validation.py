@@ -16,6 +16,7 @@ import scipy.sparse as sp
 from anndata import AnnData
 
 from .contracts import ContractError, StageName, validate_stage_contract
+from .helpers import assess_matrix_semantics
 
 log = logging.getLogger(__name__)
 
@@ -142,10 +143,15 @@ def validate_adata(
 
     # Check counts layer
     if check_counts:
-        if "counts" not in adata.layers and not _is_counts_matrix(adata.X):
-            errors.append("No counts data found. Expected 'counts' layer or integer X matrix")
-        elif "counts" in adata.layers:
-            if not _is_counts_matrix(adata.layers["counts"]):
+        if "counts" not in adata.layers:
+            x_result = assess_matrix_semantics(adata.X, semantics="raw_counts")
+            if not x_result["is_count_like"]:
+                errors.append("No counts data found. Expected 'counts' layer or integer X matrix")
+        else:
+            counts_result = assess_matrix_semantics(
+                adata.layers["counts"], semantics="raw_counts"
+            )
+            if not counts_result["is_count_like"]:
                 warnings.append(
                     "'counts' layer may not contain raw counts (contains non-integer values)"
                 )
@@ -391,112 +397,6 @@ def check_layer_consistency(adata: AnnData, layers: Optional[List[str]] = None) 
 # ============================================================================
 
 
-def is_raw_count_matrix(
-    X,
-    *,
-    max_cells: int = 2000,
-    max_genes: int = 2000,
-    zero_fraction_threshold: float = 0.20,
-    max_fractional_rate: float = 0.01,
-    min_max_value: float = 10.0,
-) -> Tuple[bool, Dict[str, Any]]:
-    """Lightweight check for raw-count-like matrix semantics.
-
-    Subsamples large matrices to avoid OOM. Returns a diagnostic dict so callers
-    can explain why a matrix was rejected.
-
-    Parameters
-    ----------
-    X
-        Array-like or sparse matrix. Typically ``adata.X`` or
-        ``adata.layers['counts']``.
-    max_cells, max_genes
-        Subsample dimensions for the check. Larger values are more accurate but
-        slower and more memory-hungry.
-    zero_fraction_threshold
-        Minimum fraction of zeros expected in a sparse count matrix.
-    max_fractional_rate
-        Maximum fraction of positive values that are non-integer. Count matrices
-        may contain a small amount of rounding noise from upstream tools; values
-        above this threshold are treated as suspicious.
-    min_max_value
-        Minimum maximum value expected for a real count matrix. Very small max
-        values suggest the matrix is already normalized or scaled.
-
-    Returns:
-    -------
-    (is_raw_like, diagnostics)
-        ``is_raw_like`` is True when the matrix looks like raw counts.
-        ``diagnostics`` contains the supporting numbers.
-
-    Examples:
-    --------
-    >>> is_raw, info = is_raw_count_matrix(adata.layers["counts"])
-    >>> if not is_raw:
-    ...     print(f"Warning: counts layer looks suspicious: {info}")
-    """
-    if sp.issparse(X):
-        n_cells, n_genes = X.shape
-        sub_cells = min(n_cells, max_cells)
-        sub_genes = min(n_genes, max_genes)
-        Xs = X[:sub_cells, :sub_genes].copy()
-        data = Xs.data
-        zero_fraction = 1.0 - (Xs.nnz / max(1, sub_cells * sub_genes))
-    else:
-        arr = np.asarray(X)
-        n_cells, n_genes = arr.shape
-        sub_cells = min(n_cells, max_cells)
-        sub_genes = min(n_genes, max_genes)
-        Xs = arr[:sub_cells, :sub_genes]
-        data = Xs.ravel()
-        zero_fraction = float(np.mean(Xs == 0))
-
-    data = np.asarray(data)
-    finite = data[np.isfinite(data)]
-    if finite.size == 0:
-        return False, {"reason": "no_finite_values"}
-
-    has_negative = bool(np.any(finite < 0))
-    positive = finite[finite > 0]
-    fractional_rate = (
-        float(np.mean(np.abs(positive - np.round(positive)) > 1e-6))
-        if positive.size
-        else 0.0
-    )
-    max_value = float(np.max(finite))
-
-    raw_like = (
-        (not has_negative)
-        and fractional_rate < max_fractional_rate
-        and zero_fraction >= zero_fraction_threshold
-        and max_value > min_max_value
-    )
-
-    diagnostics = {
-        "has_negative": has_negative,
-        "fractional_positive_rate": fractional_rate,
-        "zero_fraction": float(zero_fraction),
-        "max_value": max_value,
-        "subsampled_shape": (sub_cells, sub_genes),
-    }
-    return raw_like, diagnostics
-
-
-def _is_counts_matrix(data) -> bool:
-    """Internal bool compatibility shim around ``is_raw_count_matrix``."""
-    try:
-        raw_like, _ = is_raw_count_matrix(
-            data,
-            max_cells=64,
-            max_genes=512,
-            zero_fraction_threshold=0.0,
-            min_max_value=0.0,
-        )
-        return bool(raw_like)
-    except Exception:
-        return False
-
-
 def _make_result(
     valid: bool, errors: List[str], warnings: List[str], layer_info: Dict, shape: tuple
 ) -> Dict[str, Any]:
@@ -565,7 +465,6 @@ __all__ = [
     "validate_config",
     "validate_analysis_results",
     "check_layer_consistency",
-    "is_raw_count_matrix",
     "assert_qc_ready",
     "assert_preprocessing_ready",
     "assert_analysis_ready",

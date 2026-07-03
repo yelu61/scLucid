@@ -21,8 +21,8 @@ from validation.qc.build_figure2_qc_evidence_package import (
 from validation.qc.run_tumor_biological_fidelity_benchmark import (
     _narrative_rows as _tumor_fidelity_narrative_rows,
 )
-from scLucid.qc.adaptive_threshold import AdaptiveThresholdLearner
-from scLucid.qc.intelligent_qc import recommend_intelligent_qc, StrategyType
+from scLucid.qc.policy.adaptive_threshold import AdaptiveThresholdLearner
+from scLucid.qc.policy.intelligent_qc import recommend_intelligent_qc, StrategyType
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,9 @@ class TestAdaptiveThresholdScientific:
     def test_all_methods_on_bimodal(self, bimodal_data, method):
         """All methods should learn sensible threshold on bimodal data."""
         learner = AdaptiveThresholdLearner(method=method)
-        threshold = learner.learn_threshold(bimodal_data, "n_genes", direction="lower")
+        threshold = learner.learn_threshold_result(
+            bimodal_data, "n_genes", direction="lower"
+        )["threshold"]
         self._assert_threshold_reasonable(threshold, bimodal_data, "lower")
         # On clear bimodal data, threshold should separate the modes
         if method in ("percentile", "gmm", "kde"):
@@ -83,14 +85,18 @@ class TestAdaptiveThresholdScientific:
     def test_all_methods_on_uniform_outliers(self, uniform_with_outliers, method):
         """All methods should catch extreme outliers."""
         learner = AdaptiveThresholdLearner(method=method)
-        threshold = learner.learn_threshold(uniform_with_outliers, "n_genes", direction="lower")
+        threshold = learner.learn_threshold_result(
+            uniform_with_outliers, "n_genes", direction="lower"
+        )["threshold"]
         self._assert_threshold_reasonable(threshold, uniform_with_outliers, "lower")
 
     @pytest.mark.parametrize("method", ["percentile", "mad", "kde"])
     def test_single_mode_conservative(self, single_mode, method):
         """On single-mode data without outliers, threshold should be conservative."""
         learner = AdaptiveThresholdLearner(method=method)
-        threshold = learner.learn_threshold(single_mode, "n_genes", direction="lower")
+        threshold = learner.learn_threshold_result(
+            single_mode, "n_genes", direction="lower"
+        )["threshold"]
         self._assert_threshold_reasonable(threshold, single_mode, "lower")
         # Should not flag more than ~25% of cells as outliers (conservative)
         outlier_rate = (single_mode < threshold).sum() / len(single_mode)
@@ -99,12 +105,12 @@ class TestAdaptiveThresholdScientific:
 
     def test_gmm_vs_percentile_same_order_of_magnitude(self, bimodal_data):
         """GMM and percentile should give thresholds in same ballpark on bimodal data."""
-        gmm_threshold = AdaptiveThresholdLearner(method="gmm").learn_threshold(
+        gmm_threshold = AdaptiveThresholdLearner(method="gmm").learn_threshold_result(
             bimodal_data, "n_genes", direction="lower"
-        )
-        pct_threshold = AdaptiveThresholdLearner(method="percentile").learn_threshold(
+        )["threshold"]
+        pct_threshold = AdaptiveThresholdLearner(method="percentile").learn_threshold_result(
             bimodal_data, "n_genes", direction="lower"
-        )
+        )["threshold"]
         diff = abs(gmm_threshold - pct_threshold)
         # Allow up to 200 difference (generous for different algorithms)
         assert diff < 200, \
@@ -115,7 +121,9 @@ class TestAdaptiveThresholdScientific:
         thresholds = {}
         for method in ["percentile", "mad", "kde"]:
             learner = AdaptiveThresholdLearner(method=method)
-            thresholds[method] = learner.learn_threshold(bimodal_data, "n_genes", direction="lower")
+            thresholds[method] = learner.learn_threshold_result(
+                bimodal_data, "n_genes", direction="lower"
+            )["threshold"]
 
         # All thresholds should be below the clean population mean (~500)
         for method, thr in thresholds.items():
@@ -124,14 +132,16 @@ class TestAdaptiveThresholdScientific:
     def test_empty_data(self):
         """Empty data should return NaN gracefully."""
         learner = AdaptiveThresholdLearner(method="percentile")
-        threshold = learner.learn_threshold(np.array([]), "metric")
+        threshold = learner.learn_threshold_result(np.array([]), "metric")["threshold"]
         assert np.isnan(threshold)
 
     def test_nan_inf_data(self):
         """NaN and Inf values should be handled gracefully."""
         learner = AdaptiveThresholdLearner(method="percentile")
         data = np.array([1.0, 2.0, np.nan, 3.0, np.inf, 4.0])
-        threshold = learner.learn_threshold(data, "metric", direction="lower")
+        threshold = learner.learn_threshold_result(data, "metric", direction="lower")[
+            "threshold"
+        ]
         assert not np.isnan(threshold)
         assert threshold > 0
 

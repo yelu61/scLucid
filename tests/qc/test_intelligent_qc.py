@@ -9,7 +9,7 @@ data-driven QC threshold recommendations with confidence intervals.
 import numpy as np
 import pytest
 
-from scLucid.qc.intelligent_qc import (
+from scLucid.qc.policy.intelligent_qc import (
     IntelligentQCRecommender,
     QCRecommendation,
     StrategyType,
@@ -165,7 +165,7 @@ class TestIntelligentQCRecommender:
 
     def test_quality_scoring_uses_configurable_guardrails(self, sample_adata_with_qc):
         """Quality score guardrails should be configurable rather than hard-coded."""
-        from scLucid.qc.intelligent_qc import IntelligentQCConfig
+        from scLucid.qc.policy.intelligent_qc import IntelligentQCConfig
 
         cfg = IntelligentQCConfig(
             quality_min_median_genes=10_000,
@@ -220,7 +220,7 @@ class TestStrategies:
 
     def test_recommend_max_mt_sample_aware(self, tumor_like_adata):
         """Sample-aware MT% should compute stratum baselines."""
-        from scLucid.qc.intelligent_qc import IntelligentQCConfig
+        from scLucid.qc.policy.intelligent_qc import IntelligentQCConfig
 
         cfg = IntelligentQCConfig(mt_model="sample_aware", sample_key="batch")
         recommender = IntelligentQCRecommender(
@@ -235,7 +235,7 @@ class TestStrategies:
 
     def test_recommend_max_mt_multicomponent(self, tumor_like_adata):
         """Multi-component GMM should be selectable for MT%."""
-        from scLucid.qc.intelligent_qc import IntelligentQCConfig
+        from scLucid.qc.policy.intelligent_qc import IntelligentQCConfig
 
         cfg = IntelligentQCConfig(mt_model="multicomponent", mt_max_components=4)
         recommender = IntelligentQCRecommender(

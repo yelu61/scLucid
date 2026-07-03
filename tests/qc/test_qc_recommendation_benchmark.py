@@ -5,7 +5,7 @@ import json
 import pytest
 
 from scLucid import qc
-from scLucid.qc.benchmark import (
+from scLucid.qc.policy.benchmark import (
     QC_BENCHMARK_SCHEMA_VERSION,
     compute_marker_fidelity,
     compute_retention_metrics,
@@ -144,6 +144,8 @@ def test_evaluate_qc_benchmark_has_profile_checks():
     }
     assert benchmark["assessment"]["risk_level"] in {"low", "moderate", "high", "critical"}
     assert benchmark["assessment"]["summary"]
+    assert benchmark["assessment"]["interpretation_guide"]["decision_use"]
+    assert benchmark["assessment"]["interpretation_guide"]["next_step"]
 
 
 def test_evaluate_qc_benchmark_flags_stratified_retention_bias():
@@ -207,8 +209,11 @@ def test_export_qc_benchmark_report(tmp_path):
     benchmark = evaluate_qc_benchmark(adata, adata[:180].copy(), tissue_type="pbmc")
 
     paths = export_qc_benchmark_report(benchmark, tmp_path)
+    markdown = (tmp_path / "qc_benchmark.md").read_text()
     assert json.loads((tmp_path / "qc_benchmark.json").read_text())["profile"] == "pbmc"
     assert (tmp_path / "qc_benchmark.md").exists()
+    assert "How To Read This Benchmark" in markdown
+    assert "Recommended Actions" in markdown
     assert paths["json"].endswith("qc_benchmark.json")
 
 

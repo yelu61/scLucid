@@ -26,13 +26,147 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse
+from matplotlib.colors import ListedColormap
 
 log = logging.getLogger(__name__)
 
 # Sentinel to ensure shims are applied only once per process.
 _SCRUBLET_SHIMS_APPLIED = False
+
+
+def _ensure_scrublet_compatibility() -> bool:
+    """Return whether Scrublet may need NumPy compatibility handling."""
+    return not hasattr(np.ndarray, "ptp")
+
+
+def _coerce_scrublet_array(values, *, expected_len: int, name: str, sample_name: str):
+    """Return a 1-D numpy array when a Scrublet output has the expected length."""
+    if values is None:
+        return None
+
+    arr = np.asarray(values).ravel()
+    if arr.shape[0] != expected_len:
+        log.warning(
+            "Ignoring Scrublet %s for sample '%s': expected %d values, got %d.",
+            name,
+            sample_name,
+            expected_len,
+            arr.shape[0],
+        )
+        return None
+    return arr
+
+
+def _scrublet_scores_degenerate(scores) -> bool:
+    """Return True when Scrublet scores carry no usable ranking signal."""
+    if scores is None:
+        return False
+    arr = np.asarray(scores, dtype=float).ravel()
+    finite = arr[np.isfinite(arr)]
+    if finite.size < 2:
+        return True
+    return bool(np.nanmax(finite) - np.nanmin(finite) <= 1e-12)
+
+
+def _scrub_doublets(scrub, *, n_prin_comps: int, use_approx_neighbors: bool):
+    """Call scrub_doublets with exact/approx neighbor control when supported."""
+    try:
+        return scrub.scrub_doublets(
+            n_prin_comps=n_prin_comps,
+            verbose=False,
+            use_approx_neighbors=use_approx_neighbors,
+        )
+    except TypeError:
+        return scrub.scrub_doublets(n_prin_comps=n_prin_comps, verbose=False)
+
+
+def _plot_scrublet_embedding_fallback(
+    embedding: np.ndarray,
+    scores: np.ndarray,
+    predicted: np.ndarray,
+    *,
+    title: str,
+):
+    """Plot Scrublet embedding without relying on scrublet's NumPy-1.x plotting code."""
+    embedding = np.asarray(embedding)
+    scores = np.asarray(scores, dtype=float).ravel()
+    predicted = np.asarray(predicted, dtype=bool).ravel()
+
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+    x = embedding[:, 0]
+    y = embedding[:, 1]
+    x_range = float(np.max(x) - np.min(x)) if x.size else 0.0
+    y_range = float(np.max(y) - np.min(y)) if y.size else 0.0
+    x_pad = x_range * 0.05
+    y_pad = y_range * 0.05
+    xlim = (float(np.min(x)) - x_pad, float(np.max(x)) + x_pad)
+    ylim = (float(np.min(y)) - y_pad, float(np.max(y)) + y_pad)
+    order = np.argsort(scores)
+
+    axes[0].scatter(
+        x[order],
+        y[order],
+        s=5,
+        c=predicted[order],
+        cmap=ListedColormap(["#BDBDBD", "#000000"]),
+        edgecolors="none",
+    )
+    axes[0].set_title("Predicted doublets")
+
+    scatter = axes[1].scatter(
+        x[order],
+        y[order],
+        s=5,
+        c=scores[order],
+        cmap="Reds",
+        edgecolors="none",
+    )
+    axes[1].set_title("Doublet score")
+    fig.colorbar(scatter, ax=axes[1])
+
+    for ax in axes:
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
+    fig.suptitle(title)
+    fig.tight_layout()
+    return fig
+
+
+def _compute_scrublet_umap_embedding(manifold_obs: np.ndarray, random_state: int = 61):
+    """Compute a UMAP embedding from scrublet's manifold observations.
+
+    Falls back to a direct ``umap.UMAP`` call when scrublet's ``get_umap`` is
+    unavailable or incompatible with the installed NumPy version.
+    """
+    try:
+        import scrublet as scr
+
+        embedding = scr.get_umap(manifold_obs, 10, min_dist=0.3)
+        if embedding is not None and embedding.shape[0] == manifold_obs.shape[0]:
+            return np.asarray(embedding)
+    except Exception as exc:
+        log.debug("scrublet.get_umap failed (%s); falling back to umap-learn.", exc)
+
+    try:
+        import umap
+
+        reducer = umap.UMAP(
+            n_neighbors=10,
+            min_dist=0.3,
+            n_components=2,
+            random_state=random_state,
+        )
+        return reducer.fit_transform(np.asarray(manifold_obs))
+    except Exception as exc:
+        log.warning("Could not compute UMAP embedding via umap-learn: %s", exc)
+        raise
 
 
 def _patch_sparse_A() -> None:

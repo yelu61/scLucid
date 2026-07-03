@@ -21,25 +21,25 @@ from scLucid.qc.doublet import (
     ALGORITHM_PRED_COL,
     ALGORITHM_SCORE_COL,
     COMBINED_SCORE_COL,
+    DOUBLET_OBS_COLUMNS,
     EXPECTED_HETEROTYPIC_RATE_COL,
     EXPECTED_HOMOTYPIC_RATE_COL,
     EXPECTED_TOTAL_RATE_COL,
     HETEROTYPIC_RISK_COL,
     HOMOTYPIC_RISK_COL,
-    DoubletEvidenceProfiler,
     audit_doublets,
     predict_doublets,
+    DoubletEvidenceProfiler as ExportedDoubletEvidenceProfiler,
+    predict_doublets_with_profiling,
 )
-from scLucid.qc.doublet._scrublet_compat import apply_scrublet_compatibility_shims
-from scLucid.qc.doublet.algorithms import (
+from scLucid.qc.doublet._scrublet_compat import (
     _plot_scrublet_embedding_fallback,
-    _raw_count_guard,
-    _run_scanpy_scrublet,
-    _run_scdblfinder,
-    _run_scrublet,
+    apply_scrublet_compatibility_shims,
 )
+from scLucid.qc.doublet.algorithms import _raw_count_guard, _run_scanpy_scrublet, _run_scdblfinder, _run_scrublet
 from scLucid.qc.doublet.ensemble import _export_doublet_stats, _merge_doublet_predictions
 from scLucid.qc.doublet.heuristic import _run_heuristic
+from scLucid.qc.doublet.profiler import DoubletEvidenceProfiler
 
 # ---------------------------------------------------------------------------
 # Scrublet compatibility shims
@@ -607,6 +607,40 @@ class TestPredictDoublets:
         assert int(merged.iloc[:5].sum()) == 1
         assert int(merged.iloc[5:].sum()) == 2
 
+    def test_algorithm_label_strategy_bypasses_expected_rate_relabeling(self, monkeypatch):
+        import scLucid.qc.doublet.ensemble as ensemble_module
+
+        adata = AnnData(X=np.ones((100, 50), dtype=float))
+        adata.obs_names = [f"cell{i}" for i in range(100)]
+        adata.var_names = [f"g{i}" for i in range(50)]
+        adata.obs["sampleID"] = "s1"
+        adata.obs["n_genes_by_counts"] = 100
+        adata.obs["total_counts"] = 1000
+
+        def fake_algorithm(data_view, sample, cfg):
+            scores = np.linspace(0.0, 1.0, data_view.n_obs)
+            predicted = np.zeros(data_view.n_obs, dtype=bool)
+            predicted[-3:] = True
+            return scores, predicted
+
+        monkeypatch.setattr(ensemble_module, "_run_scrublet", fake_algorithm)
+
+        cfg = DoubletConfig(
+            method="scrublet",
+            use_heuristics=False,
+            expected_doublet_rate=0.20,
+            final_label_strategy="algorithm_label",
+            plot_summary=False,
+            export_stats=False,
+        )
+        out = predict_doublets(adata, config=cfg, sample_key="sampleID")
+
+        assert int(out.obs["predicted_doublet"].sum()) == 3
+        calibration = out.uns["sclucid"]["qc"]["doublet_params"]["score_calibration"]
+        assert calibration["final_label_strategy"] == "algorithm_label"
+        assert calibration["thresholding"]["method"] == "algorithm_label"
+        assert "artifact_contract" in out.uns["sclucid"]["qc"]
+
     def test_external_doublet_evidence_review_only_does_not_change_final(self, minimal_adata):
         adata = minimal_adata.copy()
         adata.obs["sampleID"] = "sample_1"
@@ -713,8 +747,51 @@ class TestPredictDoublets:
         assert out.obs[HOMOTYPIC_RISK_COL].between(0, 1).all()
         assert out.obs[EXPECTED_TOTAL_RATE_COL].iloc[:40].eq(0.05).all()
         meta = out.uns["sclucid"]["qc"]["doublet_params"]["risk_decomposition"]
-        assert meta["schema_version"] == "doublet_risk_decomposition_v1"
+        assert meta["schema_version"] == "doublet_risk_decomposition_v2"
         assert "heterotypic_sources" in meta["evidence_priority"]
+
+    def test_predict_doublets_calibrates_scores_within_detection_groups(self, monkeypatch):
+        import scLucid.qc.doublet.ensemble as ensemble_module
+
+        adata = AnnData(X=np.ones((120, 120), dtype=float))
+        adata.obs_names = [f"cell{i}" for i in range(120)]
+        adata.var_names = [f"g{i}" for i in range(120)]
+        adata.obs["library"] = ["lib1"] * 60 + ["lib2"] * 60
+        adata.obs["n_genes_by_counts"] = 100
+        adata.obs["total_counts"] = 1000
+
+        def fake_algorithm(data_view, sample, cfg):
+            if sample == "lib1":
+                scores = np.linspace(0, 1, data_view.n_obs)
+            else:
+                scores = np.linspace(100, 101, data_view.n_obs)
+            return scores, scores > np.quantile(scores, 0.9)
+
+        monkeypatch.setattr(ensemble_module, "_run_scrublet", fake_algorithm)
+
+        cfg = DoubletConfig(
+            method="scrublet",
+            use_heuristics=False,
+            expected_doublet_rate={"lib1": 0.10, "lib2": 0.10},
+            plot_summary=False,
+            export_stats=False,
+        )
+        out = predict_doublets(adata, config=cfg, sample_key="library")
+
+        by_group = out.obs.groupby("library", observed=False)[COMBINED_SCORE_COL]
+        assert by_group.min().between(0.0, 1.0).all()
+        assert by_group.max().between(0.0, 1.0).all()
+        calibration = out.uns["sclucid"]["qc"]["doublet_params"]["score_calibration"]
+        assert calibration["calibration_group_key"] == "library"
+        assert calibration["merge_rank_normalize"] is True
+        assert "not calibrated probabilities" in calibration["score_semantics"]
+        assert "algorithm_score_distribution" in calibration
+
+    def test_doublet_public_contract_and_profiler_exports(self):
+        assert "final" in DOUBLET_OBS_COLUMNS
+        assert "predicted_doublet" in DOUBLET_OBS_COLUMNS["final"]
+        assert ExportedDoubletEvidenceProfiler is DoubletEvidenceProfiler
+        assert callable(predict_doublets_with_profiling)
 
     def test_raw_count_guard_rejects_log_normalized_input(self):
         adata = AnnData(X=np.log1p(np.array([[0, 1, 2], [3, 0, 4]], dtype=float)))
@@ -762,12 +839,14 @@ class TestDoubletEvidenceProfiler:
         adata.obs[COMBINED_SCORE_COL] = 0.5
         adata.obs[HETEROTYPIC_RISK_COL] = np.linspace(0, 1, adata.n_obs)
         adata.obs[HOMOTYPIC_RISK_COL] = np.linspace(1, 0, adata.n_obs)
+        adata.obs["external_doublet_evidence"] = False
 
         evidence = DoubletEvidenceProfiler(adata).generate_evidence_table()
 
         assert HETEROTYPIC_RISK_COL in evidence.columns
         assert HOMOTYPIC_RISK_COL in evidence.columns
         assert "heuristic_evidence_score" in evidence.columns
+        assert "external_doublet_evidence" in evidence.columns
         assert evidence["combined_evidence_score"].between(0, 1).all()
 
     def test_mt_pct_is_descriptive_not_combined_evidence(self, minimal_adata):

@@ -1,6 +1,6 @@
-"""Doublet detection subpackage."""
+"""Doublet detection."""
 
-from .core import (  # noqa: F401
+from .core import (
     ALGORITHM_PRED_COL,
     ALGORITHM_SCORE_COL,
     COMBINED_SCORE_COL,
@@ -13,15 +13,13 @@ from .core import (  # noqa: F401
     HEURISTIC_SCORE_COL,
     HOMOTYPIC_RISK_COL,
     LINEAGE_SCORES_KEY,
+    DOUBLET_OBS_COLUMNS,
     audit_doublets,
     create_custom_marker_dict,
     generate_doublet_rates,
 )
-from .ensemble import (  # noqa: F401
-    DoubletEvidenceProfiler,
-    predict_doublets,
-    predict_doublets_with_profiling,
-)
+from .ensemble import predict_doublets
+from .profiler import DoubletEvidenceProfiler, predict_doublets_with_profiling
 
 __all__ = [
     "ALGORITHM_PRED_COL",
@@ -36,10 +34,11 @@ __all__ = [
     "HEURISTIC_SCORE_COL",
     "HOMOTYPIC_RISK_COL",
     "LINEAGE_SCORES_KEY",
+    "DOUBLET_OBS_COLUMNS",
     "generate_doublet_rates",
     "create_custom_marker_dict",
     "audit_doublets",
     "predict_doublets",
-    "predict_doublets_with_profiling",
     "DoubletEvidenceProfiler",
+    "predict_doublets_with_profiling",
 ]

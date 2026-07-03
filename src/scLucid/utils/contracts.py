@@ -167,7 +167,8 @@ API_LAYER_CONTRACTS: dict[APILayerName, APILayerContract] = {
         primary_entrypoints=(
             "scLucid.qc.calculate_qc_metric",
             "scLucid.qc.recommend_intelligent_qc",
-            "scLucid.qc.mark_low_quality_cell",
+            "scLucid.qc.run_qc_threshold_decision",
+            "scLucid.qc.build_qc_decisions",
             "scLucid.qc.filter_cells",
             "scLucid.preprocess.normalize_data",
             "scLucid.preprocess.find_hvgs",

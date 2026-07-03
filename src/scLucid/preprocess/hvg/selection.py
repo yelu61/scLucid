@@ -19,7 +19,7 @@ try:
 except ImportError:
     HAS_VENN = False
 
-from scLucid.utils.helpers import _is_interactive_backend
+from scLucid.plotting.plotting_utils import _is_interactive_backend
 
 log = logging.getLogger(__name__)
 

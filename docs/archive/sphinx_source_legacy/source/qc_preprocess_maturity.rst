@@ -120,10 +120,9 @@ QC reporting boundary:
 
 - ``scLucid.qc.generate_qc_report`` is implemented in the reporting layer and
   exported from ``scLucid.qc.reporting``.
-- ``scLucid.qc.filtering.generate_qc_report`` remains as a compatibility
-  wrapper only; filtering code should stay focused on threshold suggestion,
-  marking, filtering, and filtering audit. New code should use the reporting
-  entrypoint; the filtering wrapper emits a ``FutureWarning``.
+- Filtering code stays focused on cell filtering. Threshold recommendation
+  lives in ``scLucid.qc.policy.thresholds``, and report generation lives in
+  ``scLucid.qc.reporting``.
 
 QC entries that can usually be compacted after review sidecars are exported:
 

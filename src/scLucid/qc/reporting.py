@@ -17,8 +17,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
-from .benchmark import compute_retention_metrics
-from .filtering.core import _plot_before_after_comparison
+from .policy.benchmark import compute_retention_metrics
 
 try:
     import plotly.graph_objects as go
@@ -40,6 +39,66 @@ def _infer_report_qc_metrics(adata: AnnData) -> List[str]:
     )
     metrics.extend(extra_pct_metrics)
     return metrics
+
+
+def _plot_before_after_comparison(
+    adata_before: AnnData,
+    adata_after: AnnData,
+    save_dir: str,
+    sample_key: str,
+    qc_metrics: List[str],
+) -> None:
+    """Plot before/after filtering comparison."""
+    before_counts = adata_before.obs[sample_key].value_counts()
+    after_counts = adata_after.obs[sample_key].value_counts()
+
+    comparison_df = pd.DataFrame(
+        {
+            "before": before_counts,
+            "after": after_counts.reindex(before_counts.index, fill_value=0),
+        }
+    ).fillna(0)
+    comparison_df["removed"] = comparison_df["before"] - comparison_df["after"]
+    comparison_df["retention_rate"] = comparison_df["after"] / comparison_df["before"] * 100
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    x = range(len(comparison_df))
+    width = 0.35
+
+    ax1.bar(
+        [i - width / 2 for i in x],
+        comparison_df["before"],
+        width,
+        label="Before",
+        alpha=0.8,
+    )
+    ax1.bar(
+        [i + width / 2 for i in x],
+        comparison_df["after"],
+        width,
+        label="After",
+        alpha=0.8,
+    )
+    ax1.set_xlabel("Sample")
+    ax1.set_ylabel("Cell Count")
+    ax1.set_title("Cell Counts Before/After Filtering")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(comparison_df.index, rotation=45)
+    ax1.legend()
+
+    ax2.bar(x, comparison_df["retention_rate"], alpha=0.8, color="green")
+    ax2.set_xlabel("Sample")
+    ax2.set_ylabel("Retention Rate (%)")
+    ax2.set_title("Cell Retention Rate by Sample")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(comparison_df.index, rotation=45)
+    ax2.axhline(y=80, color="red", linestyle="--", alpha=0.7, label="80% threshold")
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.savefig(Path(save_dir) / "filtering_comparison.png", dpi=300, bbox_inches="tight")
+    plt.close()
+    comparison_df.to_csv(Path(save_dir) / "filtering_comparison_stats.csv")
 
 
 def generate_qc_report(

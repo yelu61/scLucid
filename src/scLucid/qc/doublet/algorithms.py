@@ -15,199 +15,54 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sparse
 from anndata import AnnData
-from matplotlib.colors import ListedColormap
 
+from ...utils.helpers import assess_matrix_semantics
 from ..config import DoubletConfig
-from ._scrublet_compat import apply_scrublet_compatibility_shims
+from ._scrublet_compat import (
+    _coerce_scrublet_array,
+    _compute_scrublet_umap_embedding,
+    _ensure_scrublet_compatibility,
+    _plot_scrublet_embedding_fallback,
+    _scrub_doublets,
+    _scrublet_scores_degenerate,
+    apply_scrublet_compatibility_shims,
+)
 from .core import _expected_rate_topk_predictions
 
 log = logging.getLogger(__name__)
 
 
+__all__: list[str] = []
+
+
 def _raw_count_guard(adata: AnnData, *, sample_name: str, method: str) -> bool:
     """Return True when the active matrix looks compatible with raw UMI counts."""
-    X = adata.X
-    if X is None:
-        log.warning("Skipping %s for sample '%s': expression matrix is missing.", method, sample_name)
-        return False
+    result = assess_matrix_semantics(
+        adata,
+        semantics="raw_counts",
+        zero_fraction_threshold=0.0,
+        min_max_value=0.0,
+    )
+    if result["is_count_like"]:
+        return True
 
-    values = X.data if sparse.issparse(X) else np.asarray(X).ravel()
-    if values.size == 0:
-        log.warning("Skipping %s for sample '%s': expression matrix is empty.", method, sample_name)
-        return False
-
-    finite = np.asarray(values[np.isfinite(values)], dtype=float)
-    if finite.size == 0:
-        log.warning("Skipping %s for sample '%s': matrix has no finite values.", method, sample_name)
-        return False
-    if np.min(finite) < 0:
+    for warning in result.get("warnings", []):
         log.warning(
-            "Skipping %s for sample '%s': matrix contains negative values and is not raw counts.",
+            "Skipping %s for sample '%s': %s.",
+            method,
+            sample_name,
+            warning,
+        )
+    if not result.get("warnings"):
+        log.warning(
+            "Skipping %s for sample '%s': matrix does not look like raw counts.",
             method,
             sample_name,
         )
-        return False
-
-    positive = finite[finite > 0]
-    if positive.size:
-        fractional_fraction = float(np.mean(np.abs(positive - np.rint(positive)) > 1e-6))
-        if fractional_fraction > 0.01:
-            log.warning(
-                "Skipping %s for sample '%s': %.1f%% of positive values are fractional; "
-                "doublet algorithms require raw UMI-like counts.",
-                method,
-                sample_name,
-                fractional_fraction * 100.0,
-            )
-            return False
-
-    total_entries = adata.n_obs * adata.n_vars
-    if total_entries > 0:
-        nonzero = X.nnz if sparse.issparse(X) else int(np.count_nonzero(X))
-        zero_fraction = 1.0 - (float(nonzero) / float(total_entries))
-        if zero_fraction < 0.05:
-            log.warning(
-                "Skipping %s for sample '%s': matrix has very few zeros (%.1f%%), "
-                "suggesting normalized/transformed input rather than raw counts.",
-                method,
-                sample_name,
-                zero_fraction * 100.0,
-            )
-            return False
-
-    return True
+    return False
 
 
-def _ensure_scrublet_compatibility():
-    """Return whether Scrublet may need NumPy compatibility handling."""
-    return not hasattr(np.ndarray, "ptp")
-
-
-def _coerce_scrublet_array(values, *, expected_len: int, name: str, sample_name: str):
-    """Return a 1-D numpy array when a Scrublet output has the expected length."""
-    if values is None:
-        return None
-
-    arr = np.asarray(values).ravel()
-    if arr.shape[0] != expected_len:
-        log.warning(
-            "Ignoring Scrublet %s for sample '%s': expected %d values, got %d.",
-            name,
-            sample_name,
-            expected_len,
-            arr.shape[0],
-        )
-        return None
-    return arr
-
-
-def _scrublet_scores_degenerate(scores) -> bool:
-    """Return True when Scrublet scores carry no usable ranking signal."""
-    if scores is None:
-        return False
-    arr = np.asarray(scores, dtype=float).ravel()
-    finite = arr[np.isfinite(arr)]
-    if finite.size < 2:
-        return True
-    return bool(np.nanmax(finite) - np.nanmin(finite) <= 1e-12)
-
-
-def _scrub_doublets(scrub, *, n_prin_comps: int, use_approx_neighbors: bool):
-    """Call scrub_doublets with exact/approx neighbor control when supported."""
-    try:
-        return scrub.scrub_doublets(
-            n_prin_comps=n_prin_comps,
-            verbose=False,
-            use_approx_neighbors=use_approx_neighbors,
-        )
-    except TypeError:
-        return scrub.scrub_doublets(n_prin_comps=n_prin_comps, verbose=False)
-
-
-def _plot_scrublet_embedding_fallback(
-    embedding: np.ndarray,
-    scores: np.ndarray,
-    predicted: np.ndarray,
-    *,
-    title: str,
-):
-    """Plot Scrublet embedding without relying on scrublet's NumPy-1.x plotting code."""
-    embedding = np.asarray(embedding)
-    scores = np.asarray(scores, dtype=float).ravel()
-    predicted = np.asarray(predicted, dtype=bool).ravel()
-
-    fig, axes = plt.subplots(1, 2, figsize=(8, 4))
-    x = embedding[:, 0]
-    y = embedding[:, 1]
-    x_range = float(np.max(x) - np.min(x)) if x.size else 0.0
-    y_range = float(np.max(y) - np.min(y)) if y.size else 0.0
-    x_pad = x_range * 0.05
-    y_pad = y_range * 0.05
-    xlim = (float(np.min(x)) - x_pad, float(np.max(x)) + x_pad)
-    ylim = (float(np.min(y)) - y_pad, float(np.max(y)) + y_pad)
-    order = np.argsort(scores)
-
-    axes[0].scatter(
-        x[order],
-        y[order],
-        s=5,
-        c=predicted[order],
-        cmap=ListedColormap(["#BDBDBD", "#000000"]),
-        edgecolors="none",
-    )
-    axes[0].set_title("Predicted doublets")
-
-    scatter = axes[1].scatter(
-        x[order],
-        y[order],
-        s=5,
-        c=scores[order],
-        cmap="Reds",
-        edgecolors="none",
-    )
-    axes[1].set_title("Doublet score")
-    fig.colorbar(scatter, ax=axes[1])
-
-    for ax in axes:
-        ax.set_xlim(xlim)
-        ax.set_ylim(ylim)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_xlabel("UMAP 1")
-        ax.set_ylabel("UMAP 2")
-    fig.suptitle(title)
-    fig.tight_layout()
-    return fig
-
-
-def _compute_scrublet_umap_embedding(manifold_obs: np.ndarray, random_state: int = 61):
-    """Compute a UMAP embedding from scrublet's manifold observations.
-
-    Falls back to a direct ``umap.UMAP`` call when scrublet's ``get_umap`` is
-    unavailable or incompatible with the installed NumPy version.
-    """
-    try:
-        import scrublet as scr
-
-        embedding = scr.get_umap(manifold_obs, 10, min_dist=0.3)
-        if embedding is not None and embedding.shape[0] == manifold_obs.shape[0]:
-            return np.asarray(embedding)
-    except Exception as exc:
-        log.debug("scrublet.get_umap failed (%s); falling back to umap-learn.", exc)
-
-    try:
-        import umap
-
-        reducer = umap.UMAP(
-            n_neighbors=10,
-            min_dist=0.3,
-            n_components=2,
-            random_state=random_state,
-        )
-        return reducer.fit_transform(np.asarray(manifold_obs))
-    except Exception as exc:
-        log.warning("Could not compute UMAP embedding via umap-learn: %s", exc)
-        raise
+# --- Algorithm wrappers ---
 
 
 def _run_scrublet(
@@ -336,7 +191,9 @@ def _run_scrublet(
             )
 
         if predicted is None:
-            log.warning("Scrublet produced no usable scores or predictions for sample '%s'.", sample_name)
+            log.warning(
+                "Scrublet produced no usable scores or predictions for sample '%s'.", sample_name
+            )
             return None, None
         predicted = np.asarray(predicted, dtype=bool).ravel()
 
@@ -565,7 +422,9 @@ def _run_solo(
             else:
                 scores = np.asarray(soft_predictions)
         except Exception as e:
-            log.warning(f"Could not retrieve Solo scores via fallback: {e}. Using binary predictions as scores.")
+            log.warning(
+                f"Could not retrieve Solo scores via fallback: {e}. Using binary predictions as scores."
+            )
             scores = predicted.astype(float)
 
     # #############################################
@@ -743,9 +602,7 @@ def _run_scdblfinder(
             None,
         )
         if score_col is None or class_col is None:
-            raise KeyError(
-                "pyscdblfinder did not add expected score/class columns to adata.obs"
-            )
+            raise KeyError("pyscdblfinder did not add expected score/class columns to adata.obs")
 
         scores = adata_sdf.obs[score_col].to_numpy(dtype=float)
         predicted = adata_sdf.obs[class_col].astype(str).str.lower().eq("doublet").to_numpy()

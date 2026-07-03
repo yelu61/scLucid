@@ -20,6 +20,25 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 
+def _is_interactive_backend() -> bool:
+    """Return whether the active matplotlib backend can show figures interactively."""
+    from matplotlib import get_backend
+
+    backend = get_backend().lower()
+    return not any(token in backend for token in ("agg", "pdf", "svg", "ps", "cairo"))
+
+
+def _show_or_close(*figs, show: bool = True) -> None:
+    """Show figures on interactive backends; otherwise close quietly."""
+    import matplotlib.pyplot as plt
+
+    if show and _is_interactive_backend():
+        plt.show()
+    else:
+        for fig in figs:
+            plt.close(fig)
+
+
 def _subset_adata(adata: sc.AnnData, subset: Optional[pd.Series]) -> sc.AnnData:
     """Helper to safely subset AnnData."""
     if subset is not None:

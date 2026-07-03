@@ -21,8 +21,8 @@ import scipy.sparse as sp
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scLucid.qc.adaptive_threshold import fit_count_mixture_threshold_model
-from scLucid.qc.intelligent_qc import (
+from scLucid.qc.policy.adaptive_threshold import fit_count_mixture_threshold_model
+from scLucid.qc.policy.intelligent_qc import (
     IntelligentQCConfig,
     IntelligentQCRecommender,
     StrategyType,

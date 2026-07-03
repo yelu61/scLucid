@@ -19,7 +19,11 @@ from ...preprocess.intelligent import (
     IntelligentPreprocessRecommender,
     PreprocessingStrategy,
 )
-from ...qc.intelligent_qc import IntelligentQCConfig, QCRecommendation, recommend_intelligent_qc
+from ...qc.policy.intelligent_qc import (
+    IntelligentQCConfig,
+    QCRecommendation,
+    recommend_intelligent_qc,
+)
 from ...utils.context import AnalysisContext, infer_analysis_context
 from ..config import RecommendationConfig
 from ..schema import WorkflowRecommendations

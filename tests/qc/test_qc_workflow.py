@@ -67,6 +67,21 @@ def test_standard_qc_workflow():
     assert "qc_decision_summary" in adata_qc.uns["sclucid"]["qc"]
     assert "ambient_rna_summary" in adata_qc.uns["sclucid"]["qc"]
     assert "empty_droplet_summary" in adata_qc.uns["sclucid"]["qc"]
+    qc_ns = adata_qc.uns["sclucid"]["qc"]
+    assert "artifact_contract" in qc_ns
+    assert "threshold_decision" in qc_ns
+    assert "mark_evidence" in qc_ns
+    assert "qc_decision_artifact" in qc_ns
+    assert "filter_result" in qc_ns
+    assert "benchmark_review" in qc_ns
+    assert qc_ns["artifact_contract"]["decision_flow"] == [
+        "threshold_recommendation",
+        "threshold_decision",
+        "mark_evidence",
+        "qc_decision",
+        "filter_cells",
+        "benchmark_review",
+    ]
 
 
 def test_standard_qc_can_filter_by_qc_decision_remove():
@@ -161,13 +176,13 @@ def test_qc_with_adaptive_thresholds():
     )
 
     learner = AdaptiveThresholdLearner(method="percentile")
-    thresholds = learner.learn_all_thresholds(adata)
+    threshold_results = learner.learn_all_threshold_results(adata)
 
-    assert isinstance(thresholds, dict)
-    assert len(thresholds) > 0
-    for _, value in thresholds.items():
-        assert isinstance(value, (int, float))
-        assert value >= 0
+    assert isinstance(threshold_results, dict)
+    assert len(threshold_results) > 0
+    for _, result in threshold_results.items():
+        assert result["schema_version"] == "qc_threshold_result_v1"
+        assert result["threshold"] >= 0
 
 
 def test_standard_qc_creates_single_sample_key_when_missing():

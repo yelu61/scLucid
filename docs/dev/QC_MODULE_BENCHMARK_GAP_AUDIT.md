@@ -72,7 +72,7 @@ benchmark-grade reference module.
 
 - Move the validation-tested tumor-aware threshold guardrail into
   `scLucid.qc.filtering` / `scLucid.qc.workflow` as a named policy layer.
-- Add a canonical QC policy scorecard helper to `scLucid.qc.benchmark` and reuse
+- Add a canonical QC policy scorecard helper to `scLucid.qc.policy.benchmark` and reuse
   it from validation scripts and reports.
 - Extend `generate_qc_report` to include the strategy scorecard and tumor
   biological fidelity summary when present.

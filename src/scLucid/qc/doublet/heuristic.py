@@ -17,8 +17,8 @@ import seaborn as sns
 from anndata import AnnData
 
 from ...utils import get_marker_manager
-from ...utils.helpers import _show_or_close
-from ..config import DoubletConfig, MarkerConfig
+from ...plotting.plotting_utils import _show_or_close
+from ..config import DoubletConfig
 from .core import (
     FINAL_PRED_COL,
     HEURISTIC_PRED_COL,
@@ -93,7 +93,8 @@ def _run_heuristic(
         A tuple containing:
         - A boolean pd.Series of heuristic doublet predictions based on a score threshold.
         - A pd.DataFrame (`lineage_scores_df`) with module scores for each lineage.
-        - A pd.Series (`heuristic_confidence_score`) with the final calculated confidence score, normalized to [0, 1].
+        - A pd.Series (`heuristic_confidence_score`) with the raw confidence score.
+          The ensemble step applies configurable, group-aware normalization.
     """
     # --- 1. Load Marker Configurations ---
     marker_configs = cfg.marker_configs
@@ -191,9 +192,7 @@ def _run_heuristic(
     score_th = cfg.heuristic_score_threshold
     for lin_a, lin_b in conflict_pairs:
         if lin_a in lineage_scores_df.columns and lin_b in lineage_scores_df.columns:
-            mask = (
-                (lineage_scores_df[lin_a] > score_th) & (lineage_scores_df[lin_b] > score_th)
-            )
+            mask = (lineage_scores_df[lin_a] > score_th) & (lineage_scores_df[lin_b] > score_th)
             conflict_penalty.loc[mask] += 0.5
 
     # --- 4. Compute Heuristic Confidence Score ---
@@ -207,14 +206,14 @@ def _run_heuristic(
     top_two_scores.columns = ["score1", "score2"]
 
     # A cell is a co-expression candidate if its top two scores are both significant.
-    significant_coexpression = (top_two_scores["score1"] > score_th) & (top_two_scores["score2"] > score_th)
+    significant_coexpression = (top_two_scores["score1"] > score_th) & (
+        top_two_scores["score2"] > score_th
+    )
 
     # Use log-transformed gene counts as a weight for cell complexity.
     # Doublets are expected to have more detected genes.
     gene_count_log = np.log1p(adata.obs["n_genes_by_counts"])
 
-    # Calculate the final score: sum of top two scores, weighted by gene counts,
-    # and only applied to cells showing significant co-expression.
     # Conflict penalty boosts the score for biologically impossible co-expression.
     heuristic_confidence_score = (
         (top_two_scores["score1"] + top_two_scores["score2"])
@@ -223,10 +222,9 @@ def _run_heuristic(
         * (1.0 + conflict_penalty)
     )
 
-    # Normalize the score to a [0, 1] range to make it comparable to Scrublet's score.
-    max_score = heuristic_confidence_score.max()
-    if max_score > 0:
-        heuristic_confidence_score /= max_score
+    # Do NOT globally min-max the score here. The ensemble step will apply a
+    # configurable, group-aware normalization so that scores remain comparable
+    # across samples and datasets.
 
     # Apply biology-aware allowlist before thresholding so the continuous score
     # and binary heuristic prediction remain consistent.
@@ -254,14 +252,16 @@ def _run_heuristic(
     else:
         ignored_pairs = []
 
-    # --- 4. Generate a Binary Prediction based on the Score ---
-    # Adaptive threshold: use expected_doublet_rate to set the quantile.
-    # If no rate is provided, fall back to the legacy 90% quantile.
+    # --- Generate a binary prediction based on the raw score ---
+    # Thresholding is performed on the raw score; the ensemble step re-normalizes
+    # before producing the final merged call.
     if expected_rate is not None:
         potential_doublets, thresholds = _expected_rate_grouped_predictions(
             heuristic_confidence_score,
             expected_rate=expected_rate,
-            groups=adata.obs[sample_key] if isinstance(expected_rate, dict) and sample_key else None,
+            groups=adata.obs[sample_key]
+            if isinstance(expected_rate, dict) and sample_key
+            else None,
             eligible_mask=heuristic_confidence_score > 0,
         )
         if isinstance(thresholds, dict):
@@ -307,7 +307,6 @@ def _run_heuristic(
         "applied_before_thresholding": True,
     }
     return potential_doublets, lineage_scores_df, heuristic_confidence_score.fillna(0)
-
 
 
 def _plot_doublet_summary(
@@ -530,6 +529,3 @@ def _plot_doublet_summary(
                 )
         else:
             log.info("Heuristic lineage scores not found, skipping UpSet plot.")
-
-
-# --- Main Functions ---

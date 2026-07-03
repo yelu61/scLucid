@@ -73,8 +73,8 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `PlottingBackend` | Function | `src/scLucid/__init__.py` |  |
 | `ProportionAnalysisMethod` | Function | `src/scLucid/__init__.py` |  |
 | `QCFilter` | Function | `src/scLucid/__init__.py` |  |
-| `read_10x` | Function | `src/scLucid/__init__.py` |  |
-| `read_h5ad` | Function | `src/scLucid/__init__.py` |  |
+| `read_10x` | Function | `src/scLucid/__init__.py` | re-exported from `utils.io` |
+| `read_h5ad` | Function | `src/scLucid/__init__.py` | re-exported from `utils.io` |
 | `recommend_analysis_parameters` | Function | `src/scLucid/__init__.py` | dynamically resolved from submodule workflow |
 | `reset_config` | Function | `src/scLucid/__init__.py` |  |
 | `ScoringMethod` | Function | `src/scLucid/__init__.py` |  |
@@ -657,13 +657,14 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 |--------|------|--------|-------|
 | `AdaptiveThresholdLearner` | Function | `src/scLucid/qc/__init__.py` | [O] from `adaptive_threshold`; optional |
 | `audit_doublets` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
-| `audit_filtering` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
+| `apply_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
 | `build_qc_benchmark_assessment` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
 | `build_qc_decision_table` | Function | `src/scLucid/qc/__init__.py` | from `trace` |
 | `calculate_qc_metric` | Function | `src/scLucid/qc/__init__.py` | from `metrics` |
 | `compute_marker_fidelity` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
 | `compute_retention_metrics` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
 | `create_custom_marker_dict` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
+| `decide_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
 | `diagnose_ambient_rna` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
 | `diagnose_empty_droplets` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
 | `EnhancedQCReport` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
@@ -673,27 +674,22 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `generate_doublet_rates` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
 | `generate_qc_html_report` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
 | `generate_qc_report` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
-| `identify_outliers` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
 | `infer_qc_benchmark_profile` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
 | `IntelligentQCRecommender` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
 | `InteractiveReportGenerator` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
-| `mark_low_quality_cell` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
-| `mark_low_quality_cells_adaptive` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
 | `MultiMetricAdaptiveLearner` | Function | `src/scLucid/qc/__init__.py` | [O] from `adaptive_threshold`; optional |
 | `predict_doublets` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
-| `predict_doublets_with_profiling` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
 | `QCRecommendation` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
 | `QCThresholds` | Function | `src/scLucid/qc/__init__.py` | from `config` |
 | `recommend_intelligent_qc` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
 | `record_ambient_correction_status` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
+| `recommend_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
 | `register_external_ambient_result` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
 | `render_qc_benchmark_compact_markdown` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
 | `render_qc_benchmark_markdown` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `resolve_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
-| `run_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
+| `run_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
 | `score_cell_cycle` | Function | `src/scLucid/qc/__init__.py` | from `cycle` |
 | `StrategyType` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
-| `suggest_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
 | `ThresholdRecommendation` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
 
 #### Constant
@@ -726,9 +722,10 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
 | `run_advanced_qc` | Deprecated | `src/scLucid/qc/__init__.py` | [D] from `workflow` |
-| `run_qc_decision_workflow` | Deprecated | `src/scLucid/qc/__init__.py` | [D] from `filtering` |
 
-**Summary:** 62 symbols (60 stable, 2 flagged). workflow=1, config=6, class=0, function=40, alias=0, constant=1, trace=12, deprecated=2, uncertain=0, private_but_exposed=0.
+**Summary:** QC threshold public APIs are consolidated around `recommend_qc_thresholds`
+and `run_qc_threshold_decision`; older threshold aliases are no longer listed as
+package-level APIs.
 
 ## scLucid.recommendation
 
@@ -1532,12 +1529,12 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `infer_dataset_profile` | Function | `src/scLucid/utils/__init__.py` |  |
 | `is_ci_environment` | Function | `src/scLucid/utils/__init__.py` |  |
 | `is_multi_sample_hint` | Function | `src/scLucid/utils/__init__.py` |  |
-| `is_raw_count_matrix` | Function | `src/scLucid/utils/__init__.py` |  |
+| `assess_matrix_semantics` | Function | `src/scLucid/utils/__init__.py` |  |
 | `LayerKeys` | Function | `src/scLucid/utils/__init__.py` |  |
 | `LayerSemanticKeys` | Function | `src/scLucid/utils/__init__.py` |  |
 | `list_results` | Function | `src/scLucid/utils/__init__.py` |  |
 | `list_sclucid_modules` | Function | `src/scLucid/utils/__init__.py` |  |
-| `load_10x_data` | Function | `src/scLucid/utils/__init__.py` |  |
+| `load_10x_data` | Function | `src/scLucid/utils/__init__.py` | re-exported from `utils.io` |
 | `load_all_datasets` | Function | `src/scLucid/utils/__init__.py` |  |
 | `load_config` | Function | `src/scLucid/utils/__init__.py` |  |
 | `load_gene_set_manager` | Function | `src/scLucid/utils/__init__.py` |  |
@@ -1573,7 +1570,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `profile_function` | Function | `src/scLucid/utils/__init__.py` |  |
 | `profile_performance` | Function | `src/scLucid/utils/__init__.py` |  |
 | `progress_decorator` | Function | `src/scLucid/utils/__init__.py` |  |
-| `read_10x` | Function | `src/scLucid/utils/__init__.py` |  |
+| `read_10x` | Function | `src/scLucid/utils/__init__.py` | re-exported from `utils.io` |
 | `read_h5ad` | Function | `src/scLucid/utils/__init__.py` |  |
 | `record_artifact` | Function | `src/scLucid/utils/__init__.py` |  |
 | `record_config_lineage` | Function | `src/scLucid/utils/__init__.py` |  |

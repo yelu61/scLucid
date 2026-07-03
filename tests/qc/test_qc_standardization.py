@@ -186,6 +186,9 @@ def test_qc_review_summary_records_doublet_evidence():
     compact = qc.summarize_qc_review_summary(review)
     assert compact["doublet_status"] == "available"
     assert compact["predicted_doublets"] == 12
+    assert compact["benchmark_status"] in {"pass", "review_required", "fail"}
+    assert compact["benchmark_next_step"]
+    assert compact["top_review_action"]
 
 
 def test_qc_review_summary_includes_attached_doublet_benchmark_evidence():
@@ -366,9 +369,14 @@ def test_qc_review_export_includes_benchmark_schema(tmp_path):
     )
 
     payload = json.loads((output_dir / "qc_review_summary.json").read_text())
+    markdown = (output_dir / "qc_review_summary.md").read_text()
+    benchmark_markdown = (output_dir / "qc_benchmark.md").read_text()
     assert payload["qc_schema_version"] == QC_TRACE_SCHEMA_VERSION
     assert isinstance(payload["decision_table"], list)
     assert isinstance(payload["evidence_chain"], list)
+    assert "Executive Summary" in markdown
+    assert "Reviewer next step" in markdown
+    assert "How To Read This Benchmark" in benchmark_markdown
 
 
 def test_validate_qc_review_summary_reports_missing_sections():

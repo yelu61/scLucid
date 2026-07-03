@@ -20,7 +20,7 @@ All public functions should use descriptive names following these prefixes:
 | `compare_*` | Comparative analyses | `compare_groups()`, `compare_conditions()` |
 | `filter_*` | Filtering operations | `filter_cells()`, `filter_markers()` |
 | `predict_*` | Predictive operations | `predict_doublets()` |
-| `suggest_*` | Suggest parameters | `suggest_qc_thresholds()`, `suggest_hvg_choice()` |
+| `recommend_*` | Recommend parameters or policies with evidence | `recommend_qc_thresholds()`, `recommend_qc_policy()` |
 
 ### Private Functions
 

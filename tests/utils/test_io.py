@@ -9,7 +9,7 @@ from anndata import AnnData
 
 import scLucid as scl
 from scLucid.utils.contracts import LayerKeys, SCLUCID_ROOT, UnsKeys
-from scLucid.utils.helpers import _looks_like_counts, read_10x
+from scLucid.utils.io import _looks_like_counts, read_10x
 from scLucid.utils.io import read_h5ad
 
 
@@ -191,7 +191,7 @@ class TestRead10xMultiSampleMode:
     """Verify that the merged single+multi API still honors the legacy multi path."""
 
     def test_legacy_load_10x_data_alias_still_works(self):
-        from scLucid.utils.helpers import load_10x_data, read_10x
+        from scLucid.utils.io import load_10x_data, read_10x
 
         # The alias should resolve to a callable; the inner function is the
         # multi-sample dispatch inside read_10x.

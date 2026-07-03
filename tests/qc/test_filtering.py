@@ -6,18 +6,15 @@ import pytest
 from anndata import AnnData
 
 from scLucid.qc.config import FilterConfig
-from scLucid.qc.filtering import (
-    audit_filtering,
-    filter_cells,
-    generate_qc_report,
-    identify_outliers,
-    mark_low_quality_cell,
-    resolve_qc_thresholds,
-    run_qc_decision_workflow,
+from scLucid.qc.policy.adaptive_threshold import AdaptiveThresholdCalculator
+from scLucid.qc.filtering import filter_cells
+from scLucid.qc.policy.marking import audit_filtering, identify_outliers, mark_low_quality_cell
+from scLucid.qc.reporting import generate_qc_report
+from scLucid.qc.policy.thresholds import (
+    _resolve_qc_thresholds,
+    recommend_qc_thresholds,
     run_qc_threshold_decision,
-    suggest_qc_thresholds,
 )
-from scLucid.qc.filtering.core import AdaptiveThresholdCalculator
 
 
 def test_adaptive_thresholds_record_reviewable_model_semantics():
@@ -35,44 +32,63 @@ def test_adaptive_thresholds_record_reviewable_model_semantics():
     assert all("formal mixed-effects" in item["review_note"] for item in thresholds.values())
 
 
-class TestSuggestQCThresholds:
+class TestRecommendQCThresholds:
+    def test_recommend_qc_thresholds_returns_structured_bundle(self, qc_test_adata):
+        bundle = recommend_qc_thresholds(qc_test_adata, plot_distributions=False)
+
+        assert bundle["schema_version"] == "qc_threshold_recommendation_bundle_v1"
+        assert "candidate_thresholds" in bundle
+        assert "n_genes_by_counts" in bundle["candidate_thresholds"]
+        assert bundle["suggested_thresholds_dict"]["min_genes"] is not None
+        first = bundle["candidate_thresholds"]["n_genes_by_counts"][0]
+        assert "confidence" in first
+        assert first["score_semantics"].startswith("Threshold recommendation")
+
+    def test_top_gene_candidates_are_review_only(self, qc_test_adata):
+        adata = qc_test_adata.copy()
+        adata.obs["pct_counts_in_top_20_genes"] = np.linspace(10, 80, adata.n_obs)
+        bundle = recommend_qc_thresholds(adata, plot_distributions=False)
+        review_metrics = {
+            item["metric"]
+            for item in bundle["hard_filter_exclusions"]
+            if item["reason"] == "review_only_threshold_candidate"
+        }
+        assert any(metric.startswith("pct_counts_in_top_") for metric in review_metrics)
+        assert bundle["suggested_thresholds"].pc_top_genes == {}
+
     def test_returns_dataframe_and_thresholds(self, qc_test_adata):
-        df, thresholds = suggest_qc_thresholds(
-            qc_test_adata, plot_distributions=False
-        )
+        bundle = recommend_qc_thresholds(qc_test_adata, plot_distributions=False)
+        df = bundle["threshold_table"]
+        thresholds = bundle["suggested_thresholds"]
         assert isinstance(df, pd.DataFrame)
         assert hasattr(thresholds, "min_genes")
         assert hasattr(thresholds, "pc_mt")
 
     def test_mad_method(self, qc_test_adata):
-        df, thresholds = suggest_qc_thresholds(
-            qc_test_adata, method="mad", plot_distributions=False
-        )
-        assert df is not None
+        bundle = recommend_qc_thresholds(qc_test_adata, method="mad", plot_distributions=False)
+        assert bundle["threshold_table"] is not None
 
     def test_percentile_method(self, qc_test_adata):
-        df, thresholds = suggest_qc_thresholds(
+        bundle = recommend_qc_thresholds(
             qc_test_adata,
             method="percentile",
             percentile_range=(5, 95),
             plot_distributions=False,
         )
-        assert df is not None
+        assert bundle["threshold_table"] is not None
 
     def test_iqr_method(self, qc_test_adata):
-        df, thresholds = suggest_qc_thresholds(
-            qc_test_adata, method="iqr", plot_distributions=False
-        )
-        assert df is not None
+        bundle = recommend_qc_thresholds(qc_test_adata, method="iqr", plot_distributions=False)
+        assert bundle["threshold_table"] is not None
 
     def test_mad_multipliers_as_list(self, qc_test_adata):
-        df, thresholds = suggest_qc_thresholds(
+        bundle = recommend_qc_thresholds(
             qc_test_adata,
             method="mad",
             mad_multipliers=[2.5, 3.5],
             plot_distributions=False,
         )
-        assert df is not None
+        assert bundle["threshold_table"] is not None
 
 
 class TestIdentifyOutliers:
@@ -218,7 +234,7 @@ class TestFilterCells:
 
 class TestResolveQCThresholds:
     def test_intelligent_then_mad_policy(self):
-        thresholds = resolve_qc_thresholds(
+        thresholds = _resolve_qc_thresholds(
             intelligent={"min_genes": 300, "pc_mt": 8.0},
             mad={"min_genes": 200, "max_genes": 8000, "pc_mt": 10.0},
         )
@@ -227,7 +243,7 @@ class TestResolveQCThresholds:
         assert thresholds.pc_mt == 8.0
 
     def test_manual_floor_and_ceiling(self):
-        thresholds = resolve_qc_thresholds(
+        thresholds = _resolve_qc_thresholds(
             intelligent={"min_genes": 300, "pc_mt": 8.0},
             mad={"min_genes": 200, "pc_mt": 10.0},
             manual={"min_genes": 500, "pc_mt": 12.0},
@@ -236,7 +252,7 @@ class TestResolveQCThresholds:
         assert thresholds.pc_mt == 8.0  # ceiling
 
     def test_manual_override_policy(self):
-        thresholds = resolve_qc_thresholds(
+        thresholds = _resolve_qc_thresholds(
             intelligent={"min_genes": 300},
             mad={"min_genes": 200},
             manual={"min_genes": 500},
@@ -245,7 +261,7 @@ class TestResolveQCThresholds:
         assert thresholds.min_genes == 500
 
     def test_mad_then_intelligent_policy(self):
-        thresholds = resolve_qc_thresholds(
+        thresholds = _resolve_qc_thresholds(
             intelligent={"min_genes": 300},
             mad={"min_genes": 200},
             policy="mad_then_intelligent",
@@ -254,21 +270,6 @@ class TestResolveQCThresholds:
 
 
 class TestQCDecisionWorkflow:
-    def test_runs_threshold_resolution_and_marking(self, qc_test_adata):
-        with pytest.warns(FutureWarning, match="run_qc_threshold_decision"):
-            result = run_qc_decision_workflow(
-                qc_test_adata.copy(),
-                intelligent_thresholds={"min_genes": 100, "pc_mt": 20.0},
-                manual_thresholds={"min_genes": 50},
-                plot_distributions=False,
-                filter_cells_result=False,
-            )
-
-        assert "adata" in result
-        assert result["resolved_thresholds"].min_genes == 100
-        assert "qc_threshold_decision" in result["adata"].uns["sclucid"]["qc"]
-        assert "qc_decision_workflow" not in result["adata"].uns["sclucid"]["qc"]
-
     def test_new_threshold_decision_entrypoint(self, qc_test_adata):
         result = run_qc_threshold_decision(
             qc_test_adata.copy(),
@@ -278,7 +279,30 @@ class TestQCDecisionWorkflow:
         )
 
         assert result["resolved_thresholds"].min_genes == 100
+        assert result["recommendation_bundle"]["schema_version"] == (
+            "qc_threshold_recommendation_bundle_v1"
+        )
         assert "qc_threshold_decision" in result["adata"].uns["sclucid"]["qc"]
+
+    def test_threshold_decision_chain_records_artifacts(self, qc_test_adata):
+        result = run_qc_threshold_decision(
+            qc_test_adata.copy(),
+            plot_distributions=False,
+            filter_cells_result=True,
+            criteria_to_filter=["outlier_min_genes", "outlier_qc_metrics"],
+        )
+
+        qc_ns = result["adata"].uns["sclucid"]["qc"]
+        assert "threshold_recommendations" in qc_ns
+        recommendation_payload = qc_ns["threshold_recommendations"][0]["payload"]
+        assert recommendation_payload["schema_version"] == (
+            "qc_threshold_recommendation_bundle_v1"
+        )
+        assert "candidate_thresholds" in recommendation_payload
+        assert "threshold_decision" in qc_ns
+        assert "mark_evidence" in qc_ns
+        assert qc_ns["mark_evidence"]["evidence_counts"]
+        assert result["filtered"].uns["sclucid"]["qc"]["filter_result"]["schema_version"] == "qc_filter_result_v1"
 
 
 class TestAuditFiltering:
@@ -304,31 +328,28 @@ class TestAuditFiltering:
 class TestGenerateQCReport:
     def test_smoke_report_generation(self, qc_test_adata, temp_output_dir):
         """Basic smoke test: report generation should not crash."""
-        with pytest.warns(FutureWarning, match="filtering.generate_qc_report"):
-            generate_qc_report(
-                qc_test_adata,
-                save_dir=temp_output_dir,
-                include_before_after=False,
-            )
+        generate_qc_report(
+            qc_test_adata,
+            save_dir=temp_output_dir,
+            include_before_after=False,
+        )
 
     def test_report_with_before_after(self, qc_test_adata, temp_output_dir):
         before = qc_test_adata.copy()
         after = qc_test_adata.copy()
-        with pytest.warns(FutureWarning, match="filtering.generate_qc_report"):
-            generate_qc_report(
-                after,
-                save_dir=temp_output_dir,
-                include_before_after=True,
-                adata_before=before,
-            )
+        generate_qc_report(
+            after,
+            save_dir=temp_output_dir,
+            include_before_after=True,
+            adata_before=before,
+        )
 
     def test_report_creates_output(self, qc_test_adata, temp_output_dir):
-        with pytest.warns(FutureWarning, match="filtering.generate_qc_report"):
-            generate_qc_report(
-                qc_test_adata,
-                save_dir=temp_output_dir,
-                include_before_after=False,
-            )
+        generate_qc_report(
+            qc_test_adata,
+            save_dir=temp_output_dir,
+            include_before_after=False,
+        )
         import os
         files = os.listdir(temp_output_dir)
         # Should create at least some output

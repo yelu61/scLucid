@@ -5,6 +5,7 @@ import pytest
 import scipy.sparse as sparse
 from anndata import AnnData
 
+import scLucid.qc as qc
 from scLucid.qc import (
     AMBIENT_CORRECTED_COUNTS_LAYER,
     build_ambient_layer_contract,
@@ -16,7 +17,6 @@ from scLucid.qc import (
 )
 from scLucid.qc.ambient import correct_ambient_rna_linear
 from scLucid.qc.ambient_backends import (
-    cellbender_available,
     correct_ambient_rna,
     decontx_available,
     list_ambient_backends,
@@ -48,6 +48,7 @@ def test_diagnose_ambient_rna_returns_risk_summary():
     assert summary["risk_level"] in {"low", "moderate", "high"}
     assert "top_genes" in summary
     assert summary["correction_status"]["corrected"] is False
+    assert "input_context" in summary
 
 
 def test_record_ambient_correction_status_is_used_by_diagnostic():
@@ -224,10 +225,33 @@ def test_linear_correction_default_layer_contract():
     assert summary["output_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
     assert AMBIENT_CORRECTED_COUNTS_LAYER in adata.layers
     assert contract["recommended_preprocess_counts_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
+    assert "artifact_contract" in adata.uns["sclucid"]["qc"]
 
 
-def test_correct_ambient_rna_auto_fallback_without_cellbender():
-    """Auto method falls back to linear when CellBender is unavailable."""
+def test_ambient_top_level_api_is_narrow_but_compatibility_aliases_remain():
+    public = set(qc.__all__)
+    for symbol in [
+        "AMBIENT_CORRECTED_COUNTS_LAYER",
+        "diagnose_ambient_rna",
+        "register_external_ambient_result",
+        "correct_ambient_rna",
+    ]:
+        assert symbol in public
+
+    for hidden in [
+        "build_ambient_layer_contract",
+        "diagnose_empty_droplets",
+        "infer_ambient_input_context",
+        "record_ambient_correction_status",
+        "record_ambient_layer_contract",
+        "correct_ambient_rna_linear",
+    ]:
+        assert hasattr(qc, hidden)
+        assert hidden not in public
+
+
+def test_correct_ambient_rna_auto_filtered_returns_diagnostic_without_backend():
+    """Auto method on filtered matrices should not silently run linear correction."""
     rng = np.random.default_rng(7)
     adata = AnnData(X=rng.poisson(lam=5, size=(200, 20)).astype(float))
     adata.var_names = [f"Gene{i}" for i in range(20)]
@@ -235,10 +259,13 @@ def test_correct_ambient_rna_auto_fallback_without_cellbender():
     summary = correct_ambient_rna(
         adata, method="auto", backend="auto", output_layer="ambient_corrected"
     )
-    assert summary["corrected"] is True
-    assert summary["method"] == "linear_background_subtraction"
-    if not cellbender_available():
-        assert "ambient_corrected" in adata.layers
+    if not (soupx_available() or decontx_available()):
+        assert summary["corrected"] is False
+        assert summary["method"] == "diagnostic_only"
+        assert summary["matrix_type"] == "filtered_like"
+        assert "ambient_corrected" not in adata.layers
+        contract = adata.uns["sclucid"]["qc"]["ambient_layer_contract"]
+        assert contract["recommended_preprocess_counts_layer"] in (None, "")
 
 
 def test_correct_ambient_rna_linear_explicit():
@@ -252,6 +279,8 @@ def test_correct_ambient_rna_linear_explicit():
     )
     assert summary["corrected"] is True
     assert summary["method"] == "linear_background_subtraction"
+    assert summary["calibration_status"] == "conservative_fallback_not_model_based"
+    assert "not equivalent" in summary["correction_note"]
     assert "ambient_corrected" in adata.layers
 
 
@@ -276,10 +305,12 @@ def test_correct_ambient_rna_filtered_prefers_decontx_or_soupx():
         output_layer="ambient_corrected",
     )
 
-    # Because no backends are likely installed in CI, this should fall back to linear.
-    assert summary["corrected"] is True
-    if not (soupx_available() or decontx_available() or cellbender_available()):
-        assert summary["method"] == "linear_background_subtraction"
+    if not (soupx_available() or decontx_available()):
+        assert summary["corrected"] is False
+        assert summary["method"] == "diagnostic_only"
+        assert summary["reason"] == "no_filtered_matrix_backend_available"
+    else:
+        assert summary["corrected"] is True
 
 
 def test_correct_ambient_rna_unknown_backend_raises():

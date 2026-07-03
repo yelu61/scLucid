@@ -42,7 +42,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | Field | Value |
 |-------|-------|
 | **Module** | qc / preprocess / analysis / tumor / tools / utils / plotting |
-| **Function(s)** | `run_standard_qc`, `suggest_qc_thresholds`, ... |
+| **Function(s)** | `run_standard_qc`, `recommend_qc_thresholds`, ... |
 | **Discovered in** | project name / dataset / date |
 | **Severity** | blocker / high / medium / low |
 | **Status** | reported / triaged / in_progress / resolved / wontfix |
@@ -61,16 +61,16 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 
 ## Resolved Items
 
-### I001: Add `is_raw_count_matrix` utility for raw-count semantics guard
+### I001: Add `assess_matrix_semantics` utility for matrix semantics guard
 
 | Field | Value |
 |-------|-------|
-| **Module** | utils / preprocess |
-| **Function(s)** | `is_raw_count_matrix` |
+| **Module** | utils / preprocess / qc / doublet |
+| **Function(s)** | `assess_matrix_semantics` |
 | **Status** | resolved |
-| **Resolution summary** | Implemented in `src/scLucid/utils/validation.py` and re-exported from `utils`. `_looks_like_counts` and `_matrix_looks_like_counts` now share the same canonical diagnostics. |
-| **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
-| **Verification** | `tests/utils/test_validation.py`; smoke + affected module tests pass. |
+| **Resolution summary** | Implemented in `src/scLucid/utils/helpers.py` and re-exported from `utils`. Replaces the overlapping `is_raw_count_matrix`, `_matrix_looks_like_counts`, `_raw_count_guard`, and `_assess_count_like_matrix` helpers with a single canonical checker. The internal bool wrapper `_looks_like_counts` lives in `src/scLucid/utils/io.py` for count-layer auto-population. |
+| **Resolution commit** | TBD — resolved around matrix-semantics refactor |
+| **Verification** | `tests/utils/test_helpers.py`, `tests/utils/test_validation.py`; smoke + affected module tests pass. |
 
 ### I002: Add `build_metadata_dicts` helper for multi-sample loading
 
@@ -90,7 +90,7 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Module** | qc |
 | **Function(s)** | `audit_filtering` |
 | **Status** | resolved |
-| **Resolution summary** | Implemented in `src/scLucid/qc/filtering/core.py`. Compares cell counts before/after filtering by sample and optional group. |
+| **Resolution summary** | Implemented in `src/scLucid/qc/filtering.py`. Compares cell counts before/after filtering by sample and optional group. |
 | **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/qc/test_filtering.py`; smoke + affected module tests pass. |
 
@@ -116,14 +116,14 @@ from real-world use of scLucid in analysis projects. It is the bridge between
 | **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/preprocess/test_integrate.py`; smoke + affected module tests pass. |
 
-### I006: Add `resolve_qc_thresholds` for merging threshold sources
+### I006: Add threshold source merging for QC decisions
 
 | Field | Value |
 |-------|-------|
 | **Module** | qc |
-| **Function(s)** | `resolve_qc_thresholds` |
+| **Function(s)** | `recommend_qc_thresholds`, `run_qc_threshold_decision` |
 | **Status** | resolved |
-| **Resolution summary** | Implemented in `src/scLucid/qc/filtering/suggestions.py`. Merges intelligent/MAD/manual thresholds with configurable policy. Wired into `run_standard_qc` threshold application; user-explicit thresholds are authoritative. |
+| **Resolution summary** | Implemented as the threshold recommendation-to-decision chain. Intelligent/distribution/manual thresholds are merged inside the decision layer; user-explicit thresholds are authoritative. |
 | **Resolution commit** | TBD — resolved around `4cbac7c` (Refine QC and preprocessing workflows) |
 | **Verification** | `tests/qc/test_filtering.py`, `tests/qc/test_qc_recommendation_executable.py`; smoke + affected module tests pass. |
 

@@ -1,8 +1,5 @@
 """
 Pydantic-based configuration classes for the Quality Control (QC) module.
-
-This is v2 of the QC configuration system, migrating from dataclasses to Pydantic
-for consistent validation, serialization, and documentation.
 """
 
 from __future__ import annotations
@@ -26,6 +23,10 @@ class MetricsReportingConfig(SclucidBaseConfig):
     include_standard_qc: bool = Field(default=True, description="Include standard QC metrics.")
 
     # Plotting Controls
+    export_plots: bool = Field(
+        default=True,
+        description="Master switch for saving QC metric plots to save_dir.",
+    )
     plot_violin: bool = Field(default=True, description="Plot violin plots for QC metrics.")
     plot_scatter: bool = Field(
         default=True, description="Plot scatter for total_counts vs n_genes."
@@ -139,14 +140,14 @@ class DoubletConfig(SclucidBaseConfig):
         "solo",
         "doubletdetection",
         "scdblfinder",
-    ] = Field(
-        default="scrublet", description="Algorithm for doublet score calculation"
-    )
+    ] = Field(default="scrublet", description="Algorithm for doublet score calculation")
     detection_group_key: Optional[str] = Field(
         default=None,
         description=(
             "obs column used to group independent doublet-detection runs. "
-            "Prefer a capture/library/GEM-well key. If unset, the QC workflow sample_key is used."
+            "Prefer a capture/library/GEM-well key rather than a broad biological "
+            "condition. The same key is used for score calibration and expected-rate "
+            "thresholding. If unset, the QC workflow sample_key is used."
         ),
     )
 
@@ -233,8 +234,53 @@ class DoubletConfig(SclucidBaseConfig):
     )
 
     # --- Result Merging and Reporting ---
-    merge_strategy: Literal["weighted_average", "max_score", "heuristic_boost"] = Field(
-        default="weighted_average"
+    algorithm_score_normalization: Literal["raw", "minmax", "rank"] = Field(
+        default="rank",
+        description=(
+            "How to normalize algorithm scores before merging. 'rank' normalizes ranks "
+            "within each detection group and is recommended for cross-sample comparability."
+        ),
+    )
+    heuristic_score_normalization: Literal["raw", "minmax", "rank", "zscore"] = Field(
+        default="rank",
+        description=(
+            "How to normalize heuristic scores before merging. 'rank' is recommended "
+            "for cross-sample comparability; 'zscore' centers and scales within each group."
+        ),
+    )
+    merge_rank_normalize: bool = Field(
+        default=True,
+        description="Whether to apply a final rank normalization to the merged score.",
+    )
+    merge_strategy: Literal[
+        "weighted_average",
+        "max_score",
+        "heuristic_boost",
+        "calibrated_threshold",
+    ] = Field(
+        default="weighted_average",
+        description=(
+            "How algorithm and heuristic scores are combined. 'calibrated_threshold' "
+            "uses the merged rank score directly with expected-rate thresholding."
+        ),
+    )
+    final_label_strategy: Literal["expected_rate_rank", "algorithm_label"] = Field(
+        default="expected_rate_rank",
+        description=(
+            "How final predicted_doublet labels are assigned. 'expected_rate_rank' "
+            "thresholds merged evidence scores within detection groups using "
+            "expected_doublet_rate. 'algorithm_label' uses the algorithm binary "
+            "calls directly and records heuristic evidence for review only."
+        ),
+    )
+    enable_profiler: bool = Field(
+        default=False,
+        description="If True, the workflow may generate doublet evidence profiles. "
+        "The profiler API is experimental and reports evidence, not final probabilities.",
+    )
+    heuristic_use_fast_mode: bool = Field(
+        default=False,
+        description="Experimental fast heuristic mode using HVG/PCA approximations.",
     )
     external_doublet_cols: List[str] = Field(
         default_factory=list,
@@ -299,9 +345,7 @@ class DoubletConfig(SclucidBaseConfig):
             try:
                 import pyscdblfinder as _pf  # noqa: F401
             except ImportError:
-                logger.warning(
-                    "pyscdblfinder not found. Install with: pip install pyscdblfinder"
-                )
+                logger.warning("pyscdblfinder not found. Install with: pip install pyscdblfinder")
 
         return self
 
@@ -332,9 +376,7 @@ class DoubletConfig(SclucidBaseConfig):
             validated: Dict[str, float] = {}
             for k, rate in v.items():
                 if not isinstance(rate, Real) or isinstance(rate, bool):
-                    raise ValueError(
-                        f"expected_doublet_rate for sample '{k}' must be numeric"
-                    )
+                    raise ValueError(f"expected_doublet_rate for sample '{k}' must be numeric")
                 rate_float = float(rate)
                 if not (0.0 < rate_float < 1.0):
                     raise ValueError(
@@ -453,6 +495,14 @@ class QCWorkflowConfig(WorkflowConfigBase):
     tissue_type: Optional[str] = Field(
         default=None, description="Tissue type hint passed to recommender (e.g., 'lung_tumor')."
     )
+    sample_context_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional obs column with sample-level context such as tumor, normal, "
+            "adjacent, control, or unknown. This is more specific than global "
+            "tissue_type and is recorded as metadata for review."
+        ),
+    )
     threshold_mode: Literal["hierarchical", "pooled", "independent"] = Field(
         default="hierarchical", description="Multi-sample threshold policy."
     )
@@ -485,8 +535,7 @@ class QCWorkflowConfig(WorkflowConfigBase):
     qc_decision_score_layer: Optional[str] = Field(
         default=None,
         description=(
-            "Expression layer used for contamination/stress panel scores. None "
-            "uses adata.X."
+            "Expression layer used for contamination/stress panel scores. None uses adata.X."
         ),
     )
     qc_decision_filter_mode: Literal["off", "append", "replace"] = Field(

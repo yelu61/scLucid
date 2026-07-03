@@ -20,8 +20,9 @@ code.
 | Area | Canonical API | Notes |
 |---|---|---|
 | QC workflow | `scLucid.qc.run_standard_qc` | Main maintained QC workflow. |
-| QC threshold decision | `scLucid.qc.run_qc_threshold_decision` | Replaces `run_qc_decision_workflow`. |
-| QC reporting | `scLucid.qc.generate_qc_report` from `qc.reporting` | `qc.filtering.generate_qc_report` is compatibility only. |
+| QC threshold recommendation | `scLucid.qc.recommend_qc_thresholds` | Structured recommendation bundle with candidate evidence. |
+| QC threshold decision | `scLucid.qc.run_qc_threshold_decision` | Canonical recommendation-to-marking chain. |
+| QC reporting | `scLucid.qc.generate_qc_report` from `qc.reporting` | Reporting is no longer exported from filtering modules. |
 | Preprocess workflow | `scLucid.preprocess.run_preprocessing` | Main maintained preprocessing workflow. |
 | Preprocess embedding | `scLucid.preprocess.run_embedding_pipeline` | Replaces `run_embedding_workflow`. |
 | Preprocess normalization | `scLucid.preprocess.normalize_data` | High-level workflow entry; low-level adaptive helpers remain hidden. |
@@ -31,8 +32,6 @@ code.
 | Symbol | Current status | Recommended action |
 |---|---|---|
 | `scLucid.qc.run_advanced_qc` | Importable compatibility wrapper, omitted from `qc.__all__` | Keep for one deprecation cycle; docs should use `run_standard_qc`. |
-| `scLucid.qc.run_qc_decision_workflow` | Importable compatibility wrapper, omitted from `qc.__all__` | Keep for one deprecation cycle; docs should use `run_qc_threshold_decision`. |
-| `scLucid.qc.filtering.generate_qc_report` | Thin compatibility wrapper to `qc.reporting.generate_qc_report` | Keep importable, but do not call from workflow internals. |
 | `scLucid.preprocess.run_embedding_workflow` | Importable compatibility alias, omitted from `preprocess.__all__` | Keep for one deprecation cycle; docs should use `run_embedding_pipeline`. |
 | `scLucid.preprocess.adaptive_normalize` | Importable hidden low-level helper | Keep as low-level algorithm API; do not present as canonical workflow. |
 | `scLucid.preprocess.quality_aware_normalize` | Importable hidden low-level helper | Keep as low-level algorithm API; docs should clarify it is not the canonical workflow. |
@@ -42,7 +41,7 @@ code.
 
 | Issue | Resolution |
 |---|---|
-| QC report generation lived in `filtering/suggestions.py` | Canonical implementation moved to `qc.reporting`; filtering wrapper retained only for compatibility. |
+| QC report generation lived beside threshold helpers | Canonical implementation moved to `qc.reporting`; filtering no longer exports report helpers. |
 | QC decision table lacked reviewer impact fields | Added `affected_cells`, `affected_fraction`, `review_required`, and `risk_note` in `qc.trace`. |
 | QC benchmark evidence was scattered across threshold, tumor, doublet, and ambient tables | Added `validation/qc/build_figure2_qc_evidence_package.py` to generate unified Figure 2 source data and `qc_claim_scorecard.tsv`. |
 | Doublet benchmark evidence stayed outside normal reports | Added `doublet_evidence_summary.benchmark_decision` and surfaced recommended default mode, primary method, candidate `algorithm_weight`, and review status in QC reports. |
@@ -59,17 +58,14 @@ code.
 - New benchmark scripts should either write panel-specific source tables or be
   consumed by the Figure 2/Figure 3 package builders; avoid creating one-off
   evidence files with no claim-level scorecard entry.
-- Compatibility aliases should be covered by tests that assert they are
-  importable but absent from `__all__`.
-- A compatibility alias can be deleted only after docs, notebooks, and tests no
-  longer reference it and a deprecation note has existed for at least one
-  release cycle.
+- Legacy threshold entrypoints should be removed from package-level exports once
+  a canonical replacement is available; avoid keeping multiple public ways to
+  perform the same QC threshold step.
 
 ## Next Cleanup Candidates
 
 | Candidate | Why not delete now | Next step |
 |---|---|---|
 | `run_advanced_qc` | Older notebooks may still import it. | Keep warning; verify notebooks no longer use it before removal. |
-| `run_qc_decision_workflow` | Older threshold-decision examples may use it. | Keep warning; migrate examples to `run_qc_threshold_decision`. |
 | `run_embedding_workflow` | Older preprocess notebooks may use it. | Keep warning; migrate docs/examples to `run_embedding_pipeline`. |
 | Hidden adaptive normalization helpers | Useful as algorithm-level APIs. | Document as low-level opt-in helpers, not workflow entrypoints. |

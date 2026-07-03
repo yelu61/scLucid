@@ -8,7 +8,6 @@ gene symbols and includes automatic species detection capabilities.
 
 import json
 import logging
-import warnings
 from importlib import resources
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
@@ -383,7 +382,7 @@ def score_cell_cycle(
     g2m_genes: Optional[List[str]] = None,
     layer: Optional[str] = None,
     copy: bool = False,
-    plot: bool = True,
+    plot: bool = False,
     save_dir: Optional[str] = None,
     force: bool = False,
 ) -> AnnData:
@@ -473,9 +472,7 @@ def score_cell_cycle(
     adata.var["is_cell_cycle"] = False
     cell_cycle_genes = list(dict.fromkeys(s_genes_found + g2m_genes_found))
     adata.var.loc[cell_cycle_genes, "is_cell_cycle"] = True
-    log.info(
-        f"Marked {len(cell_cycle_genes)} cell cycle genes in adata.var['is_cell_cycle']."
-    )
+    log.info(f"Marked {len(cell_cycle_genes)} cell cycle genes in adata.var['is_cell_cycle'].")
 
     # Calculate additional metrics
     adata.obs["cc_diff"] = adata.obs["S_score"] - adata.obs["G2M_score"]
@@ -511,59 +508,3 @@ def score_cell_cycle(
             log.warning(f"Failed to generate cell cycle plots: {str(e)}")
 
     return adata
-
-
-def score_cell_cycle_advanced(
-    adata: AnnData,
-    species: str = "human",
-    regress_out: bool = False,  # 新功能
-    plot_phase_markers: bool = True,  # 新功能
-    **kwargs,
-) -> AnnData:
-    """
-    增强版细胞周期打分，可选回归。
-    """
-    warnings.warn(
-        "score_cell_cycle_advanced is deprecated; use score_cell_cycle plus "
-        "explicit downstream regression/plotting steps.",
-        FutureWarning,
-        stacklevel=2,
-    )
-    # 现有打分逻辑
-    adata = score_cell_cycle(adata, species, **kwargs)
-
-    # 新功能1: 可选的细胞周期效应回归
-    if regress_out:
-        import scanpy as sc
-
-        log.info("Regressing out cell cycle effects...")
-        sc.pp.regress_out(adata, ["S_score", "G2M_score"])
-        adata.uns["cell_cycle_regressed"] = True
-
-    # 新功能2: 每个phase的marker基因表达热图
-    if plot_phase_markers:
-        _plot_phase_specific_markers(adata, species)
-
-    return adata
-
-
-def _plot_phase_specific_markers(adata: AnnData, species: str, save_path: Optional[str] = None):
-    """
-    可视化不同cell cycle phase的marker基因表达。
-    """
-    import scanpy as sc
-
-    s_genes = SPECIES_GENES[species]["s_genes"][:10]
-    g2m_genes = SPECIES_GENES[species]["g2m_genes"][:10]
-
-    marker_genes = s_genes + g2m_genes
-    marker_genes = [g for g in marker_genes if g in adata.var_names]
-
-    if len(marker_genes) < 5:
-        log.warning("Too few marker genes found for visualization")
-        return
-
-    # Create dotplot
-    sc.pl.dotplot(
-        adata, marker_genes, groupby="phase", dendrogram=True, standard_scale="var", save=save_path
-    )

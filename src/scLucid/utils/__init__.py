@@ -99,18 +99,16 @@ from .evidence import (
     model_to_dict,
 )
 from .helpers import (
+    assess_matrix_semantics,
     build_metadata_dicts,
-    is_raw_count_matrix,
-    load_10x_data,
     merge_obs_metadata,
     print_sample_crosstab,
-    read_10x,
     sanitize_for_hdf5,
     subset_adata,
     subset_from_annotations,
     use_layer_as_X,
 )
-from .io import read_h5ad
+from .io import read_10x, read_h5ad, load_10x_data
 
 # Import and expose key functions and classes from the submodule
 from .manager import (
@@ -250,8 +248,7 @@ __all__ = [
     "validate_config",
     "validate_analysis_results",
     "check_layer_consistency",
-    "is_raw_count_matrix",
-    "assert_qc_ready",
+    "assess_matrix_semantics",
     "assert_preprocessing_ready",
     "assert_analysis_ready",
     "validate_workflow_contract",
@@ -409,9 +406,10 @@ __all__ = [
     # Data loading
     "read_10x",
     "read_h5ad",
+    "load_10x_data",
     "build_metadata_dicts",
     "print_sample_crosstab",
-    "is_raw_count_matrix",
+    "assess_matrix_semantics",
     # Profiling utilities
     "PerformanceStats",
     "PerformanceProfiler",

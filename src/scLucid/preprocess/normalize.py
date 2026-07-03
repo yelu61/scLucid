@@ -18,7 +18,7 @@ import scipy.sparse
 import seaborn as sns
 from anndata import AnnData
 
-from scLucid.utils.helpers import _show_or_close
+from scLucid.plotting.plotting_utils import _show_or_close
 
 from .config import NormalizationConfig, apply_config_overrides
 from .utils import apply_log1p, resolve_input_matrix, validate_matrix_input

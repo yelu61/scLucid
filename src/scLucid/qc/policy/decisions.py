@@ -17,8 +17,9 @@ import pandas as pd
 import scipy.sparse as sp
 from anndata import AnnData
 
-from ..utils.context import is_tumor_context
-from ..utils.helpers import sanitize_for_hdf5
+from ...utils.context import is_tumor_context
+from ...utils.helpers import sanitize_for_hdf5
+from ..artifacts import record_qc_decision_artifact
 
 QC_DECISION_SCHEMA_VERSION = "qc_decision_schema_v1"
 QC_DECISION_VALUES = ("keep", "remove", "review", "sensitivity_only")
@@ -441,6 +442,23 @@ def build_qc_decisions(
     summary = summarize_qc_decisions(adata, tissue_type=tissue_type, policy=policy)
     adata.uns.setdefault("sclucid", {}).setdefault("qc", {})["qc_decision_summary"] = (
         sanitize_for_hdf5(summary)
+    )
+    record_qc_decision_artifact(
+        adata,
+        summary=summary,
+        evidence_columns=[
+            "qc_low_counts",
+            "qc_low_genes",
+            "qc_high_mt",
+            "qc_low_complexity",
+            "qc_high_hb",
+            "platelet_contamination",
+            "hemoglobin_contamination",
+            "ambient_risk",
+            "stress_high",
+            "apoptosis_high",
+            "predicted_doublet",
+        ],
     )
     return summary
 

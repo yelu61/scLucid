@@ -21,7 +21,7 @@ from anndata import AnnData
 
 HAS_VENN = find_spec("matplotlib_venn") is not None
 
-from scLucid.utils.helpers import _show_or_close
+from scLucid.plotting.plotting_utils import _show_or_close
 
 from ...runtime import run_joblib_or_sequential
 from ...utils import use_layer_as_X
@@ -207,27 +207,15 @@ def _diagnose_input_for_hvg(X, max_n=10000):
     )
 
 
-def _matrix_looks_like_counts(X) -> bool:
-    """Internal bool compatibility shim around the canonical raw-count check."""
-    from ...utils.validation import is_raw_count_matrix
-
-    raw_like, _ = is_raw_count_matrix(
-        X,
-        max_cells=256,
-        max_genes=1024,
-        zero_fraction_threshold=0.0,
-        min_max_value=0.0,
-    )
-    return bool(raw_like)
-
-
 def _resolve_hvg_flavor(flavor: str, input_layer: str, X) -> tuple[str, list[str]]:
     """Resolve HVG flavor while keeping the default path dependency-light."""
+    from ...utils.io import _looks_like_counts
+
     notes: list[str] = []
     if flavor != "auto":
         return flavor, notes
 
-    if input_layer in {"counts", "raw_counts"} or _matrix_looks_like_counts(X):
+    if input_layer in {"counts", "raw_counts"} or _looks_like_counts(X):
         if find_spec("skmisc") is not None:
             notes.append(
                 "flavor='auto' resolved to 'seurat_v3' because the input looks like raw counts "
