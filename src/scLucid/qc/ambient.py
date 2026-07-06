@@ -368,6 +368,7 @@ def register_external_ambient_result(
     source_path: Optional[str] = None,
     corrected_adata: Optional[AnnData] = None,
     corrected_layer: Optional[str] = None,
+    obs_column_map: Optional[Dict[str, str]] = None,
     output_layer: str = AMBIENT_CORRECTED_COUNTS_LAYER,
     details: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -379,6 +380,7 @@ def register_external_ambient_result(
     ``adata.layers[output_layer]``.
     """
     copied_matrix = False
+    copied_obs_columns: Dict[str, str] = {}
     if corrected_adata is not None:
         if not corrected_adata.obs_names.equals(adata.obs_names):
             raise ValueError("corrected_adata.obs_names must match adata.obs_names")
@@ -387,6 +389,18 @@ def register_external_ambient_result(
         corrected_X = _matrix_from_layer(corrected_adata, corrected_layer)
         adata.layers[output_layer] = corrected_X.copy()
         copied_matrix = True
+        for canonical, source in (obs_column_map or {}).items():
+            if source not in corrected_adata.obs:
+                raise KeyError(f"corrected_adata.obs column '{source}' not found")
+            adata.obs[canonical] = corrected_adata.obs[source].reindex(adata.obs_names).to_numpy()
+            copied_obs_columns[canonical] = source
+    elif obs_column_map:
+        for canonical, source in obs_column_map.items():
+            if source not in adata.obs:
+                raise KeyError(f"adata.obs column '{source}' not found")
+            if canonical != source:
+                adata.obs[canonical] = adata.obs[source].to_numpy()
+            copied_obs_columns[canonical] = source
 
     status = record_ambient_correction_status(
         adata,
@@ -397,6 +411,7 @@ def register_external_ambient_result(
             "source_path": str(Path(source_path)) if source_path else None,
             "matrix_copied": copied_matrix,
             "corrected_layer": corrected_layer,
+            "obs_column_map": copied_obs_columns,
             **(details or {}),
         },
     )

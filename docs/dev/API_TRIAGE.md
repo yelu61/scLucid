@@ -133,7 +133,7 @@ recorded here; resolved entries are moved to the **Resolved** section.
 
 | Field | Value |
 |-------|-------|
-| **Symbol** | `run_standard_qc`, `run_advanced_qc`, `run_preprocessing`, `run_annotation`, `run_standard_analysis`, `run_tumor_analysis`, etc. |
+| **Symbol** | `run_standard_qc`, `run_preprocessing`, `run_annotation`, `run_standard_analysis`, `run_tumor_analysis`, etc. |
 | **Location** | `scLucid` (top-level) |
 | **Current Status** | public (set to `None`, then reassigned via `_import_optional`) |
 | **Concern** | If optional dependencies fail, these are `None` at runtime. Users get confusing errors when calling them. |

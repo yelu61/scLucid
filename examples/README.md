@@ -63,7 +63,7 @@ For **analysts who need control**. Inspect, tweak, or replace individual stages.
 | `qc_evaluation.py` | QC decision evaluation and benchmark-style reporting. |
 
 **When to use**: You want to understand what each step does and adjust parameters.
-**Primary APIs**: `scl.qc.calculate_qc_metric()`, `scl.qc.mark_low_quality_cell()`, `scl.qc.filter_cells()`, `scl.pp.normalize_data()`, `scl.pp.find_hvgs()`, `scl.pp.scale_data()`, `scl.pp.batch_correction()`.
+**Primary APIs**: `scl.qc.calculate_qc_metric()`, `scl.qc.decide_qc_thresholds()`, `scl.qc.apply_qc_threshold_decision()`, `scl.qc.build_qc_decisions()`, `scl.qc.filter_cells()`, `scl.pp.normalize_data()`, `scl.pp.find_hvgs()`, `scl.pp.scale_data()`, `scl.pp.batch_correction()`.
 
 Manual simple-API scripts must not stop at producing modified AnnData. If a
 manual path is promoted to a project template, it should finalize the same review

@@ -8,14 +8,16 @@ from anndata import AnnData
 import scLucid.qc as qc
 from scLucid.qc import (
     AMBIENT_CORRECTED_COUNTS_LAYER,
-    build_ambient_layer_contract,
     diagnose_ambient_rna,
+    register_external_ambient_result,
+)
+from scLucid.qc.ambient import (
+    build_ambient_layer_contract,
+    correct_ambient_rna_linear,
     diagnose_empty_droplets,
     infer_ambient_input_context,
     record_ambient_correction_status,
-    register_external_ambient_result,
 )
-from scLucid.qc.ambient import correct_ambient_rna_linear
 from scLucid.qc.ambient_backends import (
     correct_ambient_rna,
     decontx_available,
@@ -105,6 +107,34 @@ def test_register_external_ambient_result_defaults_to_contract_layer():
     assert contract["corrected_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
     assert contract["corrected_layer_present"] is True
     assert contract["recommended_preprocess_counts_layer"] == AMBIENT_CORRECTED_COUNTS_LAYER
+
+
+def test_register_external_ambient_result_copies_canonical_obs_columns():
+    adata = AnnData(X=np.ones((5, 4), dtype=float))
+    corrected = AnnData(X=np.full((5, 4), 2.0, dtype=float))
+    adata.obs_names = corrected.obs_names = [f"cell{i}" for i in range(5)]
+    adata.var_names = corrected.var_names = [f"gene{i}" for i in range(4)]
+    corrected.obs["cellbender_probability"] = np.linspace(0.9, 0.99, 5)
+    corrected.obs["decontx_rho"] = np.linspace(0.01, 0.05, 5)
+
+    status = register_external_ambient_result(
+        adata,
+        backend="cellbender",
+        corrected_adata=corrected,
+        obs_column_map={
+            "cell_probability": "cellbender_probability",
+            "ambient_fraction": "decontx_rho",
+        },
+    )
+
+    assert "cell_probability" in adata.obs
+    assert "ambient_fraction" in adata.obs
+    assert status["details"]["obs_column_map"] == {
+        "cell_probability": "cellbender_probability",
+        "ambient_fraction": "decontx_rho",
+    }
+    assert np.isclose(float(adata.obs["cell_probability"].min()), 0.9)
+    assert np.isclose(float(adata.obs["ambient_fraction"].max()), 0.05)
 
 
 def test_infer_ambient_input_context_distinguishes_filtered_and_raw_like():
@@ -228,7 +258,7 @@ def test_linear_correction_default_layer_contract():
     assert "artifact_contract" in adata.uns["sclucid"]["qc"]
 
 
-def test_ambient_top_level_api_is_narrow_but_compatibility_aliases_remain():
+def test_ambient_top_level_api_is_narrow_and_internal_api_stays_in_submodule():
     public = set(qc.__all__)
     for symbol in [
         "AMBIENT_CORRECTED_COUNTS_LAYER",
@@ -246,7 +276,7 @@ def test_ambient_top_level_api_is_narrow_but_compatibility_aliases_remain():
         "record_ambient_layer_contract",
         "correct_ambient_rna_linear",
     ]:
-        assert hasattr(qc, hidden)
+        assert not hasattr(qc, hidden)
         assert hidden not in public
 
 

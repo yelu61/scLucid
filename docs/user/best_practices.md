@@ -8,9 +8,10 @@ scLucid entrypoints and the repository artifacts around them.
 The maintained QC -\> Preprocess -\> Analysis path is light by default
 and optionally extensible:
 
-- QC uses Python-native metrics, adaptive recommendations, conservative
-  multi-criterion filtering, and optional Scrublet/heuristic doublet
-  evidence.
+- QC uses reviewer-first iterative filtering, Python-native metrics,
+  adaptive recommendations, conservative multi-evidence decisions,
+  canonical contamination/stress/doublet fields, and optional
+  Scrublet/heuristic/external doublet evidence.
 - Preprocessing preserves counts in `adata.layers["counts"]`, filters
   low-detection genes, runs standard log-normalization, uses
   dependency-light HVG selection, then PCA/neighbors/UMAP. Regression
@@ -27,7 +28,9 @@ Optional enhancements such as `scanpy.external.pp.scran_normalize`,
 are available when their dependencies and biological rationale are
 present.
 
-ScDblFinder wrappers, project-level ambient RNA correction, and custom
+Project-level ambient RNA correction is diagnostic-only by default, but
+external CellBender/SoupX/DecontX-style outputs can be registered into
+the canonical QC schema and counts-layer contract when available. Custom
 rpy2 execution branches are not part of the recommended default path.
 
 ## Recommended Pipeline Shape
@@ -41,8 +44,8 @@ project has enough evidence to justify them.
 Light default:
 
 - QC: metric calculation, adaptive/hierarchical threshold suggestions,
-  conservative multi-criterion filtering, and Scrublet/heuristic doublet
-  support
+  reviewer-first `qc_decision` filtering, canonical ambient/doublet/cell
+  probability fields, and Scrublet/heuristic doublet support
 - Preprocessing: count preservation, library-size normalization + log1p,
   low-detection gene filtering, dependency-light HVG selection, scaling,
   PCA, neighbors, and UMAP
@@ -66,8 +69,10 @@ Optional enhancements:
 Review evidence, not automatic deletion:
 
 - ambient RNA and empty-droplet diagnostics are heuristic review
-  prompts; they do not replace CellBender/scAR/EmptyDrops-style
-  project-level decisions
+  prompts; external CellBender/SoupX/DecontX/EmptyDrops-style evidence
+  should be registered into `ambient_evidence_summary`,
+  `ambient_layer_contract`, `cell_probability`, and
+  `ambient_fraction` when available
 - cell-cycle regression diagnostics report associations and group
   imbalance; regression should be enabled only when the
   biology/technical tradeoff is explicit
@@ -80,8 +85,8 @@ Review evidence, not automatic deletion:
 
 Removed from the recommended path:
 
-- ScDblFinder wrapper execution paths
-- project-level ambient RNA correction as a default preprocess stage
+- project-level ambient RNA correction as an automatic default
+  preprocess stage
 - custom rpy2/Bioconductor execution paths outside Scanpy's optional
   scran bridge
 
@@ -89,8 +94,10 @@ Removed from the recommended path:
 
 Recommended default:
 
-- use `run_standard_qc()` as the primary
-  entrypoint
+- use `run_qc()` as the primary entrypoint; it routes through
+  reviewer-first iterative QC and filters by `qc_decision == "remove"`
+- use `run_standard_qc()` only for compatibility, step control, resume,
+  or explicit legacy-threshold filtering
 - keep `use_recommendations=True` unless
   you have a strong reason to lock thresholds manually
 - prefer `threshold_mode="hierarchical"`
@@ -102,6 +109,9 @@ Recommended default:
 - use `qc_reviewer_table` as the single reviewer-facing QC table; it
   records recommended value, applied value, source, confidence, affected
   cells, biological risk note, and whether manual review is required
+- inspect `ambient_evidence_summary`, `doublet_evidence_summary`,
+  `post_annotation_qc_review`, and `qc_benchmark_scorecard` before
+  claiming benchmark-grade QC readiness
 
 When to override defaults:
 

@@ -10,16 +10,25 @@ engine, contamination scoring, doublet calling, and filtering contracts.
 
 ## Recommended Workflow Contract
 
-For most analyses, use `scLucid.qc.run_standard_qc()` or the package-level
-workflow wrapper instead of calling threshold internals directly. The maintained
-QC path is:
+For most analyses, use `scLucid.qc.run_qc()` or
+`scLucid.qc.run_iterative_qc()` instead of calling threshold internals directly.
+`run_qc()` is the canonical reviewer-first path: it routes final exclusion
+through `qc_decision == "remove"` and records ambiguous cells as `review` or
+`sensitivity_only`. Use `run_standard_qc()` only when you explicitly need the
+legacy threshold-filtering compatibility workflow or step/resume controls.
+
+The maintained QC path is:
 
 1. calculate QC metrics and optional cell-cycle evidence;
 2. recommend threshold policy from count/percentage metrics;
 3. resolve threshold decisions and mark evidence columns;
-4. build `qc_decision`, `qc_remove`, `qc_reason`, and `qc_confidence`;
-5. call `filter_cells()` only after final evidence exists;
-6. review `qc_review_summary.json`, `qc_review_summary.md`, and
+4. standardize reviewer evidence columns such as `ambient_fraction`,
+   `doublet_score`, `cell_probability`, and `empty_droplet_probability`;
+5. build `qc_decision`, `qc_remove`, `qc_reason`, and `qc_confidence`;
+6. call `filter_cells()` only after final evidence exists;
+7. optionally run quick biology review on a temporary normalized/HVG/PCA/UMAP
+   view for cluster-level QC, stress, ambient, and doublet review;
+8. review `qc_review_summary.json`, `qc_review_summary.md`, and
    `qc_benchmark.md` when `save_dir` is set.
 
 The benchmark and review summaries are evidence for human review, not proof that
@@ -31,6 +40,10 @@ Important review locations:
 
 - `adata.uns["sclucid"]["qc"]["review_summary"]["data"]`
 - `review_summary["qc_reviewer_table"]`
+- `review_summary["ambient_evidence_summary"]`
+- `review_summary["doublet_evidence_summary"]`
+- `review_summary["post_annotation_qc_review"]`
+- `review_summary["qc_benchmark_scorecard"]`
 - `review_summary["decision_table"]`
 - `review_summary["benchmark_summary"]["assessment"]`
 - `review_summary["evidence_bundle"]`

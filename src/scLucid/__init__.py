@@ -181,7 +181,6 @@ FONT_TRADITIONAL = "traditional"
 
 # --- High-Level Workflows ---
 run_standard_qc = None
-run_advanced_qc = None
 run_preprocessing = None
 run_annotation = None
 characterize_clusters = None
@@ -191,7 +190,6 @@ run_tumor_analysis = None
 _qc_workflow = _import_optional("qc.workflow")
 if _qc_workflow is not None:
     run_standard_qc = getattr(_qc_workflow, "run_standard_qc", None)
-    run_advanced_qc = getattr(_qc_workflow, "run_advanced_qc", None)
 
 _preprocess_workflow = _import_optional("preprocess.workflow")
 if _preprocess_workflow is not None:

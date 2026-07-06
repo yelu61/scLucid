@@ -14,33 +14,33 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
-from ..runtime import effective_n_jobs
-from ..utils import (
+from ...runtime import effective_n_jobs
+from ...utils import (
     PartialResultManager,
     WorkflowCheckpoint,
     WorkflowError,
     save_workflow_result,
 )
-from ..utils.context import is_tumor_context
-from .artifacts import (
+from ...utils.context import is_tumor_context
+from ..artifacts import (
     record_qc_decision_artifact,
     record_threshold_decision,
     record_threshold_recommendation,
 )
-from .config import FilterConfig, QCWorkflowConfig
-from .doublet import predict_doublets
-from .filtering import filter_cells
-from .metrics import calculate_qc_metric
-from .policy.adaptive_threshold import AdaptiveThresholdCalculator
-from .policy.decisions import build_qc_decisions, summarize_qc_decisions, score_qc_gene_panels
-from .policy.marking import mark_low_quality_cell
-from .policy.thresholds import _resolve_qc_thresholds
-from .reporting import generate_qc_report
-from .workflow_artifacts import (
+from ..config import FilterConfig, QCWorkflowConfig
+from ..doublet import predict_doublets
+from ..filtering import filter_cells
+from ..metrics import calculate_qc_metric
+from ..policy.adaptive_threshold import AdaptiveThresholdCalculator
+from ..policy.decisions import build_qc_decisions, summarize_qc_decisions, score_qc_gene_panels
+from ..policy.marking import mark_low_quality_cell
+from ..policy.thresholds import _resolve_qc_thresholds
+from ..reporting import generate_qc_report
+from .artifacts import (
     _export_qc_review_summary,
     _store_qc_trace,
 )
-from .workflow_runtime import (
+from .runtime import (
     QC_WORKFLOW_STEPS,
     _add_tumor_aware_flags,
     _ensure_sample_key,
@@ -53,13 +53,15 @@ from .workflow_runtime import (
     _safe_parallel_process,
     _setup_workflow,
 )
-from .workflow_review import (
+from .review import (
     _build_iterative_qc_summary,
     _refine_qc_decisions_from_review,
     _run_quick_biology_review,
 )
 
 log = logging.getLogger(__name__)
+
+QCWorkflowError = WorkflowError
 
 
 def _is_tumor_aware(tissue_type: Optional[str]) -> bool:
@@ -231,7 +233,7 @@ def _run_qc_workflow(
     # --- 0. Recommendation & threshold policy ---
     if config.use_recommendations:
         try:
-            from .policy.intelligent_qc import recommend_intelligent_qc
+            from ..policy.intelligent_qc import recommend_intelligent_qc
 
             recommendation = recommend_intelligent_qc(adata, tissue_type=active_tissue_type)
             config, original_config = _apply_qc_recommendations(config, recommendation)
@@ -918,7 +920,7 @@ def run_iterative_qc(
         # If decisions were refined and final filtering uses qc_decision,
         # re-apply filtering so the refined labels take effect.
         if refinement.get("refined") and final_filter_policy == "decision_remove":
-            from .policy.decisions import summarize_qc_decisions
+            from ..policy.decisions import summarize_qc_decisions
 
             summarize_qc_decisions(result, tissue_type=tissue_type, policy=active_config.qc_decision_policy)
             keep_mask = ~result.obs["qc_remove"].fillna(False).to_numpy(bool)
@@ -943,90 +945,46 @@ def run_iterative_qc(
 def run_qc(
     adata_in: AnnData,
     config: Optional[QCWorkflowConfig] = None,
+    *,
+    tissue_type: str = "unknown",
+    final_filter_policy: Literal["decision_remove", "legacy", "none"] = "decision_remove",
+    run_quick_review: bool = True,
+    show_progress: bool = True,
+    overwrite: bool = False,
     **kwargs: Any,
 ) -> AnnData:
     """Canonical user-facing QC entrypoint.
 
-    This is a thin alias for :func:`run_standard_qc`; it exists to make the
-    public API read as ``recommend_qc_policy`` -> ``apply_qc_policy`` or
-    ``run_qc`` for the one-step workflow.
+    The default path is reviewer-first iterative QC: evidence columns are
+    generated before final filtering, ambiguous biological states are retained
+    for review/sensitivity analysis, and final exclusion is based on
+    ``qc_decision == 'remove'``.  Use :func:`run_standard_qc` directly for the
+    legacy threshold-filtering compatibility path.
     """
-    return run_standard_qc(adata_in, config=config, **kwargs)
-
-
-def run_advanced_qc(
-    adata_in: AnnData,
-    config: QCWorkflowConfig,
-    overwrite: bool = False,
-    *,
-    tissue_type: str = "unknown",
-    show_progress: bool = True,
-    # Step control
-    steps: Optional[List[str]] = None,
-    skip_steps: Optional[List[str]] = None,
-    # Error recovery
-    error_recovery: bool = False,
-    recovery_save_dir: Optional[str] = None,
-    on_error: str = "raise",
-    # Resume
-    resume_from: Optional[str] = None,
-) -> AnnData:
-    """
-    Run an advanced, fully configurable single-cell RNA-seq QC workflow.
-
-    .. deprecated::
-        ``run_advanced_qc`` is a thin compatibility wrapper around
-        :func:`run_standard_qc`. Pass a fully populated ``QCWorkflowConfig`` to
-        ``run_standard_qc`` instead; this alias will be removed in a future release.
-
-    This workflow is entirely controlled by the provided QCWorkflowConfig object,
-    allowing fine-grained control over every step.
-
-    Reviewer-facing outputs:
-        - ``adata.uns['sclucid']['qc']['review_summary']`` contains a structured
-          digest of recommendations, applied thresholds, user overrides,
-          sample-level thresholds, tumor-aware flags, and filtering results.
-        - When ``save_dir`` is set, ``qc_review_summary.json`` and
-          ``qc_review_summary.md`` sidecars are written alongside the report.
-
-    New features in v0.4:
-    - Step control via ``steps`` or ``skip_steps`` (consistent with preprocess/analysis)
-    - Error recovery with partial result saving
-    - Resume from checkpoint
-
-    Args:
-        adata_in: Input AnnData object.
-        config: A fully populated QCWorkflowConfig object.
-        overwrite: If True, overwrite existing results directory.
-        show_progress: If True, show progress bars for multi-sample processing.
-        steps: Specific steps to run. See ``QC_WORKFLOW_STEPS`` for valid names.
-        skip_steps: Steps to skip (alternative to specifying ``steps``).
-        error_recovery: If True, enable error recovery mode.
-        recovery_save_dir: Directory to save partial results on error.
-        on_error: How to handle errors: "raise", "skip", or "save".
-        resume_from: Path to checkpoint directory to resume from.
-
-    Returns:
-        Filtered AnnData object after QC.
-    """
-    warnings.warn(
-        "run_advanced_qc is a compatibility wrapper; use run_standard_qc with "
-        "QCWorkflowConfig for the maintained QC workflow.",
-        FutureWarning,
-        stacklevel=2,
-    )
-    return run_standard_qc(
+    legacy_kwargs = {
+        "steps",
+        "skip_steps",
+        "error_recovery",
+        "recovery_save_dir",
+        "on_error",
+        "resume_from",
+    }
+    unsupported = sorted(legacy_kwargs.intersection(kwargs))
+    if unsupported:
+        raise TypeError(
+            "run_qc now uses reviewer-first iterative QC and does not accept "
+            f"legacy workflow control argument(s): {unsupported}. "
+            "Call run_standard_qc(...) for step/resume/error-recovery controls."
+        )
+    return run_iterative_qc(
         adata_in,
         config=config,
-        overwrite=overwrite,
         tissue_type=tissue_type,
+        final_filter_policy=final_filter_policy,
+        run_quick_review=run_quick_review,
         show_progress=show_progress,
-        steps=steps,
-        skip_steps=skip_steps,
-        error_recovery=error_recovery,
-        recovery_save_dir=recovery_save_dir,
-        on_error=on_error,
-        resume_from=resume_from,
+        overwrite=overwrite,
+        **kwargs,
     )
 
 

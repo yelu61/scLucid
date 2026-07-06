@@ -152,6 +152,9 @@ def test_qc_output_health_and_evidence_chain_are_actionable():
         "filtering",
         "filtering_policy",
         "retention_audit",
+        "ambient_evidence",
+        "post_annotation_qc_review",
+        "qc_benchmark_scorecard",
         "output_health",
     ]
 
@@ -189,6 +192,30 @@ def test_qc_review_summary_records_doublet_evidence():
     assert compact["benchmark_status"] in {"pass", "review_required", "fail"}
     assert compact["benchmark_next_step"]
     assert compact["top_review_action"]
+
+
+def test_qc_review_summary_records_ambient_post_annotation_and_scorecard():
+    adata = _make_adata()
+    adata.obs["cell_type"] = ["T"] * 80 + ["B"] * 80 + ["Myeloid"] * 80
+    adata.obs["ambient_fraction"] = 0.01
+    adata.obs.iloc[:20, adata.obs.columns.get_loc("ambient_fraction")] = 0.8
+    adata.obs["cell_probability"] = 0.98
+
+    adata = qc.run_standard_qc(adata, config=_make_config(), show_progress=False)
+    review = _qc_review(adata)
+
+    assert review["ambient_evidence_summary"]["schema_version"] == "ambient_evidence_summary_v1"
+    assert review["ambient_evidence_summary"]["cell_probability"]["available"] is True
+    assert review["post_annotation_qc_review"]["schema_version"] == "post_annotation_qc_review_v1"
+    assert review["post_annotation_qc_review"]["cell_type_key"] == "cell_type"
+    assert review["qc_benchmark_scorecard"]["schema_version"] == "qc_benchmark_scorecard_v1"
+    assert review["qc_benchmark_scorecard"]["rows"]
+
+    compact = qc.summarize_qc_review_summary(review)
+    assert compact["ambient_status"] in {"available", "not_run"}
+    assert compact["cell_probability_available"] is True
+    assert compact["post_annotation_qc_available"] is True
+    assert compact["qc_benchmark_scorecard_status"] in {"pass", "review_required", "partial"}
 
 
 def test_qc_review_summary_includes_attached_doublet_benchmark_evidence():
@@ -355,6 +382,9 @@ def test_qc_review_summary_contains_shared_evidence_bundle():
         "reproducibility_manifest",
         "qc_filtering_policy_summary",
         "qc_retention_audit_summary",
+        "ambient_evidence_summary",
+        "post_annotation_qc_review",
+        "qc_benchmark_scorecard",
         "benchmark_summary",
     ]
     assert any(item["name"] == "qc_benchmark_assessment" for item in bundle["evidence_chain"])

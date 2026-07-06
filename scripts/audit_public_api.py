@@ -105,7 +105,6 @@ def _is_workflow_orchestrator(name: str, origin: Optional[str], module_path: str
     return name in {
         "run_pipeline",
         "run_standard_qc",
-        "run_advanced_qc",
         "run_preprocessing",
         "run_standard_analysis",
         "run_custom_analysis",
@@ -480,7 +479,6 @@ def _parse_init(
             origin = name_to_export_module[name]
         elif module_path == "scLucid" and name in {
             "run_standard_qc",
-            "run_advanced_qc",
             "run_preprocessing",
             "run_standard_analysis",
             "run_custom_analysis",

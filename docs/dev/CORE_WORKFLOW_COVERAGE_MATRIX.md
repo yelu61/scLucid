@@ -27,7 +27,7 @@ or reorganizing modules.
 ### Entry Functions
 - [`run_standard_qc`](FUNCTION_INVENTORY.md#scLucidqc) — Standard QC workflow
 - [`run_qc_threshold_decision`](FUNCTION_INVENTORY.md#scLucidqc) — Reusable threshold decision / marking / optional filtering layer for interactive QC
-- [`run_advanced_qc`](FUNCTION_INVENTORY.md#scLucidqc) — Advanced QC with adaptive thresholds *(deprecated alias for `run_standard_qc` with a full config)*
+- `run_qc` is the recommended default reviewer-first entrypoint; `run_iterative_qc` is the explicit advanced reviewer-first entrypoint.
 
 ### Key Supporting Functions
 

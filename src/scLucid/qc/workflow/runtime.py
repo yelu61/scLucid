@@ -10,10 +10,10 @@ from typing import Any, Dict, List, Optional, Tuple, TypeVar
 import numpy as np
 from anndata import AnnData
 
-from ..utils import get_progress_bar, save_result
-from .config import QCWorkflowConfig
-from .doublet import predict_doublets
-from .metrics import calculate_qc_metric
+from ...utils import get_progress_bar, save_result
+from ..config import QCWorkflowConfig
+from ..doublet import predict_doublets
+from ..metrics import calculate_qc_metric
 
 log = logging.getLogger(__name__)
 T = TypeVar("T")

@@ -10,15 +10,15 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from anndata import AnnData
 
-from ..utils import (
+from ...utils import (
     UnsKeys,
     normalize_review_summary,
     record_artifact,
     save_result,
     validate_review_summary_schema,
 )
-from ..utils.context import is_tumor_context, resolve_cell_type_key
-from .ambient import (
+from ...utils.context import is_tumor_context, resolve_cell_type_key
+from ..ambient import (
     AMBIENT_CORRECTED_COUNTS_LAYER,
     correct_ambient_rna_linear,
     diagnose_ambient_rna,
@@ -26,11 +26,11 @@ from .ambient import (
     infer_ambient_input_context,
     record_ambient_layer_contract,
 )
-from .ambient_backends import correct_ambient_rna as correct_ambient_rna_unified
-from .artifacts import record_benchmark_review
-from .config import QCWorkflowConfig
-from .policy.benchmark import evaluate_qc_benchmark, export_qc_benchmark_report
-from .trace import enrich_qc_review_summary, validate_qc_review_summary
+from ..ambient_backends import correct_ambient_rna as correct_ambient_rna_unified
+from ..artifacts import record_benchmark_review
+from ..config import QCWorkflowConfig
+from ..policy.benchmark import evaluate_qc_benchmark, export_qc_benchmark_report
+from ..trace import enrich_qc_review_summary, validate_qc_review_summary
 
 log = logging.getLogger(__name__)
 

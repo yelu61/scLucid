@@ -42,12 +42,10 @@ def test_qc_does_not_export_legacy_threshold_entrypoints():
         "resolve_qc_thresholds",
         "mark_low_quality_cells_adaptive",
         "run_qc_decision_workflow",
+        "run_advanced_qc",
     ]
     for symbol in hidden:
         assert not hasattr(qc, symbol), f"legacy threshold API should not be public: {symbol}"
-
-    assert hasattr(qc, "run_advanced_qc")
-    assert "run_advanced_qc" not in qc.__all__
 
 
 @pytest.mark.unit
@@ -122,3 +120,6 @@ def test_generate_qc_report_canonical_source_is_reporting():
     from scLucid.qc import reporting
 
     assert qc.generate_qc_report is reporting.generate_qc_report
+    assert qc.generate_qc_html_report is reporting.generate_qc_html_report
+    assert not hasattr(qc, "EnhancedQCReport")
+    assert not hasattr(qc, "InteractiveReportGenerator")

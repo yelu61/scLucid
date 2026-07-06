@@ -67,6 +67,14 @@ Required QC outputs:
 - `review_summary["doublet_evidence_summary"]` with prediction rates,
   score ranges, doublet risk metadata, and external-evidence notes when
   present
+- `review_summary["ambient_evidence_summary"]` with ambient risk,
+  correction status, counts-layer contract, `cell_probability`, and
+  `ambient_fraction` availability
+- `review_summary["post_annotation_qc_review"]` with retained
+  stress/ambient/high-MT/doublet signals stratified by annotation and
+  sample when labels are available
+- `review_summary["qc_benchmark_scorecard"]` summarizing threshold,
+  doublet, ambient, retention, and post-annotation sensitivity evidence
 - optional report sidecars under the configured `save_dir`
 
 QC reporting boundary:
@@ -88,15 +96,15 @@ exported:
 
 QC hardening tasks:
 
-- keep `run_qc` as the canonical user workflow entrypoint, backed by
-  `run_standard_qc` for compatibility
+- keep `run_qc` as the canonical reviewer-first user workflow entrypoint,
+  backed by `run_standard_qc` for compatibility, step control, and resume
 - keep `recommend_qc_policy` as the diagnostic/recommend-only entrypoint
   and `apply_qc_policy` as the explicit execution entrypoint
 - keep `recommend_intelligent_qc` executable as a standalone simple API
   tool
-- keep ScDblFinder and ambient RNA correction outside the default
-  QC/preprocess path; removed wrappers should not reappear unless there
-  is a clear dependency and maintenance plan
+- keep ambient RNA correction diagnostic-only by default, but support
+  explicit external CellBender/SoupX/DecontX-style result registration
+  into canonical obs columns and the ambient layer contract
 - make user overrides explicit in the review summary
 - make the threshold `decision_table` reviewer-readable with
   recommended, applied, source, confidence, evidence, review-required

@@ -58,10 +58,10 @@ def test_top_level_aliases_are_consistent():
 
 
 @pytest.mark.smoke
-def test_top_level_compatibility_aliases_can_exist_without_being_public():
+def test_removed_top_level_compatibility_aliases_are_absent():
     import scLucid as scl
 
-    assert hasattr(scl, "run_advanced_qc")
+    assert not hasattr(scl, "run_advanced_qc")
     assert "run_advanced_qc" not in scl.__all__
 
 

@@ -114,11 +114,9 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 #### Deprecated
 
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `run_advanced_qc` | Deprecated | `src/scLucid/__init__.py` | [D] dynamically resolved from submodule workflow |
+No deprecated top-level QC workflow aliases are currently exported.
 
-**Summary:** 49 symbols (48 stable, 1 flagged). workflow=6, config=0, class=0, function=22, alias=17, constant=3, trace=0, deprecated=1, uncertain=0, private_but_exposed=0.
+**Summary:** 48 symbols (48 stable, 0 flagged). workflow=5, config=0, class=0, function=22, alias=17, constant=3, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.analysis
 
@@ -719,9 +717,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 #### Deprecated
 
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `run_advanced_qc` | Deprecated | `src/scLucid/qc/__init__.py` | [D] from `workflow` |
+No deprecated QC workflow aliases are currently exported.
 
 **Summary:** QC threshold public APIs are consolidated around `recommend_qc_thresholds`
 and `run_qc_threshold_decision`; older threshold aliases are no longer listed as

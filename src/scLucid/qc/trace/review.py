@@ -1,211 +1,32 @@
-"""QC trace and review-summary schema helpers.
-
-This module keeps the workflow-facing QC audit contract independent from the
-execution code. It turns recommendations, applied config, and filtering output
-into a compact machine-readable decision table and evidence chain.
-"""
+"""QC trace review builders and validation helpers."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from enum import Enum
 from typing import Any
 
 import pandas as pd
 from anndata import AnnData
 
-from scLucid.utils.contracts import _review_payload
-
-from ..utils.context import is_tumor_context as _shared_is_tumor_context
-from ..utils.evidence import (
-    DecisionRecord,
-    EvidenceBundle,
-    EvidenceItem,
-    ReviewAction,
-    model_to_dict,
+from ...utils.context import is_tumor_context as _shared_is_tumor_context
+from . import (
+    QC_EXPECTED_ARTIFACTS,
+    QC_MODULE_MATURITY_SCHEMA_VERSION,
+    QC_REQUIRED_OBS_METRICS,
+    QC_REQUIRED_REVIEW_SECTIONS,
+    QC_STABLE_ENTRYPOINTS,
+    QC_TRACE_SCHEMA_VERSION,
+    _PARAMETER_SPECS,
+    _decision_source,
+    _get_nested,
+    _json_safe,
+    _recommendation_value,
+    _to_dict,
 )
 
-QC_TRACE_SCHEMA_VERSION = "1.0"
-QC_MODULE_MATURITY_SCHEMA_VERSION = "1.0"
 
-QC_REQUIRED_REVIEW_SECTIONS = {
-    "recommendation_summary",
-    "recommended_threshold_summary",
-    "applied_threshold_summary",
-    "user_override_summary",
-    "sample_threshold_summary",
-    "tumor_aware_summary",
-    "filtering_summary",
-    "qc_filtering_policy_summary",
-    "qc_retention_audit_summary",
-    "doublet_evidence_summary",
-    "warnings",
-    "decision_table",
-    "qc_reviewer_table",
-    "evidence_chain",
-    "execution_trace",
-    "output_health",
-    "downstream_preprocess_recommendations",
-    "qc_readiness",
-    "review_action_items",
-    "reproducibility_manifest",
-    "evidence_bundle",
-    "module_maturity",
-}
-
-QC_REQUIRED_OBS_METRICS = [
-    "n_genes_by_counts",
-    "total_counts",
-    "pct_counts_mt",
-]
-
-QC_STABLE_ENTRYPOINTS = (
-    "scLucid.qc.run_qc",
-    "scLucid.qc.recommend_qc_policy",
-    "scLucid.qc.apply_qc_policy",
-    "scLucid.qc.run_standard_qc",
-    "scLucid.qc.calculate_qc_metric",
-    "scLucid.qc.recommend_intelligent_qc",
-    "scLucid.qc.run_qc_threshold_decision",
-    "scLucid.qc.build_qc_decisions",
-    "scLucid.qc.filter_cells",
-)
-
-QC_EXPECTED_ARTIFACTS = (
-    "qc_review_summary.json",
-    "qc_review_summary.md",
-    "qc_benchmark.json",
-    "qc_benchmark.md",
-)
-
-_PARAMETER_SPECS = [
-    {
-        "parameter": "min_genes",
-        "recommended_key": "min_genes",
-        "applied_path": ("marking_config", "thresholds", "min_genes"),
-        "obs_metric": "n_genes_by_counts",
-        "filtering_flag": "outlier_min_genes",
-        "direction": "lower_bound",
-    },
-    {
-        "parameter": "max_genes",
-        "recommended_key": None,
-        "applied_path": ("marking_config", "thresholds", "max_genes"),
-        "obs_metric": "n_genes_by_counts",
-        "filtering_flag": "outlier_max_genes",
-        "direction": "upper_bound",
-    },
-    {
-        "parameter": "n_counts",
-        "recommended_key": "n_counts",
-        "applied_path": ("marking_config", "thresholds", "min_counts"),
-        "obs_metric": "total_counts",
-        "filtering_flag": "outlier_min_counts",
-        "direction": "lower_bound",
-    },
-    {
-        "parameter": "max_counts",
-        "recommended_key": None,
-        "applied_path": ("marking_config", "thresholds", "max_counts"),
-        "obs_metric": "total_counts",
-        "filtering_flag": "outlier_max_counts",
-        "direction": "upper_bound",
-    },
-    {
-        "parameter": "max_mt_percent",
-        "recommended_key": "max_mt_percent",
-        "applied_path": ("marking_config", "thresholds", "pc_mt"),
-        "obs_metric": "pct_counts_mt",
-        "filtering_flag": "outlier_mt",
-        "direction": "upper_bound",
-    },
-    {
-        "parameter": "max_hb_percent",
-        "recommended_key": None,
-        "applied_path": ("marking_config", "thresholds", "pc_hb"),
-        "obs_metric": "pct_counts_hb",
-        "filtering_flag": "outlier_hb",
-        "direction": "upper_bound",
-    },
-    {
-        "parameter": "doublet_threshold",
-        "recommended_key": "doublet_threshold",
-        "applied_path": ("doublet_config", "score_threshold"),
-        "obs_metric": "doublet_score",
-        "filtering_flag": "predicted_doublet",
-        "direction": "upper_bound",
-    },
-    {
-        "parameter": "nmads",
-        "recommended_key": None,
-        "applied_path": ("marking_config", "thresholds", "nmads"),
-        "obs_metric": "qc_metric_distribution",
-        "filtering_flag": "outlier_qc_metrics",
-        "direction": "mad_outlier",
-    },
-]
-
-
-def _json_safe(value: Any) -> Any:
-    """Convert common scientific/Python objects into JSON-safe values."""
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Mapping):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe(v) for v in value]
-    if hasattr(value, "item"):
-        try:
-            return value.item()
-        except Exception:
-            pass
-    return value
-
-
-def _to_dict(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    if isinstance(value, dict):
-        return _json_safe(value)
-    if hasattr(value, "to_dict"):
-        return _json_safe(value.to_dict())
-    if hasattr(value, "model_dump"):
-        return _json_safe(value.model_dump())
-    return {}
-
-
-def _get_nested(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
-    current: Any = data
-    for key in path:
-        if not isinstance(current, Mapping):
-            return None
-        current = current.get(key)
-    return current
-
-
-def _recommendation_value(rec_dict: Mapping[str, Any], key: str | None, field: str) -> Any:
-    if key is None:
-        return None
-    rec = rec_dict.get(key)
-    if not isinstance(rec, Mapping):
-        return None
-    return rec.get(field)
-
-
-def _decision_source(
-    *,
-    parameter: str,
-    applied_value: Any,
-    recommended_value: Any,
-    user_overrides: Mapping[str, Any],
-) -> str:
-    if parameter in user_overrides:
-        return "user_override"
-    if recommended_value is not None and applied_value == recommended_value:
-        return "recommendation"
-    if applied_value is None:
-        return "disabled_or_not_available"
-    return "default_or_config"
+def _is_tumor_context(tissue_type: Any) -> bool:
+    return _shared_is_tumor_context(tissue_type)
 
 
 def get_qc_module_contract() -> dict[str, Any]:
@@ -932,6 +753,349 @@ def build_doublet_evidence_summary(adata: AnnData) -> dict[str, Any]:
     )
 
 
+def _numeric_obs_summary(adata: AnnData, column: str) -> dict[str, Any]:
+    if column not in adata.obs:
+        return {"available": False}
+    values = pd.to_numeric(adata.obs[column], errors="coerce").dropna()
+    if values.empty:
+        return {"available": False}
+    return {
+        "available": True,
+        "median": float(values.median()),
+        "p90": float(values.quantile(0.90)),
+        "p95": float(values.quantile(0.95)),
+        "max": float(values.max()),
+        "n_measured": int(values.shape[0]),
+    }
+
+
+def build_ambient_evidence_summary(adata: AnnData) -> dict[str, Any]:
+    """Summarize ambient RNA evidence, correction status, and canonical fields."""
+    qc_ns = adata.uns.get("sclucid", {}).get("qc", {})
+    ambient_summary = qc_ns.get("ambient_rna_summary", {}) if isinstance(qc_ns, Mapping) else {}
+    empty_summary = qc_ns.get("empty_droplet_summary", {}) if isinstance(qc_ns, Mapping) else {}
+    correction_summary = (
+        qc_ns.get("ambient_correction_summary", {}) if isinstance(qc_ns, Mapping) else {}
+    )
+    correction_status = (
+        qc_ns.get("ambient_correction_status", {}) if isinstance(qc_ns, Mapping) else {}
+    )
+    layer_contract = (
+        qc_ns.get("ambient_layer_contract", {}) if isinstance(qc_ns, Mapping) else {}
+    )
+    probability_schema = (
+        qc_ns.get("qc_probability_schema", {}) if isinstance(qc_ns, Mapping) else {}
+    )
+
+    ambient_risk_count = (
+        int(adata.obs["ambient_risk"].fillna(False).astype(bool).sum())
+        if "ambient_risk" in adata.obs
+        else 0
+    )
+    corrected = bool(
+        correction_summary.get("corrected", False)
+        or correction_status.get("corrected", False)
+        or layer_contract.get("corrected_layer_present", False)
+    )
+    risk_level = ambient_summary.get("risk_level", "unknown") if isinstance(ambient_summary, Mapping) else "unknown"
+    review_required = bool(
+        risk_level in {"moderate", "high", "unknown"}
+        or ambient_risk_count > 0
+        or layer_contract.get("review_required", False)
+    )
+    if corrected and risk_level == "low" and ambient_risk_count == 0:
+        review_required = False
+
+    notes: list[str] = []
+    if risk_level in {"moderate", "high"}:
+        notes.append(f"Ambient RNA diagnostic risk is {risk_level}.")
+    if not corrected:
+        notes.append("Ambient correction was not applied or not registered.")
+    if layer_contract:
+        recommended = layer_contract.get("recommended_preprocess_counts_layer")
+        if recommended:
+            notes.append(f"Recommended preprocessing counts layer: {recommended}.")
+    if empty_summary and not empty_summary.get("available", False):
+        notes.append(
+            "Empty-droplet diagnostic is unavailable or diagnostic-only; cell_probability may be missing."
+        )
+
+    return _json_safe(
+        {
+            "schema_version": "ambient_evidence_summary_v1",
+            "status": "available" if ambient_summary or layer_contract else "not_run",
+            "risk_level": risk_level,
+            "risk_score": ambient_summary.get("risk_score") if isinstance(ambient_summary, Mapping) else None,
+            "ambient_risk_cells": ambient_risk_count,
+            "ambient_fraction": _numeric_obs_summary(adata, "ambient_fraction"),
+            "ambient_score": _numeric_obs_summary(adata, "ambient_score"),
+            "cell_probability": _numeric_obs_summary(adata, "cell_probability"),
+            "empty_droplet_probability": _numeric_obs_summary(
+                adata, "empty_droplet_probability"
+            ),
+            "correction": correction_summary or correction_status,
+            "empty_droplet_summary": empty_summary,
+            "layer_contract": layer_contract,
+            "probability_schema": probability_schema,
+            "review_required": review_required,
+            "notes": notes,
+        }
+    )
+
+
+def build_post_annotation_qc_review(
+    adata: AnnData,
+    *,
+    sample_key: str | None = None,
+    cell_type_key: str | None = None,
+    min_cells: int = 10,
+) -> dict[str, Any]:
+    """Review QC risk after annotation when cell-type labels are available.
+
+    This does not filter cells.  It identifies whether retained review signals
+    are sample-driven, cell-type-specific, or broadly concordant, so downstream
+    analysis can decide between keep, remove, sensitivity analysis, or explicit
+    modeling.
+    """
+    if cell_type_key is None:
+        cell_type_key = _first_existing_obs_key(
+            adata,
+            (
+                "cell_type",
+                "cell_type_auto",
+                "celltype",
+                "celltype_lineage",
+                "celltype_lineage_auto",
+                "annotation",
+                "predicted_cell_type",
+            ),
+        )
+    if sample_key is None:
+        sample_key = _first_existing_obs_key(
+            adata,
+            ("sampleID", "sample", "Sample", "orig.ident", "batch", "Batch"),
+        )
+
+    review_columns = [
+        "stress_high",
+        "ambient_risk",
+        "predicted_doublet",
+        "qc_high_mt",
+        "apoptosis_high",
+        "hemoglobin_contamination",
+        "platelet_contamination",
+    ]
+    available = [col for col in review_columns if col in adata.obs]
+    if not available:
+        return {
+            "schema_version": "post_annotation_qc_review_v1",
+            "available": False,
+            "reason": "No QC review columns are available.",
+            "review_required": False,
+            "recommended_actions": [],
+            "tables": {},
+        }
+
+    tables: dict[str, list[dict[str, Any]]] = {}
+    recommended_actions: list[dict[str, Any]] = []
+    for column in available:
+        mask = adata.obs[column].fillna(False).astype(bool)
+        total = int(mask.sum())
+        if total == 0:
+            continue
+        action = "sensitivity_only" if column in {"stress_high", "qc_high_mt", "ambient_risk"} else "review"
+        if column == "predicted_doublet":
+            action = "review_boundary_or_remove_high_confidence"
+        recommended_actions.append(
+            {
+                "signal": column,
+                "affected_cells": total,
+                "affected_fraction": float(total / max(adata.n_obs, 1)),
+                "recommended_action": action,
+                "rationale": (
+                    "Review after annotation before irreversible exclusion; this signal can be technical or biological."
+                ),
+            }
+        )
+
+        if cell_type_key and cell_type_key in adata.obs:
+            rows = []
+            for value, group in adata.obs.groupby(cell_type_key, observed=True):
+                n = int(group.shape[0])
+                if n < min_cells:
+                    continue
+                affected = int(group[column].fillna(False).astype(bool).sum())
+                rows.append(
+                    {
+                        "signal": column,
+                        "scope": "cell_type",
+                        "key": cell_type_key,
+                        "group": str(value),
+                        "n_cells": n,
+                        "affected_cells": affected,
+                        "affected_fraction": float(affected / max(n, 1)),
+                    }
+                )
+            if rows:
+                tables.setdefault("cell_type", []).extend(rows)
+
+        if sample_key and sample_key in adata.obs:
+            rows = []
+            for value, group in adata.obs.groupby(sample_key, observed=True):
+                n = int(group.shape[0])
+                if n < min_cells:
+                    continue
+                affected = int(group[column].fillna(False).astype(bool).sum())
+                rows.append(
+                    {
+                        "signal": column,
+                        "scope": "sample",
+                        "key": sample_key,
+                        "group": str(value),
+                        "n_cells": n,
+                        "affected_cells": affected,
+                        "affected_fraction": float(affected / max(n, 1)),
+                    }
+                )
+            if rows:
+                tables.setdefault("sample", []).extend(rows)
+
+    flags: list[dict[str, Any]] = []
+    for scope, rows in tables.items():
+        by_signal: dict[str, list[Mapping[str, Any]]] = {}
+        for row in rows:
+            by_signal.setdefault(str(row.get("signal")), []).append(row)
+        for signal, signal_rows in by_signal.items():
+            fractions = [float(row.get("affected_fraction") or 0.0) for row in signal_rows]
+            if fractions and max(fractions) >= 0.5:
+                flags.append(
+                    {
+                        "scope": scope,
+                        "signal": signal,
+                        "flag": "signal_enriched_group",
+                        "max_fraction": max(fractions),
+                        "review_required": True,
+                    }
+                )
+            if len(fractions) >= 2 and max(fractions) - min(fractions) >= 0.35:
+                flags.append(
+                    {
+                        "scope": scope,
+                        "signal": signal,
+                        "flag": "signal_imbalance",
+                        "spread": max(fractions) - min(fractions),
+                        "review_required": True,
+                    }
+                )
+
+    return _json_safe(
+        {
+            "schema_version": "post_annotation_qc_review_v1",
+            "available": True,
+            "cell_type_key": cell_type_key,
+            "sample_key": sample_key,
+            "review_columns": available,
+            "review_required": bool(recommended_actions or flags),
+            "recommended_actions": recommended_actions,
+            "tables": tables,
+            "flags": flags,
+            "note": (
+                "Post-annotation QC review is advisory. It should guide sensitivity analyses "
+                "or explicit covariate modeling rather than automatic deletion."
+            ),
+        }
+    )
+
+
+def build_qc_benchmark_scorecard(
+    *,
+    benchmark_summary: Mapping[str, Any] | None,
+    doublet_evidence_summary: Mapping[str, Any] | None,
+    ambient_evidence_summary: Mapping[str, Any] | None,
+    retention_audit_summary: Mapping[str, Any] | None,
+    post_annotation_qc_review: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Create a compact scorecard spanning the seven benchmark-QC pillars."""
+    rows: list[dict[str, Any]] = []
+
+    def add(claim: str, status: str, evidence: str, next_action: str, score: float) -> None:
+        rows.append(
+            {
+                "claim": claim,
+                "status": status,
+                "evidence": evidence,
+                "next_action": next_action,
+                "score": float(max(0.0, min(1.0, score))),
+            }
+        )
+
+    filtering_basis = None
+    if isinstance(benchmark_summary, Mapping):
+        filtering_basis = benchmark_summary.get("status")
+    add(
+        "threshold_and_retention_audit",
+        "pass" if filtering_basis == "pass" else "review_required",
+        f"benchmark_status={filtering_basis}",
+        "Inspect benchmark_summary and retention audit before publication.",
+        1.0 if filtering_basis == "pass" else 0.65,
+    )
+
+    doublet_status = doublet_evidence_summary.get("status") if isinstance(doublet_evidence_summary, Mapping) else "not_run"
+    add(
+        "sample_aware_doublet_evidence",
+        "review_required" if doublet_evidence_summary and doublet_evidence_summary.get("review_required") else ("pass" if doublet_status == "available" else "missing"),
+        f"doublet_status={doublet_status}",
+        "Use sample-aware expected-rate calibration and inspect boundary cells.",
+        0.85 if doublet_status == "available" else 0.35,
+    )
+
+    ambient_status = ambient_evidence_summary.get("status") if isinstance(ambient_evidence_summary, Mapping) else "not_run"
+    ambient_review = bool(ambient_evidence_summary.get("review_required")) if isinstance(ambient_evidence_summary, Mapping) else True
+    add(
+        "ambient_rna_contract",
+        "review_required" if ambient_review else "pass",
+        f"ambient_status={ambient_status}; risk={ambient_evidence_summary.get('risk_level') if isinstance(ambient_evidence_summary, Mapping) else None}",
+        "Register external CellBender/SoupX/DecontX evidence when ambient risk is moderate/high.",
+        0.75 if ambient_status == "available" else 0.40,
+    )
+
+    retention_review = bool(retention_audit_summary.get("retention_review_required")) if isinstance(retention_audit_summary, Mapping) else True
+    add(
+        "stratified_retention_fairness",
+        "review_required" if retention_review else "pass",
+        f"retention_available={retention_audit_summary.get('available') if isinstance(retention_audit_summary, Mapping) else False}",
+        "Review retention by sample/condition/annotation/cluster.",
+        0.75 if retention_audit_summary and retention_audit_summary.get("available") else 0.30,
+    )
+
+    post_available = bool(post_annotation_qc_review.get("available")) if isinstance(post_annotation_qc_review, Mapping) else False
+    add(
+        "post_annotation_sensitivity_review",
+        "review_required" if post_annotation_qc_review and post_annotation_qc_review.get("review_required") else ("pass" if post_available else "not_applicable"),
+        f"post_annotation_available={post_available}",
+        "After annotation, decide keep/remove/sensitivity/model for stress, ambient, MT, and doublet signals.",
+        0.80 if post_available else 0.55,
+    )
+
+    mean_score = sum(row["score"] for row in rows) / max(len(rows), 1)
+    status = (
+        "pass"
+        if all(row["status"] == "pass" for row in rows)
+        else "review_required"
+        if any(row["status"] in {"review_required", "missing"} for row in rows)
+        else "partial"
+    )
+    return _json_safe(
+        {
+            "schema_version": "qc_benchmark_scorecard_v1",
+            "status": status,
+            "score": mean_score,
+            "rows": rows,
+            "note": "Scorecard summarizes evidence maturity; it is not a substitute for dataset-specific review.",
+        }
+    )
+
+
 def build_qc_execution_trace(
     *,
     context: Mapping[str, Any],
@@ -1181,8 +1345,11 @@ def build_qc_readiness_assessment(
     benchmark_summary: Mapping[str, Any] | None,
     tumor_aware_summary: Mapping[str, Any] | None,
     doublet_evidence_summary: Mapping[str, Any] | None = None,
+    ambient_evidence_summary: Mapping[str, Any] | None = None,
     filtering_policy_summary: Mapping[str, Any] | None = None,
     retention_audit_summary: Mapping[str, Any] | None = None,
+    post_annotation_qc_review: Mapping[str, Any] | None = None,
+    qc_benchmark_scorecard: Mapping[str, Any] | None = None,
     warnings: list[str],
     decision_table: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -1204,6 +1371,12 @@ def build_qc_readiness_assessment(
             "Doublet evidence requires review"
             + (": " + "; ".join(str(note) for note in doublet_notes) if doublet_notes else ".")
         )
+    if ambient_evidence_summary and ambient_evidence_summary.get("review_required"):
+        ambient_notes = ambient_evidence_summary.get("notes", [])
+        review_reasons.append(
+            "Ambient RNA evidence requires review"
+            + (": " + "; ".join(str(note) for note in ambient_notes) if ambient_notes else ".")
+        )
     if filtering_policy_summary and filtering_policy_summary.get("review_required"):
         review_reasons.append(str(filtering_policy_summary.get("risk_note")))
     if retention_audit_summary and retention_audit_summary.get("retention_review_required"):
@@ -1220,6 +1393,14 @@ def build_qc_readiness_assessment(
                 review_reasons.append(
                     f"Retention audit {flag.get('scope')}:{flag.get('flag')}"
                 )
+    if post_annotation_qc_review and post_annotation_qc_review.get("review_required"):
+        review_reasons.append(
+            "Post-annotation QC review recommends sensitivity/review handling for retained QC signals."
+        )
+    if qc_benchmark_scorecard and qc_benchmark_scorecard.get("status") != "pass":
+        review_reasons.append(
+            f"QC benchmark scorecard status is {qc_benchmark_scorecard.get('status')}."
+        )
 
     user_overrides = [
         row["parameter"] for row in decision_table if row.get("source") == "user_override"
@@ -1286,8 +1467,11 @@ def build_qc_review_action_items(
     tumor_aware_summary: Mapping[str, Any] | None,
     benchmark_summary: Mapping[str, Any] | None,
     doublet_evidence_summary: Mapping[str, Any] | None,
+    ambient_evidence_summary: Mapping[str, Any] | None = None,
     filtering_policy_summary: Mapping[str, Any] | None = None,
     retention_audit_summary: Mapping[str, Any] | None = None,
+    post_annotation_qc_review: Mapping[str, Any] | None = None,
+    qc_benchmark_scorecard: Mapping[str, Any] | None = None,
     decision_table: list[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Create human-readable QC review actions from trace evidence."""
@@ -1353,6 +1537,23 @@ def build_qc_review_action_items(
                 evidence_key="doublet_evidence_summary",
             )
 
+    if ambient_evidence_summary:
+        if ambient_evidence_summary.get("review_required"):
+            add(
+                priority="review",
+                action="Review ambient RNA evidence and counts-layer contract.",
+                rationale="; ".join(str(note) for note in ambient_evidence_summary.get("notes", []))
+                or "Ambient evidence summary requires review.",
+                evidence_key="ambient_evidence_summary",
+            )
+        if not ambient_evidence_summary.get("cell_probability", {}).get("available", False):
+            add(
+                priority="optional",
+                action="Register CellBender/EmptyDrops-style cell probabilities when available.",
+                rationale="cell_probability is part of the canonical QC schema but no measured values were detected.",
+                evidence_key="ambient_evidence_summary.cell_probability",
+            )
+
     if filtering_policy_summary and filtering_policy_summary.get("review_required"):
         add(
             priority="review",
@@ -1371,6 +1572,23 @@ def build_qc_review_action_items(
                 )
             ),
             evidence_key="qc_retention_audit_summary",
+        )
+    if post_annotation_qc_review and post_annotation_qc_review.get("review_required"):
+        add(
+            priority="review",
+            action="Run or inspect post-annotation QC sensitivity decisions.",
+            rationale=(
+                "Stress, ambient, MT, apoptosis, contamination, or doublet-like retained cells "
+                "should be interpreted after cell-type annotation."
+            ),
+            evidence_key="post_annotation_qc_review",
+        )
+    if qc_benchmark_scorecard and qc_benchmark_scorecard.get("status") != "pass":
+        add(
+            priority="review",
+            action="Inspect QC benchmark scorecard before claiming benchmark-module readiness.",
+            rationale=f"Scorecard status is {qc_benchmark_scorecard.get('status')}.",
+            evidence_key="qc_benchmark_scorecard",
         )
 
     overridden = [
@@ -1468,6 +1686,9 @@ def build_qc_evidence_chain(
     filtering_summary: Mapping[str, Any],
     filtering_policy_summary: Mapping[str, Any],
     retention_audit_summary: Mapping[str, Any],
+    ambient_evidence_summary: Mapping[str, Any],
+    post_annotation_qc_review: Mapping[str, Any],
+    qc_benchmark_scorecard: Mapping[str, Any],
     output_health: Mapping[str, Any],
     decision_table: list[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1520,627 +1741,25 @@ def build_qc_evidence_chain(
             "flags": retention_audit_summary.get("flags", []),
         },
         {
+            "stage": "ambient_evidence",
+            "status": ambient_evidence_summary.get("status"),
+            "risk_level": ambient_evidence_summary.get("risk_level"),
+            "review_required": ambient_evidence_summary.get("review_required"),
+        },
+        {
+            "stage": "post_annotation_qc_review",
+            "available": post_annotation_qc_review.get("available"),
+            "review_required": post_annotation_qc_review.get("review_required"),
+            "cell_type_key": post_annotation_qc_review.get("cell_type_key"),
+        },
+        {
+            "stage": "qc_benchmark_scorecard",
+            "status": qc_benchmark_scorecard.get("status"),
+            "score": qc_benchmark_scorecard.get("score"),
+        },
+        {
             "stage": "output_health",
             "status": output_health.get("status"),
             "issues": output_health.get("issues", []),
         },
     ]
-
-
-def _evidence_source_for_stage(stage: Any) -> str:
-    mapping = {
-        "recommendation": "recommendation",
-        "threshold_application": "metric",
-        "sample_thresholds": "metric",
-        "filtering": "metric",
-        "filtering_policy": "contract",
-        "retention_audit": "metric",
-        "output_health": "output_health",
-    }
-    return mapping.get(str(stage), "metric")
-
-
-def build_qc_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, Any]:
-    """Convert QC-specific review fields into the shared EvidenceBundle schema."""
-    decisions: list[DecisionRecord] = []
-    for row in summary.get("decision_table", []):
-        if not isinstance(row, Mapping):
-            continue
-        evidence = []
-        row_evidence = row.get("evidence")
-        if row_evidence:
-            evidence.append(
-                EvidenceItem(
-                    source="recommendation",
-                    name=f"{row.get('parameter')}_recommendation_evidence",
-                    value=row_evidence,
-                    confidence=row.get("confidence"),
-                    rationale=f"Evidence attached to {row.get('parameter')} recommendation.",
-                    related_keys=["decision_table"],
-                )
-            )
-        decisions.append(
-            DecisionRecord(
-                parameter=str(row.get("parameter")),
-                recommended=row.get("recommended"),
-                applied=row.get("applied"),
-                source=str(row.get("source") or "unknown"),
-                confidence=row.get("confidence"),
-                evidence=evidence,
-                user_override=row.get("source") == "user_override",
-                downstream_impact=(
-                    f"Controls {row.get('filtering_flag')}"
-                    if row.get("filtering_flag")
-                    else None
-                ),
-            )
-        )
-
-    evidence_chain: list[EvidenceItem] = []
-    for item in summary.get("evidence_chain", []):
-        if not isinstance(item, Mapping):
-            continue
-        stage = item.get("stage", "unknown")
-        confidence = item.get("confidence")
-        evidence_chain.append(
-            EvidenceItem(
-                source=_evidence_source_for_stage(stage),
-                name=str(stage),
-                value=dict(item),
-                confidence=confidence if isinstance(confidence, (int, float)) else None,
-                rationale=f"QC evidence stage: {stage}.",
-                related_keys=["evidence_chain"],
-            )
-        )
-
-    for issue in summary.get("output_health", {}).get("issues", []):
-        evidence_chain.append(
-            EvidenceItem(
-                source="output_health",
-                name="output_health_issue",
-                value=issue,
-                rationale="Output health issue requiring review.",
-                limitations=[str(issue)],
-                related_keys=["output_health.issues"],
-            )
-        )
-
-    benchmark_summary = summary.get("benchmark_summary", {})
-    if isinstance(benchmark_summary, Mapping):
-        assessment = benchmark_summary.get("assessment", {})
-        evidence_chain.append(
-            EvidenceItem(
-                source="benchmark",
-                name="qc_benchmark_assessment",
-                value={
-                    "status": benchmark_summary.get("status"),
-                    "profile": benchmark_summary.get("profile"),
-                    "risk_level": assessment.get("risk_level") if isinstance(assessment, Mapping) else None,
-                    "summary": assessment.get("summary") if isinstance(assessment, Mapping) else None,
-                },
-                rationale="Profile-aware benchmark assessment for QC output.",
-                limitations=[
-                    "Benchmark thresholds are heuristic and should be interpreted with dataset context."
-                ],
-                related_keys=["benchmark_summary.assessment"],
-            )
-        )
-
-    action_items = [
-        ReviewAction(
-            priority=item.get("priority", "review"),
-            action=str(item.get("action", "")),
-            rationale=str(item.get("rationale", "")),
-            evidence_keys=[str(item.get("evidence_key"))] if item.get("evidence_key") else [],
-        )
-        for item in summary.get("review_action_items", [])
-        if isinstance(item, Mapping)
-    ]
-
-    readiness = summary.get("qc_readiness", {})
-    confidence = None
-    if isinstance(readiness, Mapping) and isinstance(readiness.get("score"), (int, float)):
-        confidence = max(0.0, min(1.0, float(readiness["score"]) / 100.0))
-
-    bundle = EvidenceBundle(
-        module="qc",
-        stage="run_standard_qc",
-        status=str(readiness.get("status", "unknown")) if isinstance(readiness, Mapping) else "unknown",
-        confidence=confidence,
-        context=dict(summary.get("execution_trace", {})),
-        decisions=decisions,
-        evidence_chain=evidence_chain,
-        action_items=action_items,
-        reproducibility=dict(summary.get("reproducibility_manifest", {})),
-        related_review_keys=[
-            "decision_table",
-            "qc_reviewer_table",
-            "evidence_chain",
-            "qc_readiness",
-            "review_action_items",
-            "reproducibility_manifest",
-            "qc_filtering_policy_summary",
-            "qc_retention_audit_summary",
-            "benchmark_summary",
-        ],
-    )
-    return model_to_dict(bundle)
-
-
-def build_qc_module_maturity_assessment(summary: Mapping[str, Any]) -> dict[str, Any]:
-    """Assess whether a QC review summary satisfies the benchmark module contract."""
-    payload = _review_payload(summary)
-    required_sections = set(QC_REQUIRED_REVIEW_SECTIONS)
-    # ``module_maturity`` is produced by this function, so it cannot be required
-    # while the assessment is being built.
-    required_sections.discard("module_maturity")
-    missing_sections = sorted(required_sections - set(payload.keys()))
-    decision_table = payload.get("decision_table")
-    evidence_bundle = payload.get("evidence_bundle")
-    readiness = payload.get("qc_readiness", {})
-    output_health = payload.get("output_health", {})
-    manifest = payload.get("reproducibility_manifest", {})
-
-    issues: list[str] = []
-    if missing_sections:
-        issues.append("Missing required QC review sections: " + ", ".join(missing_sections))
-    if not isinstance(decision_table, list) or not decision_table:
-        issues.append("QC decision_table must be a non-empty list.")
-    if not isinstance(evidence_bundle, Mapping) or evidence_bundle.get("module") != "qc":
-        issues.append("QC evidence_bundle must be present and identify module='qc'.")
-    if not isinstance(readiness, Mapping) or "status" not in readiness:
-        issues.append("QC readiness assessment must be present.")
-    if not isinstance(output_health, Mapping) or "status" not in output_health:
-        issues.append("QC output_health summary must be present.")
-    if not isinstance(manifest, Mapping) or manifest.get("workflow") != "run_standard_qc":
-        issues.append("QC reproducibility_manifest must identify workflow='run_standard_qc'.")
-
-    review_required = []
-    if isinstance(readiness, Mapping) and readiness.get("status") != "ready":
-        review_required.append(f"qc_readiness.status={readiness.get('status')}")
-    if isinstance(output_health, Mapping) and output_health.get("status") != "ok":
-        review_required.append(f"output_health.status={output_health.get('status')}")
-
-    if issues:
-        status = "incomplete"
-    elif review_required:
-        status = "review_required"
-    else:
-        status = "complete"
-
-    return _json_safe(
-        {
-            "schema_version": QC_MODULE_MATURITY_SCHEMA_VERSION,
-            "module": "qc",
-            "status": status,
-            "issues": issues,
-            "review_required": review_required,
-            "contract": get_qc_module_contract(),
-            "summary": (
-                "QC review summary satisfies the benchmark module contract."
-                if status == "complete"
-                else "QC review summary is present but requires review."
-                if status == "review_required"
-                else "QC review summary does not satisfy the benchmark module contract."
-            ),
-        }
-    )
-
-
-def summarize_qc_review_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
-    """Return a compact user-facing summary of the QC review bundle."""
-    payload = _review_payload(summary)
-    readiness = payload.get("qc_readiness", {}) if isinstance(payload, Mapping) else {}
-    filtering = payload.get("filtering_summary", {}) if isinstance(payload, Mapping) else {}
-    recommendation = (
-        payload.get("recommended_threshold_summary", {}) if isinstance(payload, Mapping) else {}
-    )
-    maturity = payload.get("module_maturity", {}) if isinstance(payload, Mapping) else {}
-    decision_table = payload.get("decision_table", []) if isinstance(payload, Mapping) else []
-    action_items = payload.get("review_action_items", []) if isinstance(payload, Mapping) else []
-    doublet_summary = (
-        payload.get("doublet_evidence_summary", {}) if isinstance(payload, Mapping) else {}
-    )
-    doublet_predictions = (
-        doublet_summary.get("predictions", {}) if isinstance(doublet_summary, Mapping) else {}
-    )
-    final_doublets = (
-        doublet_predictions.get("predicted_doublet", {})
-        if isinstance(doublet_predictions, Mapping)
-        else {}
-    )
-    doublet_benchmark_decision = (
-        doublet_summary.get("benchmark_decision", {})
-        if isinstance(doublet_summary, Mapping)
-        else {}
-    )
-    filtering_policy = (
-        payload.get("qc_filtering_policy_summary", {})
-        if isinstance(payload, Mapping)
-        else {}
-    )
-    retention_audit = (
-        payload.get("qc_retention_audit_summary", {})
-        if isinstance(payload, Mapping)
-        else {}
-    )
-    benchmark = payload.get("benchmark_summary", {}) if isinstance(payload, Mapping) else {}
-    benchmark_assessment = (
-        benchmark.get("assessment", {}) if isinstance(benchmark, Mapping) else {}
-    )
-    benchmark_guide = (
-        benchmark_assessment.get("interpretation_guide", {})
-        if isinstance(benchmark_assessment, Mapping)
-        else {}
-    )
-
-    applied_thresholds = {
-        row.get("parameter"): row.get("applied")
-        for row in decision_table
-        if isinstance(row, Mapping) and row.get("parameter")
-    }
-    threshold_sources = {
-        row.get("parameter"): row.get("source")
-        for row in decision_table
-        if isinstance(row, Mapping) and row.get("parameter")
-    }
-
-    return _json_safe(
-        {
-            "module": "qc",
-            "maturity_status": maturity.get("status"),
-            "readiness_status": readiness.get("status"),
-            "readiness_score": readiness.get("score"),
-            "verdict": readiness.get("verdict"),
-            "recommendation_available": recommendation.get("available"),
-            "overall_confidence": recommendation.get("overall_confidence"),
-            "initial_cells": filtering.get("initial_cells"),
-            "final_cells": filtering.get("final_cells"),
-            "removed_fraction": filtering.get("removed_fraction"),
-            "qc_decision_filter_mode": (
-                filtering_policy.get("qc_decision_filter_mode")
-                if isinstance(filtering_policy, Mapping)
-                else None
-            ),
-            "final_filter_basis": (
-                filtering_policy.get("final_filter_basis")
-                if isinstance(filtering_policy, Mapping)
-                else None
-            ),
-            "filtering_policy_review_required": (
-                filtering_policy.get("review_required")
-                if isinstance(filtering_policy, Mapping)
-                else None
-            ),
-            "recommended_reviewer_first_path": (
-                filtering_policy.get("recommended_reviewer_first_path")
-                if isinstance(filtering_policy, Mapping)
-                else None
-            ),
-            "retention_audit_available": (
-                retention_audit.get("available")
-                if isinstance(retention_audit, Mapping)
-                else None
-            ),
-            "retention_audit_review_required": (
-                retention_audit.get("retention_review_required")
-                if isinstance(retention_audit, Mapping)
-                else None
-            ),
-            "retention_audit_group_keys": (
-                retention_audit.get("group_keys_reviewed", {})
-                if isinstance(retention_audit, Mapping)
-                else {}
-            ),
-            "benchmark_status": benchmark.get("status") if isinstance(benchmark, Mapping) else None,
-            "benchmark_risk_level": (
-                benchmark_assessment.get("risk_level")
-                if isinstance(benchmark_assessment, Mapping)
-                else None
-            ),
-            "benchmark_summary": (
-                benchmark_assessment.get("summary")
-                if isinstance(benchmark_assessment, Mapping)
-                else None
-            ),
-            "benchmark_main_risk": (
-                benchmark_guide.get("main_risk")
-                if isinstance(benchmark_guide, Mapping)
-                else None
-            ),
-            "benchmark_next_step": (
-                benchmark_guide.get("next_step")
-                if isinstance(benchmark_guide, Mapping)
-                else None
-            ),
-            "doublet_status": doublet_summary.get("status") if isinstance(doublet_summary, Mapping) else None,
-            "predicted_doublets": final_doublets.get("count") if isinstance(final_doublets, Mapping) else None,
-            "predicted_doublet_fraction": (
-                final_doublets.get("fraction") if isinstance(final_doublets, Mapping) else None
-            ),
-            "doublet_recommended_default_mode": (
-                doublet_benchmark_decision.get("recommended_default_mode")
-                if isinstance(doublet_benchmark_decision, Mapping)
-                else None
-            ),
-            "doublet_recommended_primary_method": (
-                doublet_benchmark_decision.get("recommended_primary_method")
-                if isinstance(doublet_benchmark_decision, Mapping)
-                else None
-            ),
-            "doublet_recommended_algorithm_weight": (
-                doublet_benchmark_decision.get("recommended_algorithm_weight")
-                if isinstance(doublet_benchmark_decision, Mapping)
-                else None
-            ),
-            "applied_thresholds": applied_thresholds,
-            "threshold_sources": threshold_sources,
-            "top_review_action": (
-                action_items[0].get("action")
-                if isinstance(action_items, list)
-                and action_items
-                and isinstance(action_items[0], Mapping)
-                else None
-            ),
-            "n_review_action_items": len(action_items) if isinstance(action_items, list) else None,
-        }
-    )
-
-
-def enrich_qc_review_summary(
-    summary: dict[str, Any],
-    *,
-    adata: AnnData,
-    config: Any,
-    original_config: Any,
-    recommendation: Any,
-    sample_thresholds: Mapping[str, Any],
-    filtering_summary: Mapping[str, Any],
-    warnings: list[str],
-    context: Mapping[str, Any],
-    steps_executed: list[str] | None = None,
-    adata_before_filtering: AnnData | None = None,
-) -> dict[str, Any]:
-    """Add benchmark-grade QC audit fields to the review summary."""
-    user_overrides = summary.get("user_override_summary", {}).get("details", {})
-    decision_table = build_qc_decision_table(
-        config,
-        original_config,
-        recommendation,
-        user_overrides=user_overrides,
-    )
-    decision_table = enrich_qc_decision_table_for_review(
-        decision_table,
-        filtering_summary=filtering_summary,
-        context=context,
-    )
-    output_health = build_qc_output_health(adata, filtering_summary)
-    benchmark_summary = summary.get("benchmark_summary", {})
-    doublet_evidence_summary = build_doublet_evidence_summary(adata)
-    summary["qc_schema_version"] = QC_TRACE_SCHEMA_VERSION
-    summary["decision_table"] = decision_table
-    summary["threshold_reviewer_table"] = decision_table
-    summary["doublet_evidence_summary"] = doublet_evidence_summary
-    qc_decision_summary = (
-        adata.uns.get("sclucid", {}).get("qc", {}).get("qc_decision_summary", {})
-    )
-    if isinstance(qc_decision_summary, Mapping):
-        summary["qc_decision_summary"] = dict(qc_decision_summary)
-    filtering_policy_summary = build_qc_filtering_policy_summary(
-        config=config,
-        filtering_summary=filtering_summary,
-        qc_decision_summary=summary.get("qc_decision_summary", {}),
-    )
-    summary["qc_filtering_policy_summary"] = filtering_policy_summary
-    retention_audit_summary = build_qc_retention_audit_summary(
-        adata_before_filtering=adata_before_filtering,
-        adata_after_filtering=adata,
-        context=context,
-        filtering_summary=filtering_summary,
-    )
-    summary["qc_retention_audit_summary"] = retention_audit_summary
-    summary["qc_reviewer_table"] = build_qc_reviewer_table(
-        adata,
-        decision_table=decision_table,
-        qc_decision_summary=summary.get("qc_decision_summary", {}),
-    )
-    summary["policy_flow"] = build_qc_policy_flow(
-        decision_table=decision_table,
-        filtering_summary=filtering_summary,
-        recommendation=recommendation,
-        sample_thresholds=sample_thresholds,
-    )
-    summary["recommended_threshold_summary"] = build_qc_recommended_threshold_summary(
-        recommendation=recommendation,
-        decision_table=decision_table,
-    )
-    summary["execution_trace"] = build_qc_execution_trace(
-        context=context,
-        recommendation=recommendation,
-        sample_thresholds=sample_thresholds,
-        warnings=warnings,
-        steps_executed=steps_executed,
-    )
-    summary["output_health"] = output_health
-    summary["evidence_chain"] = build_qc_evidence_chain(
-        recommendation=recommendation,
-        sample_thresholds=sample_thresholds,
-        filtering_summary=filtering_summary,
-        filtering_policy_summary=filtering_policy_summary,
-        retention_audit_summary=retention_audit_summary,
-        output_health=output_health,
-        decision_table=decision_table,
-    )
-    summary["required_obs_metrics"] = list(QC_REQUIRED_OBS_METRICS)
-    downstream_recommendations = build_downstream_preprocess_recommendations(
-        adata=adata,
-        context=context,
-        sample_thresholds=sample_thresholds,
-        filtering_summary=filtering_summary,
-        output_health=output_health,
-        decision_table=decision_table,
-    )
-    summary["downstream_preprocess_recommendations"] = downstream_recommendations
-    readiness = build_qc_readiness_assessment(
-        output_health=output_health,
-        downstream_recommendations=downstream_recommendations,
-        benchmark_summary=benchmark_summary,
-        tumor_aware_summary=summary.get("tumor_aware_summary", {}),
-        doublet_evidence_summary=doublet_evidence_summary,
-        filtering_policy_summary=filtering_policy_summary,
-        retention_audit_summary=retention_audit_summary,
-        warnings=warnings,
-        decision_table=decision_table,
-    )
-    summary["qc_readiness"] = readiness
-    summary["review_action_items"] = build_qc_review_action_items(
-        readiness=readiness,
-        downstream_recommendations=downstream_recommendations,
-        tumor_aware_summary=summary.get("tumor_aware_summary", {}),
-        benchmark_summary=benchmark_summary,
-        doublet_evidence_summary=doublet_evidence_summary,
-        filtering_policy_summary=filtering_policy_summary,
-        retention_audit_summary=retention_audit_summary,
-        decision_table=decision_table,
-    )
-    summary["reproducibility_manifest"] = build_qc_reproducibility_manifest(
-        adata=adata,
-        config=config,
-        original_config=original_config,
-        context=context,
-        steps_executed=steps_executed,
-        decision_table=decision_table,
-    )
-    summary["evidence_bundle"] = build_qc_evidence_bundle(summary)
-    summary["module_maturity"] = build_qc_module_maturity_assessment(summary)
-    return _json_safe(summary)
-
-
-def validate_qc_review_summary(
-    summary: Mapping[str, Any],
-    *,
-    raise_on_error: bool = False,
-) -> list[str]:
-    """Validate QC-specific review-summary sections."""
-    errors: list[str] = []
-    missing = sorted(QC_REQUIRED_REVIEW_SECTIONS - set(summary.keys()))
-    if missing:
-        errors.append(f"QC review summary missing required sections: {missing}")
-    if not isinstance(summary.get("decision_table"), (list, dict)):
-        errors.append("QC review summary field 'decision_table' must be a list or dict.")
-    else:
-        decision_rows = summary.get("decision_table")
-        if isinstance(decision_rows, Mapping):
-            decision_rows = decision_rows.values()
-        required_decision_columns = {
-            "parameter",
-            "recommended",
-            "applied",
-            "source",
-            "confidence",
-            "evidence",
-            "review_required",
-            "affected_cells",
-            "biological_guardrail",
-            "risk_note",
-        }
-        for idx, row in enumerate(decision_rows):
-            if not isinstance(row, Mapping):
-                errors.append(f"QC decision_table row {idx} must be a mapping.")
-                continue
-            missing_columns = sorted(required_decision_columns - set(row.keys()))
-            if missing_columns:
-                errors.append(f"QC decision_table row {idx} missing columns: {missing_columns}")
-    if not isinstance(summary.get("evidence_chain"), (list, dict)):
-        errors.append("QC review summary field 'evidence_chain' must be a list or dict.")
-    execution_trace = summary.get("execution_trace")
-    if not isinstance(execution_trace, Mapping):
-        errors.append("QC review summary field 'execution_trace' must be a mapping.")
-    elif execution_trace.get("qc_schema_version") != QC_TRACE_SCHEMA_VERSION:
-        errors.append("QC execution trace has an unsupported schema version.")
-    output_health = summary.get("output_health")
-    if not isinstance(output_health, Mapping):
-        errors.append("QC review summary field 'output_health' must be a mapping.")
-    doublet_summary = summary.get("doublet_evidence_summary")
-    if not isinstance(doublet_summary, Mapping):
-        errors.append("QC review summary field 'doublet_evidence_summary' must be a mapping.")
-    readiness = summary.get("qc_readiness")
-    if not isinstance(readiness, Mapping):
-        errors.append("QC review summary field 'qc_readiness' must be a mapping.")
-    actions = summary.get("review_action_items")
-    if not isinstance(actions, (list, dict)):
-        errors.append("QC review summary field 'review_action_items' must be a list or dict.")
-    manifest = summary.get("reproducibility_manifest")
-    if not isinstance(manifest, Mapping):
-        errors.append("QC review summary field 'reproducibility_manifest' must be a mapping.")
-    bundle = summary.get("evidence_bundle")
-    if not isinstance(bundle, Mapping):
-        errors.append("QC review summary field 'evidence_bundle' must be a mapping.")
-    elif bundle.get("module") != "qc":
-        errors.append("QC evidence_bundle.module must be 'qc'.")
-    maturity = summary.get("module_maturity")
-    if not isinstance(maturity, Mapping):
-        errors.append("QC review summary field 'module_maturity' must be a mapping.")
-    elif maturity.get("module") != "qc":
-        errors.append("QC module_maturity.module must be 'qc'.")
-
-    if errors and raise_on_error:
-        raise ValueError("; ".join(errors))
-    return errors
-
-
-def validate_qc_module_completeness(
-    adata: AnnData,
-    *,
-    require_ready: bool = False,
-    raise_on_error: bool = False,
-) -> dict[str, Any]:
-    """Validate that an AnnData object contains a benchmark-grade QC result."""
-    issues: list[str] = []
-    warnings: list[str] = []
-
-    qc_ns = adata.uns.get("sclucid", {}).get("qc", {})
-    if not isinstance(qc_ns, Mapping):
-        issues.append('Missing or invalid adata.uns["sclucid"]["qc"] namespace.')
-        qc_ns = {}
-
-    review_summary = qc_ns.get("review_summary")
-    payload = _review_payload(review_summary) if isinstance(review_summary, Mapping) else {}
-    if not payload:
-        issues.append('Missing adata.uns["sclucid"]["qc"]["review_summary"].')
-        maturity = build_qc_module_maturity_assessment({})
-    else:
-        validation_errors = validate_qc_review_summary(payload)
-        issues.extend(validation_errors)
-        maturity = build_qc_module_maturity_assessment(payload)
-        if maturity.get("status") == "incomplete":
-            issues.extend(maturity.get("issues", []))
-        elif maturity.get("status") == "review_required":
-            warnings.extend(maturity.get("review_required", []))
-
-    missing_metrics = [metric for metric in QC_REQUIRED_OBS_METRICS if metric not in adata.obs]
-    if missing_metrics:
-        issues.append("Missing required QC obs metrics: " + ", ".join(missing_metrics))
-
-    readiness = payload.get("qc_readiness", {}) if isinstance(payload, Mapping) else {}
-    if require_ready and readiness.get("status") != "ready":
-        issues.append(f"QC readiness is {readiness.get('status')!r}, expected 'ready'.")
-
-    result = {
-        "schema_version": QC_MODULE_MATURITY_SCHEMA_VERSION,
-        "module": "qc",
-        "valid": len(issues) == 0,
-        "status": "valid" if not issues else "invalid",
-        "issues": list(dict.fromkeys(str(item) for item in issues)),
-        "warnings": list(dict.fromkeys(str(item) for item in warnings)),
-        "maturity": maturity,
-        "summary": summarize_qc_review_summary(payload) if payload else {},
-    }
-
-    if result["issues"] and raise_on_error:
-        raise ValueError("; ".join(result["issues"]))
-    return _json_safe(result)
-
-
-def _is_tumor_context(tissue_type: Any) -> bool:
-    return _shared_is_tumor_context(tissue_type)

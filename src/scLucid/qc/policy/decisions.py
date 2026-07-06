@@ -177,6 +177,89 @@ def _numeric_series(adata: AnnData, col: str) -> pd.Series:
     return pd.to_numeric(adata.obs[col], errors="coerce")
 
 
+def _first_numeric_obs(adata: AnnData, candidates: Sequence[str]) -> pd.Series | None:
+    """Return the first available numeric obs column from ``candidates``."""
+    for col in candidates:
+        if col in adata.obs:
+            return _numeric_series(adata, col)
+    return None
+
+
+def _ensure_canonical_probability_columns(adata: AnnData) -> dict[str, Any]:
+    """Populate stable probability/score columns without inventing evidence.
+
+    Optional tools such as CellBender, EmptyDrops, SoupX/DecontX, or hashing
+    pipelines use different column names.  The QC decision schema exposes
+    canonical placeholders so reports and downstream code can rely on stable
+    columns while still distinguishing unavailable evidence from measured
+    evidence via NaN values and provenance metadata.
+    """
+    provenance: dict[str, Any] = {
+        "schema_version": "qc_probability_schema_v1",
+        "columns": {},
+    }
+    mappings = {
+        "cell_probability": (
+            "cell_probability",
+            "cellbender_cell_probability",
+            "prob_cell",
+            "cell_call_probability",
+            "emptydrops_fdr_cell_probability",
+        ),
+        "empty_droplet_probability": (
+            "empty_droplet_probability",
+            "empty_probability",
+            "background_probability",
+            "prob_empty",
+        ),
+        "doublet_score": (
+            "doublet_score",
+            "combined_doublet_score",
+            "scrublet_score",
+            "scdblfinder_score",
+            "doubletdetection_score",
+        ),
+        "ambient_score": (
+            "ambient_score",
+            "ambient_fraction",
+            "contamination_fraction",
+            "decontx_contamination",
+            "soupx_contamination",
+            "cellbender_ambient_fraction",
+        ),
+        "ambient_fraction": (
+            "ambient_fraction",
+            "contamination_fraction",
+            "decontx_contamination",
+            "soupx_contamination",
+            "cellbender_ambient_fraction",
+        ),
+    }
+    for canonical, candidates in mappings.items():
+        source = next((col for col in candidates if col in adata.obs), None)
+        if canonical not in adata.obs:
+            values = _first_numeric_obs(adata, candidates)
+            if values is None:
+                adata.obs[canonical] = np.nan
+                source = None
+                status = "unavailable"
+            else:
+                adata.obs[canonical] = values.to_numpy(dtype=float)
+                status = "aliased"
+        else:
+            status = "existing"
+            source = canonical
+        provenance["columns"][canonical] = {
+            "status": status,
+            "source": source,
+            "available": bool(adata.obs[canonical].notna().any()),
+        }
+    adata.uns.setdefault("sclucid", {}).setdefault("qc", {})[
+        "qc_probability_schema"
+    ] = sanitize_for_hdf5(provenance)
+    return provenance
+
+
 def _high_by_quantile(values: pd.Series, *, minimum: float, quantile: float = 0.9) -> pd.Series:
     valid = values.dropna()
     if valid.empty:
@@ -314,6 +397,7 @@ def build_qc_decisions(
     """
     if score_panels:
         score_qc_gene_panels(adata, layer=score_layer, overwrite=overwrite_scores)
+    _ensure_canonical_probability_columns(adata)
 
     tumor_context = is_tumor_context(tissue_type)
     obs = adata.obs

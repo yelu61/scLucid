@@ -73,7 +73,7 @@ def main() -> None:
         f"diagnostic_only={ambient.get('diagnostic_only')}",
         f"risk={ambient.get('risk_level')}",
     )
-    empty = scl.qc.diagnose_empty_droplets(
+    empty = scl.qc.ambient.diagnose_empty_droplets(
         adata,
         layer="counts",
         min_barcodes=min(100, max(20, adata.n_obs // 2)),
@@ -114,39 +114,46 @@ def main() -> None:
             print(f"{col}: mean={adata.obs[col].mean():.3f}")
 
     # ---------------------------------------------------------------------------
-    # Step 5: Suggest global thresholds (MAD-based)
+    # Step 5: Resolve threshold decisions without filtering
     # ---------------------------------------------------------------------------
-    print("\n--- Step 5: Global Thresholds ---")
-    threshold_table, suggested = scl.qc.suggest_qc_thresholds(adata, method="mad")
-    print("Suggested thresholds:")
-    print(threshold_table.to_string())
+    print("\n--- Step 5: Threshold Decisions ---")
+    threshold_decision = scl.qc.decide_qc_thresholds(
+        adata,
+        threshold_method="mad",
+        threshold_policy="intelligent_then_mad",
+        intelligent_thresholds={
+            "min_genes": rec.min_genes.threshold,
+            "max_mt_percent": rec.max_mt_percent.threshold,
+        },
+    )
+    print("Resolved thresholds:")
+    print(threshold_decision["resolved_thresholds"].to_dict())
 
     # ---------------------------------------------------------------------------
-    # Step 6: Adaptive per-sample marking
+    # Step 6: Apply threshold decisions as evidence labels
     # ---------------------------------------------------------------------------
-    print("\n--- Step 6: Adaptive Marking ---")
-    adata = scl.qc.mark_low_quality_cells_adaptive(
+    print("\n--- Step 6: Threshold Evidence ---")
+    threshold_application = scl.qc.apply_qc_threshold_decision(
         adata,
-        batch_key="sampleID",
-        metrics=["n_genes_by_counts", "total_counts", "pct_counts_mt"],
-        method="hierarchical",
+        resolved_thresholds=threshold_decision["resolved_thresholds"],
+        sample_key="sampleID",
+        filter_cells_result=False,
     )
-    n_adaptive = int(adata.obs["outlier_n_genes_by_counts_adaptive"].sum())
-    print(f"Adaptive outliers: {n_adaptive} cells")
+    adata = threshold_application["adata"]
+    print(f"Applied threshold evidence: {threshold_application['decision_record']}")
 
     # ---------------------------------------------------------------------------
-    # Step 7: Unified marking (combine all flags)
+    # Step 7: Unified QC decisions
     # ---------------------------------------------------------------------------
-    print("\n--- Step 7: Unified Marking ---")
-    adata = scl.qc.mark_low_quality_cell(
+    print("\n--- Step 7: Unified Decisions ---")
+    decision_summary = scl.qc.build_qc_decisions(
         adata,
-        config=scl.qc.MarkingConfig(
-            thresholds=scl.qc.QCThresholds(
-                min_genes=suggested.min_genes,
-                pc_mt=suggested.pc_mt,
-            ),
-        ),
+        tissue_type="pbmc_or_blood",
+        policy="conservative",
+        sample_key="sampleID",
     )
+    adata.obs["qc_remove"] = adata.obs["qc_decision"].astype(str) == "remove"
+    print(f"QC decisions: {decision_summary['decision_counts']}")
 
     # ---------------------------------------------------------------------------
     # Step 8: Filter cells
@@ -156,13 +163,9 @@ def main() -> None:
         adata,
         config=scl.qc.FilterConfig(
             criteria_to_filter=[
-                "outlier_min_genes",
-                "outlier_mt",
-                "outlier_qc_metrics",
-                "predicted_doublet",
+                "qc_remove",
             ],
-            combination_logic="threshold",
-            min_criteria_for_removal=2,
+            combination_logic="any",
         ),
         copy=True,
     )

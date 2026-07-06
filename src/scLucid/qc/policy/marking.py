@@ -1,6 +1,7 @@
 """QC evidence marking helpers used by the threshold decision chain."""
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -698,6 +699,14 @@ def mark_low_quality_cells_adaptive(
     This is particularly useful for datasets with strong batch effects
     (e.g., multi-center studies, fresh vs. frozen samples).
     """
+    warnings.warn(
+        "mark_low_quality_cells_adaptive is a legacy helper. Prefer "
+        "recommend_qc_thresholds/decide_qc_thresholds followed by "
+        "build_qc_decisions or run_qc(...), which records unified "
+        "qc_decision/qc_reason evidence.",
+        FutureWarning,
+        stacklevel=2,
+    )
     calculator = AdaptiveThresholdCalculator(adata, batch_key)
 
     for metric in metrics:

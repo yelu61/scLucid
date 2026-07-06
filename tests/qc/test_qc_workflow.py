@@ -64,7 +64,12 @@ def test_standard_qc_workflow():
     assert "outlier_count" in adata_qc.obs or "predicted_doublet" in adata_qc.obs
     assert "qc_decision" in adata_qc.obs
     assert "qc_reason" in adata_qc.obs
+    assert "cell_probability" in adata_qc.obs
+    assert "empty_droplet_probability" in adata_qc.obs
+    assert "ambient_fraction" in adata_qc.obs
+    assert "doublet_score" in adata_qc.obs
     assert "qc_decision_summary" in adata_qc.uns["sclucid"]["qc"]
+    assert "qc_probability_schema" in adata_qc.uns["sclucid"]["qc"]
     assert "ambient_rna_summary" in adata_qc.uns["sclucid"]["qc"]
     assert "empty_droplet_summary" in adata_qc.uns["sclucid"]["qc"]
     qc_ns = adata_qc.uns["sclucid"]["qc"]
@@ -82,6 +87,46 @@ def test_standard_qc_workflow():
         "filter_cells",
         "benchmark_review",
     ]
+
+
+def test_run_qc_uses_reviewer_first_iterative_defaults():
+    """Canonical run_qc should use qc_decision removal, not legacy filters."""
+    adata = _make_qc_test_adata()
+    config = _workflow_config_for_tests()
+    config.doublet_config.run_algorithm = False
+
+    adata_qc = qc.run_qc(
+        adata,
+        config=config,
+        tissue_type="tumor",
+        run_quick_review=False,
+        show_progress=False,
+    )
+
+    qc_ns = adata_qc.uns["sclucid"]["qc"]
+    assert qc_ns["qc_decision_filter_mode"] == "replace"
+    assert qc_ns["iterative_qc_summary"]["final_filter_policy"] == "decision_remove"
+    filtering = qc_ns["filtering_results"]
+    assert filtering["criteria_used"] == ["qc_remove"]
+    review = qc_ns["review_summary"]["data"]
+    assert review["qc_filtering_policy_summary"]["final_filter_basis"] == "qc_decision_remove"
+
+
+def test_run_qc_rejects_legacy_step_controls():
+    """Step/resume controls remain available on run_standard_qc only."""
+    adata = _make_qc_test_adata()
+    config = _workflow_config_for_tests()
+    config.doublet_config.run_algorithm = False
+
+    import pytest
+
+    with pytest.raises(TypeError, match="run_standard_qc"):
+        qc.run_qc(
+            adata,
+            config=config,
+            steps=["qc_metrics"],
+            show_progress=False,
+        )
 
 
 def test_standard_qc_can_filter_by_qc_decision_remove():

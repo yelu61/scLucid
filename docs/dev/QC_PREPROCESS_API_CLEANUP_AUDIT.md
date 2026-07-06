@@ -19,7 +19,9 @@ code.
 
 | Area | Canonical API | Notes |
 |---|---|---|
-| QC workflow | `scLucid.qc.run_standard_qc` | Main maintained QC workflow. |
+| QC workflow | `scLucid.qc.run_qc` | Recommended default reviewer-first QC workflow. |
+| QC advanced workflow | `scLucid.qc.run_iterative_qc` | Explicit reviewer-first advanced entrypoint. |
+| QC compatibility workflow | `scLucid.qc.run_standard_qc` | Compatibility, step control, and resume entrypoint. |
 | QC threshold recommendation | `scLucid.qc.recommend_qc_thresholds` | Structured recommendation bundle with candidate evidence. |
 | QC threshold decision | `scLucid.qc.run_qc_threshold_decision` | Canonical recommendation-to-marking chain. |
 | QC reporting | `scLucid.qc.generate_qc_report` from `qc.reporting` | Reporting is no longer exported from filtering modules. |
@@ -31,7 +33,6 @@ code.
 
 | Symbol | Current status | Recommended action |
 |---|---|---|
-| `scLucid.qc.run_advanced_qc` | Importable compatibility wrapper, omitted from `qc.__all__` | Keep for one deprecation cycle; docs should use `run_standard_qc`. |
 | `scLucid.preprocess.run_embedding_workflow` | Importable compatibility alias, omitted from `preprocess.__all__` | Keep for one deprecation cycle; docs should use `run_embedding_pipeline`. |
 | `scLucid.preprocess.adaptive_normalize` | Importable hidden low-level helper | Keep as low-level algorithm API; do not present as canonical workflow. |
 | `scLucid.preprocess.quality_aware_normalize` | Importable hidden low-level helper | Keep as low-level algorithm API; docs should clarify it is not the canonical workflow. |
@@ -47,6 +48,7 @@ code.
 | Doublet benchmark evidence stayed outside normal reports | Added `doublet_evidence_summary.benchmark_decision` and surfaced recommended default mode, primary method, candidate `algorithm_weight`, and review status in QC reports. |
 | Preprocess layer contract was nested and hard to scan | Added `layer_transition_table` with row-wise layer/slot/`.X`/`.raw` semantics. |
 | HDF5 sanitizer converted review table rows into dicts | Added `layer_transition_table` to review sequence restoration keys. |
+| `run_advanced_qc` duplicated `run_standard_qc` without independent semantics | Removed the wrapper and the top-level alias; use `run_qc`, `run_iterative_qc`, or `run_standard_qc` according to workflow depth. |
 
 ## Cleanup Rules Going Forward
 
@@ -66,6 +68,5 @@ code.
 
 | Candidate | Why not delete now | Next step |
 |---|---|---|
-| `run_advanced_qc` | Older notebooks may still import it. | Keep warning; verify notebooks no longer use it before removal. |
 | `run_embedding_workflow` | Older preprocess notebooks may use it. | Keep warning; migrate docs/examples to `run_embedding_pipeline`. |
 | Hidden adaptive normalization helpers | Useful as algorithm-level APIs. | Document as low-level opt-in helpers, not workflow entrypoints. |
