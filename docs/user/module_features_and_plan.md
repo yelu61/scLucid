@@ -32,6 +32,23 @@ Use these layers in order when documents disagree:
 | Marker resources | Source-aware marker knowledge infrastructure | marker resource managers and registry loaders | quality summaries, curation status, and nomenclature rules | Provenance completion and mouse/tumor parity |
 | Tools / Evidence modules | Supporting bulk, spatial, proportion, and external evidence | `scLucid.tools.bulk`, `scLucid.tools.spatial`, proportion and DE helpers | method-specific evidence tables | Dependency isolation and selective method validation |
 
+## Differentiation Spine
+
+scLucid's differentiator is not a larger checklist of single-cell methods. The
+project should keep turning routine analysis steps into context-aware scientific
+decisions:
+
+| Layer | Current contract | Near-term deepening | Long-term direction |
+|----|----|----|----|
+| Biological context | Dataset context, tumor-aware QC guardrails, marker/tumor resources | Make tissue, species, cancer type, sample structure, and analysis goal more visible in reviewer tables | Analysis-intent ontology for rare-cell discovery, TME interpretation, trajectory, therapy response, and other project goals |
+| QC interpretation | Conservative reviewer-first filtering, ambient/doublet/stress summaries, post-annotation QC review | Report biological impact of competing QC policies, especially tumor purity and immune/TME composition changes | Quality-state attribution and sensitivity analysis for cells that could be low-quality, stressed, hypoxic, doublet-like, or biologically meaningful |
+| Inference semantics | `claim_level`, `inference_level`, review summaries, layer contracts | Harmonize evidence, claim, and inference terms across QC, preprocess, analysis, annotation, tumor, bulk, and spatial outputs | Unified evidence ontology that downstream reports and agent interfaces can consume without overclaiming |
+| Tumor interpretation | Malignancy, CNV, TME, therapy, and program-oriented scaffolds | Make tumor modules consume stable analysis contracts and write tumor-stage review summaries | Sample-level ecosystem and ecotype-style interpretation with stability, limitations, and support evidence |
+| Product surface | HTML/report artifacts, reviewer tables, notebooks, examples | Stronger audit reports and Methods-ready summaries | Interactive review and natural-language interfaces over mature evidence bundles |
+
+Planned items in the right columns should remain roadmap claims until they are
+backed by code, tests, executed notebooks, or validation outputs.
+
 ## Workflow Contract Spine
 
 The current core workflow should remain readable as a chain of

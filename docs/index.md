@@ -5,6 +5,11 @@ single-cell interpretation. Its documentation is organized around stable user
 workflows, reviewable data contracts, and implementation plans that are kept
 separate from historical design notes.
 
+Its scientific bet is that single-cell software should not only execute accepted
+best practices. It should also help analysts make context-aware, evidence-backed
+decisions: what assumptions were made, what biological risk was protected, what
+claim level is justified, and what evidence would change the interpretation.
+
 ## Start Here
 
 - [Installation](user/installation.md)
@@ -41,3 +46,15 @@ counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph
 Every mature workflow module should expose reviewer-facing summaries that make
 recommendations, applied choices, confidence, review requirements, and
 biological risks explicit.
+
+## Vision To Roadmap
+
+The stable user contract remains the current workflow spine above. The roadmap
+extends that spine toward three planned capabilities:
+
+- context-aware parameter and interpretation guidance for tumor and other
+  biomedical settings
+- unified evidence, claim, and inference semantics across QC, preprocessing,
+  analysis, annotation, tumor interpretation, and support evidence modules
+- sensitivity and validation artifacts that make workflow claims reviewable and
+  falsifiable instead of merely reproducible

@@ -51,6 +51,13 @@ The current core is `qc -> preprocess -> analysis`; the long-term academic moat
 should come from connecting that core workflow to tumor state interpretation,
 tumor ecosystem modeling, and a source-aware knowledge infrastructure.
 
+The companion scientific shift is from best-practice execution to scientific
+decision support. scLucid should explain not only which workflow was run, but
+why each decision was appropriate for the dataset context, which biological
+signals were protected or put at risk, what claim level is justified, and what
+evidence would change the conclusion. This is the conceptual bridge between the
+current audit contract and future tumor ecosystem interpretation.
+
 ## 2. Strategic Guardrails
 
 ### What scLucid Is

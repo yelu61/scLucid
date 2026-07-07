@@ -15,6 +15,11 @@ conservative preprocessing, evidence-based annotation, malignancy and TME
 interpretation, explicit inference semantics, and optional bulk/spatial evidence
 modules.
 
+The long-term vision is to move routine single-cell work from "run the accepted
+workflow" toward context-aware scientific decision support: what was decided,
+why it was reasonable for this biological setting, when the result should be
+treated as exploratory, and what extra evidence would make the claim stronger.
+
 ## 60-Second Quickstart
 
 From a Cell Ranger output to a clustered, annotated AnnData with a shareable
@@ -42,6 +47,7 @@ arguments.
 | **Explicit inference semantics** | Results distinguish exploratory, descriptive, and sample-level inferences so exploratory signals are not overstated. |
 | **Tumor ecosystem orientation** | Annotation, CNV/malignancy evidence, TME composition, therapy signatures, cell communities, and ecotype-style concepts are first-class design targets. |
 | **Ecosystem-aware, not ecosystem-replacing** | Mature Python/R tools can be wrapped or validated when useful, but scLucid keeps a lightweight core and records method-specific evidence. |
+| **Context-aware decisions** | Dataset context, tumor biology, and analysis intent are treated as part of the decision record rather than hidden analyst assumptions. |
 
 ## Installation
 
@@ -145,6 +151,9 @@ single-cell workflows:
 - **Evidence bridges**: single-cell results are designed to connect with bulk,
   spatial, marker, CNV, and external reference evidence without hiding the
   confidence boundary.
+- **Falsifiable workflow records**: outputs should make it possible to ask what
+  would change under a different QC, preprocessing, annotation, or inference
+  choice, instead of presenting one automated path as final.
 
 Implementation details, field names, design plans, and roadmaps live in
 `docs/`, especially `docs/README.md`, `docs/api/`, and
