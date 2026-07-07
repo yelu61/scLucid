@@ -18,6 +18,11 @@
 
 这些知识不应只是文件资源，而应成为 evidence contract 的一部分。
 
+Phase 6 承接全项目的 evidence ontology：同一套 source、confidence、
+evidence_level、claim_level、inference_level、limitations 和 review_status
+字段应该能服务 annotation、program scoring、tumor interpretation、bulk/spatial
+support evidence，以及未来的 report/agent interface。
+
 ## 准备
 
 ### 资源盘点
@@ -94,6 +99,11 @@
 - ontology term mapping。
 - tumor-state naming conventions。
 - therapy signature provenance。
+- analysis-intent terms, such as rare-cell discovery, tumor microenvironment
+  interpretation, trajectory analysis, therapy response, and ecosystem
+  modeling。
+- claim-strength terms that downstream reports can use to avoid overstating
+  exploratory results。
 
 ### Step 5. LLM evidence interface guardrails
 

@@ -10,6 +10,11 @@
 
 Phase 1 完成后，新用户应该能用稳定 API 跑通标准流程；高级用户应该能在 `adata.uns["sclucid"]` 中复查每一步关键决策。
 
+Phase 1 还需要把 scLucid 的差异化 vision 压成稳定 contract：
+每个核心步骤都应记录 context、decision、rationale、risk、evidence、
+limitation 和 review action。这里先冻结字段和语义，不要求一次性完成
+所有未来交互界面或高级模型。
+
 ## 准备
 
 ### 数据准备
@@ -56,6 +61,14 @@ Phase 1 完成后，新用户应该能用稳定 API 跑通标准流程；高级�
   - warning。
   - inference level。
   - review action items。
+
+同时统一跨模块语义：
+
+- `claim_level`：结果可支持的科学声明强度。
+- `inference_level`：cell-level、sample-level、descriptive、exploratory 等推断边界。
+- `evidence_level`：证据来源和成熟度，例如 validated_core、curated、heuristic、exploratory、unavailable。
+- `confidence`：模块内部对当前输出可靠性的紧凑判断。
+- `limitations`：缺失参考、样本量不足、optional dependency 不可用、confounding 等限制。
 
 建议产出表格：
 
@@ -143,4 +156,3 @@ Phase 1 通过条件：
 | optional dependency 污染核心 | import 失败 | lazy import + clear fallback |
 | 功能边界扩散 | bulk/spatial/tumor 混入核心 | 保持 tools/tumor 分层 |
 | 文档与代码漂移 | README 写法不能跑 | 文档示例纳入 smoke test |
-

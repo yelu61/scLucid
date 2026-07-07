@@ -18,6 +18,11 @@
 
 Phase 4 的重点不是发明所有肿瘤算法，而是把高水平肿瘤单细胞论文中常见分析内容整理为可复用、可审计、可验证的 interpretation workflow。
 
+本 phase 应明确展示 scLucid 的核心差异化：同样的分析结果要被放回
+具体肿瘤情境中解释。malignancy、TME state、therapy signal 和 ecosystem
+summary 都需要说明适用癌种、证据来源、置信度、限制和可支持的 claim
+level，而不是只输出标签或分数。
+
 ## 准备
 
 ### 癌种选择
@@ -140,6 +145,8 @@ Phase 4 的重点不是发明所有肿瘤算法，而是把高水平肿瘤单细
 - ecosystem summary。
 - 与原论文/已知生物学一致点。
 - scLucid 额外提供的 evidence/audit 价值。
+- 当前结论的 claim level、inference level、主要 limitations。
+- 如果 QC、annotation、CNV 或 program evidence 变化，哪些解释最可能改变。
 
 ## 完成标准
 
@@ -176,4 +183,3 @@ Figure 4E: bulk/spatial concordance example。
 | gene sets 主观 | 审稿人质疑来源 | 每个 gene set 记录来源和版本 |
 | ecotype 太像过度概念化 | 数据支持不足 | 默认标注 exploratory，强调 summary 而非 definitive subtype |
 | bulk/spatial 证据薄 | paired data 少 | 作为 optional evidence，不做主结论基础 |
-

@@ -13,6 +13,10 @@
 - doublet evidence 能整合算法、谱系共表达和外部证据。
 - QC 输出对后续 preprocess/analysis 有明确影响说明。
 
+本 phase 的 vision task 是把 QC 从“过滤坏细胞”推进为“生物学风险归因”：
+高 MT%、低检测基因数、ambient、doublet-like、stress-high 或 hypoxia-like
+细胞不应只被二值删除，而应进入可复查的风险、状态和敏感性记录。
+
 ## 准备
 
 ### 数据集
@@ -131,6 +135,8 @@
 - marker fidelity。
 - retained tumor program score。
 - **MT% threshold scorecard**：fixed 20%、fixed 5%、bimodal GMM、sample-aware、multicomponent 的 program retention 对比。
+- QC effect on tumor purity / immune composition / stromal composition。
+- "what if retained" sensitivity summary for high-risk cell bands, when data support it。
 - warning examples。
 
 ### Step 5. 对照固定阈值流程

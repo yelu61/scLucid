@@ -47,6 +47,28 @@ Agent-assisted interpretation is intentionally not a near-term implementation
 phase. It is a long-term interface layer over mature evidence bundles after the
 P0/P1 contracts are stable.
 
+## Vision 到任务的转译
+
+scLucid 的差异化 vision 可以写成一句话：
+
+> 从“正确执行单细胞分析”升级为“在特定生物医学情境下，做出可审计、可证伪、可验证的科学解释决策”。
+
+这个 vision 不新增平行路线图，而是压入现有 phase：
+
+| Vision 方向 | Roadmap 落点 | 近期任务 |
+|-------------|--------------|----------|
+| 情境驱动参数和解释 | Phase 1, Phase 3, Phase 4 | 在 review summary 中稳定记录 `AnalysisContext`、分析目标、推荐理由、风险和人工复核点。 |
+| QC 从过滤变成状态/风险归因 | Phase 2 | 比较固定阈值、scLucid adaptive、tumor-aware 等策略对 marker fidelity、tumor purity、immune/TME composition 的影响。 |
+| 统一 claim/evidence/inference ontology | Phase 1, Phase 3, Phase 6, Phase 7 | 收敛 `claim_level`、`inference_level`、`evidence_level`、confidence、source、limitation 字段和文档定义。 |
+| 肿瘤解释系统而非通用工具箱 | Phase 4, Phase 5 | 让 malignancy、CNV、tumor program、TME state、therapy signal、ecotype 输出都带 evidence source、confidence、limitations。 |
+| 支持证据桥接 | Phase 6, Phase 7 | bulk、spatial、clinical、marker、atlas、literature 作为支持证据进入统一 evidence contract，而不是扩成新主产品线。 |
+| 可产品化的 review surface | Phase 8 | 审计报告、Methods-ready 摘要、figure source data、release package 都必须体现 decision/rationale/risk/evidence/limitation。 |
+
+Deferred ideas such as interactive review apps, natural-language interfaces,
+foundation-model adapters, and fully declarative pipeline DSLs should remain
+post-P0/P1 interface or adapter work until the evidence contracts and validation
+figures are stable.
+
 ## 投稿目标与闸门
 
 ### 主攻目标
