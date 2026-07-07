@@ -1,0 +1,341 @@
+"""Build reviewer-facing QC+preprocess+analysis evidence tables from executed projects.
+
+This script reads executed real-project outputs, preferably final ``.h5ad``
+objects with ``adata.uns["sclucid"]`` review summaries. It also accepts result
+directories containing sidecar JSON files such as
+``workflow_recommendations.json`` and ``iterative_preprocessing_summary.json``.
+
+The output is intentionally tabular: each row is comparable across projects and
+can be used as source material for validation figures, reviewer reports, or a
+claim-level scorecard.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+from pathlib import Path
+from typing import Any, Iterable
+
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OUT_DIR = ROOT / "validation_outputs" / "qc_preprocess_review_evidence"
+
+
+def _load_json(path: Path) -> Any:
+    with path.open() as handle:
+        return json.load(handle)
+
+
+def _get_nested(obj: Any, path: Iterable[Any], default: Any = None) -> Any:
+    current = obj
+    for key in path:
+        if isinstance(current, dict):
+            current = current.get(key, default)
+        elif isinstance(current, list) and isinstance(key, int) and 0 <= key < len(current):
+            current = current[key]
+        else:
+            return default
+    return current
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _json_len(value: Any) -> int:
+    if isinstance(value, (list, tuple, dict)):
+        return len(value)
+    return 0
+
+
+def _bool(value: Any) -> str:
+    return "yes" if bool(value) else "no"
+
+
+def _read_h5ad_uns(path: Path) -> tuple[dict[str, Any], tuple[int, int] | None]:
+    import anndata as ad
+
+    adata = ad.read_h5ad(path, backed="r")
+    try:
+        shape = tuple(int(x) for x in adata.shape)
+        uns = dict(adata.uns)
+    finally:
+        adata.file.close()
+    return uns, shape  # type: ignore[return-value]
+
+
+def _collect_input_paths(inputs: Iterable[str]) -> list[Path]:
+    paths: list[Path] = []
+    for raw in inputs:
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = (ROOT / path).resolve()
+        if path.is_dir():
+            paths.extend(sorted(path.rglob("*.h5ad")))
+            paths.extend(sorted(path.rglob("workflow_recommendations.json")))
+            paths.extend(sorted(path.rglob("iterative_preprocessing_summary.json")))
+            paths.extend(sorted(path.rglob("preprocess_review_summary.json")))
+            paths.extend(sorted(path.rglob("qc_review_summary.json")))
+            paths.extend(sorted(path.rglob("analysis_review_summary.json")))
+        elif path.exists():
+            paths.append(path)
+    return list(dict.fromkeys(paths))
+
+
+def _project_name(path: Path) -> str:
+    parts = [part for part in path.parts if part not in {"results", "outputs", "validation_outputs"}]
+    for marker in ("LPJ", "AK112", "CT26", "BBB"):
+        if marker.lower() in path.as_posix().lower():
+            return path.stem
+    return parts[-2] if len(parts) > 1 else path.stem
+
+
+def _review_summary_rows(project: str, source: Path, sclucid: dict[str, Any], shape: tuple[int, int] | None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for module in ["qc", "preprocess", "analysis"]:
+        module_ns = _as_dict(sclucid.get(module))
+        review = _as_dict(module_ns.get("review_summary"))
+        payload = _as_dict(review.get("data"))
+        if not review and module == "preprocess":
+            payload = module_ns
+        completeness = {
+            "project": project,
+            "source": str(source),
+            "module": module,
+            "shape": "x".join(map(str, shape)) if shape else "",
+            "review_summary_present": _bool(review),
+            "workflow_name": review.get("workflow_name") or payload.get("workflow") or payload.get("workflow_name", ""),
+            "schema_version": review.get("schema_version") or payload.get("schema_version", ""),
+            "evidence_bundle_present": _bool(payload.get("evidence_bundle") or review.get("evidence_bundle")),
+            "review_action_items": _json_len(payload.get("review_action_items")),
+            "reviewer_table_rows": _json_len(payload.get("reviewer_table") or payload.get("preprocess_reviewer_table")),
+            "decision_table_rows": _json_len(payload.get("decision_table") or payload.get("qc_decision_table")),
+            "benchmark_present": _bool(payload.get("benchmark_summary") or payload.get("benchmark_scorecard")),
+            "readiness_status": _get_nested(payload, ["preprocess_readiness", "status"], ""),
+            "module_maturity_score": _get_nested(payload, ["module_maturity_assessment", "overall_score"], ""),
+        }
+        rows.append(completeness)
+    return rows
+
+
+def _decision_rows(project: str, source: Path, sclucid: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    qc_payload = _as_dict(_get_nested(sclucid, ["qc", "review_summary", "data"], {}))
+    preprocess_ns = _as_dict(sclucid.get("preprocess"))
+    preprocess_payload = _as_dict(_get_nested(preprocess_ns, ["review_summary", "data"], {}))
+    iterative_pp = _as_dict(preprocess_ns.get("iterative_preprocessing_summary"))
+    analysis_payload = _as_dict(_get_nested(sclucid, ["analysis", "review_summary", "data"], {}))
+
+    if qc_payload:
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "qc",
+                "decision": "cell_filtering",
+                "value": _get_nested(qc_payload, ["retention_summary", "retention_fraction"], ""),
+                "evidence": "retention_summary",
+                "review_required": _bool(qc_payload.get("review_action_items")),
+                "reason": "; ".join(str(x.get("action", x)) for x in _as_list(qc_payload.get("review_action_items"))[:3]),
+            }
+        )
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "qc",
+                "decision": "doublet_review",
+                "value": _get_nested(qc_payload, ["doublet_evidence_summary", "benchmark_decision", "recommended_mode"], ""),
+                "evidence": "doublet_evidence_summary",
+                "review_required": _bool(_get_nested(qc_payload, ["doublet_evidence_summary", "review_required"], False)),
+                "reason": _get_nested(qc_payload, ["doublet_evidence_summary", "benchmark_decision", "reason"], ""),
+            }
+        )
+    if preprocess_payload or iterative_pp:
+        integration = _as_dict(iterative_pp.get("integration_decision") or _get_nested(preprocess_payload, ["integration_decision"], {}))
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "preprocess",
+                "decision": "integration",
+                "value": integration.get("run_integration", ""),
+                "evidence": "integration_decision",
+                "review_required": _bool(integration.get("warnings")),
+                "reason": "; ".join(map(str, _as_list(integration.get("warnings"))[:3])),
+            }
+        )
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "preprocess",
+                "decision": "final_representation",
+                "value": iterative_pp.get("final_representation", ""),
+                "evidence": "iterative_preprocessing_summary",
+                "review_required": _bool(iterative_pp.get("review_action_items")),
+                "reason": "; ".join(str(x.get("action", x)) for x in _as_list(iterative_pp.get("review_action_items"))[:3]),
+            }
+        )
+    pseudobulk = _as_dict(analysis_payload.get("pseudobulk_first"))
+    if analysis_payload:
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "analysis",
+                "decision": "pseudobulk_first_de",
+                "value": pseudobulk.get("decision", ""),
+                "evidence": "analysis.review_summary.pseudobulk_first",
+                "review_required": _bool(
+                    pseudobulk
+                    and not bool(pseudobulk.get("valid_for_publication_inference", False))
+                ),
+                "reason": "valid_for_publication_inference="
+                + str(pseudobulk.get("valid_for_publication_inference", "")),
+            }
+        )
+        proportion = _as_dict(analysis_payload.get("proportion"))
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "analysis",
+                "decision": "celltype_proportion",
+                "value": proportion.get("method", ""),
+                "evidence": "analysis.review_summary.proportion",
+                "review_required": _bool(not proportion),
+                "reason": proportion.get("decision", ""),
+            }
+        )
+    return rows
+
+
+def _sidecar_rows(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    project = _project_name(path)
+    data = _load_json(path)
+    completeness: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
+    name = path.name
+
+    if name == "workflow_recommendations.json":
+        sections = _as_dict(data.get("sections"))
+        completeness.append(
+            {
+                "project": project,
+                "source": str(path),
+                "module": "recommendation",
+                "shape": "",
+                "review_summary_present": "yes",
+                "workflow_name": "recommend_analysis_parameters",
+                "schema_version": "",
+                "evidence_bundle_present": _bool(sections),
+                "review_action_items": len(data.get("concerns", [])),
+                "reviewer_table_rows": sum(len(_as_list(sec.get("parameters"))) for sec in sections.values() if isinstance(sec, dict)),
+                "decision_table_rows": len(sections),
+                "benchmark_present": "no",
+                "readiness_status": "",
+                "module_maturity_score": "",
+            }
+        )
+        for section_name, section in sections.items():
+            for param in _as_list(_as_dict(section).get("parameters")):
+                decisions.append(
+                    {
+                        "project": project,
+                        "source": str(path),
+                        "stage": f"recommendation.{section_name}",
+                        "decision": param.get("name", ""),
+                        "value": param.get("value", ""),
+                        "evidence": param.get("method", ""),
+                        "review_required": "no",
+                        "reason": param.get("rationale", ""),
+                    }
+                )
+    elif name == "iterative_preprocessing_summary.json":
+        sclucid = {"preprocess": {"iterative_preprocessing_summary": data}}
+        completeness.extend(_review_summary_rows(project, path, sclucid, None))
+        decisions.extend(_decision_rows(project, path, sclucid))
+    elif name.endswith("_review_summary.json"):
+        if name.startswith("qc"):
+            module = "qc"
+        elif name.startswith("analysis"):
+            module = "analysis"
+        else:
+            module = "preprocess"
+        sclucid = {module: {"review_summary": data}}
+        completeness.extend(_review_summary_rows(project, path, sclucid, None))
+        decisions.extend(_decision_rows(project, path, sclucid))
+    return completeness, decisions
+
+
+def build_tables(paths: Iterable[Path]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    completeness: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
+    for path in paths:
+        if path.suffix == ".h5ad":
+            uns, shape = _read_h5ad_uns(path)
+            sclucid = _as_dict(uns.get("sclucid"))
+            project = _project_name(path)
+            completeness.extend(_review_summary_rows(project, path, sclucid, shape))
+            decisions.extend(_decision_rows(project, path, sclucid))
+        elif path.suffix == ".json":
+            sidecar_completeness, sidecar_decisions = _sidecar_rows(path)
+            completeness.extend(sidecar_completeness)
+            decisions.extend(sidecar_decisions)
+    return completeness, decisions
+
+
+def _write_tsv(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        path.write_text("")
+        return
+    fields = list(dict.fromkeys(field for row in rows for field in row))
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_outputs(completeness: list[dict[str, Any]], decisions: list[dict[str, Any]], out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_tsv(out_dir / "review_summary_completeness.tsv", completeness)
+    _write_tsv(out_dir / "key_decision_evidence.tsv", decisions)
+
+    report = out_dir / "qc_preprocess_analysis_review_evidence_report.md"
+    modules = sorted({str(row.get("module")) for row in completeness})
+    projects = sorted({str(row.get("project")) for row in completeness + decisions})
+    report.write_text(
+        "# QC + preprocess + analysis review evidence report\n\n"
+        f"Projects: {', '.join(projects) if projects else 'none'}\n\n"
+        f"Modules: {', '.join(modules) if modules else 'none'}\n\n"
+        f"Completeness rows: {len(completeness)}\n\n"
+        f"Decision evidence rows: {len(decisions)}\n\n"
+        "Use `review_summary_completeness.tsv` to audit whether each module wrote reviewer evidence. "
+        "Use `key_decision_evidence.tsv` to compare QC filtering, doublet, integration, final representation, "
+        "pseudobulk-first DE, cell-type proportion, and recommendation decisions across projects.\n"
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("inputs", nargs="*", help="Executed .h5ad files or result directories.")
+    parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="Output directory.")
+    args = parser.parse_args()
+
+    paths = _collect_input_paths(args.inputs)
+    completeness, decisions = build_tables(paths)
+    write_outputs(completeness, decisions, Path(args.out_dir))
+    print(f"Read {len(paths)} input artifact(s).")
+    print(f"Wrote {len(completeness)} completeness rows and {len(decisions)} decision rows to {args.out_dir}.")
+
+
+if __name__ == "__main__":
+    main()
