@@ -37,8 +37,9 @@ from ..utils import (
 )
 from .annotation import build_annotation_consensus, run_annotation, run_annotation_evidence
 from .clustering import cluster_cells, run_clustering_review
-from .config import AnalysisWorkflowConfig, AnnotationConfig, PseudobulkDEConfig
+from .config import AnalysisWorkflowConfig, AnnotationConfig, ProportionConfig, PseudobulkDEConfig
 from .differential_expression import characterize_clusters, find_markers, run_pseudobulk_de
+from .proportion import analyze_celltype_proportion
 from .scoring import score_by_gene_sets
 from .trace import enrich_analysis_review_summary, validate_analysis_review_summary
 
@@ -54,7 +55,13 @@ ANALYSIS_WORKFLOW_STEPS = [
     "annotation_consensus",
     "malignancy_interpretation",
     "characterization",
+    "proportion",
+    "pseudobulk_first",
 ]
+
+_CUSTOM_STEP_ALIASES = {
+    "resolution": "clustering_review",
+}
 
 # Keep for backward compatibility
 AnalysisWorkflowError = WorkflowError
@@ -104,7 +111,12 @@ def _resolve_analysis_steps(
             resolved.append("malignancy_interpretation")
         if config is None or getattr(config, "characterize", True):
             resolved.append("characterization")
+        if config is not None and getattr(config, "run_proportion", False):
+            resolved.append("proportion")
+        if config is not None and getattr(config, "pseudobulk_first", False):
+            resolved.append("pseudobulk_first")
 
+    resolved = [_CUSTOM_STEP_ALIASES.get(step, step) for step in resolved]
     invalid = set(resolved) - set(ANALYSIS_WORKFLOW_STEPS)
     if invalid:
         raise ValueError(
@@ -963,6 +975,100 @@ def run_standard_analysis(
                     else:
                         raise
 
+            # Step 8: Cell type proportion analysis
+            elif step_name == "proportion":
+                log.info("Step: Cell type proportion analysis")
+                proportion_config = config.proportion
+                if isinstance(proportion_config, dict):
+                    proportion_config = ProportionConfig(**proportion_config)
+                elif proportion_config is None:
+                    proportion_config = ProportionConfig(
+                        celltype_col=kwargs.get("celltype_col", "cell_type"),
+                        sample_col=kwargs.get("sample_col", "sample_id"),
+                        condition_col=kwargs.get("condition_col", "condition"),
+                    )
+                config.proportion = proportion_config
+                result = analyze_celltype_proportion(
+                    adata,
+                    method=getattr(config, "proportion_method", None),
+                    config=proportion_config,
+                    sample_col=proportion_config.sample_col,
+                    condition_col=proportion_config.condition_col,
+                    celltype_col=proportion_config.celltype_col,
+                    out_dir=proportion_config.out_dir,
+                    return_type="anndata",
+                )
+                if isinstance(result, AnnData):
+                    adata = result
+                prop_ns = adata.uns.get("sclucid", {}).get("proportion", {})
+                stat_df = prop_ns.get("stat_df")
+                successful_steps.append(step_name)
+                step_results.append(
+                    StepResult(
+                        name=step_name,
+                        status="completed",
+                        evidence_level="validated_core"
+                        if proportion_config.require_biological_replicates
+                        else "exploratory",
+                        outputs={
+                            "method": prop_ns.get("method", getattr(config, "proportion_method", "auto")),
+                            "celltype_col": proportion_config.celltype_col,
+                            "sample_col": proportion_config.sample_col,
+                            "condition_col": proportion_config.condition_col,
+                            "n_result_rows": int(stat_df.shape[0])
+                            if hasattr(stat_df, "shape")
+                            else None,
+                        },
+                    )
+                )
+
+            # Step 9: Sample-level pseudobulk DE per cell type
+            elif step_name == "pseudobulk_first":
+                log.info("Step: Pseudobulk-first differential expression")
+                pb_condition_col = kwargs.get("condition_col")
+                pb_sample_col = kwargs.get("sample_col")
+                if not pb_condition_col or not pb_sample_col:
+                    raise ValueError(
+                        "Step 'pseudobulk_first' requires condition_col and sample_col arguments."
+                    )
+                adata, pb_meta = _run_pseudobulk_first_de(
+                    adata,
+                    condition_col=pb_condition_col,
+                    sample_col=pb_sample_col,
+                    cell_types=kwargs.get("cell_types"),
+                    config=config,
+                    contrasts=kwargs.get("contrasts"),
+                    layer=kwargs.get("layer"),
+                    method=kwargs.get("method", "auto"),
+                    min_cells_per_sample=kwargs.get("min_cells_per_sample", 5),
+                    min_samples_per_condition=kwargs.get("min_samples_per_condition", 1),
+                    key_added=kwargs.get("key_added", "pseudobulk_first"),
+                )
+                successful_steps.append("pseudobulk_first")
+                step_results.append(
+                    StepResult(
+                        name="pseudobulk_first",
+                        status="completed",
+                        evidence_level="validated_core",
+                        outputs={
+                            "n_cell_types_tested": len(
+                                adata.uns.get("sclucid", {})
+                                .get("analysis", {})
+                                .get("pseudobulk_first", {})
+                                .get("per_cell_type_results", {})
+                            ),
+                            "valid_for_publication_inference": pb_meta[
+                                "valid_for_publication_inference"
+                            ],
+                        },
+                        warnings=[pb_meta["warning_message"]]
+                        if pb_meta["under_replicated"]
+                        else [],
+                    )
+                )
+                if pb_meta["under_replicated"]:
+                    warnings.warn(pb_meta["warning_message"], UserWarning, stacklevel=2)
+
     except Exception as e:
         error_msg = f"Workflow failed at step '{current_step}': {str(e)}"
         log.error(error_msg)
@@ -1003,52 +1109,6 @@ def run_standard_analysis(
             step_name=current_step or "unknown",
             original_error=e,
         )
-
-    # Optional pseudobulk-first routing: replace cell-level condition DE with
-    # sample-level pseudobulk DE per cell type.
-    if getattr(config, "pseudobulk_first", False):
-        log.info("Routing to pseudobulk-first DE")
-        pb_condition_col = kwargs.get("condition_col")
-        pb_sample_col = kwargs.get("sample_col")
-        if not pb_condition_col or not pb_sample_col:
-            raise ValueError(
-                "pseudobulk_first=True requires condition_col and sample_col arguments."
-            )
-        adata, pb_meta = _run_pseudobulk_first_de(
-            adata,
-            condition_col=pb_condition_col,
-            sample_col=pb_sample_col,
-            cell_types=kwargs.get("cell_types"),
-            config=config,
-            contrasts=kwargs.get("contrasts"),
-            layer=kwargs.get("layer"),
-            method=kwargs.get("method", "auto"),
-            min_cells_per_sample=kwargs.get("min_cells_per_sample", 5),
-            min_samples_per_condition=kwargs.get("min_samples_per_condition", 1),
-            key_added=kwargs.get("key_added", "pseudobulk_first"),
-        )
-        successful_steps.append("pseudobulk_first")
-        step_results.append(
-            StepResult(
-                name="pseudobulk_first",
-                status="completed",
-                evidence_level="validated_core",
-                outputs={
-                    "n_cell_types_tested": len(
-                        adata.uns.get("sclucid", {})
-                        .get("analysis", {})
-                        .get("pseudobulk_first", {})
-                        .get("per_cell_type_results", {})
-                    ),
-                    "valid_for_publication_inference": pb_meta[
-                        "valid_for_publication_inference"
-                    ],
-                },
-                warnings=[pb_meta["warning_message"]] if pb_meta["under_replicated"] else [],
-            )
-        )
-        if pb_meta["under_replicated"]:
-            warnings.warn(pb_meta["warning_message"], UserWarning, stacklevel=2)
 
     # Store final config
     config_dict = sanitize_for_hdf5(config.to_dict())
@@ -1208,6 +1268,7 @@ def _build_analysis_review_summary(
             "n_cell_types_tested": len(pb_ns.get("per_cell_type_results", {})),
             "n_contrasts": len(pb_ns.get("contrasts", [])),
             "inference_level": pb_ns.get("inference_level"),
+            "decision": "sample_level_de_primary_output",
             "valid_for_publication_inference": pb_ns.get("valid_for_publication_inference", False),
         }
         summary["artifacts"][
@@ -1215,6 +1276,25 @@ def _build_analysis_review_summary(
         ] = 'adata.uns["sclucid"]["analysis"]["pseudobulk_first"]'
         if not pb_ns.get("valid_for_publication_inference", False):
             summary["warnings"].append("pseudobulk_first_results_not_valid_for_publication_inference")
+
+    # Cell type proportion summary
+    if "proportion" in successful_steps:
+        prop_ns = adata.uns.get("sclucid", {}).get("proportion", {})
+        prop_config = config.proportion
+        if isinstance(prop_config, dict):
+            prop_config = ProportionConfig(**prop_config)
+        stat_df = prop_ns.get("stat_df")
+        summary["proportion"] = {
+            "method": prop_ns.get("method", getattr(config, "proportion_method", None) or "auto"),
+            "decision": "sample_level_celltype_composition_review",
+            "celltype_col": getattr(prop_config, "celltype_col", None),
+            "sample_col": getattr(prop_config, "sample_col", None),
+            "condition_col": getattr(prop_config, "condition_col", None),
+            "n_result_rows": int(stat_df.shape[0]) if hasattr(stat_df, "shape") else None,
+        }
+        summary["artifacts"][
+            "proportion"
+        ] = 'adata.uns["sclucid"]["proportion"]'
 
     # Characterization summary
     if "characterization" in successful_steps:
@@ -1278,6 +1358,14 @@ def run_custom_analysis(
     if step_configs is None:
         step_configs = {}
 
+    steps = [_CUSTOM_STEP_ALIASES.get(step, step) for step in steps]
+    invalid = set(steps) - set(ANALYSIS_WORKFLOW_STEPS) - {"scoring"}
+    if invalid:
+        raise ValueError(
+            f"Invalid step names: {sorted(invalid)}. Valid steps are: "
+            f"{ANALYSIS_WORKFLOW_STEPS + ['scoring']}"
+        )
+
     log.info(f"Running custom analysis with {len(steps)} steps...")
 
     # Initialize progress bar
@@ -1288,7 +1376,7 @@ def run_custom_analysis(
     for i, step in enumerate(step_iterator, 1):
         log.info(f"Step {i}/{len(steps)}: {step}")
 
-        if step in {"resolution", "clustering_review"}:
+        if step == "clustering_review":
             config = step_configs.get(step, {})
             run_clustering_review(adata, **config)
             summary = (
@@ -1325,6 +1413,25 @@ def run_custom_analysis(
             adata = run_annotation(adata, **config)
             log.info("  Annotation complete")
 
+        elif step == "annotation_evidence":
+            config = step_configs.get(step, {})
+            groupby = config.pop("groupby", _default_groupby_key(adata))
+            run_annotation_evidence(adata, groupby, **config)
+            log.info("  Annotation evidence complete")
+
+        elif step == "annotation_consensus":
+            config = step_configs.get(step, {})
+            groupby = config.pop("groupby", _default_groupby_key(adata))
+            review_table = config.pop(
+                "annotation_review_table",
+                adata.uns.get("sclucid", {})
+                .get("analysis", {})
+                .get("annotation", {})
+                .get("annotation_review_table"),
+            )
+            build_annotation_consensus(adata, groupby, review_table, **config)
+            log.info("  Annotation consensus complete")
+
         elif step == "scoring":
             config = step_configs.get(step, {})
             if "gene_sets" not in config:
@@ -1340,8 +1447,30 @@ def run_custom_analysis(
             adata = characterize_clusters(adata, save_path=save_dir, **config)
             log.info("  Characterization complete")
 
-        else:
-            log.warning(f"  Unknown step: {step}")
+        elif step == "proportion":
+            config = step_configs.get(step, {})
+            adata_result = analyze_celltype_proportion(adata, return_type="anndata", **config)
+            if isinstance(adata_result, AnnData):
+                adata = adata_result
+            log.info("  Proportion analysis complete")
+
+        elif step == "pseudobulk_first":
+            config = step_configs.get(step, {})
+            required = {"condition_col", "sample_col"}
+            missing = sorted(required - set(config))
+            if missing:
+                raise ValueError(
+                    "Custom step 'pseudobulk_first' requires config values: "
+                    f"{missing}"
+                )
+            adata, _ = _run_pseudobulk_first_de(adata, **config)
+            log.info("  Pseudobulk-first DE complete")
+
+        elif step == "malignancy_interpretation":
+            raise ValueError(
+                "Custom step 'malignancy_interpretation' is deprecated in analysis. "
+                "Use scLucid.tumor.run_malignancy_interpretation or post_analysis_hooks."
+            )
 
     log.info("Custom analysis complete!")
     return adata

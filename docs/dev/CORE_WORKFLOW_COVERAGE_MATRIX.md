@@ -98,8 +98,6 @@ or reorganizing modules.
 - `ScalingConfig`
 - `NeighborsConfig`
 - `GraphConfig`
-- `IntelligentPreprocessConfig`
-- `PreprocessingStrategy`
 
 ### Review / Trace Functions
 - `enrich_preprocessing_review_summary`
@@ -112,8 +110,8 @@ or reorganizing modules.
 - `validate_preprocess_module_completeness`
 
 ### Gaps / TODO
-- [ ] `run_intelligent_preprocessing` is public but not wired into `run_preprocessing`.
-- [ ] Backend abstraction (`PreprocessingBackend`, `ScanpyBackend`, `RapidsBackend`) is public but under-documented.
+- [x] Preprocess-specific intelligent recommendation is no longer a `scl.pp` API. *Moved under `scLucid.recommendation.preprocess` and consumed by the unified recommendation engine.*
+- [x] Backend abstraction (`PreprocessingBackend`, `ScanpyBackend`, `RapidsBackend`) is no longer a top-level `scl.pp` API. *It remains available from `scLucid.preprocess.backend` as an advanced/experimental extension point.*
 - [x] Gene biotype helpers are stable but optional in many workflows. *Stable helpers (`annotate_gene_biotypes`, `filter_genes_by_biotype`) exist; not yet default in `run_preprocessing`.*
 - [x] Integration risk diagnostics are public but not wired into `run_preprocessing`. *Addressed by `IntegrationConfig.auto_decide` and `.evaluate`, which `batch_correction` honors.*
 

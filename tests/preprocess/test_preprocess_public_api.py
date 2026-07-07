@@ -36,18 +36,35 @@ def test_preprocess_exports_gene_biotype_utilities():
 
 
 @pytest.mark.unit
-def test_preprocess_compatibility_aliases_remain_importable_but_hidden_from_all():
-    hidden = [
+def test_preprocess_legacy_aliases_are_not_top_level_api():
+    removed = [
         "apply_gene_biotype_strategy",
         "get_gene_biotype_cache_dir",
         "list_gene_biotype_resources",
         "run_embedding_workflow",
         "adaptive_normalize",
         "quality_aware_normalize",
+        "IntelligentPreprocessConfig",
+        "IntelligentPreprocessRecommender",
+        "PreprocessingStrategy",
+        "run_intelligent_preprocessing",
+        "recommend_intelligent_preprocessing",
+        "PreprocessingBackend",
+        "ScanpyBackend",
+        "RapidsBackend",
+        "get_backend",
+        "set_backend",
+        "list_available_backends",
     ]
-    for symbol in hidden:
-        assert hasattr(pp, symbol), f"compatibility symbol missing: {symbol}"
+    for symbol in removed:
+        assert not hasattr(pp, symbol), f"legacy symbol should not be top-level API: {symbol}"
         assert symbol not in pp.__all__
+
+
+@pytest.mark.unit
+def test_iterative_preprocessing_is_public_default_advanced_entrypoint():
+    assert hasattr(pp, "run_iterative_preprocessing")
+    assert "run_iterative_preprocessing" in pp.__all__
 
 
 @pytest.mark.unit

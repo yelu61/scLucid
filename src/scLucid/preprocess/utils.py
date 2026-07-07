@@ -1,11 +1,13 @@
 """Shared preprocessing utilities."""
 
 import logging
-from typing import Tuple, Union
+from typing import Any, Dict, Literal, Tuple, Union
 
 from anndata import AnnData
 import numpy as np
 import scipy.sparse
+
+from scLucid.utils import assess_matrix_semantics
 
 log = logging.getLogger(__name__)
 
@@ -14,6 +16,7 @@ __all__ = [
     "resolve_input_matrix",
     "apply_row_scale",
     "apply_log1p",
+    "record_matrix_semantics_check",
 ]
 
 
@@ -102,3 +105,42 @@ def apply_log1p(
         transformed.eliminate_zeros()
         return transformed
     return np.log1p(np.asarray(matrix, dtype=float))
+
+
+def record_matrix_semantics_check(
+    adata: AnnData,
+    *,
+    step: str,
+    matrix: Union[np.ndarray, scipy.sparse.spmatrix],
+    matrix_key: str,
+    expected: Literal["raw_counts", "normalized", "log_normalized", "scaled", "any"],
+    require_non_negative: bool = True,
+    require_integer: bool = True,
+) -> Dict[str, Any]:
+    """Record lightweight matrix semantics evidence for preprocessing review."""
+    result = assess_matrix_semantics(
+        matrix,
+        semantics=expected,
+        require_non_negative=require_non_negative,
+        require_integer=require_integer,
+    )
+    record = {
+        "step": step,
+        "matrix_key": matrix_key,
+        "expected_semantics": expected,
+        **result,
+    }
+    checks = (
+        adata.uns.setdefault("sclucid", {})
+        .setdefault("preprocess", {})
+        .setdefault("matrix_semantics_checks", [])
+    )
+    checks.append(record)
+    if not bool(result.get("is_valid", True)):
+        log.warning(
+            "Matrix semantics check flagged %s for step '%s': %s",
+            matrix_key,
+            step,
+            result.get("reasons", result.get("reason", "")),
+        )
+    return record

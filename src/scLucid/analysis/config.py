@@ -472,6 +472,18 @@ class AnalysisWorkflowConfig(WorkflowConfigBase):
     find_markers: bool = Field(default=True)
     characterize: bool = Field(default=True)
     marker_method: Literal["wilcoxon", "t-test", "logreg"] = Field(default="wilcoxon")
+    run_proportion: bool = Field(
+        default=False,
+        description=(
+            "Run cell type proportion analysis as part of the standard workflow. "
+            "Requires a ProportionConfig or sample/condition/cell-type columns "
+            "matching the default names."
+        ),
+    )
+    proportion_method: Optional[str] = Field(
+        default=None,
+        description="Optional method override for analyze_celltype_proportion().",
+    )
 
     # Pseudobulk-first workflow routing. When True, run_standard_analysis will
     # run clustering and annotation, then immediately aggregate to sample-level

@@ -26,6 +26,7 @@ from scLucid.plotting.plotting_utils import _show_or_close
 from ...runtime import run_joblib_or_sequential
 from ...utils import use_layer_as_X
 from ..config import HVGConfig
+from ..utils import record_matrix_semantics_check
 from .plotting import plot_hvg_metrics
 
 log = logging.getLogger(__name__)
@@ -1317,6 +1318,15 @@ def find_hvgs(
 
     log.info(f"[HVG] Diagnosing input data from layer '{input_layer}' ...")
     X = _get_hvg_input_matrix(adata, input_layer)
+    expected_semantics = "raw_counts" if input_layer in {"counts", "raw_counts"} else "log_normalized"
+    record_matrix_semantics_check(
+        adata,
+        step="hvg_selection",
+        matrix=X,
+        matrix_key="adata.X" if input_layer == "X" else f"adata.layers['{input_layer}']",
+        expected=expected_semantics,
+        require_integer=expected_semantics == "raw_counts",
+    )
     _validate_hvg_input_matrix(X, input_layer, method)
     stats = _diagnose_input_for_hvg(X)
     flavor, flavor_notes = _resolve_hvg_flavor(requested_flavor, input_layer, X)

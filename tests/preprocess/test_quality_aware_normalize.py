@@ -23,7 +23,7 @@ def _make_adata_with_qc(n_cells=100, n_genes=50):
 class TestQualityAwareNormalize:
     def test_quality_aware_normalize_basic(self):
         """Smoke test: creates a normalized layer."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=100)
         result = quality_aware_normalize(
@@ -39,7 +39,7 @@ class TestQualityAwareNormalize:
 
     def test_quality_aware_normalize_output_is_non_negative(self):
         """Normalized output should be non-negative (log1p)."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=100)
         result = quality_aware_normalize(
@@ -54,7 +54,7 @@ class TestQualityAwareNormalize:
 
     def test_quality_aware_normalize_no_log(self):
         """log_transform=False skips log1p."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=100)
         result = quality_aware_normalize(
@@ -68,7 +68,7 @@ class TestQualityAwareNormalize:
 
     def test_quality_aware_normalize_sparse_input_stays_sparse(self):
         """Sparse input should not be densified during quality-aware normalization."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=80, n_genes=40)
         counts = scipy.sparse.csr_matrix(adata.layers["counts"])
@@ -94,7 +94,7 @@ class TestQualityAwareNormalize:
 
     def test_quality_aware_normalize_missing_metric(self):
         """Missing quality metric raises ValueError."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=100)
         with pytest.raises(ValueError, match="Missing quality metrics"):
@@ -106,7 +106,7 @@ class TestQualityAwareNormalize:
 
     def test_quality_aware_normalize_different_bins(self):
         """Different n_bins values should all work."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=100)
         for n_bins in [2, 5, 10]:
@@ -122,7 +122,7 @@ class TestQualityAwareNormalize:
 
     def test_stores_side_effect_columns(self):
         """Verify quality_score, quality_bin, and quality_weight are created."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=100)
         result = quality_aware_normalize(
@@ -140,7 +140,7 @@ class TestQualityAwareNormalize:
 
     def test_quality_score_direction_heuristic(self):
         """pct_ / mt_ metrics treated as lower-is-better; n_genes as higher-is-better."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=100)
         # Create cells with clearly distinct QC profiles
@@ -171,7 +171,7 @@ class TestQualityAwareNormalize:
 
     def test_zero_count_cell_is_handled(self):
         """A cell with total count = 0 should not produce inf/nan."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=20)
         adata.layers["counts"][0, :] = 0
@@ -190,7 +190,7 @@ class TestQualityAwareNormalize:
 
     def test_all_identical_quality_metric(self):
         """A metric where all values are identical should not crash pd.qcut."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=50)
         adata.obs["uniform_metric"] = 5.0  # all identical
@@ -209,7 +209,7 @@ class TestQualityAwareNormalize:
 
     def test_nan_in_quality_metric_not_poisoning_all_cells(self):
         """A single NaN metric value should not produce NaN quality scores for all cells."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=30)
         adata.obs.loc[adata.obs_names[5], "pct_counts_mt"] = np.nan
@@ -227,7 +227,7 @@ class TestQualityAwareNormalize:
 
     def test_sparse_matrix_input(self):
         """Sparse counts layer should work correctly."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=50)
         sparse_X = scipy.sparse.csr_matrix(adata.layers["counts"])
@@ -249,7 +249,7 @@ class TestQualityAwareNormalize:
 
     def test_input_layer_fallback_to_X(self):
         """When input_layer not in layers, falls back to adata.X."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=30)
         # No "counts" layer — should use adata.X
@@ -263,7 +263,7 @@ class TestQualityAwareNormalize:
 
     def test_fewer_cells_than_bins(self):
         """When cells < bins, pd.qcut with duplicates='drop' handles it."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=5)
         result = quality_aware_normalize(
@@ -278,7 +278,7 @@ class TestQualityAwareNormalize:
 
     def test_target_sum_auto_uses_per_bin_median(self):
         """When target_sum is None, each bin normalizes to its own median."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=60)
         result = quality_aware_normalize(
@@ -293,7 +293,7 @@ class TestQualityAwareNormalize:
 
     def test_single_cell_does_not_crash(self):
         """A single-cell dataset should not crash."""
-        from scLucid.preprocess import quality_aware_normalize
+        from scLucid.preprocess.adaptive_normalize import quality_aware_normalize
 
         adata = _make_adata_with_qc(n_cells=1)
         result = quality_aware_normalize(

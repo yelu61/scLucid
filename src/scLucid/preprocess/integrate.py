@@ -22,6 +22,7 @@ from anndata import AnnData
 from scLucid.plotting.plotting_utils import _show_or_close
 
 from .config import IntegrationConfig, apply_config_overrides
+from .utils import record_matrix_semantics_check
 
 # Logging config
 log = logging.getLogger(__name__)
@@ -1252,6 +1253,26 @@ def batch_correction(
     if output_key in adata.obsm and not force:
         log.info(f"Integration result '{output_key}' already exists. Use force=True to rerun.")
         return adata
+
+    if use_rep == "X":
+        integration_input = adata.X
+        integration_input_key = "adata.X"
+    elif use_rep in adata.obsm:
+        integration_input = adata.obsm[use_rep]
+        integration_input_key = f"adata.obsm['{use_rep}']"
+    else:
+        raise ValueError(
+            f"use_rep '{use_rep}' not found. Available obsm keys: {list(adata.obsm.keys())}"
+        )
+    record_matrix_semantics_check(
+        adata,
+        step="integration",
+        matrix=integration_input,
+        matrix_key=integration_input_key,
+        expected="any",
+        require_non_negative=False,
+        require_integer=False,
+    )
 
     integration_meta = (
         adata.uns.setdefault("sclucid", {})

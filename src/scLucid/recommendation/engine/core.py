@@ -14,7 +14,7 @@ from anndata import AnnData
 
 from ...analysis.clustering import run_clustering_review
 from ...analysis.config import ResolutionSearchConfig
-from ...preprocess.intelligent import (
+from ..preprocess import (
     IntelligentPreprocessConfig,
     IntelligentPreprocessRecommender,
     PreprocessingStrategy,

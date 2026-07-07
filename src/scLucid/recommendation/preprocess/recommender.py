@@ -18,7 +18,7 @@ import scanpy as sc
 from anndata import AnnData
 from sklearn.metrics import silhouette_score
 
-from ..config import NeighborsConfig
+from ...preprocess.config import NeighborsConfig
 from .config import IntelligentPreprocessConfig
 from .data_classes import (
     BatchCorrectionRecommendation,
@@ -413,7 +413,7 @@ class IntelligentPreprocessRecommender:
 
         This integrates with the existing optimize_neighbors_pcs function.
         """
-        from ..neighbors import optimize_neighbors_pcs
+        from ...preprocess.neighbors import optimize_neighbors_pcs
 
         cfg = self.config
 
@@ -1127,7 +1127,7 @@ def run_intelligent_preprocessing(
         When ``apply_recommendations=False``, the AnnData is an unprocessed copy
         of the input with reviewer-facing summary metadata attached.
     """
-    from ..workflow import run_preprocessing
+    from ...preprocess.workflow import run_preprocessing
 
     # Generate recommendations
     strategy = recommend_intelligent_preprocessing(

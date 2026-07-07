@@ -320,7 +320,7 @@ class PreprocessingStrategy:
         Returns:
             PreprocessingWorkflowConfig with recommended parameters
         """
-        from ..config import PreprocessingWorkflowConfig
+        from ...preprocess.config import PreprocessingWorkflowConfig
 
         if base_config is None:
             config = PreprocessingWorkflowConfig()

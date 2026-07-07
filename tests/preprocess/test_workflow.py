@@ -13,7 +13,7 @@ from anndata import AnnData
 
 sys.path.insert(0, "/Users/luye/Scripts/scLucid/src")
 
-from scLucid.preprocess import run_preprocessing
+from scLucid.preprocess import run_iterative_preprocessing, run_preprocessing
 from scLucid.preprocess.config import GeneBiotypeConfig, NormalizationConfig, WorkflowConfig
 from scLucid.preprocess.gene_biotype import (
     annotate_gene_biotypes,
@@ -100,6 +100,28 @@ class TestPreprocessingWorkflow:
         assert "sclucid" in result.uns
         assert "preprocess" in result.uns["sclucid"]
         assert "workflow_config" in result.uns["sclucid"]["preprocess"]
+
+    def test_iterative_preprocessing_records_review_summary(self, minimal_adata):
+        """Test reviewer-first preprocessing entrypoint records iterative metadata."""
+        config = _workflow_config_for_tests()
+
+        result = run_iterative_preprocessing(
+            minimal_adata,
+            config=config,
+            integration_policy="off",
+            run_hvg_stability=False,
+            run_diagnostic_embedding=False,
+            optimize_final_graph=False,
+            show_progress=False,
+        )
+
+        pp_meta = result.uns["sclucid"]["preprocess"]
+        summary = pp_meta["iterative_preprocessing_summary"]
+        assert summary["workflow"] == "run_iterative_preprocessing"
+        assert summary["integration_decision"]["policy"] == "off"
+        assert summary["final_representation"] == "X_pca"
+        assert "X_pca" in result.obsm
+        assert "X_umap_pca" in result.obsm
 
     def test_normalization_step(self, minimal_adata):
         """Test that normalization produces correct results."""
@@ -451,7 +473,7 @@ class TestPreprocessingWorkflow:
 
     def test_auto_select_n_pcs_is_bounded_for_small_inputs(self):
         """Auto PC selection should never exceed available components."""
-        from scLucid.preprocess.workflow import _select_n_pcs
+        from scLucid.preprocess.workflow.core import _select_n_pcs
 
         assert _select_n_pcs(np.array([1.0]), method="elbow") == 1
         assert _select_n_pcs(np.array([0.6, 0.4]), method="cumulative") == 2

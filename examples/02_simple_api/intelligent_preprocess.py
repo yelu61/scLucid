@@ -52,7 +52,7 @@ def print_strategy(strategy) -> None:
 
 def recommendation_only() -> None:
     adata = prepare_pbmc_demo()
-    _, strategy = scl.pp.run_intelligent_preprocessing(
+    _, strategy = scl.recommendation.run_intelligent_preprocessing(
         adata,
         batch_key="sampleID",
         apply_recommendations=False,
@@ -65,7 +65,7 @@ def recommendation_only() -> None:
 
 
 def custom_recommender_config() -> None:
-    config = scl.pp.IntelligentPreprocessConfig(
+    config = scl.recommendation.IntelligentPreprocessConfig(
         variance_explained_threshold=0.90,
         min_hvg_genes=1000,
         max_hvg_genes=5000,
@@ -74,7 +74,7 @@ def custom_recommender_config() -> None:
         resolution_search_space=[0.4, 0.8, 1.2],
         n_bootstrap=10,
     )
-    recommender = scl.pp.IntelligentPreprocessRecommender(config=config)
+    recommender = scl.recommendation.IntelligentPreprocessRecommender(config=config)
     print("\nCustom recommender initialized")
     print(f"HVG range: {config.min_hvg_genes}-{config.max_hvg_genes}")
     print(f"Resolution search: {config.resolution_search_space}")
@@ -83,7 +83,7 @@ def custom_recommender_config() -> None:
 
 def optional_apply_recommendations() -> None:
     adata = prepare_pbmc_demo()
-    processed, strategy = scl.pp.run_intelligent_preprocessing(
+    processed, strategy = scl.recommendation.run_intelligent_preprocessing(
         adata,
         batch_key="sampleID",
         apply_recommendations=True,

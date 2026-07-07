@@ -182,6 +182,7 @@ FONT_TRADITIONAL = "traditional"
 # --- High-Level Workflows ---
 run_standard_qc = None
 run_preprocessing = None
+run_iterative_preprocessing = None
 run_annotation = None
 characterize_clusters = None
 recommend_analysis_parameters = None
@@ -194,6 +195,7 @@ if _qc_workflow is not None:
 _preprocess_workflow = _import_optional("preprocess.workflow")
 if _preprocess_workflow is not None:
     run_preprocessing = getattr(_preprocess_workflow, "run_preprocessing", None)
+    run_iterative_preprocessing = getattr(_preprocess_workflow, "run_iterative_preprocessing", None)
 
 _analysis_workflow = _import_optional("analysis.workflow")
 if _analysis_workflow is not None:
@@ -476,6 +478,7 @@ __all__ = [
     "FONT_TRADITIONAL",
     "run_standard_qc",
     "run_preprocessing",
+    "run_iterative_preprocessing",
     "run_standard_analysis",
     "run_custom_analysis",
     "run_pipeline",

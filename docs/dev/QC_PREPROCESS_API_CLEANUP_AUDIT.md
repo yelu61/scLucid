@@ -26,17 +26,20 @@ code.
 | QC threshold decision | `scLucid.qc.run_qc_threshold_decision` | Canonical recommendation-to-marking chain. |
 | QC reporting | `scLucid.qc.generate_qc_report` from `qc.reporting` | Reporting is no longer exported from filtering modules. |
 | Preprocess workflow | `scLucid.preprocess.run_preprocessing` | Main maintained preprocessing workflow. |
+| Preprocess iterative workflow | `scLucid.preprocess.run_iterative_preprocessing` | Reviewer-first real-project workflow for HVG audit, diagnostic embedding, integration decision, and final graph construction. |
 | Preprocess embedding | `scLucid.preprocess.run_embedding_pipeline` | Replaces `run_embedding_workflow`. |
-| Preprocess normalization | `scLucid.preprocess.normalize_data` | High-level workflow entry; low-level adaptive helpers remain hidden. |
+| Preprocess normalization | `scLucid.preprocess.normalize_data` | High-level workflow entry; low-level adaptive helpers live in `scLucid.preprocess.adaptive_normalize`. |
+| Preprocess recommendation | `scLucid.recommendation.preprocess` / `scLucid.recommendation.run_intelligent_preprocessing` | Preprocess-specific parameter recommendation now belongs to the recommendation layer, not `scl.pp`. |
 
-## Compatibility Aliases To Keep Hidden
+## Legacy Aliases Removed From Top-Level API
 
 | Symbol | Current status | Recommended action |
 |---|---|---|
-| `scLucid.preprocess.run_embedding_workflow` | Importable compatibility alias, omitted from `preprocess.__all__` | Keep for one deprecation cycle; docs should use `run_embedding_pipeline`. |
-| `scLucid.preprocess.adaptive_normalize` | Importable hidden low-level helper | Keep as low-level algorithm API; do not present as canonical workflow. |
-| `scLucid.preprocess.quality_aware_normalize` | Importable hidden low-level helper | Keep as low-level algorithm API; docs should clarify it is not the canonical workflow. |
-| `apply_gene_biotype_strategy`, `get_gene_biotype_cache_dir`, `list_gene_biotype_resources` | Importable hidden utilities | Keep hidden unless a documented workflow needs them. |
+| `scLucid.preprocess.run_embedding_workflow` | Removed | Use `scLucid.preprocess.run_embedding_pipeline`. |
+| `scLucid.preprocess.adaptive_normalize` | Removed from `scl.pp`; still available from `scLucid.preprocess.adaptive_normalize` | Use `normalize_data()` or `run_iterative_preprocessing()` for workflows; import low-level helpers explicitly when needed. |
+| `scLucid.preprocess.quality_aware_normalize` | Removed from `scl.pp`; still available from `scLucid.preprocess.adaptive_normalize` | Import explicitly from the low-level module in advanced notebooks. |
+| `apply_gene_biotype_strategy`, `get_gene_biotype_cache_dir`, `list_gene_biotype_resources` | Removed from `scl.pp`; still available from `scLucid.preprocess.gene_biotype` | Keep as explicit low-level utilities. |
+| `scLucid.preprocess.intelligent` and `scl.pp.run_intelligent_preprocessing` | Moved to `scLucid.recommendation.preprocess` and `scl.recommendation.run_intelligent_preprocessing` | Keep preprocess execution APIs separate from recommendation/advisor APIs. |
 
 ## Boundary Fixes Already Applied
 
@@ -49,6 +52,8 @@ code.
 | Preprocess layer contract was nested and hard to scan | Added `layer_transition_table` with row-wise layer/slot/`.X`/`.raw` semantics. |
 | HDF5 sanitizer converted review table rows into dicts | Added `layer_transition_table` to review sequence restoration keys. |
 | `run_advanced_qc` duplicated `run_standard_qc` without independent semantics | Removed the wrapper and the top-level alias; use `run_qc`, `run_iterative_qc`, or `run_standard_qc` according to workflow depth. |
+| Preprocess compatibility aliases blurred public API boundaries | Removed `run_embedding_workflow` and top-level adaptive/gene-biotype aliases; tests now assert they are absent from `scl.pp`. |
+| Preprocess intelligent recommendation lived under the execution namespace | Moved the package to `recommendation.preprocess`; `scl.pp` no longer exports recommender classes or `run_intelligent_preprocessing`. |
 
 ## Cleanup Rules Going Forward
 
@@ -68,5 +73,4 @@ code.
 
 | Candidate | Why not delete now | Next step |
 |---|---|---|
-| `run_embedding_workflow` | Older preprocess notebooks may use it. | Keep warning; migrate docs/examples to `run_embedding_pipeline`. |
-| Hidden adaptive normalization helpers | Useful as algorithm-level APIs. | Document as low-level opt-in helpers, not workflow entrypoints. |
+| Low-level adaptive normalization helpers | Useful as algorithm-level APIs. | Keep in `scLucid.preprocess.adaptive_normalize`; do not re-export from `scl.pp`. |

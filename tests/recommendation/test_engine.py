@@ -24,6 +24,18 @@ from scLucid.recommendation.engine import (
 from scLucid.recommendation.schema import ParameterRecommendation, RecommendationSection
 
 
+def test_recommendation_exports_preprocess_recommender_api():
+    import scLucid as scl
+    import scLucid.recommendation as rec
+
+    assert hasattr(rec, "IntelligentPreprocessConfig")
+    assert hasattr(rec, "IntelligentPreprocessRecommender")
+    assert hasattr(rec, "run_intelligent_preprocessing")
+    assert hasattr(rec, "PreprocessingStrategy")
+    assert not hasattr(scl.pp, "run_intelligent_preprocessing")
+    assert not hasattr(scl.pp, "IntelligentPreprocessConfig")
+
+
 def _make_qc_recommendation() -> QCRecommendation:
     return QCRecommendation(
         min_genes=ThresholdRecommendation(
@@ -56,7 +68,7 @@ def _make_qc_recommendation() -> QCRecommendation:
 
 def _make_preprocess_mock_strategy():
     """Create a mock PreprocessingStrategy with required attributes."""
-    from scLucid.preprocess.intelligent.data_classes import (
+    from scLucid.recommendation.preprocess.data_classes import (
         BatchCorrectionRecommendation,
         DataProfile,
         HVGRecommendation,
@@ -104,7 +116,7 @@ def _make_preprocess_mock_strategy():
 
 
 def test_data_profile_deprecated_medium_flag_is_derived():
-    from scLucid.preprocess.intelligent.data_classes import DataProfile
+    from scLucid.recommendation.preprocess.data_classes import DataProfile
 
     profile = DataProfile(
         n_cells=500,
@@ -179,7 +191,7 @@ class TestAdaptPreprocess:
         assert "batch_correction_method" not in param_names
 
     def test_adapt_preprocess_with_batch(self):
-        from scLucid.preprocess.intelligent.data_classes import (
+        from scLucid.recommendation.preprocess.data_classes import (
             BatchCorrectionRecommendation,
             DataProfile,
             HVGRecommendation,

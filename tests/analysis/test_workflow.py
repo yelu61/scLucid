@@ -10,6 +10,7 @@ from scLucid.analysis.config import (
     AnalysisWorkflowConfig,
     AnnotationConfig,
     ClusteringConfig,
+    ProportionConfig,
 )
 from scLucid.analysis.workflow import (
     WorkflowError,
@@ -163,12 +164,11 @@ class TestRunCustomAnalysis:
         # Resolution search stores results in uns
         assert "sclucid" in result.uns
 
-    def test_unknown_step_warns(self):
-        """Unknown steps are warned and skipped."""
+    def test_unknown_step_raises(self):
+        """Unknown custom steps should fail clearly instead of being silently skipped."""
         adata = _make_preprocessed_adata()
-        result = run_custom_analysis(adata, steps=["unknown_step"])
-        # Should not raise, just warn
-        assert isinstance(result, type(adata))
+        with pytest.raises(ValueError, match="Invalid step names"):
+            run_custom_analysis(adata, steps=["unknown_step"])
 
     def test_scoring_step_requires_gene_sets(self):
         """Scoring step warns and skips if no gene_sets provided."""
@@ -454,3 +454,35 @@ class TestPseudobulkFirstAnalysis:
         assert "pseudobulk_first" in result.uns["sclucid"]["analysis"]
         steps = result.uns["sclucid"]["analysis"]["steps_executed"]
         assert "pseudobulk_first" in steps
+
+    def test_run_standard_analysis_records_proportion_evidence(self):
+        """Proportion analysis should become a reviewable workflow step."""
+        adata = _make_pb_adata(
+            conditions=["A", "B"], samples=["S1", "S2", "S3", "S4"]
+        )
+        adata.obs["condition"] = adata.obs["sample"].map(
+            {"S1": "A", "S2": "A", "S3": "B", "S4": "B"}
+        )
+        config = AnalysisWorkflowConfig(
+            annotation=None,
+            characterize=False,
+            run_clustering_review=False,
+            run_proportion=True,
+            proportion=ProportionConfig(
+                celltype_col="cell_type",
+                sample_col="sample",
+                condition_col="condition",
+                plot_types=[],
+            ),
+            proportion_method="pseudobulk",
+        )
+        result = run_standard_analysis(
+            adata,
+            config=config,
+            steps=["proportion"],
+            show_progress=False,
+        )
+        assert "proportion" in result.uns["sclucid"]
+        review = result.uns["sclucid"]["analysis"]["review_summary"]["data"]
+        assert review["proportion"]["decision"] == "sample_level_celltype_composition_review"
+        assert review["proportion"]["sample_col"] == "sample"

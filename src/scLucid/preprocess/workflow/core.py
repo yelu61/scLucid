@@ -17,7 +17,7 @@ import scanpy as sc
 import scipy.sparse
 from anndata import AnnData
 
-from ..utils import (
+from ...utils import (
     PartialResultManager,
     UnsKeys,
     WorkflowCheckpoint,
@@ -27,19 +27,21 @@ from ..utils import (
     normalize_review_summary,
     validate_review_summary_schema,
 )
-from ..utils.context import is_tumor_context
-from .config import WorkflowConfig
-from .gene_biotype import annotate_gene_biotypes, filter_genes_by_biotype
-from .hvg import find_hvgs, select_hvg_sets
-from .integrate import batch_correction
-from .normalize import normalize_data
-from .scale import regress_out, scale_data
-from .trace import enrich_preprocessing_review_summary, validate_preprocessing_review_summary
+from ...utils.context import is_tumor_context
+from ..config import WorkflowConfig
+from ..gene_biotype import annotate_gene_biotypes, filter_genes_by_biotype
+from ..hvg import evaluate_hvg_stability, find_hvgs, select_and_audit_hvgs, select_hvg_sets
+from ..integrate import batch_correction, decide_integration
+from ..neighbors import run_embedding_pipeline
+from ..normalize import normalize_data
+from ..scale import regress_out, scale_data
+from ..trace import _json_safe, enrich_preprocessing_review_summary, validate_preprocessing_review_summary
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     "run_preprocessing",
+    "run_iterative_preprocessing",
     "WORKFLOW_STEPS",
     "WorkflowError",
 ]
@@ -476,6 +478,268 @@ def run_preprocessing(
     log.info(f"Completed steps: {successful_steps}")
     log.info("=" * 60)
     return adata
+
+
+def run_iterative_preprocessing(
+    adata: AnnData,
+    config: Optional[WorkflowConfig] = None,
+    save_dir: Optional[str] = None,
+    *,
+    tissue_type: str = "unknown",
+    sample_key: str = "sampleID",
+    biology_columns: Optional[List[str]] = None,
+    condition_key: Optional[str] = None,
+    integration_policy: Literal["auto_review", "force", "off"] = "auto_review",
+    run_hvg_stability: bool = True,
+    hvg_stability_kwargs: Optional[Dict[str, Any]] = None,
+    hvg_keys: Optional[List[str]] = None,
+    hvg_mode: Literal["auto", "direct", "intersection", "union", "difference"] = "auto",
+    run_diagnostic_embedding: bool = True,
+    optimize_final_graph: bool = True,
+    diagnostic_umap_key: str = "X_umap_pca_diagnostic",
+    final_umap_key: Optional[str] = None,
+    show_progress: bool = True,
+    inplace: bool = False,
+    keep_intermediate_layers: bool = True,
+) -> AnnData:
+    """Run reviewer-first preprocessing for real-project Step1 workflows.
+
+    This entrypoint keeps ``run_preprocessing`` as the step-control/resume API
+    while adding review-oriented phases that real projects currently run in
+    notebooks: HVG strategy audit, HVG stability, diagnostic pre-integration
+    embedding, integration decision, optional correction, and final graph/UMAP.
+    """
+    active_config = _prepare_workflow_config(config)
+    results_path = Path(save_dir or active_config.save_dir) if (save_dir or active_config.save_dir) else None
+    if results_path:
+        results_path.mkdir(parents=True, exist_ok=True)
+
+    available_steps = _resolve_steps(None, None, active_config)
+    bootstrap_steps = [
+        step
+        for step in [
+            "gene_filtering",
+            "normalization",
+            "set_raw",
+            "regression",
+            "hvg_selection",
+            "subset_hvg",
+            "scaling",
+            "pca",
+        ]
+        if step in available_steps
+    ]
+    result = run_preprocessing(
+        adata,
+        config=active_config,
+        save_dir=str(results_path / "bootstrap") if results_path else None,
+        steps=bootstrap_steps,
+        inplace=inplace,
+        keep_intermediate_layers=keep_intermediate_layers,
+        tissue_type=tissue_type,
+        show_progress=show_progress,
+    )
+
+    pp_ns = result.uns.setdefault("sclucid", {}).setdefault("preprocess", {})
+    summary: Dict[str, Any] = {
+        "schema_version": "iterative_preprocessing_v1",
+        "workflow": "run_iterative_preprocessing",
+        "tissue_type": tissue_type,
+        "sample_key": sample_key,
+        "bootstrap_steps": bootstrap_steps,
+        "hvg_strategy": {},
+        "hvg_stability": {},
+        "diagnostic_embedding": {},
+        "integration_decision": {},
+        "final_embedding": {},
+        "review_action_items": [],
+    }
+
+    detected_hvg_keys = hvg_keys or [
+        str(col)
+        for col in result.var.columns
+        if str(col).startswith("highly_variable") and result.var[col].dtype == bool
+    ]
+    if detected_hvg_keys:
+        try:
+            _, hvg_audit = select_and_audit_hvgs(
+                result,
+                hvg_keys=detected_hvg_keys,
+                mode=hvg_mode,
+                subset=False,
+                keep_raw=False,
+                evaluate_stability=False,
+                save_dir=str(results_path / "hvg_audit") if results_path else None,
+            )
+            summary["hvg_strategy"] = hvg_audit
+        except Exception as exc:
+            summary["hvg_strategy"] = {
+                "status": "skipped",
+                "reason": f"{type(exc).__name__}: {exc}",
+                "hvg_keys": detected_hvg_keys,
+            }
+            summary["review_action_items"].append(
+                {
+                    "priority": "review",
+                    "action": "Inspect HVG strategy manually.",
+                    "rationale": "HVG audit could not be generated.",
+                }
+            )
+
+    if run_hvg_stability and detected_hvg_keys:
+        stability_kwargs = dict(hvg_stability_kwargs or {})
+        stability_kwargs.setdefault("plot", False)
+        try:
+            evaluate_hvg_stability(
+                result,
+                hvg_key=detected_hvg_keys[0],
+                **stability_kwargs,
+            )
+            summary["hvg_stability"] = pp_ns.get("hvg_stability", {})
+        except Exception as exc:
+            summary["hvg_stability"] = {
+                "status": "skipped",
+                "reason": f"{type(exc).__name__}: {exc}",
+                "hvg_key": detected_hvg_keys[0],
+            }
+            summary["review_action_items"].append(
+                {
+                    "priority": "review",
+                    "action": "Review HVG stability outside the workflow.",
+                    "rationale": "HVG stability evaluation could not be completed.",
+                }
+            )
+
+    final_rep = "X_pca"
+    n_pcs = int(result.obsm["X_pca"].shape[1]) if "X_pca" in result.obsm else None
+    if run_diagnostic_embedding and n_pcs is not None:
+        try:
+            result, diagnostic_grid = run_embedding_pipeline(
+                result,
+                use_rep="X_pca",
+                optimize=False,
+                default_n_neighbors=active_config.graph.n_neighbors,
+                default_n_pcs=min(active_config.graph.n_pcs, n_pcs),
+                umap_key=diagnostic_umap_key,
+            )
+            diagnostic_meta = dict(pp_ns.get("embedding_workflow", {}))
+            diagnostic_meta["n_grid_rows"] = int(len(diagnostic_grid))
+            summary["diagnostic_embedding"] = diagnostic_meta
+        except Exception as exc:
+            summary["diagnostic_embedding"] = {
+                "status": "skipped",
+                "reason": f"{type(exc).__name__}: {exc}",
+            }
+
+    integration_run = False
+    integration_warnings: List[str] = []
+    integration_risk = None
+    batch_key = active_config.integration.batch_key
+    if isinstance(batch_key, list):
+        batch_key = batch_key[0] if batch_key else None
+    biology_cols = biology_columns if biology_columns is not None else active_config.integration.biology_columns
+    integration_mode: bool | Literal["auto"]
+    if integration_policy == "force":
+        integration_mode = True
+    elif integration_policy == "off":
+        integration_mode = False
+    else:
+        integration_mode = "auto"
+
+    if batch_key and "X_pca" in result.obsm:
+        integration_run, integration_warnings, integration_risk = decide_integration(
+            result,
+            batch_key=str(batch_key),
+            run_integration=integration_mode,
+            biology_columns=biology_cols,
+            condition_key=condition_key or active_config.integration.condition_key,
+            tumor=is_tumor_context(tissue_type),
+            before_rep="X_pca",
+        )
+    else:
+        integration_warnings = ["missing batch_key or X_pca; integration decision skipped"]
+
+    integration_output_key = (
+        active_config.integration.output_key
+        or f"X_{active_config.integration.method}_{batch_key}"
+        if active_config.integration.method and batch_key
+        else None
+    )
+    summary["integration_decision"] = {
+        "policy": integration_policy,
+        "run_integration": bool(integration_run),
+        "batch_key": batch_key,
+        "biology_columns": biology_cols or [],
+        "warnings": integration_warnings,
+        "risk": integration_risk,
+        "output_key": integration_output_key if integration_run else None,
+    }
+
+    if integration_run and integration_output_key:
+        integration_config = active_config.integration.model_copy(
+            update={
+                "batch_key": batch_key,
+                "use_rep": "X_pca",
+                "output_key": integration_output_key,
+                "auto_decide": False,
+                "condition_key": condition_key or active_config.integration.condition_key,
+                "biology_columns": biology_cols or [],
+                "tumor": is_tumor_context(tissue_type),
+                "evaluate": False,
+            }
+        )
+        result = batch_correction(
+            result,
+            config=integration_config,
+            save_dir=str(results_path / "integration") if results_path else None,
+            force=True,
+        )
+        if integration_output_key in result.obsm:
+            final_rep = integration_output_key
+        else:
+            summary["review_action_items"].append(
+                {
+                    "priority": "review",
+                    "action": "Inspect integration output.",
+                    "rationale": f"Expected representation {integration_output_key!r} was not created.",
+                }
+            )
+
+    if final_rep in result.obsm:
+        try:
+            rep_dims = int(result.obsm[final_rep].shape[1])
+            active_final_umap_key = final_umap_key or f"X_umap_{final_rep.replace('X_', '').lower()}"
+            result, final_grid = run_embedding_pipeline(
+                result,
+                use_rep=final_rep,
+                optimize=optimize_final_graph,
+                default_n_neighbors=active_config.graph.n_neighbors,
+                default_n_pcs=min(active_config.graph.n_pcs, rep_dims),
+                umap_key=active_final_umap_key,
+            )
+            final_meta = dict(pp_ns.get("embedding_workflow", {}))
+            final_meta["n_grid_rows"] = int(len(final_grid))
+            summary["final_embedding"] = final_meta
+        except Exception as exc:
+            summary["final_embedding"] = {
+                "status": "skipped",
+                "reason": f"{type(exc).__name__}: {exc}",
+                "use_rep": final_rep,
+            }
+
+    summary["final_representation"] = final_rep
+    summary["layers"] = list(result.layers.keys())
+    summary["obsm_keys"] = list(result.obsm.keys())
+    summary["raw_present"] = result.raw is not None
+    pp_ns["iterative_preprocessing_summary"] = _json_safe(summary)
+
+    review_summary = pp_ns.get(UnsKeys.REVIEW_SUMMARY)
+    if isinstance(review_summary, dict):
+        payload = review_summary.setdefault("data", {})
+        if isinstance(payload, dict):
+            payload["iterative_preprocessing_summary"] = _json_safe(summary)
+
+    return result
 
 
 def _resolve_steps(
@@ -968,10 +1232,17 @@ def _run_pca(
 
     if results_path:
         try:
-            sc.pl.pca_variance_ratio(adata, log=True, save="_variance_ratio.png", show=False)
-            fig_path = Path("./figures/pca_variance_ratio.png")
-            if fig_path.exists():
-                fig_path.rename(results_path / "pca_variance_ratio.png")
+            old_figdir = sc.settings.figdir
+            sc.settings.figdir = results_path
+            try:
+                sc.pl.pca_variance_ratio(
+                    adata,
+                    log=True,
+                    save="_variance_ratio.png",
+                    show=False,
+                )
+            finally:
+                sc.settings.figdir = old_figdir
         except Exception as e:
             log.warning(f"Could not save PCA variance plot: {e}")
 

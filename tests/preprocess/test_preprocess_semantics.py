@@ -11,7 +11,7 @@ from scLucid.preprocess.config import (
 )
 from scLucid.preprocess.hvg import find_hvgs
 from scLucid.preprocess.integrate import batch_correction
-from scLucid.preprocess.intelligent.data_classes import (
+from scLucid.recommendation.preprocess.data_classes import (
     BatchCorrectionRecommendation,
     DataProfile,
     HVGRecommendation,
@@ -20,7 +20,7 @@ from scLucid.preprocess.intelligent.data_classes import (
     PreprocessingStrategy,
     ResolutionRecommendation,
 )
-from scLucid.preprocess.intelligent.recommender import run_intelligent_preprocessing
+from scLucid.recommendation.preprocess.recommender import run_intelligent_preprocessing
 from scLucid.preprocess.normalize import normalize_data
 from scLucid.preprocess.workflow import run_preprocessing
 
@@ -189,7 +189,7 @@ def test_strategy_to_config_preserves_pydantic_base_and_batch_key():
 
 @pytest.mark.unit
 def test_run_intelligent_preprocessing_stores_trace(monkeypatch, minimal_adata):
-    import scLucid.preprocess.intelligent.recommender as recommender_module
+    import scLucid.recommendation.preprocess.recommender as recommender_module
 
     strategy = PreprocessingStrategy(
         data_profile=DataProfile(
@@ -326,7 +326,7 @@ def test_strategy_to_review_summary_structure():
 
 @pytest.mark.unit
 def test_run_intelligent_preprocessing_stores_review_summary(monkeypatch, minimal_adata):
-    import scLucid.preprocess.intelligent.recommender as recommender_module
+    import scLucid.recommendation.preprocess.recommender as recommender_module
 
     strategy = PreprocessingStrategy(
         data_profile=DataProfile(
@@ -375,7 +375,7 @@ def test_run_intelligent_preprocessing_stores_review_summary(monkeypatch, minima
 def test_run_intelligent_preprocessing_exports_review_summary_to_disk(
     monkeypatch, minimal_adata, tmp_path
 ):
-    import scLucid.preprocess.intelligent.recommender as recommender_module
+    import scLucid.recommendation.preprocess.recommender as recommender_module
 
     strategy = PreprocessingStrategy(
         data_profile=DataProfile(
@@ -431,7 +431,7 @@ def test_run_intelligent_preprocessing_exports_review_summary_to_disk(
 def test_run_intelligent_preprocessing_review_only_returns_adata_with_summary(
     monkeypatch, minimal_adata
 ):
-    import scLucid.preprocess.intelligent.recommender as recommender_module
+    import scLucid.recommendation.preprocess.recommender as recommender_module
 
     strategy = PreprocessingStrategy(
         data_profile=DataProfile(

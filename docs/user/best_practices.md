@@ -129,7 +129,7 @@ Recommended default:
 - use
   `PreprocessingWorkflowConfig.default()`
   for the standard light-dependency path
-- reserve `run_intelligent_preprocessing()`
+- reserve `scl.recommendation.run_intelligent_preprocessing()`
   for datasets where parameter choice is uncertain
 - keep the default path as the package's canonical preprocessing route
   in manuscripts and examples

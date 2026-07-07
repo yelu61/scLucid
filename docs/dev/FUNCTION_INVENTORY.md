@@ -504,7 +504,6 @@ No deprecated top-level QC workflow aliases are currently exported.
 | `GraphConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `HVGConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `IntegrationConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
-| `IntelligentPreprocessConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `NeighborsConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `NormalizationConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `PreprocessingWorkflowConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
@@ -515,14 +514,10 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
-| `adaptive_normalize` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `annotate_gene_biotypes` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `apply_gene_biotype_strategy` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `batch_correction` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `BatchCorrectionRecommendation` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `build_qc_input_context` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `build_step_evidence_summary` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `DataProfile` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `decide_integration` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `detect_integration_confounding` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `diagnose_cell_cycle_regression` | Function | `src/scLucid/preprocess/__init__.py` |  |
@@ -532,37 +527,21 @@ No deprecated top-level QC workflow aliases are currently exported.
 | `evaluate_integration` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `filter_genes_by_biotype` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `find_hvgs` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `get_backend` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `get_biotype_statistics` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `get_gene_biotype_cache_dir` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `HVGRecommendation` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `IntelligentPreprocessRecommender` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `list_available_backends` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `list_gene_biotype_resources` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `load_gene_biotypes` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `NeighborsRecommendation` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `normalize_data` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `optimize_neighbors_pcs` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `PartialWorkflowResult` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `PCARecommendation` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `plot_hvg_metrics` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `plot_normalization_effect` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `plot_scaling_effect` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `PreprocessingBackend` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `PreprocessingStrategy` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `quality_aware_normalize` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `RapidsBackend` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `recommend_biotype_strategy` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `recommend_intelligent_preprocessing` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `regress_out` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `ResolutionRecommendation` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `run_embedding_pipeline` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `run_intelligent_preprocessing` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `run_iterative_preprocessing` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `scale_data` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `ScanpyBackend` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `select_and_audit_hvgs` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `select_hvg_sets` | Function | `src/scLucid/preprocess/__init__.py` |  |
-| `set_backend` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `suggest_hvg_choice` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `WorkflowError` | Function | `src/scLucid/preprocess/__init__.py` |  |
 
@@ -589,15 +568,11 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-#### Deprecated
+No deprecated top-level preprocess aliases are exported.
 
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `run_embedding_workflow` | Deprecated | `src/scLucid/preprocess/__init__.py` | [D] |
+**Summary:** 58 symbols (58 stable, 0 flagged). workflow=2, config=9, class=0, function=37, alias=0, constant=1, trace=10, deprecated=0, uncertain=0, private_but_exposed=0.
 
-**Summary:** 73 symbols (72 stable, 1 flagged). workflow=1, config=10, class=0, function=50, alias=0, constant=1, trace=10, deprecated=1, uncertain=0, private_but_exposed=0.
-
-## scLucid.preprocess.intelligent
+## scLucid.recommendation.preprocess
 
 ### Stable APIs
 
@@ -605,22 +580,22 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
-| `IntelligentPreprocessConfig` | Config Class | `src/scLucid/preprocess/intelligent/__init__.py` | [C] |
+| `IntelligentPreprocessConfig` | Config Class | `src/scLucid/recommendation/preprocess/__init__.py` | [C] |
 
 #### Function
 
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
-| `BatchCorrectionRecommendation` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `DataProfile` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `HVGRecommendation` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `IntelligentPreprocessRecommender` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `NeighborsRecommendation` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `PCARecommendation` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `PreprocessingStrategy` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `recommend_intelligent_preprocessing` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `ResolutionRecommendation` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
-| `run_intelligent_preprocessing` | Function | `src/scLucid/preprocess/intelligent/__init__.py` |  |
+| `BatchCorrectionRecommendation` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `DataProfile` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `HVGRecommendation` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `IntelligentPreprocessRecommender` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `NeighborsRecommendation` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `PCARecommendation` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `PreprocessingStrategy` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `recommend_intelligent_preprocessing` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `ResolutionRecommendation` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
+| `run_intelligent_preprocessing` | Function | `src/scLucid/recommendation/preprocess/__init__.py` |  |
 
 ### Deprecated / Uncertain / Private-but-Exposed
 

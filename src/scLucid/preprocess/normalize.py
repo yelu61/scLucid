@@ -21,7 +21,12 @@ from anndata import AnnData
 from scLucid.plotting.plotting_utils import _show_or_close
 
 from .config import NormalizationConfig, apply_config_overrides
-from .utils import apply_log1p, resolve_input_matrix, validate_matrix_input
+from .utils import (
+    apply_log1p,
+    record_matrix_semantics_check,
+    resolve_input_matrix,
+    validate_matrix_input,
+)
 
 log = logging.getLogger(__name__)
 
@@ -289,6 +294,14 @@ def normalize_data(
 
     # --- 3. Input validation and data diagnosis ---
     source_data, source_name = resolve_input_matrix(adata, input_layer)
+    if active_config.method in {"standard", "scran", "pearson_residuals", "clr"}:
+        record_matrix_semantics_check(
+            adata,
+            step="normalization",
+            matrix=source_data,
+            matrix_key=source_name,
+            expected="raw_counts",
+        )
 
     if output_layer in adata.layers and not force:
         log.info(f"Layer '{output_layer}' already exists. Use force=True to overwrite.")

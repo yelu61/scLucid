@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+import numpy as np
 from anndata import AnnData
 
 from scLucid.utils.contracts import _review_payload
@@ -2323,8 +2324,14 @@ def _json_safe(value: Any) -> Any:
         return [_json_safe(item) for item in value]
     if isinstance(value, tuple):
         return [_json_safe(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
     if hasattr(value, "item"):
-        return value.item()
+        try:
+            return value.item()
+        except ValueError:
+            # Multi-element array-like (e.g. numpy array with size > 1); convert to list.
+            return _json_safe(np.asarray(value).tolist())
     return value
 
 

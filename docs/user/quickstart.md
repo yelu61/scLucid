@@ -81,7 +81,7 @@ Use `PreprocessingWorkflowConfig.default()` when:
 - you value stability, signal preservation, and simplicity over
   parameter search
 
-Use `run_intelligent_preprocessing()` when:
+Use `scl.recommendation.run_intelligent_preprocessing()` when:
 
 - you want data-driven parameter suggestions
 - you want a reviewer-facing summary before applying recommendations

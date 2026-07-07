@@ -84,7 +84,7 @@ Use `PreprocessingWorkflowConfig.default()` when:
 - your dataset is standard scRNA-seq with familiar batch structure
 - you value stability, signal preservation, and simplicity over parameter search
 
-Use `run_intelligent_preprocessing()` when:
+Use `scl.recommendation.run_intelligent_preprocessing()` when:
 
 - you want data-driven parameter suggestions
 - you want a reviewer-facing summary before applying recommendations

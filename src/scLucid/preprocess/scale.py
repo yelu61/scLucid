@@ -19,7 +19,7 @@ import seaborn as sns
 from anndata import AnnData
 
 from .config import ScalingConfig, apply_config_overrides
-from .utils import validate_matrix_input
+from .utils import record_matrix_semantics_check, validate_matrix_input
 
 log = logging.getLogger(__name__)
 MAD_NORMAL_CONSISTENCY_FACTOR = 1.4826
@@ -411,6 +411,15 @@ def scale_data(
     )
 
     # --- 2. Validate input matrix ---
+    record_matrix_semantics_check(
+        adata,
+        step="scaling",
+        matrix=adata.X,
+        matrix_key="adata.X",
+        expected="log_normalized",
+        require_non_negative=False,
+        require_integer=False,
+    )
     validate_matrix_input(adata.X, name="adata.X", allow_negative=True)
 
     # --- 3. Apply the scaling method ---

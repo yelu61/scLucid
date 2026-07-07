@@ -11,15 +11,6 @@ from .adaptive_normalize import (
     estimate_cell_size_factors,
 )
 
-# --- Backend Abstraction ---
-from .backend import (
-    PreprocessingBackend,
-    RapidsBackend,
-    ScanpyBackend,
-    get_backend,
-    list_available_backends,
-    set_backend,
-)
 from .config import (
     GeneBiotypeConfig,
     GraphConfig,
@@ -54,20 +45,6 @@ from .integrate import (
     evaluate_integration,
 )
 
-# --- Intelligent Preprocessing ---
-from .intelligent import (
-    BatchCorrectionRecommendation,
-    DataProfile,
-    HVGRecommendation,
-    IntelligentPreprocessConfig,
-    IntelligentPreprocessRecommender,
-    NeighborsRecommendation,
-    PCARecommendation,
-    PreprocessingStrategy,
-    ResolutionRecommendation,
-    recommend_intelligent_preprocessing,
-    run_intelligent_preprocessing,
-)
 from .neighbors import optimize_neighbors_pcs, run_embedding_pipeline
 
 # --- Core Functions ---
@@ -100,6 +77,7 @@ from .workflow import (
     WORKFLOW_STEPS,
     PartialWorkflowResult,
     WorkflowError,
+    run_iterative_preprocessing,
     run_preprocessing,
 )
 
@@ -117,6 +95,7 @@ __all__ = [
     "GeneBiotypeConfig",
     # Workflow
     "run_preprocessing",
+    "run_iterative_preprocessing",
     "WORKFLOW_STEPS",
     "PartialWorkflowResult",
     "WorkflowError",
@@ -155,13 +134,6 @@ __all__ = [
     "get_biotype_statistics",
     "load_gene_biotypes",
     "recommend_biotype_strategy",
-    # Backend
-    "PreprocessingBackend",
-    "ScanpyBackend",
-    "RapidsBackend",
-    "get_backend",
-    "set_backend",
-    "list_available_backends",
     # Plotting & Evaluation
     "plot_normalization_effect",
     "plot_hvg_metrics",
@@ -171,28 +143,12 @@ __all__ = [
     "evaluate_integration",
     "optimize_neighbors_pcs",
     "run_embedding_pipeline",
-    # Intelligent Preprocessing
-    "IntelligentPreprocessConfig",
-    "IntelligentPreprocessRecommender",
-    "PreprocessingStrategy",
-    "DataProfile",
-    "HVGRecommendation",
-    "PCARecommendation",
-    "NeighborsRecommendation",
-    "ResolutionRecommendation",
-    "BatchCorrectionRecommendation",
-    "recommend_intelligent_preprocessing",
-    "run_intelligent_preprocessing",
     # Adaptive Normalization
     "AdaptiveNormalizationConfig",
     "estimate_cell_size_factors",
 ]
 
-# Transitional aliases stay importable but are intentionally not part of __all__.
-from .adaptive_normalize import adaptive_normalize, quality_aware_normalize  # noqa: E402,F401
-from .gene_biotype import (  # noqa: E402,F401
-    apply_gene_biotype_strategy,
-    get_gene_biotype_cache_dir,
-    list_gene_biotype_resources,
-)
-from .neighbors import run_embedding_workflow  # noqa: E402,F401
+# Importing selected objects from a submodule can leave the submodule object on
+# this namespace. Remove it so ``scl.pp.adaptive_normalize`` is not mistaken for
+# the removed top-level function alias.
+globals().pop("adaptive_normalize", None)

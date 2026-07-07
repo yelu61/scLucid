@@ -8,7 +8,7 @@ from pydantic import ConfigDict, Field, field_validator
 
 from ..analysis.config import AnnotationConfig, ResolutionSearchConfig
 from ..base_config import SclucidBaseConfig
-from ..preprocess.intelligent.config import IntelligentPreprocessConfig
+from .preprocess.config import IntelligentPreprocessConfig
 from ..qc.policy.intelligent_qc import IntelligentQCConfig
 from ..tumor.config import TumorAnalysisConfig
 

@@ -4,7 +4,6 @@ with silhouette score and visualization for single-cell analysis.
 """
 
 import logging
-import warnings
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -308,13 +307,3 @@ def run_embedding_pipeline(
         "min_dist": float(min_dist),
     }
     return result, optimization_results
-
-
-def run_embedding_workflow(*args, **kwargs) -> tuple[AnnData, pd.DataFrame]:
-    """Compatibility alias for :func:`run_embedding_pipeline`."""
-    warnings.warn(
-        "run_embedding_workflow is deprecated; use run_embedding_pipeline.",
-        FutureWarning,
-        stacklevel=2,
-    )
-    return run_embedding_pipeline(*args, **kwargs)
