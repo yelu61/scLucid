@@ -17,8 +17,8 @@ The current scaffold validates whether a golden-path run is:
   state can be inspected
 - ready for later comparative validation
 
-For QC, the lightweight scaffold now also has a Figure 2 evidence
-package under `validation_outputs/qc_figure2_package/`. This package
+For QC, the lightweight scaffold now also has a QC evidence
+package under `validation_outputs/qc_evidence_package/`. This package
 consolidates existing threshold, tumor-aware, doublet, and ambient
 validation outputs into a reviewable source-data table and a claim
 scorecard.
@@ -50,15 +50,15 @@ interpretation.
 QC evidence runners write current Phase 2 outputs under
 `validation_outputs/qc_*`:
 
-- `qc_figure2_package/figure2_qc_source_data.tsv`: harmonized Figure 2
+- `qc_evidence_package/qc_source_data.tsv`: harmonized QC
   source data for QC threshold decisions, tumor biological fidelity,
   doublet evidence, and ambient contract checks
-- `qc_figure2_package/qc_claim_scorecard.tsv`: claim-level status table
+- `qc_evidence_package/qc_claim_scorecard.tsv`: claim-level status table
   for QC auditability, tumor-aware biological fidelity, doublet
   calibration, ambient diagnostic contract, and dataset coverage
-- `qc_figure2_package/qc_dataset_coverage.tsv`: dataset role and Figure
-  2 panel coverage
-- `qc_figure2_package/qc_evidence_report.md`: compact reviewer-facing
+- `qc_evidence_package/qc_dataset_coverage.tsv`: dataset role and QC
+  panel coverage
+- `qc_evidence_package/qc_evidence_report.md`: compact reviewer-facing
   summary
 
 ## Programmatic Use

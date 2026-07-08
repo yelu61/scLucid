@@ -71,12 +71,12 @@ design notes and are not the current local layout.
 ## Validation Output Roles
 
 Current Phase 2 QC evidence is consolidated by
-`validation/qc/build_figure2_qc_evidence_package.py` into
-`validation_outputs/qc_figure2_package/`.
+`validation/qc/build_qc_evidence_package.py` into
+`validation_outputs/qc_evidence_package/`.
 
 | Output | Purpose |
 |---|---|
-| `figure2_qc_source_data.tsv` | Harmonized Figure 2 source data: `2A` workflow/ambient contract, `2B` threshold decision quality, `2C` tumor program fidelity, `2D` doublet evidence, `2E` tumor reviewer narrative. |
+| `qc_source_data.tsv` | Harmonized QC source data: workflow/ambient contract, threshold decision quality, tumor program fidelity, doublet evidence, and tumor reviewer narrative. |
 | `qc_claim_scorecard.tsv` | Claim-level status for QC auditability, tumor-aware biological fidelity, doublet calibration, ambient diagnostic contract, and dataset coverage. |
 | `qc_dataset_coverage.tsv` | Dataset availability, roles, and mapped Figure 2 panels. |
 | `qc_evidence_report.md` | Compact human-readable evidence summary. |

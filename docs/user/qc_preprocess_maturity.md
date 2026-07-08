@@ -18,7 +18,7 @@ later in this document.
 
 | Area | Current Level | What Works Now | Main Gaps |
 |----|----|----|----|
-| QC | Candidate benchmark module with Figure 2 evidence package | Adaptive/sample-aware/tumor-aware threshold decisions, reviewer tables, tumor biological-fidelity benchmarks, Kang demuxlet doublet calibration, Python/R scDblFinder parity, and claim-level scorecards | More ground-truth-like doublet/ambient datasets and stronger homotypic/solid-tissue doublet evidence |
+| QC | Candidate benchmark module with QC evidence package | Adaptive/sample-aware/tumor-aware threshold decisions, reviewer tables, tumor biological-fidelity benchmarks, Kang demuxlet doublet calibration, Python/R scDblFinder parity, and claim-level scorecards | More ground-truth-like doublet/ambient datasets and stronger homotypic/solid-tissue doublet evidence |
 | Preprocessing | Candidate benchmark module | Layer contracts, normalization/HVG/PCA/neighbors/UMAP evidence, batch-correction cautions, maturity contract | Larger multi-sample validation, stronger batch-correction recommendation evidence |
 | Analysis | Second benchmark module in active hardening | `clustering_review -> markers -> annotation_evidence -> annotation_consensus -> posthoc_qc_review -> malignancy_interpretation`, manager-routed marker resources, `analysis_inference_policy`, `analysis_output_contract`, `analysis_decision_summary`, and `analysis_reviewer_table` | Real-data acceptance runs, richer CellTypist/reference evidence, and a dedicated pseudobulk DE reviewer summary |
 | Marker Resources | Strong architectural direction | Unified `Manager`, human/mouse registry resources, tissue/tumor marker views, artifact/program/tumor routing, curation SOP | Source provenance at scale, mouse tissue/tumor parity, atlas-derived marker review |
@@ -121,8 +121,8 @@ QC hardening tasks:
 - keep `qc_handoff_readiness` as the QC-to-preprocess contract so real
   projects can distinguish removed cells, review-required cells,
   sensitivity-only cells, and tumor-fragile states before preprocessing
-- maintain the Figure 2 QC evidence package under
-  `validation_outputs/qc_figure2_package/` so threshold, tumor-aware,
+- maintain the QC evidence package under
+  `validation_outputs/qc_evidence_package/` so threshold, tumor-aware,
   doublet, and ambient evidence are summarized in one source-data table
   and one claim-level scorecard
 - test tumor-aware behavior on PDAC data where high mitochondrial
@@ -222,7 +222,7 @@ Preprocessing hardening tasks:
 4.  Only then polish analysis. Analysis quality depends on the first two
     modules. Annotation and tumor interpretation should be improved
     after QC and preprocessing are reliable.
-5.  Build the combined QC/preprocess Figure X evidence package from the
+5.  Build the combined QC/preprocess evidence package from the
     stabilized review summaries, then run it inside active real projects
     as an acceptance loop. Every mismatch between reviewer output and
     analyst expectation should become a contract, default, or document

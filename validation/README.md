@@ -21,16 +21,16 @@ and biologically defensible.
 ## Phase 2 QC Benchmark
 
 Primary outputs should live under `validation_outputs/qc_*` and eventually feed
-Figure 2:
+the QC evidence package:
 
-- `qc_figure2_package/figure2_qc_source_data.tsv`: unified Figure 2 source-data
+- `qc_evidence_package/qc_source_data.tsv`: unified QC source-data
   table with harmonized panels (`2A` ambient contract, `2B` threshold decision
   quality, `2C` tumor program fidelity, `2D` doublet evidence, `2E`
   reviewer-facing tumor narrative).
-- `qc_figure2_package/qc_claim_scorecard.tsv`: claim-level evidence status for
+- `qc_evidence_package/qc_claim_scorecard.tsv`: claim-level evidence status for
   QC auditability, tumor-aware biological fidelity, doublet calibration,
   ambient diagnostic contract, and dataset coverage.
-- `qc_figure2_package/qc_evidence_report.md`: compact reviewer-oriented report
+- `qc_evidence_package/qc_evidence_report.md`: compact reviewer-oriented report
   that states which claims are supported, partial, or contract-only.
 - `adata.uns["sclucid"]["qc"]["review_summary"]["data"]["qc_handoff_readiness"]`:
   QC-to-preprocess contract with the recommended counts layer,
@@ -106,7 +106,7 @@ Current claim-scorecard interpretation:
 ## Phase 3 Preprocess Benchmark
 
 Primary outputs should live under `validation_outputs/preprocess_*` and
-eventually feed Figure 3:
+eventually feed the preprocess evidence package:
 
 - `layer_contract_report.tsv`: layer transition table for counts, normalized,
   log, scaled, PCA, neighbors, UMAP, and `.raw` semantics.
@@ -130,9 +130,9 @@ Minimum credible Phase 3 comparisons:
 - Opt-in Harmony on batch-heavy datasets when available.
 - Scanpy standard workflow baseline.
 
-## Figure X + Real-Project Feedback Loop
+## Combined Evidence + Real-Project Feedback Loop
 
-The next evidence milestone is a combined QC/preprocess Figure X package. It
+The next evidence milestone is a combined QC/preprocess evidence package. It
 should consume the stable review-summary contracts rather than re-derive meaning
 from raw workflow internals:
 
@@ -155,11 +155,13 @@ python validation/qc/run_threshold_benchmark.py
 python validation/qc/run_tumor_biological_fidelity_benchmark.py
 python validation/qc/run_doublet_evidence_benchmark.py
 python validation/qc/run_ambient_evidence_benchmark.py
-python validation/qc/build_figure2_qc_evidence_package.py
 python validation/preprocess/run_layer_contract_benchmark.py
 python validation/preprocess/run_hvg_marker_preservation_benchmark.py
 python validation/preprocess/run_batch_correction_diagnostic_benchmark.py
 python validation/preprocess/run_graph_stability_benchmark.py
+python validation/qc/build_qc_evidence_package.py
+python validation/preprocess/build_preprocess_evidence_package.py
+python validation/qc_preprocess/build_qc_preprocess_evidence_package.py
 ```
 
 They verify metadata readiness and write dataset/strategy/Figure-panel plans

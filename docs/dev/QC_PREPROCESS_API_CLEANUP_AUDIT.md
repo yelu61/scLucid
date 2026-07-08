@@ -47,7 +47,7 @@ code.
 |---|---|
 | QC report generation lived beside threshold helpers | Canonical implementation moved to `qc.reporting`; filtering no longer exports report helpers. |
 | QC decision table lacked reviewer impact fields | Added `affected_cells`, `affected_fraction`, `review_required`, and `risk_note` in `qc.trace`. |
-| QC benchmark evidence was scattered across threshold, tumor, doublet, and ambient tables | Added `validation/qc/build_figure2_qc_evidence_package.py` to generate unified Figure 2 source data and `qc_claim_scorecard.tsv`. |
+| QC benchmark evidence was scattered across threshold, tumor, doublet, and ambient tables | Added `validation/qc/build_qc_evidence_package.py` to generate unified QC source data and `qc_claim_scorecard.tsv`. |
 | Doublet benchmark evidence stayed outside normal reports | Added `doublet_evidence_summary.benchmark_decision` and surfaced recommended default mode, primary method, candidate `algorithm_weight`, and review status in QC reports. |
 | Preprocess layer contract was nested and hard to scan | Added `layer_transition_table` with row-wise layer/slot/`.X`/`.raw` semantics. |
 | HDF5 sanitizer converted review table rows into dicts | Added `layer_transition_table` to review sequence restoration keys. |
@@ -63,7 +63,7 @@ code.
 - New preprocessing validation should write review-summary fields rather than
   ad hoc `uns` payloads when the evidence is part of the public contract.
 - New benchmark scripts should either write panel-specific source tables or be
-  consumed by the Figure 2/Figure 3 package builders; avoid creating one-off
+  consumed by the QC/preprocess package builders; avoid creating one-off
   evidence files with no claim-level scorecard entry.
 - Legacy threshold entrypoints should be removed from package-level exports once
   a canonical replacement is available; avoid keeping multiple public ways to

@@ -1,7 +1,7 @@
 # Phase 2: QC Evidence Benchmark
 
 **Recommended duration**: 1-2 个月  
-**Primary output**: QC 证据链 benchmark、Figure 2 source data、claim scorecard
+**Primary output**: QC 证据链 benchmark、QC source data、claim scorecard
 **Main claim**: scLucid QC 比固定阈值流程更可审计，并在肿瘤场景中更少误伤关键生物信号。当前证据支持系统性证据框架和若干明确优势方向，但不应表述为所有场景下的全面准确性优越。
 
 ## 目标
@@ -176,19 +176,19 @@ Phase 2 通过条件：
 - 至少 2 个 tumor case 显示 scLucid QC 相比固定阈值更少误伤关键生物信号。当前 PDAC/NSCLC/CRC 通过 marker/program retention proxy 支撑该方向。
 - doublet evidence 有算法对照、fallback、Python/R parity、threshold
   calibration、algorithm_weight recommendation 和解释表。
-- Figure 2 source-data package 完成，并区分 supported / partial /
+- QC source-data package 完成，并区分 supported / partial /
   contract-only claims。
 
 ## 交付物
 
 - `validation/qc/` benchmark scripts。
 - `validation_outputs/qc_*` 汇总表。
-- `validation_outputs/qc_figure2_package/figure2_qc_source_data.tsv`。
-- `validation_outputs/qc_figure2_package/qc_claim_scorecard.tsv`。
-- `validation_outputs/qc_figure2_package/qc_evidence_report.md`。
-- Figure 2 数据表和绘图脚本。
+- `validation_outputs/qc_evidence_package/qc_source_data.tsv`。
+- `validation_outputs/qc_evidence_package/qc_claim_scorecard.tsv`。
+- `validation_outputs/qc_evidence_package/qc_evidence_report.md`。
+- QC evidence 数据表和绘图脚本。
 - QC audit report 示例。
-- QC-to-preprocess handoff source rows for the combined QC/preprocess Figure X
+- QC-to-preprocess handoff source rows for the combined QC/preprocess evidence
   package and real-project acceptance review.
 
 ## 推荐主图

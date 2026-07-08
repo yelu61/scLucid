@@ -29,10 +29,10 @@ benchmark-grade reference module.
   when dependencies are available.
 - Ambient/empty-droplet support has contract evidence on CellBender tiny, but
   not yet a full ambient correction performance benchmark.
-- The Figure 2 evidence package builder
-  (`validation/qc/build_figure2_qc_evidence_package.py`) now consolidates
+- The QC evidence package builder
+  (`validation/qc/build_qc_evidence_package.py`) now consolidates
   threshold, tumor-aware, doublet, and ambient outputs into
-  `validation_outputs/qc_figure2_package/figure2_qc_source_data.tsv`,
+  `validation_outputs/qc_evidence_package/qc_source_data.tsv`,
   `qc_claim_scorecard.tsv`, `qc_dataset_coverage.tsv`, and
   `qc_evidence_report.md`.
 
@@ -65,8 +65,8 @@ benchmark-grade reference module.
 - Ambient RNA still needs a real raw 10x dataset with known ambient burden or
   external CellBender/SoupX outputs before scLucid can make correction
   performance claims.
-- Figure 2 source data is now stabilized, but plotting code and visual QA still
-  need to be built around `validation_outputs/qc_figure2_package/`.
+- QC source data is now stabilized, but plotting code and visual QA still
+  need to be built around `validation_outputs/qc_evidence_package/`.
 
 ## Recommended Next Code Changes
 
@@ -78,6 +78,6 @@ benchmark-grade reference module.
   biological fidelity summary when present.
 - Add threshold calibration for Scrublet using demuxlet/hashing-aware expected
   rate evidence, with binary calls clearly marked as calibrated or default.
-- Add plotting and visual QA for the stable Figure 2 source-data package.
+- Add plotting and visual QA for the stable QC source-data package.
 - Add full raw 10x ambient evidence and homotypic/HTO/synthetic doublet
   evidence before expanding accuracy claims.
