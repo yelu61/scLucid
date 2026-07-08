@@ -172,7 +172,7 @@ Phase 3 通过条件：
 
 - preprocess contract tests。
 - analysis contract tests。
-- `validation/preprocess_analysis/` scripts。
+- `validation/preprocess/` scripts。
 - marker preservation summary。
 - clustering stability report。
 - annotation evidence report。

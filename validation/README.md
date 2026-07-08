@@ -132,16 +132,16 @@ Run these lightweight manifest builders before writing heavier benchmarks:
 
 ```bash
 python validation/qc/build_qc_benchmark_manifest.py
-python validation/preprocess_analysis/build_preprocess_benchmark_manifest.py
+python validation/preprocess/build_preprocess_benchmark_manifest.py
 python validation/qc/run_threshold_benchmark.py
 python validation/qc/run_tumor_biological_fidelity_benchmark.py
 python validation/qc/run_doublet_evidence_benchmark.py
 python validation/qc/run_ambient_evidence_benchmark.py
 python validation/qc/build_figure2_qc_evidence_package.py
-python validation/preprocess_analysis/run_layer_contract_benchmark.py
-python validation/preprocess_analysis/run_hvg_marker_preservation_benchmark.py
-python validation/preprocess_analysis/run_batch_correction_diagnostic_benchmark.py
-python validation/preprocess_analysis/run_graph_stability_benchmark.py
+python validation/preprocess/run_layer_contract_benchmark.py
+python validation/preprocess/run_hvg_marker_preservation_benchmark.py
+python validation/preprocess/run_batch_correction_diagnostic_benchmark.py
+python validation/preprocess/run_graph_stability_benchmark.py
 ```
 
 They verify metadata readiness and write dataset/strategy/Figure-panel plans

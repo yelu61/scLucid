@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from anndata import AnnData
 
-from validation.preprocess_analysis.run_graph_stability_benchmark import (
+from validation.preprocess.run_graph_stability_benchmark import (
     _cluster_leiden,
     _neighbor_overlap,
     _pca_embedding,

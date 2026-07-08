@@ -227,7 +227,7 @@ Preprocessing hardening tasks:
 - warn when tumor data are batch-corrected in a way that may remove malignant,
   clone, patient, or microenvironment signal
 - test small datasets where PCA components and neighbors must be clipped safely
-- maintain real-data evidence runners under ``validation/preprocess_analysis/``
+- maintain real-data evidence runners under ``validation/preprocess/``
   for layer contracts, HVG marker/program preservation, batch-correction
   diagnostics, and graph handoff stability
 

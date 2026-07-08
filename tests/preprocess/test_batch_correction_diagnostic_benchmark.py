@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from anndata import AnnData
 
-from validation.preprocess_analysis.run_batch_correction_diagnostic_benchmark import (
+from validation.preprocess.run_batch_correction_diagnostic_benchmark import (
     _run_method_comparison,
 )
 

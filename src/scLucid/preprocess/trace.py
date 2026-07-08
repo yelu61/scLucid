@@ -30,6 +30,7 @@ PREPROCESS_REQUIRED_REVIEW_SECTIONS = {
     "tumor_aware_batch_correction_warnings",
     "hvg_selection_evidence_summary",
     "downstream_analysis_recommendations",
+    "analysis_handoff_readiness",
     "preprocess_readiness",
     "review_action_items",
     "evidence_bundle",
@@ -124,6 +125,15 @@ def enrich_preprocessing_review_summary(
         tumor_warnings=tumor_warnings,
     )
     summary["downstream_analysis_recommendations"] = downstream
+    handoff = build_analysis_handoff_readiness(
+        adata=adata,
+        config=config,
+        successful_steps=successful_steps,
+        downstream_recommendations=downstream,
+        hvg_summary=hvg_summary,
+        tumor_warnings=tumor_warnings,
+    )
+    summary["analysis_handoff_readiness"] = handoff
     decision_summary = build_preprocess_decision_summary(
         adata=adata,
         config=config,
@@ -179,6 +189,7 @@ def get_preprocess_module_contract() -> dict[str, Any]:
         "method_semantics_key": "preprocess_method_semantics",
         "step_evidence_key": "step_evidence_summary",
         "qc_input_key": "qc_input_context",
+        "analysis_handoff_key": "analysis_handoff_readiness",
     }
 
 
@@ -1626,6 +1637,114 @@ def build_downstream_analysis_recommendations(
     }
 
 
+def build_analysis_handoff_readiness(
+    *,
+    adata: AnnData,
+    config: Any,
+    successful_steps: list[str],
+    downstream_recommendations: Mapping[str, Any],
+    hvg_summary: Mapping[str, Any],
+    tumor_warnings: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Declare which preprocessing outputs are safe for each analysis use."""
+    blockers = list(downstream_recommendations.get("blockers", []))
+    review_items: list[str] = []
+    warnings: list[str] = []
+
+    normalized_layer = getattr(config, "normalized_layer", "normalized")
+    scaled_layer = getattr(config, "scaled_layer", "scaled")
+    hvg_key = hvg_summary.get("output_key") or "highly_variable"
+
+    integrated_embeddings = [
+        str(key)
+        for key in adata.obsm.keys()
+        if str(key).startswith("X_")
+        and str(key) not in {"X_pca", "X_umap"}
+        and any(
+            token in str(key).lower()
+            for token in ("harmony", "bbknn", "scanorama", "scvi", "integrat")
+        )
+    ]
+    configured_integration_key = getattr(getattr(config, "integration", None), "output_key", None)
+    if (
+        configured_integration_key
+        and configured_integration_key in adata.obsm
+        and str(configured_integration_key) not in integrated_embeddings
+    ):
+        integrated_embeddings.append(str(configured_integration_key))
+
+    graph_representation = integrated_embeddings[0] if integrated_embeddings else "X_pca"
+    if graph_representation not in adata.obsm:
+        graph_representation = None
+
+    expression_for_markers = (
+        "adata.raw.X"
+        if adata.raw is not None
+        else f"adata.layers['{normalized_layer}']"
+        if normalized_layer in adata.layers
+        else None
+    )
+    expression_for_de = (
+        f"adata.layers['{normalized_layer}']"
+        if normalized_layer in adata.layers
+        else expression_for_markers
+    )
+
+    if graph_representation is None:
+        blockers.append(
+            "No graph-ready embedding was found; expected obsm['X_pca'] or a reviewed integrated embedding."
+        )
+    if expression_for_markers is None:
+        blockers.append("No normalized/raw expression source is available for marker review.")
+    if expression_for_de is None:
+        blockers.append("No unintegrated normalized expression source is available for DE handoff.")
+    if hvg_summary.get("status") == "review_required":
+        review_items.extend(str(item) for item in hvg_summary.get("warnings", []))
+    if tumor_warnings.get("warnings"):
+        review_items.extend(str(item) for item in tumor_warnings.get("warnings", []))
+    if integrated_embeddings:
+        warnings.append(
+            "Integrated embeddings are graph/UMAP evidence only; marker, annotation, and DE claims should use unintegrated normalized/raw expression."
+        )
+    scaling_config = getattr(config, "scaling", None)
+    if "regression" in successful_steps and getattr(scaling_config, "vars_to_regress", None):
+        review_items.append(
+            "Regression was configured; confirm regressed covariates are technical rather than biological signals."
+        )
+
+    status = "blocked" if blockers else ("review_required" if review_items or warnings else "ready")
+    return _json_safe(
+        {
+            "schema_version": "analysis_handoff_readiness_v1",
+            "status": status,
+            "ready_for_analysis": not blockers,
+            "graph_representation": graph_representation,
+            "diagnostic_embedding": "X_pca" if "X_pca" in adata.obsm else None,
+            "integrated_embeddings": integrated_embeddings,
+            "expression_for_markers": expression_for_markers,
+            "expression_for_annotation": expression_for_markers,
+            "expression_for_de": expression_for_de,
+            "hvg_key": hvg_key if hvg_key in adata.var else None,
+            "raw_present": adata.raw is not None,
+            "normalized_layer_present": normalized_layer in adata.layers,
+            "scaled_layer_present": scaled_layer in adata.layers,
+            "safe_uses": {
+                "graph_clustering_umap": graph_representation,
+                "marker_annotation_review": expression_for_markers,
+                "condition_de": expression_for_de,
+                "proportion_analysis": "obs cell labels plus sample metadata",
+            },
+            "unsafe_uses": [
+                "Do not use integrated embeddings or scaled expression as the primary matrix for marker or condition-DE claims.",
+                "Do not treat UMAP geometry as quantitative biological distance.",
+            ],
+            "blockers": blockers,
+            "review_items": review_items,
+            "warnings": warnings,
+        }
+    )
+
+
 def build_preprocess_readiness_assessment(
     *,
     adata: AnnData,
@@ -1868,6 +1987,13 @@ def build_preprocess_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, An
             rationale="Preprocessing-to-analysis handoff guidance.",
             related_keys=["downstream_analysis_recommendations"],
         ),
+        EvidenceItem(
+            source="contract",
+            name="analysis_handoff_readiness",
+            value=summary.get("analysis_handoff_readiness", {}),
+            rationale="Declares which preprocessing outputs are safe for graph, marker, annotation, DE, and tumor-analysis handoff.",
+            related_keys=["analysis_handoff_readiness", "preprocess_layer_contract"],
+        ),
     ]
     actions = [
         ReviewAction(
@@ -1907,6 +2033,7 @@ def build_preprocess_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, An
             "hvg_selection_evidence_summary",
             "tumor_aware_batch_correction_warnings",
             "downstream_analysis_recommendations",
+            "analysis_handoff_readiness",
             "preprocess_readiness",
             "review_action_items",
         ],
@@ -1931,6 +2058,7 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
     normalization_policy = payload.get("normalization_decision_policy")
     hvg_summary = payload.get("hvg_selection_evidence_summary")
     readiness = payload.get("preprocess_readiness", {})
+    handoff = payload.get("analysis_handoff_readiness", {})
     evidence_bundle = payload.get("evidence_bundle")
     qc_context = payload.get("qc_input_context", {})
 
@@ -1967,6 +2095,8 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
         issues.append("hvg_selection_evidence_summary must be present.")
     if not isinstance(readiness, Mapping) or "status" not in readiness:
         issues.append("preprocess_readiness assessment must be present.")
+    if not isinstance(handoff, Mapping) or "status" not in handoff:
+        issues.append("analysis_handoff_readiness assessment must be present.")
     if not isinstance(evidence_bundle, Mapping) or evidence_bundle.get("module") != "preprocess":
         issues.append("evidence_bundle must be present and identify module='preprocess'.")
     if not isinstance(qc_context, Mapping):
@@ -1975,6 +2105,8 @@ def build_preprocess_module_maturity_assessment(summary: Mapping[str, Any]) -> d
     review_required: list[str] = []
     if isinstance(readiness, Mapping) and readiness.get("status") != "ready":
         review_required.append(f"preprocess_readiness.status={readiness.get('status')}")
+    if isinstance(handoff, Mapping) and handoff.get("status") != "ready":
+        review_required.append(f"analysis_handoff_readiness.status={handoff.get('status')}")
     if isinstance(qc_context, Mapping) and not qc_context.get("available"):
         review_required.append("qc_input_context.available=False")
     if isinstance(qc_context, Mapping) and not qc_context.get("counts_layer_present"):
@@ -2059,6 +2191,7 @@ def summarize_preprocess_review_summary(summary: Mapping[str, Any]) -> dict[str,
         if isinstance(payload, Mapping)
         else {}
     )
+    handoff = payload.get("analysis_handoff_readiness", {}) if isinstance(payload, Mapping) else {}
 
     pca = params.get("pca", {}) if isinstance(params.get("pca"), Mapping) else {}
     graph = params.get("neighbors_umap", {}) if isinstance(params.get("neighbors_umap"), Mapping) else {}
@@ -2097,6 +2230,10 @@ def summarize_preprocess_review_summary(summary: Mapping[str, Any]) -> dict[str,
             "umap_computed": graph.get("umap_computed"),
             "downstream_status": downstream.get("status"),
             "ready_for_analysis": downstream.get("ready_for_analysis"),
+            "analysis_handoff_status": handoff.get("status"),
+            "graph_representation": handoff.get("graph_representation"),
+            "expression_for_markers": handoff.get("expression_for_markers"),
+            "expression_for_de": handoff.get("expression_for_de"),
         }
     )
 
@@ -2207,6 +2344,26 @@ def validate_preprocessing_review_summary(
         errors.append("Preprocessing review summary field 'module_maturity' must be a mapping.")
     elif maturity.get("module") != "preprocess":
         errors.append("Preprocessing module_maturity.module must be 'preprocess'.")
+    handoff = summary.get("analysis_handoff_readiness")
+    if not isinstance(handoff, Mapping):
+        errors.append(
+            "Preprocessing review summary field 'analysis_handoff_readiness' must be a mapping."
+        )
+    else:
+        required_handoff_fields = {
+            "status",
+            "ready_for_analysis",
+            "graph_representation",
+            "expression_for_markers",
+            "expression_for_de",
+            "safe_uses",
+            "unsafe_uses",
+        }
+        missing_handoff = sorted(required_handoff_fields - set(handoff.keys()))
+        if missing_handoff:
+            errors.append(
+                f"Preprocessing analysis_handoff_readiness missing fields: {missing_handoff}"
+            )
     if errors and raise_on_error:
         raise ValueError("; ".join(errors))
     return errors
@@ -2342,6 +2499,7 @@ __all__ = [
     "PREPROCESS_TRACE_SCHEMA_VERSION",
     "build_applied_parameter_summary",
     "build_downstream_analysis_recommendations",
+    "build_analysis_handoff_readiness",
     "build_hvg_selection_evidence_summary",
     "build_layer_transition_summary",
     "build_layer_transition_table",

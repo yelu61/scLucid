@@ -141,6 +141,14 @@ def test_run_preprocessing_review_summary_has_benchmark_sections():
         assert "claim_levels" in row
         assert "scientific_semantics" in row
     assert review["downstream_analysis_recommendations"]["ready_for_analysis"] is True
+    handoff = review["analysis_handoff_readiness"]
+    assert handoff["schema_version"] == "analysis_handoff_readiness_v1"
+    assert handoff["ready_for_analysis"] is True
+    assert handoff["graph_representation"] == "X_pca"
+    assert handoff["expression_for_markers"] in {"adata.raw.X", "adata.layers['normalized']"}
+    assert handoff["expression_for_de"] == "adata.layers['normalized']"
+    assert handoff["safe_uses"]["graph_clustering_umap"] == "X_pca"
+    assert any("integrated embeddings" in item.lower() for item in handoff["unsafe_uses"])
     assert review["preprocess_readiness"]["status"] in {"ready", "review_required"}
 
 
@@ -163,6 +171,7 @@ def test_run_preprocessing_review_summary_contains_evidence_bundle():
     assert any(item["name"] == "step_evidence_summary" for item in bundle["evidence_chain"])
     assert any(item["name"] == "preprocess_method_semantics" for item in bundle["evidence_chain"])
     assert any(item["name"] == "preprocess_decision_summary" for item in bundle["evidence_chain"])
+    assert any(item["name"] == "analysis_handoff_readiness" for item in bundle["evidence_chain"])
     assert "applied_parameter_summary" in bundle["related_review_keys"]
     assert "normalization_decision_policy" in bundle["related_review_keys"]
     assert "preprocess_layer_contract" in bundle["related_review_keys"]
@@ -170,6 +179,7 @@ def test_run_preprocessing_review_summary_contains_evidence_bundle():
     assert "preprocess_reviewer_table" in bundle["related_review_keys"]
     assert "preprocess_method_semantics" in bundle["related_review_keys"]
     assert "step_evidence_summary" in bundle["related_review_keys"]
+    assert "analysis_handoff_readiness" in bundle["related_review_keys"]
 
 
 def test_tumor_preprocessing_records_batch_correction_warning():
@@ -225,6 +235,9 @@ def test_preprocess_module_maturity_and_compact_summary():
     assert compact["step_status_counts"]["complete"] >= 5
     assert compact["preprocess_decision_counts"]["use"] >= 4
     assert compact["primary_downstream_representation"] == "X_pca"
+    assert compact["analysis_handoff_status"] in {"ready", "review_required"}
+    assert compact["graph_representation"] == "X_pca"
+    assert compact["expression_for_de"] == "adata.layers['normalized']"
 
 
 def test_preprocess_module_completeness_detects_missing_result():
@@ -255,10 +268,12 @@ def test_preprocess_module_contract_is_public():
     assert "preprocess_reviewer_table" in contract["required_review_sections"]
     assert "preprocess_method_semantics" in contract["required_review_sections"]
     assert "normalization_decision_policy" in contract["required_review_sections"]
+    assert "analysis_handoff_readiness" in contract["required_review_sections"]
     assert contract["normalization_policy_key"] == "normalization_decision_policy"
     assert contract["decision_summary_key"] == "preprocess_decision_summary"
     assert contract["reviewer_table_key"] == "preprocess_reviewer_table"
     assert contract["method_semantics_key"] == "preprocess_method_semantics"
+    assert contract["analysis_handoff_key"] == "analysis_handoff_readiness"
     assert "adata.layers['normalized']" in contract["expected_outputs"]
 
 

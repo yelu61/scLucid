@@ -15,7 +15,7 @@ Local notebooks:
 Repository evidence:
 
 - QC validation scripts in `validation/qc/`.
-- Preprocess validation scripts in `validation/preprocess_analysis/`.
+- Preprocess validation scripts in `validation/preprocess/`.
 - Real data fixtures in `data/`.
 - Existing validation outputs under `validation_outputs/`.
 

@@ -194,7 +194,7 @@ Preprocessing hardening tasks:
 - test small datasets where PCA components and neighbors must be clipped
   safely
 - maintain real-data evidence runners under
-  `validation/preprocess_analysis/` for layer contracts, HVG
+  `validation/preprocess/` for layer contracts, HVG
   marker/program preservation, batch-correction diagnostics, and graph
   handoff stability
 

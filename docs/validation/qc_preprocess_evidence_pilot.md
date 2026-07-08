@@ -230,7 +230,7 @@ Evidence role:
 Script:
 
 ```bash
-python validation/preprocess_analysis/run_layer_contract_benchmark.py
+python validation/preprocess/run_layer_contract_benchmark.py
 ```
 
 Outputs:
@@ -250,7 +250,7 @@ Evidence role:
 Script:
 
 ```bash
-python validation/preprocess_analysis/run_hvg_marker_preservation_benchmark.py
+python validation/preprocess/run_hvg_marker_preservation_benchmark.py
 ```
 
 Outputs:
@@ -286,7 +286,7 @@ Pilot observations:
 Script:
 
 ```bash
-python validation/preprocess_analysis/run_batch_correction_diagnostic_benchmark.py
+python validation/preprocess/run_batch_correction_diagnostic_benchmark.py
 ```
 
 Outputs:
@@ -316,7 +316,7 @@ Pilot observations:
 Script:
 
 ```bash
-python validation/preprocess_analysis/run_graph_stability_benchmark.py
+python validation/preprocess/run_graph_stability_benchmark.py
 ```
 
 Outputs:

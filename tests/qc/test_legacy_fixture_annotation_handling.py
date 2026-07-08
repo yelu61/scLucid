@@ -6,7 +6,7 @@ from anndata import AnnData
 
 from validation.qc.run_threshold_benchmark import _retention_rows
 from validation.qc.run_tumor_biological_fidelity_benchmark import _retention_bias_rows
-from validation.preprocess_analysis.run_graph_stability_benchmark import _rare_population_rows
+from validation.preprocess.run_graph_stability_benchmark import _rare_population_rows
 
 
 def test_threshold_retention_records_missing_cell_type():
