@@ -12,6 +12,9 @@
 - tumor-aware warning 能避免误删真实肿瘤状态。
 - doublet evidence 能整合算法、谱系共表达和外部证据。
 - QC 输出对后续 preprocess/analysis 有明确影响说明。
+- QC-to-preprocess handoff 能明确推荐 counts layer、保留
+  `qc_decision` / `qc_remove` / `qc_review_required`，并说明哪些细胞应进入
+  review 或 sensitivity-only 记录。
 
 本 phase 的 vision task 是把 QC 从“过滤坏细胞”推进为“生物学风险归因”：
 高 MT%、低检测基因数、ambient、doublet-like、stress-high 或 hypoxia-like
@@ -77,6 +80,9 @@
 - affected cells。
 - risk note。
 - **model evidence**：count-model AIC, MT component separation, stratum baselines。
+- **handoff readiness**：recommended preprocess counts layer,
+  review/sensitivity cell fractions, safe-to-continue flags, blockers, and
+  downstream handling requirements.
 
 标准字段：
 
@@ -165,6 +171,8 @@ Phase 2 通过条件：
   validation datasets，其中 7 个进入 threshold/tumor/doublet/ambient QC
   evidence 路径。
 - 每个 benchmark 输出都有 machine-readable reviewer/source table。
+- 标准 QC review summary 包含 `qc_handoff_readiness`，可直接被 preprocess
+  和 Figure evidence package 消费。
 - 至少 2 个 tumor case 显示 scLucid QC 相比固定阈值更少误伤关键生物信号。当前 PDAC/NSCLC/CRC 通过 marker/program retention proxy 支撑该方向。
 - doublet evidence 有算法对照、fallback、Python/R parity、threshold
   calibration、algorithm_weight recommendation 和解释表。
@@ -180,6 +188,8 @@ Phase 2 通过条件：
 - `validation_outputs/qc_figure2_package/qc_evidence_report.md`。
 - Figure 2 数据表和绘图脚本。
 - QC audit report 示例。
+- QC-to-preprocess handoff source rows for the combined QC/preprocess Figure X
+  package and real-project acceptance review.
 
 ## 推荐主图
 

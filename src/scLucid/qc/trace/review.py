@@ -40,6 +40,7 @@ def get_qc_module_contract() -> dict[str, Any]:
         "expected_sidecar_artifacts": list(QC_EXPECTED_ARTIFACTS),
         "canonical_namespace": 'adata.uns["sclucid"]["qc"]',
         "readiness_key": "qc_readiness",
+        "handoff_key": "qc_handoff_readiness",
         "decision_table_key": "decision_table",
         "evidence_bundle_key": "evidence_bundle",
     }
@@ -1334,6 +1335,173 @@ def build_downstream_preprocess_recommendations(
                 "retention_fraction": retention,
                 "sample_specific_thresholds_available": bool(sample_thresholds),
             },
+        }
+    )
+
+
+def build_qc_handoff_readiness(
+    *,
+    adata: AnnData,
+    context: Mapping[str, Any],
+    filtering_summary: Mapping[str, Any],
+    output_health: Mapping[str, Any],
+    downstream_recommendations: Mapping[str, Any],
+    filtering_policy_summary: Mapping[str, Any] | None = None,
+    retention_audit_summary: Mapping[str, Any] | None = None,
+    doublet_evidence_summary: Mapping[str, Any] | None = None,
+    ambient_evidence_summary: Mapping[str, Any] | None = None,
+    tumor_aware_summary: Mapping[str, Any] | None = None,
+    post_annotation_qc_review: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Declare the QC-to-preprocess handoff contract for downstream use."""
+    blockers = list(output_health.get("issues", []))
+    blockers.extend(downstream_recommendations.get("blockers", []))
+    blockers = list(dict.fromkeys(str(item) for item in blockers))
+    review_items: list[str] = []
+    warnings: list[str] = []
+
+    downstream_inputs = downstream_recommendations.get("input_assumptions", {})
+    filtering_context = downstream_recommendations.get("filtering_context", {})
+    recommended_counts_layer = None
+    for item in downstream_recommendations.get("recommendations", []):
+        if isinstance(item, Mapping) and item.get("target") == "counts_layer":
+            suggested = item.get("suggested_config", {})
+            if isinstance(suggested, Mapping):
+                recommended_counts_layer = suggested.get("layer")
+            break
+    if recommended_counts_layer is None and "counts" in adata.layers:
+        recommended_counts_layer = "counts"
+
+    obs = adata.obs
+
+    def _bool_count(column: str) -> int:
+        if column not in obs:
+            return 0
+        return int(obs[column].fillna(False).astype(bool).sum())
+
+    def _fraction(count: int) -> float | None:
+        return float(count) / float(adata.n_obs) if adata.n_obs else None
+
+    qc_decision_counts = (
+        obs["qc_decision"].astype(str).value_counts().to_dict()
+        if "qc_decision" in obs
+        else {}
+    )
+    remove_count = _bool_count("qc_remove")
+    review_count = _bool_count("qc_review_required")
+    sensitivity_count = int(qc_decision_counts.get("sensitivity_only", 0))
+    doublet_like_count = _bool_count("predicted_doublet")
+    ambient_risk_count = _bool_count("ambient_risk")
+    stress_high_count = _bool_count("stress_high")
+    high_mt_count = _bool_count("qc_high_mt") or _bool_count("outlier_mt")
+
+    if not recommended_counts_layer:
+        blockers.append("No auditable raw counts layer was available for preprocessing handoff.")
+    elif recommended_counts_layer not in adata.layers:
+        blockers.append(
+            f"Recommended preprocess counts layer {recommended_counts_layer!r} is not present in adata.layers."
+        )
+
+    policy = filtering_policy_summary or {}
+    if policy.get("review_required"):
+        review_items.append(str(policy.get("risk_note")))
+    retention = output_health.get("retention_fraction")
+    if isinstance(retention, (int, float)) and retention < 0.5:
+        review_items.append(
+            f"QC retained {retention:.1%} of cells; inspect sample/cell-type retention before preprocessing."
+        )
+    retention_audit = retention_audit_summary or {}
+    if retention_audit.get("retention_review_required"):
+        review_items.append(
+            str(
+                retention_audit.get(
+                    "mandatory_review_note",
+                    "Retention audit requires review before downstream interpretation.",
+                )
+            )
+        )
+    if (doublet_evidence_summary or {}).get("review_required"):
+        review_items.append("Doublet evidence requires review before irreversible exclusion.")
+    if (ambient_evidence_summary or {}).get("review_required"):
+        review_items.append("Ambient RNA evidence requires review before choosing preprocess counts.")
+    if (post_annotation_qc_review or {}).get("review_required"):
+        review_items.append("Post-annotation QC review recommends sensitivity/review handling.")
+
+    tumor_aware = bool((tumor_aware_summary or {}).get("enabled")) or _is_tumor_context(
+        context.get("tissue_type")
+    )
+    if tumor_aware:
+        tumor_warnings = list((tumor_aware_summary or {}).get("warnings", []))
+        review_items.extend(str(item) for item in tumor_warnings)
+        warnings.append(
+            "Tumor-aware QC should keep high-MT, stress-high, or cycling malignant-like states in review/sensitivity records unless clearly technical."
+        )
+
+    if review_count or sensitivity_count:
+        warnings.append(
+            "Review and sensitivity_only cells should be tracked through preprocessing outputs for sensitivity analysis, not silently dropped from interpretation."
+        )
+
+    status = "blocked" if blockers else ("review_required" if review_items or warnings else "ready")
+    return _json_safe(
+        {
+            "schema_version": "qc_handoff_readiness_v1",
+            "status": status,
+            "ready_for_preprocess": not blockers,
+            "recommended_preprocess_counts_layer": recommended_counts_layer,
+            "counts_layer_present": bool(
+                recommended_counts_layer and recommended_counts_layer in adata.layers
+            ),
+            "filtering_decision_columns": {
+                "qc_decision": "qc_decision" in obs,
+                "qc_remove": "qc_remove" in obs,
+                "qc_review_required": "qc_review_required" in obs,
+            },
+            "cell_decision_counts": qc_decision_counts,
+            "handoff_cell_counts": {
+                "n_cells": int(adata.n_obs),
+                "remove": remove_count,
+                "review_required": review_count,
+                "sensitivity_only": sensitivity_count,
+                "doublet_like": doublet_like_count,
+                "ambient_risk": ambient_risk_count,
+                "stress_high": stress_high_count,
+                "high_mitochondrial": high_mt_count,
+            },
+            "handoff_cell_fractions": {
+                "remove": _fraction(remove_count),
+                "review_required": _fraction(review_count),
+                "sensitivity_only": _fraction(sensitivity_count),
+                "doublet_like": _fraction(doublet_like_count),
+                "ambient_risk": _fraction(ambient_risk_count),
+                "stress_high": _fraction(stress_high_count),
+                "high_mitochondrial": _fraction(high_mt_count),
+            },
+            "safe_to_continue": {
+                "preprocess": not blockers,
+                "graph_analysis": not blockers,
+                "marker_annotation": not blockers,
+                "condition_de": not blockers and not review_items,
+                "tumor_state_interpretation": not blockers and not tumor_aware,
+            },
+            "required_downstream_handling": [
+                "Use the recommended counts layer for normalization and layer contracts.",
+                "Carry qc_decision/qc_remove/qc_review_required columns into downstream AnnData objects.",
+                "Use review/sensitivity_only cells for sensitivity analysis when biological fragility is plausible.",
+            ],
+            "input_assumptions": {
+                "sample_key": context.get("sample_key"),
+                "n_samples": context.get("n_samples"),
+                "tumor_aware": tumor_aware,
+                "downstream_ready_for_preprocess": downstream_recommendations.get(
+                    "ready_for_preprocess"
+                ),
+                "filtering_context": filtering_context,
+                "downstream_input_assumptions": downstream_inputs,
+            },
+            "blockers": blockers,
+            "review_items": list(dict.fromkeys(str(item) for item in review_items if item)),
+            "warnings": warnings,
         }
     )
 

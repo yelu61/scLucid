@@ -34,6 +34,7 @@ from .review import (
     build_qc_evidence_chain,
     build_qc_execution_trace,
     build_qc_filtering_policy_summary,
+    build_qc_handoff_readiness,
     build_qc_output_health,
     build_qc_policy_flow,
     build_qc_readiness_assessment,
@@ -148,6 +149,22 @@ def build_qc_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, Any]:
             )
         )
 
+    handoff = summary.get("qc_handoff_readiness", {})
+    if isinstance(handoff, Mapping):
+        evidence_chain.append(
+            EvidenceItem(
+                source="contract",
+                name="qc_handoff_readiness",
+                value=handoff,
+                rationale=(
+                    "Declares the QC-to-preprocess handoff, including recommended counts layer, "
+                    "cell decision columns, review/sensitivity cells, and downstream safety."
+                ),
+                limitations=list(str(item) for item in handoff.get("warnings", [])),
+                related_keys=["qc_handoff_readiness", "downstream_preprocess_recommendations"],
+            )
+        )
+
     action_items = [
         ReviewAction(
             priority=item.get("priority", "review"),
@@ -178,6 +195,7 @@ def build_qc_evidence_bundle(summary: Mapping[str, Any]) -> dict[str, Any]:
             "decision_table",
             "qc_reviewer_table",
             "evidence_chain",
+            "qc_handoff_readiness",
             "qc_readiness",
             "review_action_items",
             "reproducibility_manifest",
@@ -203,6 +221,7 @@ def build_qc_module_maturity_assessment(summary: Mapping[str, Any]) -> dict[str,
     decision_table = payload.get("decision_table")
     evidence_bundle = payload.get("evidence_bundle")
     readiness = payload.get("qc_readiness", {})
+    handoff = payload.get("qc_handoff_readiness", {})
     output_health = payload.get("output_health", {})
     manifest = payload.get("reproducibility_manifest", {})
 
@@ -215,6 +234,8 @@ def build_qc_module_maturity_assessment(summary: Mapping[str, Any]) -> dict[str,
         issues.append("QC evidence_bundle must be present and identify module='qc'.")
     if not isinstance(readiness, Mapping) or "status" not in readiness:
         issues.append("QC readiness assessment must be present.")
+    if not isinstance(handoff, Mapping) or "status" not in handoff:
+        issues.append("QC handoff readiness assessment must be present.")
     if not isinstance(output_health, Mapping) or "status" not in output_health:
         issues.append("QC output_health summary must be present.")
     if not isinstance(manifest, Mapping) or manifest.get("workflow") != "run_standard_qc":
@@ -223,6 +244,8 @@ def build_qc_module_maturity_assessment(summary: Mapping[str, Any]) -> dict[str,
     review_required = []
     if isinstance(readiness, Mapping) and readiness.get("status") != "ready":
         review_required.append(f"qc_readiness.status={readiness.get('status')}")
+    if isinstance(handoff, Mapping) and handoff.get("status") != "ready":
+        review_required.append(f"qc_handoff_readiness.status={handoff.get('status')}")
     if isinstance(output_health, Mapping) and output_health.get("status") != "ok":
         review_required.append(f"output_health.status={output_health.get('status')}")
 
@@ -256,6 +279,7 @@ def summarize_qc_review_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
     """Return a compact user-facing summary of the QC review bundle."""
     payload = _review_payload(summary)
     readiness = payload.get("qc_readiness", {}) if isinstance(payload, Mapping) else {}
+    handoff = payload.get("qc_handoff_readiness", {}) if isinstance(payload, Mapping) else {}
     filtering = payload.get("filtering_summary", {}) if isinstance(payload, Mapping) else {}
     recommendation = (
         payload.get("recommended_threshold_summary", {}) if isinstance(payload, Mapping) else {}
@@ -331,6 +355,27 @@ def summarize_qc_review_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
             "maturity_status": maturity.get("status"),
             "readiness_status": readiness.get("status"),
             "readiness_score": readiness.get("score"),
+            "qc_handoff_status": handoff.get("status") if isinstance(handoff, Mapping) else None,
+            "ready_for_preprocess": (
+                handoff.get("ready_for_preprocess") if isinstance(handoff, Mapping) else None
+            ),
+            "recommended_preprocess_counts_layer": (
+                handoff.get("recommended_preprocess_counts_layer")
+                if isinstance(handoff, Mapping)
+                else None
+            ),
+            "review_required_cell_fraction": (
+                handoff.get("handoff_cell_fractions", {}).get("review_required")
+                if isinstance(handoff, Mapping)
+                and isinstance(handoff.get("handoff_cell_fractions"), Mapping)
+                else None
+            ),
+            "sensitivity_cell_fraction": (
+                handoff.get("handoff_cell_fractions", {}).get("sensitivity_only")
+                if isinstance(handoff, Mapping)
+                and isinstance(handoff.get("handoff_cell_fractions"), Mapping)
+                else None
+            ),
             "verdict": readiness.get("verdict"),
             "recommendation_available": recommendation.get("available"),
             "overall_confidence": recommendation.get("overall_confidence"),
@@ -576,6 +621,19 @@ def enrich_qc_review_summary(
         decision_table=decision_table,
     )
     summary["downstream_preprocess_recommendations"] = downstream_recommendations
+    summary["qc_handoff_readiness"] = build_qc_handoff_readiness(
+        adata=adata,
+        context=context,
+        filtering_summary=filtering_summary,
+        output_health=output_health,
+        downstream_recommendations=downstream_recommendations,
+        filtering_policy_summary=filtering_policy_summary,
+        retention_audit_summary=retention_audit_summary,
+        doublet_evidence_summary=doublet_evidence_summary,
+        ambient_evidence_summary=ambient_evidence_summary,
+        tumor_aware_summary=summary.get("tumor_aware_summary", {}),
+        post_annotation_qc_review=post_annotation_review,
+    )
     readiness = build_qc_readiness_assessment(
         output_health=output_health,
         downstream_recommendations=downstream_recommendations,
@@ -668,6 +726,24 @@ def validate_qc_review_summary(
     readiness = summary.get("qc_readiness")
     if not isinstance(readiness, Mapping):
         errors.append("QC review summary field 'qc_readiness' must be a mapping.")
+    handoff = summary.get("qc_handoff_readiness")
+    if not isinstance(handoff, Mapping):
+        errors.append("QC review summary field 'qc_handoff_readiness' must be a mapping.")
+    else:
+        required_handoff_fields = {
+            "status",
+            "ready_for_preprocess",
+            "recommended_preprocess_counts_layer",
+            "counts_layer_present",
+            "filtering_decision_columns",
+            "handoff_cell_counts",
+            "handoff_cell_fractions",
+            "safe_to_continue",
+            "required_downstream_handling",
+        }
+        missing_handoff = sorted(required_handoff_fields - set(handoff.keys()))
+        if missing_handoff:
+            errors.append(f"QC qc_handoff_readiness missing fields: {missing_handoff}")
     actions = summary.get("review_action_items")
     if not isinstance(actions, (list, dict)):
         errors.append("QC review summary field 'review_action_items' must be a list or dict.")

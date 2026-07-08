@@ -32,6 +32,10 @@ Figure 2:
   ambient diagnostic contract, and dataset coverage.
 - `qc_figure2_package/qc_evidence_report.md`: compact reviewer-oriented report
   that states which claims are supported, partial, or contract-only.
+- `adata.uns["sclucid"]["qc"]["review_summary"]["data"]["qc_handoff_readiness"]`:
+  QC-to-preprocess contract with the recommended counts layer,
+  review/sensitivity cell fractions, decision-column availability,
+  safe-to-continue flags, blockers, and required downstream handling.
 - `qc_workflow_decision_table.tsv`: reviewer table with recommended, applied,
   source, confidence, evidence, review_required, affected_cells,
   biological_guardrail, strategy_rank, recommended_policy,
@@ -125,6 +129,20 @@ Minimum credible Phase 3 comparisons:
 - scLucid diagnostic-only integration recommendation.
 - Opt-in Harmony on batch-heavy datasets when available.
 - Scanpy standard workflow baseline.
+
+## Figure X + Real-Project Feedback Loop
+
+The next evidence milestone is a combined QC/preprocess Figure X package. It
+should consume the stable review-summary contracts rather than re-derive meaning
+from raw workflow internals:
+
+- QC contributes threshold decisions, retention/tumor/doublet/ambient evidence,
+  `qc_handoff_readiness`, and claim-level status.
+- Preprocess contributes layer contracts, HVG preservation, batch/graph
+  diagnostics, `analysis_handoff_readiness`, and downstream-use safety flags.
+- Real-project acceptance runs should record where the contract was clear,
+  where analysts still needed manual interpretation, and which defaults caused
+  avoidable review churn.
 
 ## First Scripts
 

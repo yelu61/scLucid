@@ -53,6 +53,8 @@ QC should answer four user questions:
 2.  Why were they recommended?
 3.  What was actually applied?
 4.  What biological or technical risk remains after filtering?
+5.  What exactly is safe to hand off to preprocessing, and which cells
+    must remain in review or sensitivity records?
 
 Required QC outputs:
 
@@ -75,6 +77,9 @@ Required QC outputs:
   sample when labels are available
 - `review_summary["qc_benchmark_scorecard"]` summarizing threshold,
   doublet, ambient, retention, and post-annotation sensitivity evidence
+- `review_summary["qc_handoff_readiness"]` declaring the recommended
+  preprocessing counts layer, retained decision columns, review/sensitivity
+  cell fractions, downstream safe-to-continue flags, and blockers
 - optional report sidecars under the configured `save_dir`
 
 QC reporting boundary:
@@ -113,6 +118,9 @@ QC hardening tasks:
 - keep doublet benchmark evidence connected to normal QC reports through
   `doublet_evidence_summary`, rather than requiring users to inspect raw
   doublet parameter payloads
+- keep `qc_handoff_readiness` as the QC-to-preprocess contract so real
+  projects can distinguish removed cells, review-required cells,
+  sensitivity-only cells, and tumor-fragile states before preprocessing
 - maintain the Figure 2 QC evidence package under
   `validation_outputs/qc_figure2_package/` so threshold, tumor-aware,
   doublet, and ambient evidence are summarized in one source-data table
@@ -129,6 +137,9 @@ Current QC evidence status:
 
 - QC decision auditability is supported across the local benchmark
   inventory by threshold decision tables and strategy scorecards.
+- QC-to-preprocess handoff is now a first-class review-summary section,
+  which makes the recommended counts layer and review/sensitivity cell
+  handling machine-readable for downstream workflows.
 - Tumor-aware biological fidelity is supported as a proxy claim across
   PDAC, NSCLC, and CRC through marker/program retention and high-mt
   biological-signal checks.
@@ -211,6 +222,11 @@ Preprocessing hardening tasks:
 4.  Only then polish analysis. Analysis quality depends on the first two
     modules. Annotation and tumor interpretation should be improved
     after QC and preprocessing are reliable.
+5.  Build the combined QC/preprocess Figure X evidence package from the
+    stabilized review summaries, then run it inside active real projects
+    as an acceptance loop. Every mismatch between reviewer output and
+    analyst expectation should become a contract, default, or document
+    improvement.
 
 ## Definition Of Done For A Module
 

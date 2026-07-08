@@ -163,6 +163,7 @@ _export(
         "QC_REQUIRED_OBS_METRICS",
         "QC_STABLE_ENTRYPOINTS",
         "build_qc_decision_table",
+        "build_qc_handoff_readiness",
         "build_ambient_evidence_summary",
         "build_post_annotation_qc_review",
         "build_qc_benchmark_scorecard",

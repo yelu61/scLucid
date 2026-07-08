@@ -108,6 +108,7 @@ REVIEW_SUMMARY_SECTIONS = {
     "filtering_summary",
     "warnings",
     "downstream_preprocess_recommendations",
+    "qc_handoff_readiness",
     "qc_readiness",
     "review_action_items",
     "reproducibility_manifest",
@@ -166,6 +167,12 @@ def test_qc_review_summary_tumor_aware_flag(adata_pbmc):
     assert review["tumor_aware_summary"]["mitochondrial_filtering_enabled"] is False
     downstream = review["downstream_preprocess_recommendations"]
     assert any(item["target"] == "tumor_preservation" for item in downstream["recommendations"])
+    handoff = review["qc_handoff_readiness"]
+    assert handoff["status"] in {"ready", "review_required"}
+    assert handoff["ready_for_preprocess"] is True
+    assert handoff["input_assumptions"]["tumor_aware"] is True
+    assert handoff["safe_to_continue"]["tumor_state_interpretation"] is False
+    assert any("Tumor-aware QC" in item for item in handoff["warnings"])
     assert review["qc_readiness"]["status"] == "review_required"
     assert any(
         item["evidence_key"] == "tumor_aware_summary.warnings"
@@ -226,6 +233,14 @@ def test_qc_module_maturity_and_compact_summary(adata_pbmc):
     assert compact["module"] == "qc"
     assert compact["final_cells"] == payload["filtering_summary"]["final_cells"]
     assert "min_genes" in compact["applied_thresholds"]
+    assert compact["qc_handoff_status"] in {"ready", "review_required"}
+    assert compact["ready_for_preprocess"] is True
+    assert compact["recommended_preprocess_counts_layer"] == "counts"
+    assert compact["review_required_cell_fraction"] is not None
+
+    bundle = payload["evidence_bundle"]
+    assert any(item["name"] == "qc_handoff_readiness" for item in bundle["evidence_chain"])
+    assert "qc_handoff_readiness" in bundle["related_review_keys"]
 
 
 def test_qc_module_completeness_detects_missing_result(adata_pbmc):
@@ -245,4 +260,6 @@ def test_qc_module_contract_is_public():
     assert contract["module"] == "qc"
     assert "scLucid.qc.run_standard_qc" in contract["stable_entrypoints"]
     assert "decision_table" in contract["required_review_sections"]
+    assert "qc_handoff_readiness" in contract["required_review_sections"]
+    assert contract["handoff_key"] == "qc_handoff_readiness"
     assert "n_genes_by_counts" in contract["required_obs_metrics"]
