@@ -117,7 +117,19 @@ def _review_summary_rows(project: str, source: Path, sclucid: dict[str, Any], sh
             "reviewer_table_rows": _json_len(payload.get("reviewer_table") or payload.get("preprocess_reviewer_table")),
             "decision_table_rows": _json_len(payload.get("decision_table") or payload.get("qc_decision_table")),
             "benchmark_present": _bool(payload.get("benchmark_summary") or payload.get("benchmark_scorecard")),
-            "readiness_status": _get_nested(payload, ["preprocess_readiness", "status"], ""),
+            "readiness_status": (
+                _get_nested(payload, ["qc_readiness", "status"], "")
+                or _get_nested(payload, ["preprocess_readiness", "status"], "")
+            ),
+            "handoff_status": (
+                _get_nested(payload, ["qc_handoff_readiness", "status"], "")
+                or _get_nested(payload, ["analysis_handoff_readiness", "status"], "")
+            ),
+            "handoff_ready": (
+                _get_nested(payload, ["qc_handoff_readiness", "ready_for_preprocess"], "")
+                if module == "qc"
+                else _get_nested(payload, ["analysis_handoff_readiness", "ready_for_analysis"], "")
+            ),
             "module_maturity_score": _get_nested(payload, ["module_maturity_assessment", "overall_score"], ""),
         }
         rows.append(completeness)
@@ -133,16 +145,55 @@ def _decision_rows(project: str, source: Path, sclucid: dict[str, Any]) -> list[
     analysis_payload = _as_dict(_get_nested(sclucid, ["analysis", "review_summary", "data"], {}))
 
     if qc_payload:
+        qc_handoff = _as_dict(qc_payload.get("qc_handoff_readiness"))
         rows.append(
             {
                 "project": project,
                 "source": str(source),
                 "stage": "qc",
                 "decision": "cell_filtering",
-                "value": _get_nested(qc_payload, ["retention_summary", "retention_fraction"], ""),
-                "evidence": "retention_summary",
+                "value": (
+                    _get_nested(qc_payload, ["filtering_summary", "removed_fraction"], "")
+                    or _get_nested(qc_payload, ["retention_summary", "retention_fraction"], "")
+                ),
+                "evidence": "qc.review_summary.filtering_summary",
                 "review_required": _bool(qc_payload.get("review_action_items")),
                 "reason": "; ".join(str(x.get("action", x)) for x in _as_list(qc_payload.get("review_action_items"))[:3]),
+            }
+        )
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "qc",
+                "decision": "qc_to_preprocess_handoff",
+                "value": qc_handoff.get("recommended_preprocess_counts_layer", ""),
+                "evidence": "qc.review_summary.qc_handoff_readiness",
+                "review_required": _bool(qc_handoff.get("status") != "ready"),
+                "reason": "; ".join(
+                    str(item)
+                    for item in (
+                        _as_list(qc_handoff.get("blockers"))
+                        + _as_list(qc_handoff.get("review_items"))
+                        + _as_list(qc_handoff.get("warnings"))
+                    )[:3]
+                ),
+            }
+        )
+        rows.append(
+            {
+                "project": project,
+                "source": str(source),
+                "stage": "qc",
+                "decision": "review_sensitivity_cell_tracking",
+                "value": _get_nested(qc_handoff, ["handoff_cell_fractions", "review_required"], ""),
+                "evidence": "qc.review_summary.qc_handoff_readiness.handoff_cell_fractions",
+                "review_required": _bool(
+                    _get_nested(qc_handoff, ["handoff_cell_counts", "review_required"], 0)
+                    or _get_nested(qc_handoff, ["handoff_cell_counts", "sensitivity_only"], 0)
+                ),
+                "reason": "review_required_fraction="
+                + str(_get_nested(qc_handoff, ["handoff_cell_fractions", "review_required"], "")),
             }
         )
         rows.append(
@@ -158,6 +209,7 @@ def _decision_rows(project: str, source: Path, sclucid: dict[str, Any]) -> list[
             }
         )
     if preprocess_payload or iterative_pp:
+        handoff = _as_dict(preprocess_payload.get("analysis_handoff_readiness"))
         integration = _as_dict(iterative_pp.get("integration_decision") or _get_nested(preprocess_payload, ["integration_decision"], {}))
         rows.append(
             {
@@ -183,6 +235,41 @@ def _decision_rows(project: str, source: Path, sclucid: dict[str, Any]) -> list[
                 "reason": "; ".join(str(x.get("action", x)) for x in _as_list(iterative_pp.get("review_action_items"))[:3]),
             }
         )
+        if handoff:
+            rows.append(
+                {
+                    "project": project,
+                    "source": str(source),
+                    "stage": "preprocess",
+                    "decision": "preprocess_to_analysis_handoff",
+                    "value": handoff.get("graph_representation", ""),
+                    "evidence": "preprocess.review_summary.analysis_handoff_readiness",
+                    "review_required": _bool(handoff.get("status") != "ready"),
+                    "reason": "; ".join(
+                        str(item)
+                        for item in (
+                            _as_list(handoff.get("blockers"))
+                            + _as_list(handoff.get("review_items"))
+                            + _as_list(handoff.get("warnings"))
+                        )[:3]
+                    ),
+                }
+            )
+            rows.append(
+                {
+                    "project": project,
+                    "source": str(source),
+                    "stage": "preprocess",
+                    "decision": "marker_de_expression_source",
+                    "value": handoff.get("expression_for_de", ""),
+                    "evidence": "preprocess.review_summary.analysis_handoff_readiness",
+                    "review_required": _bool(handoff.get("status") != "ready"),
+                    "reason": "markers="
+                    + str(handoff.get("expression_for_markers", ""))
+                    + "; de="
+                    + str(handoff.get("expression_for_de", "")),
+                }
+            )
     pseudobulk = _as_dict(analysis_payload.get("pseudobulk_first"))
     if analysis_payload:
         rows.append(

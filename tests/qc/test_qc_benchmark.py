@@ -15,8 +15,8 @@ from validation.qc.run_doublet_evidence_benchmark import (
     _algorithm_weight_recommendation_rows as _doublet_algorithm_weight_recommendation_rows,
     _threshold_calibration_rows as _doublet_threshold_calibration_rows,
 )
-from validation.qc.build_figure2_qc_evidence_package import (
-    _source_rows_from_figure_table as _figure2_source_rows_from_table,
+from validation.qc.build_qc_evidence_package import (
+    _source_rows_from_figure_table as _qc_source_rows_from_table,
 )
 from validation.qc.run_tumor_biological_fidelity_benchmark import (
     _narrative_rows as _tumor_fidelity_narrative_rows,
@@ -342,7 +342,7 @@ def test_doublet_algorithm_weight_recommendation_prefers_best_fusion():
     assert row["review_required"] is False
 
 
-def test_figure2_source_rows_harmonize_tumor_panels():
+def test_qc_source_rows_harmonize_legacy_figure_panels():
     table = pd.DataFrame(
         [
             {
@@ -356,14 +356,14 @@ def test_figure2_source_rows_harmonize_tumor_panels():
         ]
     )
 
-    rows = _figure2_source_rows_from_table(
+    rows = _qc_source_rows_from_table(
         table,
         evidence_domain="tumor_biological_fidelity",
         source_file="figure2_tumor_fidelity_data.tsv",
         panel_map={"2D": "2E"},
     )
 
-    assert rows[0]["figure_panel"] == "2E"
+    assert rows[0]["module_panel"] == "2E"
     assert rows[0]["evidence_domain"] == "tumor_biological_fidelity"
     assert "recommended_policy" in rows[0]["context"]
 
