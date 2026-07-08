@@ -1254,7 +1254,33 @@ def batch_correction(
         log.info(f"Integration result '{output_key}' already exists. Use force=True to rerun.")
         return adata
 
-    if use_rep == "X":
+    # ComBat operates on the expression matrix directly, not on a PCA embedding.
+    # If the default use_rep "X_pca" is missing, fall back to adata.X gracefully.
+    if method == "combat":
+        if use_rep in adata.obsm:
+            integration_input = adata.obsm[use_rep]
+            integration_input_key = f"adata.obsm['{use_rep}']"
+        elif use_rep == "X" or use_rep is None:
+            use_rep = "X"
+            integration_input = adata.X
+            integration_input_key = "adata.X"
+        elif use_rep in adata.layers:
+            integration_input = adata.layers[use_rep]
+            integration_input_key = f"adata.layers['{use_rep}']"
+        elif use_rep == "X_pca":
+            log.warning(
+                "ComBat default use_rep 'X_pca' not found; falling back to adata.X. "
+                "ComBat corrects the expression matrix directly and does not require PCA."
+            )
+            use_rep = "X"
+            integration_input = adata.X
+            integration_input_key = "adata.X"
+        else:
+            raise ValueError(
+                f"use_rep '{use_rep}' not found in adata.obsm, adata.layers, or as 'X'. "
+                f"Available obsm keys: {list(adata.obsm.keys())}"
+            )
+    elif use_rep == "X":
         integration_input = adata.X
         integration_input_key = "adata.X"
     elif use_rep in adata.obsm:
@@ -1389,7 +1415,8 @@ def batch_correction(
     elif method == "bbknn":
         adata = _integrate_bbknn(adata, batch_key, use_rep=use_rep, **method_kwargs)
     elif method == "combat":
-        adata = _integrate_combat(adata, batch_key, **method_kwargs)
+        combat_layer = None if use_rep in ("X", "adata.X") else use_rep
+        adata = _integrate_combat(adata, batch_key, layer=combat_layer, **method_kwargs)
     else:
         raise ValueError(
             f"Unknown integration method '{method}'. "
