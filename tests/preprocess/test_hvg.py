@@ -261,7 +261,7 @@ class TestFindHVGs:
         assert int(result.var["highly_variable_deviance"].sum()) == min(100, result.n_vars)
         meta = result.uns["sclucid"]["preprocess"]["hvg"]
         assert meta["method"] == "deviance"
-        assert meta["method_report"]["backend"] == "deviance_poisson_approx"
+        assert meta["method_report"]["backend"] == "deviance_poisson"
 
     def test_scanpy_method_v3_with_config(self, minimal_adata):
         from scLucid.preprocess.config import HVGConfig

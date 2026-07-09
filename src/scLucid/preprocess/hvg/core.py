@@ -769,37 +769,56 @@ def _identify_highly_expressed_genes(
 
 
 def _compute_poisson_deviance_scores(X) -> np.ndarray:
-    """Compute a lightweight per-gene Poisson deviance score for count-like data."""
+    """Compute per-gene Poisson deviance for count-like data.
+
+    Uses the full Poisson log-likelihood ratio against a gene-specific mean,
+    including the contribution of zero entries:
+
+        D = 2 * sum_i [ x_i log(x_i / mu) - (x_i - mu) ]
+
+    with the convention 0 * log(0) = 0. This is the standard deviance for a
+    saturated-vs-mean Poisson model and is equivalent to the statistic used by
+    ``scry::devianceFeatureSelection`` / ``scanpy.experimental.pp.
+    highly_variable_genes(flavor='poisson_vst')`` up to constant factors.
+    """
     if scipy.sparse.issparse(X):
         matrix = X.tocsc(copy=False)
         sums = np.asarray(matrix.sum(axis=0)).ravel().astype(float)
-        means = sums / max(matrix.shape[0], 1)
+        n_obs = matrix.shape[0]
+        means = sums / max(n_obs, 1)
         scores = np.zeros(matrix.shape[1], dtype=float)
         for gene_idx in range(matrix.shape[1]):
             mu = means[gene_idx]
             if mu <= 0 or not np.isfinite(mu):
                 continue
             start, end = matrix.indptr[gene_idx], matrix.indptr[gene_idx + 1]
+            nnz = end - start
+            n_zeros = n_obs - nnz
             values = np.asarray(matrix.data[start:end], dtype=float)
-            positive = values[values > 0]
-            if positive.size:
-                scores[gene_idx] = 2.0 * float(
-                    np.sum(positive * np.log(np.maximum(positive / mu, 1e-12)))
-                )
+            # contribution from non-zero entries
+            positive_dev = 2.0 * np.sum(
+                values * np.log(np.maximum(values / mu, 1e-12)) - (values - mu)
+            )
+            # contribution from zero entries: 2 * (0 * log(0/mu) - (0 - mu)) = 2 * mu
+            zero_dev = 2.0 * mu * n_zeros
+            scores[gene_idx] = positive_dev + zero_dev
         return scores
 
     arr = np.asarray(X, dtype=float)
-    means = arr.mean(axis=0)
+    n_obs = arr.shape[0]
+    means = arr.sum(axis=0) / max(n_obs, 1)
     scores = np.zeros(arr.shape[1], dtype=float)
     for gene_idx, mu in enumerate(means):
         if mu <= 0 or not np.isfinite(mu):
             continue
         values = arr[:, gene_idx]
-        positive = values[values > 0]
-        if positive.size:
-            scores[gene_idx] = 2.0 * float(
-                np.sum(positive * np.log(np.maximum(positive / mu, 1e-12)))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            deviance_terms = np.where(
+                values > 0,
+                values * np.log(np.maximum(values / mu, 1e-12)) - (values - mu),
+                mu,
             )
+        scores[gene_idx] = 2.0 * float(np.sum(deviance_terms))
     return scores
 
 
@@ -830,14 +849,15 @@ def _select_deviance_hvgs(
     adata.var[f"{output_key}_means"] = means
     adata.var[f"{output_key}_rank"] = ranks
     return {
-        "backend": "deviance_poisson_approx",
+        "backend": "deviance_poisson",
         "score_column": f"{output_key}_deviance_score",
         "rank_column": f"{output_key}_rank",
         "n_selected_before_exclusion": int(selected.sum()),
         "input_layer": input_layer,
         "risk_note": (
-            "Dependency-light Poisson deviance approximation. For publication-grade "
-            "deviance feature selection, compare against scry/scran-style references when available."
+            "Poisson deviance computed against a gene-specific mean, including zero "
+            "entries. Genes with higher deviance show more variability than expected "
+            "under a simple Poisson model."
         ),
     }
 
@@ -987,18 +1007,22 @@ def _gene_type_detection(
 
     RIBO_PATTERNS = {
         "human": [
-            r"^RP[SL]\d+[A-Z]*$",  # RPS1, RPL1, RPS27A, etc.
+            r"^RP[SL]\d+[A-Z]*$",  # RPS1, RPL1, RPS27A, RPL41, etc.
+            r"^RP[SL][A-Z]\d*[A-Z]*$",  # RPLP0, RPLP1, RPLP2, RPSA, etc.
             r"^MRPL\d+",  # Mitochondrial ribosomal (large)
             r"^MRPS\d+",  # Mitochondrial ribosomal (small)
         ],
         "mouse": [
             r"^Rp[sl]\d+[a-z]*$",
+            r"^Rp[sl][a-z]\d*[a-z]*$",  # Rplp0, Rpsa, etc.
             r"^Mrpl\d+",
             r"^Mrps\d+",
         ],
         "rat": [
             r"^Rpl\d+",
             r"^Rps\d+",
+            r"^Rpl[a-z]\d*[a-z]*$",  # Rplp0, etc.
+            r"^Rps[a-z]\d*[a-z]*$",
             r"^Mrpl\d+",
             r"^Mrps\d+",
         ],
@@ -1288,14 +1312,11 @@ def find_hvgs(
     plot = kwargs.get("plot", active_config.plot)
     save_dir = active_config.save_dir
     n_top_genes = active_config.n_top_genes
-    # Auto-adapt n_top_genes based on dataset size if enabled and user didn't
-    # explicitly override n_top_genes via kwargs or config constructor.
+    # Auto-adapt n_top_genes based on dataset size only when explicitly enabled.
+    # We treat an explicit n_top_genes kwarg override as user intent and do not
+    # auto-adapt in that case.
     auto_n_top = getattr(active_config, "auto_n_top_genes", False)
     user_explicit_n_top = kwargs.get("n_top_genes") is not None
-    if config is not None:
-        user_explicit_n_top = user_explicit_n_top or (
-            "n_top_genes" in getattr(config, "model_fields_set", set())
-        )
     if auto_n_top and user_explicit_n_top:
         log.info(
             "[HVG] auto_n_top_genes=True detected, but preserving explicit n_top_genes=%s.",

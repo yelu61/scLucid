@@ -460,7 +460,7 @@ def calculate_signature_matrix(
     gene_sets: Union[Dict[str, List[str]], Manager],
     groupby: str,
     subset_cells: Optional[List[str]] = None,
-    use_raw: bool = True,
+    use_raw: bool = False,
     ctrl_size: int = 50,
     z_score: bool = True,
 ) -> pd.DataFrame:

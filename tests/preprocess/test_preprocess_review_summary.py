@@ -324,4 +324,4 @@ def test_preprocess_deviance_hvg_uses_counts_layer_in_workflow():
     hvg_summary = review["hvg_selection_evidence_summary"]
     assert hvg_summary["method"] == "deviance"
     assert hvg_summary["input_layer"] == "counts"
-    assert hvg_summary["method_report"]["backend"] == "deviance_poisson_approx"
+    assert hvg_summary["method_report"]["backend"] == "deviance_poisson"

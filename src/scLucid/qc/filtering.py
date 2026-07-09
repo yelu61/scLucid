@@ -214,11 +214,10 @@ def filter_cells(
     else:
         raise ValueError(f"Unknown combination logic: {cfg.combination_logic}")
 
-    # Apply metadata filter
-    combined_removal_mask = combined_removal_mask & metadata_mask
-
-    # Calculate final keep mask
-    keep_mask = ~combined_removal_mask
+    # Apply metadata filter as a keep constraint: metadata_filter selects cells
+    # that should be retained, so the final keep mask is cells that are NOT
+    # removed by QC criteria AND ARE included by the metadata filter.
+    keep_mask = ~combined_removal_mask & metadata_mask
 
     # Report statistics
     log.info("\n" + "=" * 40)

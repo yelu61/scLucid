@@ -388,7 +388,7 @@ def run_pseudobulk_first_analysis(
     **kwargs
         Additional overrides for ``AnalysisWorkflowConfig``.
 
-    Returns
+    Returns:
     -------
     AnnData
         Annotated data with results in
@@ -591,8 +591,10 @@ def run_standard_analysis(
         cluster_config = config.clustering
     elif isinstance(config.clustering, dict):
         cluster_config = ClusteringConfig(**config.clustering)
+        config.clustering = cluster_config
     else:
         cluster_config = ClusteringConfig()
+        config.clustering = cluster_config
     cluster_key = cluster_config.key_added or f"{cluster_config.method}_clusters"
 
     def _require_cluster_key(step: str) -> None:
@@ -1548,8 +1550,11 @@ def compare_clustering_resolutions(
 
         if "silhouette" in metrics and adata_temp.obsm.get("X_pca") is not None:
             try:
+                labels = adata_temp.obs[cluster_key]
+                if isinstance(labels.dtype, pd.CategoricalDtype):
+                    labels = labels.cat.codes
                 score = silhouette_score(
-                    adata_temp.obsm["X_pca"], adata_temp.obs[cluster_key].astype(int)
+                    adata_temp.obsm["X_pca"], labels.astype(int)
                 )
                 result["silhouette"] = score
             except Exception as e:

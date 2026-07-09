@@ -12,14 +12,14 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+from ..artifacts import record_threshold_decision, record_threshold_recommendation
+from ..config import QCThresholds
 from .adaptive_threshold import (
     THRESHOLD_RESULT_SCHEMA_VERSION,
     build_threshold_result,
     compute_mad_bounds,
     infer_qc_metric_type,
 )
-from ..artifacts import record_threshold_decision, record_threshold_recommendation
-from ..config import QCThresholds
 
 log = logging.getLogger(__name__)
 
@@ -178,13 +178,34 @@ def _build_threshold_dataframe(all_suggestions: Dict[str, Dict[str, Any]]) -> pd
     return suggested_thresholds_df[final_cols]
 
 
-def _thresholds_from_dataframe(suggested_thresholds_df: pd.DataFrame) -> QCThresholds:
-    """Create a legacy QCThresholds object from the first recommendation row."""
+def _thresholds_from_dataframe(
+    suggested_thresholds_df: pd.DataFrame,
+    default_level_name: Optional[str] = None,
+) -> QCThresholds:
+    """Create a legacy QCThresholds object from the requested recommendation row.
+
+    Parameters
+    ----------
+    suggested_thresholds_df
+        DataFrame indexed by recommendation level (e.g. ``mad_x3.0``).
+    default_level_name
+        Which row to promote to the default ``QCThresholds``. When ``None`` or
+        missing, falls back to the first row for backward compatibility.
+    """
     default_thresholds_obj = QCThresholds()
     if suggested_thresholds_df.empty:
         return default_thresholds_obj
 
-    default_series = suggested_thresholds_df.iloc[0]
+    if default_level_name and default_level_name in suggested_thresholds_df.index:
+        default_series = suggested_thresholds_df.loc[default_level_name]
+    else:
+        if default_level_name:
+            log.warning(
+                f"Requested default level '{default_level_name}' not found in threshold "
+                f"table; falling back to first row. Available levels: "
+                f"{list(suggested_thresholds_df.index)}"
+            )
+        default_series = suggested_thresholds_df.iloc[0]
     pc_top_genes_dict = {k: v for k, v in default_series.items() if k.startswith("pc_top_")}
     final_kwargs = {
         k: v for k, v in default_series.items() if not k.startswith("pc_top_") and pd.notna(v)
@@ -283,6 +304,7 @@ def recommend_qc_thresholds(
     mad_multipliers: Union[float, List[float]] = [3.0, 4.0, 5.0],
     iqr_multiplier: float = 1.5,
     percentile_range: Tuple[float, float] = (2.5, 97.5),
+    default_multiplier: Optional[float] = None,
     plot_distributions: bool = False,
     save_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -292,6 +314,12 @@ def recommend_qc_thresholds(
     recommendation from threshold resolution, evidence marking, and filtering.
     The bundle includes both structured candidate evidence and the legacy table
     view needed by downstream decision code.
+
+    For ``method='mad'``, ``mad_multipliers`` generates a candidate ladder.
+    ``default_multiplier`` selects which ladder rung is promoted to the default
+    ``suggested_thresholds``; when ``None``, the most conservative (smallest)
+    multiplier is used so that the default threshold does not silently become
+    more permissive as the candidate list grows.
     """
     required_cols = ["total_counts", "n_genes_by_counts", "pct_counts_mt"]
     missing_cols = [col for col in required_cols if col not in adata.obs.columns]
@@ -306,6 +334,11 @@ def recommend_qc_thresholds(
     if isinstance(mad_multipliers, (int, float)):
         mad_multipliers = [mad_multipliers]
 
+    if default_multiplier is None and method == "mad":
+        default_multiplier = float(min(mad_multipliers))
+    elif default_multiplier is None:
+        default_multiplier = None
+
     metrics = _threshold_metrics(adata)
     top_gene_cols = [
         col for col in adata.obs.columns if re.match(r"pct_counts_in_top_\d+_genes", col)
@@ -313,6 +346,9 @@ def recommend_qc_thresholds(
     metric_map = _threshold_metric_map(top_gene_cols)
     all_suggestions: Dict[str, Dict[str, Any]] = {}
     candidates: Dict[str, List[Dict[str, Any]]] = {}
+    default_level_name: Optional[str] = None
+    if method == "mad" and default_multiplier is not None:
+        default_level_name = f"mad_x{default_multiplier}"
 
     for metric in metrics:
         data = adata.obs[metric].dropna()
@@ -491,7 +527,9 @@ def recommend_qc_thresholds(
         )
 
     suggested_thresholds_df = _build_threshold_dataframe(all_suggestions)
-    default_thresholds_obj = _thresholds_from_dataframe(suggested_thresholds_df)
+    default_thresholds_obj = _thresholds_from_dataframe(
+        suggested_thresholds_df, default_level_name=default_level_name
+    )
     serializable_candidates = _serializable_candidates(candidates)
     hard_filter_exclusions = [
         {
@@ -509,6 +547,7 @@ def recommend_qc_thresholds(
         "method": method,
         "method_parameters": {
             "mad_multipliers": list(mad_multipliers),
+            "default_multiplier": default_multiplier,
             "iqr_multiplier": iqr_multiplier,
             "percentile_range": tuple(percentile_range),
         },

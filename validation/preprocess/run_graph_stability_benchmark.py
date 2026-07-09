@@ -84,7 +84,16 @@ def _cluster_leiden(embedding: np.ndarray, seed: int, resolution: float = 1.0) -
     # proxy metric, not a final clustering.
     n_neighbors = min(15, embedding.shape[0] - 1)
     sc.pp.neighbors(adata, use_rep="X_emb", n_neighbors=max(2, n_neighbors))
-    sc.tl.leiden(adata, resolution=resolution, random_state=seed, flavor="leidenalg")
+    # Use igraph backend and two iterations to match scanpy future defaults and
+    # avoid the leidenalg deprecation warning.
+    sc.tl.leiden(
+        adata,
+        resolution=resolution,
+        random_state=seed,
+        flavor="igraph",
+        n_iterations=2,
+        directed=False,
+    )
     return adata.obs["leiden"].to_numpy()
 
 

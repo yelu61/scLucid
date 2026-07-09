@@ -189,7 +189,7 @@ def detect_integration_confounding(
                 f"(Cramer's V={association:.2f}); integration may remove biological signal"
             )
         mapping = adata.obs[[batch_key, col]].dropna().drop_duplicates()
-        per_batch = mapping.groupby(batch_key)[col].nunique()
+        per_batch = mapping.groupby(batch_key, observed=False)[col].nunique()
         if len(per_batch) > 0 and (per_batch <= 1).all():
             n_batch = adata.obs[batch_key].nunique()
             n_col = adata.obs[col].nunique()

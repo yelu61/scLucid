@@ -88,7 +88,7 @@ def score_cell_types(
     adata: AnnData,
     marker_config: Union[str, Manager],
     layer: Optional[str] = "normalized",
-    use_raw: bool = True,
+    use_raw: bool = False,
     min_genes: int = 3,
     ctrl_size: int = 50,
     score_name_suffix: str = "_score",

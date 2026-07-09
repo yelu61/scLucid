@@ -129,3 +129,20 @@ def test_hvg_selected_fallback_is_comparison_ready():
     assert validation["preprocess_metrics"]["hvg_key"] == "highly_variable_selected"
     assert validation["preprocess_metrics"]["canonical_hvg_available"] is False
     assert validation["ready_for_comparative_validation"] is True
+
+
+def test_noncanonical_umap_key_still_counts_as_available():
+    adata = _validated_adata()
+    del adata.obsm["X_umap"]
+    adata.obsm["X_umap_pca"] = np.random.default_rng(1).normal(size=(30, 2))
+
+    validation = build_qc_preprocess_validation(
+        adata,
+        run_manifest={"input_shape": {"n_cells": 30, "n_genes": 50}},
+    )
+
+    contract = validation["preprocess_metrics"]["representation_contract"]
+    assert contract["umap_present"] is True
+    assert contract["umap_key"] == "X_umap_pca"
+    assert "X_umap_pca" in contract["umap_keys"]
+    assert validation["ready_for_comparative_validation"] is True

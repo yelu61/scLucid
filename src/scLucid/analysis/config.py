@@ -88,7 +88,7 @@ class DifferentialConfig(SclucidBaseConfig):
     groupby: str = Field(default="leiden_clusters")
     method: Literal["wilcoxon", "t-test", "logreg"] = Field(default="wilcoxon")
     layer: Optional[str] = Field(default=None)
-    use_raw: bool = Field(default=True)
+    use_raw: bool = Field(default=False)
     key_added: Optional[str] = Field(default="rank_genes_groups")
     groups: Optional[List[str]] = Field(default=None)
     reference: str = Field(default="rest")
@@ -343,6 +343,12 @@ class AnnotationConfig(SclucidBaseConfig):
         description="Minimum top state signature score required to assign a state.",
     )
 
+    # Reporting and export
+    report: bool = Field(
+        default=False, description="Whether to export annotation report visualizations."
+    )
+    save_dir: Optional[str] = Field(default=None)
+
     # DE and enrichment parameters
     min_log2fc: float = Field(default=0.5, ge=0)
     min_in_group_pct: float = Field(default=0.2, ge=0, le=1)
@@ -428,7 +434,7 @@ class ScoringConfig(SclucidBaseConfig):
 
     # Scoring parameters
     layer: Optional[str] = Field(default="normalized")
-    use_raw: bool = Field(default=True)
+    use_raw: bool = Field(default=False)
     ctrl_size: int = Field(default=50, ge=1)
     score_name_suffix: str = Field(default="_score")
     preserve_missing: bool = Field(default=True)

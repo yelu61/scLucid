@@ -1,15 +1,15 @@
 """
-Adaptive Quality-Aware Normalization for scRNA-seq data.
+Experimental adaptive normalization heuristics for scRNA-seq data.
 
-This module implements novel normalization strategies that adapt to:
-- Cell quality (based on QC metrics)
-- Cell type-specific RNA content
-- Technical batch effects
+This module provides exploratory normalization strategies that are NOT
+recommended as defaults for production single-cell workflows:
 
-Key innovations:
-1. Quality-stratified normalization
-2. Cell-type aware size factor estimation
-3. Robust outlier handling
+- ``quality_aware``: quality-stratified total-count scaling (experimental)
+- ``deconvolution_pool``: Python-only pooled size-factor heuristic, NOT scran
+- ``quantile_transform``: non-parametric quantile transformation (not regression)
+
+Prefer ``normalize_data(method='standard' or 'scran', ...)`` for canonical
+log-normalization or size-factor estimation.
 """
 
 import logging
@@ -49,9 +49,11 @@ class AdaptiveNormalizationConfig:
 
     # === Basic settings ===
     method: Literal[
-        "quality_aware",  # Quality-stratified normalization
-        "deconvolution_pool",  # Python-only pooled size factor estimation
-        "quantile_regression",  # Quantile regression normalization
+        "quality_aware",  # Quality-stratified normalization (heuristic)
+        "deconvolution_pool",  # Python-only pooled size factor heuristic
+        "quantile_transform",  # Non-parametric quantile transformation
+        # Deprecated aliases kept for backward compatibility
+        "quantile_regression",
     ] = "quality_aware"
 
     input_layer: str = "counts"
@@ -234,33 +236,15 @@ def quality_aware_normalize(
     log_transform: bool = True,
 ) -> AnnData:
     """
-    Quality-stratified normalization.
+    Quality-stratified normalization heuristic.
 
-    Innovation: Different cells are normalized with different strategies
-    based on their quality metrics. This prevents low-quality cells from
-    distorting the normalization of high-quality cells.
-
-    Algorithm:
-    1. Compute composite quality score from multiple metrics
-    2. Stratify cells into quality bins
-    3. Normalize within each bin using bin-specific size factors
-    4. Optionally weight cells by quality in downstream analysis
-
-    Args:
-        adata: AnnData object
-        quality_metrics: List of QC metric columns in adata.obs
-        n_bins: Number of quality bins
-        input_layer: Input layer name
-        output_layer: Output layer name
-        target_sum: Target sum for normalization (if None, use median)
-        log_transform: Whether to log-transform
-
-    Returns:
-        AnnData with quality-aware normalized data
+    This method scales cells within quality-score bins using total counts. It is
+    experimental and should be used for exploration only; the biological
+    interpretation of quality-stratified scaling is not well established.
     """
     warnings.warn(
-        "quality_aware_normalize is a low-level algorithm entrypoint; prefer "
-        "normalize_data(method='quality_aware', ...) for the public normalization API.",
+        "quality_aware_normalize is experimental and low-level; prefer "
+        "normalize_data(method='standard' or 'scran', ...) for production workflows.",
         FutureWarning,
         stacklevel=2,
     )
@@ -400,8 +384,9 @@ def quality_aware_normalize(
         "log_transform": bool(log_transform),
         "review_note": (
             "This method scales cells within quality-score bins using total counts. "
-            "It stores quality_weight for downstream review but does not formally "
-            "correct systematic low-quality-cell bias."
+            "It is an experimental heuristic: the relationship between QC metrics and "
+            "true RNA content is not generally identifiable, so results should be "
+            "validated against standard normalization before downstream inference."
         ),
     }
 
@@ -430,8 +415,9 @@ def adaptive_normalize(
         AnnData with normalized data
     """
     warnings.warn(
-        "adaptive_normalize is a specialized dispatcher; prefer "
-        "normalize_data(method=..., ...) for the public normalization API.",
+        "adaptive_normalize is a specialized dispatcher for experimental normalization "
+        "heuristics; prefer normalize_data(method='standard' or 'scran', ...) for "
+        "production workflows.",
         FutureWarning,
         stacklevel=2,
     )
@@ -463,6 +449,13 @@ def adaptive_normalize(
         )
 
     elif config.method == "deconvolution_pool":
+        warnings.warn(
+            "deconvolution_pool is a Python-only total-count pooled heuristic and is "
+            "not equivalent to scran deconvolution; use only for exploratory sensitivity "
+            "analysis.",
+            FutureWarning,
+            stacklevel=2,
+        )
         # Use Python-only pooled size factors
         size_factors = estimate_cell_size_factors(
             adata,
@@ -497,9 +490,17 @@ def adaptive_normalize(
             ),
         }
 
-    elif config.method == "quantile_regression":
+    elif config.method in {"quantile_transform", "quantile_regression"}:
+        if config.method == "quantile_regression":
+            warnings.warn(
+                "method='quantile_regression' is a deprecated alias for "
+                "'quantile_transform'; this function performs non-parametric "
+                "quantile transformation, not quantile regression.",
+                FutureWarning,
+                stacklevel=2,
+            )
         # Quantile normalization
-        log.info(f"Applying quantile normalization (quantile={config.quantile})...")
+        log.info(f"Applying quantile transformation (quantile={config.quantile})...")
 
         X, _ = resolve_input_matrix(adata, config.input_layer)
         X = X.copy()
@@ -510,7 +511,7 @@ def adaptive_normalize(
             est_dense_bytes = n_obs * n_vars * 8
             if est_dense_bytes > 8e9:
                 log.warning(
-                    f"Quantile regression requires dense matrix conversion. "
+                    f"Quantile transformation requires dense matrix conversion. "
                     f"Estimated memory: {est_dense_bytes / 1e9:.1f} GB. "
                     f"Consider using method='quality_aware' or subsampling."
                 )
@@ -532,8 +533,10 @@ def adaptive_normalize(
             "model_type": "quantile_transform_heuristic",
             "claim_level": "heuristic_distribution_transform",
             "review_note": (
-                "Quantile transformation can alter biological distributional differences; "
-                "use as exploratory preprocessing with downstream sensitivity checks."
+                "Quantile transformation is a non-parametric distribution transform, "
+                "not a regression model. It can alter biological distributional "
+                "differences; use as exploratory preprocessing with downstream sensitivity "
+                "checks."
             ),
         }
 

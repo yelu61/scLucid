@@ -101,9 +101,15 @@ class TestPreprocessingWorkflow:
         assert "preprocess" in result.uns["sclucid"]
         assert "workflow_config" in result.uns["sclucid"]["preprocess"]
 
-    def test_iterative_preprocessing_records_review_summary(self, minimal_adata):
+    def test_iterative_preprocessing_records_review_summary(self, minimal_adata, monkeypatch):
         """Test reviewer-first preprocessing entrypoint records iterative metadata."""
         config = _workflow_config_for_tests()
+        import matplotlib.pyplot as plt
+
+        def _fail_on_show(*args, **kwargs):
+            raise AssertionError("run_iterative_preprocessing should not require interactive plots")
+
+        monkeypatch.setattr(plt, "show", _fail_on_show)
 
         result = run_iterative_preprocessing(
             minimal_adata,

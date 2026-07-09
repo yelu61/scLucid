@@ -409,9 +409,28 @@ def build_qc_decisions(
     high_hb = _bool_series(adata, "outlier_hb")
     doublet = _bool_series(adata, "predicted_doublet")
 
+    # Resolve MT fallback threshold from the recorded threshold decision when
+    # available, so tumor-aware review bands and user overrides are respected.
+    # Fall back to conventional guardrails only when no threshold record exists.
+    resolved_pc_mt = None
+    threshold_record = adata.uns.get("sclucid", {}).get("qc", {}).get("threshold_decision")
+    if isinstance(threshold_record, dict):
+        resolved_pc_mt = threshold_record.get("resolved_thresholds", {}).get("pc_mt")
+    if resolved_pc_mt is None:
+        resolved_pc_mt = getattr(
+            getattr(adata.uns.get("sclucid", {}).get("qc", {}).get("applied_config", {}), "data", None),
+            "marking_config",
+            {},
+        ).get("thresholds", {}).get("pc_mt")
+    mt_fallback_threshold = (
+        float(resolved_pc_mt)
+        if resolved_pc_mt is not None
+        else (35.0 if tumor_context else 25.0)
+    )
+
     mt_pct = _numeric_series(adata, "pct_counts_mt")
     if not high_mt.any() and mt_pct.notna().any():
-        high_mt = mt_pct >= (35.0 if tumor_context else 25.0)
+        high_mt = mt_pct >= mt_fallback_threshold
 
     stress_high = _high_by_quantile(_numeric_series(adata, "stress_score"), minimum=0.75)
     apoptosis_high = _high_by_quantile(_numeric_series(adata, "apoptosis_score"), minimum=0.75)
@@ -446,15 +465,15 @@ def build_qc_decisions(
     )
 
     evidence_count = (
-        low_counts.astype(int)
-        + low_genes.astype(int)
-        + high_mt.astype(int)
-        + low_complexity.astype(int)
-        + (high_hb | hb_score_high).astype(int)
-        + platelet_high.astype(int)
-        + ambient_high.astype(int)
-        + apoptosis_high.astype(int)
-        + doublet.astype(int)
+        low_counts.fillna(False).astype(int)
+        + low_genes.fillna(False).astype(int)
+        + high_mt.fillna(False).astype(int)
+        + low_complexity.fillna(False).astype(int)
+        + (high_hb | hb_score_high).fillna(False).astype(int)
+        + platelet_high.fillna(False).astype(int)
+        + ambient_high.fillna(False).astype(int)
+        + apoptosis_high.fillna(False).astype(int)
+        + doublet.fillna(False).astype(int)
     )
     # Policy-based minimum evidence for removal. In tumor/stress/CSF/low-RNA
     # contexts we never remove cells based on a single piece of evidence,
@@ -513,8 +532,10 @@ def build_qc_decisions(
         else:
             risk_notes.append("")
 
-    confidence = np.clip(evidence_count.astype(float) / max(remove_min, 1), 0.0, 1.0)
-    adata.obs["qc_evidence_count"] = evidence_count.astype(int).to_numpy()
+    confidence = np.clip(
+        evidence_count.fillna(0).astype(float) / max(remove_min, 1), 0.0, 1.0
+    )
+    adata.obs["qc_evidence_count"] = evidence_count.fillna(0).astype(int).to_numpy()
     adata.obs["qc_decision"] = pd.Categorical(decision, categories=QC_DECISION_VALUES)
     adata.obs["qc_remove"] = decision.eq("remove").to_numpy(dtype=bool)
     adata.obs["qc_reason"] = reasons

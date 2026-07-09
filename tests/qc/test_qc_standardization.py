@@ -377,6 +377,7 @@ def test_qc_review_summary_contains_shared_evidence_bundle():
         "decision_table",
         "qc_reviewer_table",
         "evidence_chain",
+        "qc_handoff_readiness",
         "qc_readiness",
         "review_action_items",
         "reproducibility_manifest",

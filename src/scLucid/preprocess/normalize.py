@@ -240,7 +240,7 @@ def normalize_data(
     plot = active_config.plot
     save_dir = Path(active_config.save_dir) if active_config.save_dir else None
 
-    adaptive_methods = {"quality_aware", "deconvolution_pool", "quantile_regression"}
+    adaptive_methods = {"quality_aware", "deconvolution_pool", "quantile_transform", "quantile_regression"}
     if active_config.method in adaptive_methods:
         from .adaptive_normalize import AdaptiveNormalizationConfig, adaptive_normalize
 

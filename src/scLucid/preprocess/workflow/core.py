@@ -35,7 +35,11 @@ from ..integrate import batch_correction, decide_integration
 from ..neighbors import run_embedding_pipeline
 from ..normalize import normalize_data
 from ..scale import regress_out, scale_data
-from ..trace import _json_safe, enrich_preprocessing_review_summary, validate_preprocessing_review_summary
+from ..trace import (
+    _json_safe,
+    enrich_preprocessing_review_summary,
+    validate_preprocessing_review_summary,
+)
 
 log = logging.getLogger(__name__)
 
@@ -46,14 +50,17 @@ __all__ = [
     "WorkflowError",
 ]
 
-# Define workflow steps for flexible execution
+# Define workflow steps for flexible execution.
+# Order follows sc-best-practices: normalize -> set_raw -> select HVGs on
+# normalized data -> optional regression on HVG subset -> scale -> PCA ->
+# optional batch correction -> neighbors/UMAP.
 WORKFLOW_STEPS = [
     "gene_filtering",
     "normalization",
     "set_raw",
-    "regression",
     "hvg_selection",
     "subset_hvg",
+    "regression",
     "scaling",
     "pca",
     "batch_correction",
@@ -569,6 +576,7 @@ def run_iterative_preprocessing(
                 subset=False,
                 keep_raw=False,
                 evaluate_stability=False,
+                plot_venn=False,
                 save_dir=str(results_path / "hvg_audit") if results_path else None,
             )
             summary["hvg_strategy"] = hvg_audit
@@ -1255,22 +1263,50 @@ def _run_neighbors_umap(
     results_path: Optional[Path],
 ) -> AnnData:
     """Run neighbors and UMAP."""
-    if "X_pca" not in adata.obsm:
+    batch_key = config.integration.batch_key
+    if isinstance(batch_key, list):
+        batch_key = batch_key[0] if batch_key else None
+
+    # Use the actual output key recorded by batch_correction when it was run.
+    integration_meta = adata.uns.get("sclucid", {}).get("preprocess", {}).get("integration", {})
+    workflow_output_key = integration_meta.get("workflow", {}).get("output_key")
+    integration_output_key = (
+        config.integration.output_key
+        or workflow_output_key
+        or (f"X_{config.integration.method}_{batch_key}" if config.integration.method and batch_key else None)
+    )
+
+    # Prefer the corrected embedding when batch correction was run and produced
+    # a valid representation; otherwise fall back to PCA.
+    if (
+        integration_output_key
+        and integration_output_key in adata.obsm
+        and workflow_output_key is not None
+    ):
+        use_rep = integration_output_key
+        effective_n_pcs = min(config.graph.n_pcs, adata.obsm[use_rep].shape[1])
+    elif "X_pca" in adata.obsm:
+        use_rep = "X_pca"
+        effective_n_pcs = min(config.graph.n_pcs, adata.obsm["X_pca"].shape[1])
+    else:
         raise KeyError(
-            "X_pca not found in adata.obsm. Run PCA first or provide a precomputed PCA embedding."
+            "No usable embedding found in adata.obsm. Run PCA or batch correction first."
         )
 
-    effective_n_pcs = min(config.graph.n_pcs, adata.obsm["X_pca"].shape[1])
     effective_n_neighbors = min(config.graph.n_neighbors, max(2, adata.n_obs - 1))
 
-    log.info("Neighbors graph and UMAP")
+    log.info(f"Neighbors graph and UMAP using {use_rep!r}")
     sc.pp.neighbors(
         adata,
         n_pcs=effective_n_pcs,
         n_neighbors=effective_n_neighbors,
-        use_rep="X_pca",
+        use_rep=use_rep,
     )
     sc.tl.umap(adata)
+
+    # Record which representation was actually used for the final graph so that
+    # downstream analysis and review summaries stay consistent.
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})["final_neighbors_rep"] = use_rep
 
     if results_path:
         try:

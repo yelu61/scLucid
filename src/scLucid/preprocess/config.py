@@ -35,8 +35,10 @@ class NormalizationConfig(SclucidBaseConfig):
         "scran",
         "pearson_residuals",
         "clr",
-        "quality_aware",
-        "deconvolution_pool",
+        "quality_aware",  # experimental heuristic
+        "deconvolution_pool",  # experimental heuristic, not scran
+        "quantile_transform",  # non-parametric transform, not regression
+        # Backward compatibility alias
         "quantile_regression",
     ] = Field(default="standard")
     target_sum: float = Field(default=1e4, gt=0, description="Target sum for normalization")
@@ -49,7 +51,7 @@ class NormalizationConfig(SclucidBaseConfig):
     )
     input_layer: str = Field(default="counts", description="Input layer name")
     output_layer: str = Field(default="normalized", description="Output layer name")
-    update_X: bool = Field(default=True, description="Update adata.X with normalized data")  # noqa: N815
+    update_X: bool = Field(default=False, description="Update adata.X with normalized data")  # noqa: N815
     set_raw: bool = Field(
         default=False,
         description="Store a full-gene copy of the normalized AnnData in adata.raw before downstream filtering.",
@@ -80,7 +82,7 @@ class HVGConfig(SclucidBaseConfig):
     method: Literal["scanpy", "custom", "triku", "deviance"] = Field(default="scanpy")
     n_top_genes: int = Field(default=2000, ge=100, le=20000, description="Number of HVGs to select")
     auto_n_top_genes: bool = Field(
-        default=True,
+        default=False,
         description="Automatically adapt n_top_genes based on dataset size.",
     )
     auto_n_top_genes_method: Literal["linear", "log"] = Field(

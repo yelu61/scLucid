@@ -113,6 +113,17 @@ def _hvg_summary(adata: AnnData) -> tuple[int | None, str | None, list[str]]:
         return None, selected_key, hvg_columns
 
 
+def _umap_summary(adata: AnnData) -> tuple[bool, str | None, list[str]]:
+    """Return whether a UMAP embedding exists plus the preferred key and all candidates."""
+    umap_keys = [
+        str(key)
+        for key in adata.obsm.keys()
+        if str(key) == "X_umap" or str(key).startswith("X_umap_")
+    ]
+    preferred_key = "X_umap" if "X_umap" in adata.obsm else (umap_keys[0] if umap_keys else None)
+    return preferred_key is not None, preferred_key, umap_keys
+
+
 def _review_completeness(adata: AnnData, stage: str) -> dict[str, Any]:
     review = _review_summary(adata, stage)
     if not review:
@@ -174,6 +185,7 @@ def build_qc_preprocess_validation(
     pp_warnings = _stage_warnings(adata, Modules.PREPROCESS)
 
     hvg_count, hvg_key, hvg_columns = _hvg_summary(adata)
+    umap_present, umap_key, umap_keys = _umap_summary(adata)
     preprocess_ns = _stage_namespace(adata, Modules.PREPROCESS)
     hvg_stability_available = "hvg_stability" in json.dumps(
         preprocess_ns, default=str
@@ -188,7 +200,9 @@ def build_qc_preprocess_validation(
     representation_contract = {
         "pca_present": "X_pca" in adata.obsm,
         "neighbors_present": "neighbors" in adata.uns,
-        "umap_present": "X_umap" in adata.obsm,
+        "umap_present": umap_present,
+        "umap_key": umap_key,
+        "umap_keys": umap_keys,
     }
     qc_metrics = {
         "retention_fraction": retention_fraction,
@@ -258,9 +272,17 @@ def build_qc_preprocess_validation(
         ),
         _row(
             "pca_neighbors_umap_available",
-            all(representation_contract.values()),
-            _status(all(representation_contract.values())),
-            "PCA, graph, and UMAP outputs are present for downstream analysis handoff.",
+            (
+                representation_contract["pca_present"]
+                and representation_contract["neighbors_present"]
+                and representation_contract["umap_present"]
+            ),
+            _status(
+                representation_contract["pca_present"]
+                and representation_contract["neighbors_present"]
+                and representation_contract["umap_present"]
+            ),
+            "PCA, graph, and at least one UMAP output are present for downstream analysis handoff.",
         ),
         _row(
             "qc_review_summary_valid",
