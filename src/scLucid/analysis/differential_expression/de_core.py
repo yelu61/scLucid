@@ -13,7 +13,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import version
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -793,6 +793,16 @@ def _aggregate_counts_by_sample(
     if missing_covariates:
         raise KeyError(f"Covariate column(s) not found in adata.obs: {missing_covariates}")
 
+    required_metadata = [sample_col, condition_key, *covariate_cols]
+    for col in required_metadata:
+        values = adata.obs[col]
+        missing_mask = values.isna() | values.astype(str).str.strip().eq("")
+        if bool(missing_mask.any()):
+            raise ValueError(
+                f"Pseudobulk aggregation requires complete non-empty metadata in '{col}'; "
+                f"found {int(missing_mask.sum())} invalid cell(s)."
+            )
+
     X, var_names = _get_expression_matrix(adata, layer=layer, use_raw=use_raw)
     sample_values = adata.obs[sample_col].astype(str)
     samples = list(pd.unique(sample_values))
@@ -835,6 +845,139 @@ def _aggregate_counts_by_sample(
     counts = pd.DataFrame(rows, index=[row["sample"] for row in meta_rows], columns=var_names)
     meta = pd.DataFrame(meta_rows).set_index("sample")
     return counts, meta
+
+
+def _validate_pseudobulk_model_design(
+    meta: pd.DataFrame,
+    *,
+    condition_key: str,
+    condition1: str,
+    condition2: str,
+    covariates: List[str],
+) -> None:
+    """Reject missing, constant, or aliased categorical adjustment designs."""
+    if not covariates:
+        return
+    selected = meta[meta[condition_key].astype(str).isin([condition1, condition2])].copy()
+    if selected.empty:
+        return
+    matrices = [np.ones((selected.shape[0], 1), dtype=float)]
+    condition_matrix = pd.get_dummies(
+        selected[condition_key].astype(str), drop_first=True, dtype=float
+    )
+    matrices.append(condition_matrix.to_numpy())
+    for covariate in covariates:
+        if covariate not in selected.columns:
+            raise KeyError(f"Covariate '{covariate}' not found in pseudobulk metadata")
+        if selected[covariate].isna().any():
+            raise ValueError(f"Covariate '{covariate}' contains missing pseudobulk values")
+        if selected[covariate].nunique(dropna=True) < 2:
+            raise ValueError(
+                f"Covariate '{covariate}' has fewer than two levels in contrast "
+                f"'{condition2}_vs_{condition1}' and cannot be estimated."
+            )
+        covariate_matrix = pd.get_dummies(
+            selected[covariate].astype(str), drop_first=True, dtype=float
+        )
+        matrices.append(covariate_matrix.to_numpy())
+    design_matrix = np.column_stack(matrices)
+    if np.linalg.matrix_rank(design_matrix) < design_matrix.shape[1]:
+        raise ValueError(
+            f"Pseudobulk design for '{condition2}_vs_{condition1}' is rank deficient; "
+            "condition and one or more covariates/blocks are not separately identifiable."
+        )
+
+
+def _audit_pseudobulk_contrast_design(
+    meta: pd.DataFrame,
+    *,
+    sample_col: str,
+    condition_key: str,
+    condition1: str,
+    condition2: str,
+    experimental_unit_col: str,
+    block_col: Optional[str],
+    min_samples_per_condition: int,
+) -> dict[str, Any]:
+    """Summarize independent units and enforce repeated-measure identifiability."""
+    selected = meta[meta[condition_key].astype(str).isin([condition1, condition2])].copy()
+    sample_counts = {
+        condition1: int((selected[condition_key].astype(str) == condition1).sum()),
+        condition2: int((selected[condition_key].astype(str) == condition2).sum()),
+    }
+    effective_unit_col = experimental_unit_col
+    if experimental_unit_col not in selected.columns:
+        effective_unit_col = "__sclucid_experimental_unit"
+        selected[effective_unit_col] = selected.index.astype(str)
+    unit_counts = {
+        condition1: int(
+            selected.loc[
+                selected[condition_key].astype(str) == condition1, effective_unit_col
+            ].nunique()
+        ),
+        condition2: int(
+            selected.loc[
+                selected[condition_key].astype(str) == condition2, effective_unit_col
+            ].nunique()
+        ),
+    }
+
+    unit_condition_rows = (
+        selected.groupby([effective_unit_col, condition_key], observed=True).size()
+    )
+    if bool((unit_condition_rows > 1).any()):
+        raise ValueError(
+            "Multiple pseudobulk samples map to the same experimental-unit/condition "
+            "combination. Consolidate technical replicates before inference."
+        )
+
+    conditions_per_unit = selected.groupby(effective_unit_col, observed=True)[
+        condition_key
+    ].nunique()
+    repeated_units = int((conditions_per_unit > 1).sum())
+    if repeated_units and not block_col:
+        raise ValueError(
+            f"Experimental units in '{experimental_unit_col}' occur in both conditions, "
+            "but block_col is not configured; paired/repeated observations would be treated "
+            "as independent."
+        )
+    if repeated_units and block_col and block_col != effective_unit_col:
+        blocks_per_unit = selected.groupby(effective_unit_col, observed=True)[
+            block_col
+        ].nunique(dropna=False)
+        if bool((blocks_per_unit > 1).any()):
+            raise ValueError(
+                f"block_col='{block_col}' is not stable within each experimental unit."
+            )
+        repeated_unit_values = conditions_per_unit[conditions_per_unit > 1].index
+        repeated_unit_blocks = (
+            selected[selected[effective_unit_col].isin(repeated_unit_values)][
+                [effective_unit_col, block_col]
+            ]
+            .drop_duplicates()
+        )
+        if repeated_unit_blocks[block_col].nunique(dropna=False) != repeated_units:
+            raise ValueError(
+                f"block_col='{block_col}' must uniquely identify each repeated "
+                "experimental unit; a shared/coarser block does not model pairing."
+            )
+
+    min_units = min(unit_counts.values()) if unit_counts else 0
+    return {
+        "sample_col": sample_col,
+        "condition_key": condition_key,
+        "experimental_unit_col": experimental_unit_col,
+        "block_col": block_col,
+        "condition1": condition1,
+        "condition2": condition2,
+        "contrast": f"{condition2}_vs_{condition1}",
+        "samples_per_condition": sample_counts,
+        "experimental_units_per_condition": unit_counts,
+        "n_repeated_units": repeated_units,
+        "min_samples_per_condition": int(min_samples_per_condition),
+        "replicate_requirement_met": bool(min_units >= min_samples_per_condition),
+        "formal_replicates_present": bool(min_units >= 2),
+    }
 
 
 def _benjamini_hochberg(pvals: pd.Series, method: str = "fdr_bh") -> pd.Series:
@@ -1591,11 +1734,28 @@ def run_pseudobulk_de(
     if config is None:
         active_config = PseudobulkDEConfig(**kwargs)
     else:
-        active_config = config.model_copy(update=kwargs)
+        active_config = PseudobulkDEConfig.model_validate(
+            {**config.model_dump(), **kwargs}
+        )
 
     groupby = active_config.groupby
     if groupby is not None and groupby not in adata.obs:
         raise KeyError(f"Column '{groupby}' not found in adata.obs")
+    for required_col in (active_config.sample_col, active_config.condition_key):
+        if required_col not in adata.obs:
+            raise KeyError(f"Column '{required_col}' not found in adata.obs")
+
+    observed_conditions = set(
+        adata.obs[active_config.condition_key].dropna().astype(str).unique().tolist()
+    )
+    for condition1, condition2 in active_config.contrasts:
+        missing_levels = sorted({condition1, condition2} - observed_conditions)
+        if missing_levels:
+            raise ValueError(
+                f"Pseudobulk contrast '{condition2}_vs_{condition1}' references "
+                f"unobserved condition level(s): {missing_levels}. Observed levels: "
+                f"{sorted(observed_conditions)}."
+            )
 
     if groupby is None:
         group_names: List[Optional[str]] = [None]
@@ -1612,8 +1772,30 @@ def run_pseudobulk_de(
     design_covariates = list(dict.fromkeys(active_config.design_covariates or []))
     if active_config.block_col:
         design_covariates = list(dict.fromkeys([*design_covariates, active_config.block_col]))
+    experimental_unit_col = (
+        active_config.experimental_unit_col
+        or active_config.block_col
+        or active_config.sample_col
+    )
+    if experimental_unit_col == active_config.condition_key:
+        raise ValueError("experimental_unit_col cannot be the condition column")
+    ignored_covariate_methods = {"deseq2", "welch_logcpm", "cell_level_fallback"}
+    if design_covariates and active_config.method in ignored_covariate_methods:
+        raise ValueError(
+            f"method='{active_config.method}' does not model design_covariates/block_col. "
+            "Use method='auto', 'linear_model_logcpm', or another covariate-aware backend."
+        )
+    aggregation_metadata_cols = list(design_covariates)
+    if experimental_unit_col not in {
+        active_config.sample_col,
+        active_config.condition_key,
+    }:
+        aggregation_metadata_cols.append(experimental_unit_col)
+    aggregation_metadata_cols = list(dict.fromkeys(aggregation_metadata_cols))
 
-    def _run_one(task: Tuple[Optional[str], str, str]) -> pd.DataFrame:
+    def _run_one(
+        task: Tuple[Optional[str], str, str]
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
         group_name, condition1, condition2 = task
         if group_name is None:
             adata_sub = adata
@@ -1629,55 +1811,95 @@ def run_pseudobulk_de(
             layer=active_config.layer,
             use_raw=active_config.use_raw,
             min_cells_per_sample=active_config.min_cells_per_sample,
-            covariate_cols=design_covariates,
+            covariate_cols=aggregation_metadata_cols,
         )
+        design_audit: dict[str, Any] = {
+            "group": group_label,
+            "groupby": groupby or "all",
+            "condition1": condition1,
+            "condition2": condition2,
+            "contrast": f"{condition2}_vs_{condition1}",
+            "method_requested": active_config.method,
+            "design_covariates": list(design_covariates),
+            "status": "BLOCKED",
+            "reason": "No pseudobulk samples passed the aggregation filters.",
+        }
         if meta.empty:
-            return pd.DataFrame()
+            return pd.DataFrame(), design_audit
 
         selected = meta[
             meta[active_config.condition_key].astype(str).isin([condition1, condition2])
         ]
         n1 = int((selected[active_config.condition_key].astype(str) == condition1).sum())
         n2 = int((selected[active_config.condition_key].astype(str) == condition2).sum())
+        contrast_design = _audit_pseudobulk_contrast_design(
+            meta,
+            sample_col=active_config.sample_col,
+            condition_key=active_config.condition_key,
+            condition1=condition1,
+            condition2=condition2,
+            experimental_unit_col=experimental_unit_col,
+            block_col=active_config.block_col,
+            min_samples_per_condition=active_config.min_samples_per_condition,
+        )
+        design_audit.update(contrast_design)
+        n_units1 = int(contrast_design["experimental_units_per_condition"][condition1])
+        n_units2 = int(contrast_design["experimental_units_per_condition"][condition2])
 
-        if min(n1, n2) < active_config.min_samples_per_condition:
+        if min(n_units1, n_units2) < active_config.min_samples_per_condition:
             log.warning(
                 f"Skipping {group_label} {condition2} vs {condition1}: "
-                f"replicates are {n1}/{n2}, below min_samples_per_condition"
+                f"independent units are {n_units1}/{n_units2}, below min_samples_per_condition"
             )
-            return pd.DataFrame()
+            design_audit["reason"] = (
+                f"Independent units {n_units1}/{n_units2} are below "
+                f"min_samples_per_condition={active_config.min_samples_per_condition}."
+            )
+            return pd.DataFrame(), design_audit
 
-        has_formal_replicates = min(n1, n2) >= 2
+        has_formal_replicates = min(n_units1, n_units2) >= 2
+        if has_formal_replicates and design_covariates:
+            _validate_pseudobulk_model_design(
+                meta,
+                condition_key=active_config.condition_key,
+                condition1=condition1,
+                condition2=condition2,
+                covariates=design_covariates,
+            )
         should_use_cell_fallback = active_config.method == "cell_level_fallback" or (
             active_config.method == "auto"
-            and min(n1, n2) < 2
+            and min(n_units1, n_units2) < 2
             and active_config.fallback_to_cell_level
         )
         should_use_descriptive_single_sample = (
             active_config.method == "auto"
-            and min(n1, n2) < 2
+            and min(n_units1, n_units2) < 2
             and not active_config.fallback_to_cell_level
             and active_config.single_sample_mode == "descriptive"
         )
         should_use_linear_model = (
             active_config.method == "linear_model_logcpm"
             or (active_config.method == "auto" and bool(design_covariates))
-        ) and min(n1, n2) >= 2
-        should_use_statsmodels_glm = active_config.method == "statsmodels_glm" and min(n1, n2) >= 2
-        should_use_statsmodels_gee = active_config.method == "statsmodels_gee" and min(n1, n2) >= 2
+        ) and min(n_units1, n_units2) >= 2
+        should_use_statsmodels_glm = (
+            active_config.method == "statsmodels_glm" and min(n_units1, n_units2) >= 2
+        )
+        should_use_statsmodels_gee = (
+            active_config.method == "statsmodels_gee" and min(n_units1, n_units2) >= 2
+        )
         should_try_deseq2 = (
             active_config.method in {"auto", "deseq2"}
             and not should_use_linear_model
             and not should_use_statsmodels_glm
             and not should_use_statsmodels_gee
-            and min(n1, n2) >= 2
+            and min(n_units1, n_units2) >= 2
         )
         should_use_welch = (
             active_config.method in {"auto", "welch_logcpm"}
             and not should_use_linear_model
             and not should_use_statsmodels_glm
             and not should_use_statsmodels_gee
-            and min(n1, n2) >= 2
+            and min(n_units1, n_units2) >= 2
         )
 
         if should_use_descriptive_single_sample:
@@ -1704,7 +1926,8 @@ def run_pseudobulk_de(
                     f"Skipping {group_label} {condition2} vs {condition1}: "
                     "cell-level fallback is disabled"
                 )
-                return pd.DataFrame()
+                design_audit["reason"] = "Cell-level fallback is disabled."
+                return pd.DataFrame(), design_audit
 
             if groupby is None:
                 fallback_config = CompareGroupsConfig(
@@ -1740,8 +1963,10 @@ def run_pseudobulk_de(
                 result = compare_conditions(adata, fallback_config)
             result = result.copy()
             result["method"] = "cell_level_fallback"
-            if min(n1, n2) < 2:
-                result["pseudobulk_warning"] = "Only one sample in at least one condition"
+            if min(n_units1, n_units2) < 2:
+                result["pseudobulk_warning"] = (
+                    "Only one independent experimental unit in at least one condition"
+                )
             else:
                 result["pseudobulk_warning"] = (
                     "Cell-level fallback forced by method='cell_level_fallback'"
@@ -1816,7 +2041,8 @@ def run_pseudobulk_de(
                         f"Skipping {group_label} {condition2} vs {condition1}: "
                         f"DESeq2 failed ({exc})"
                     )
-                    return pd.DataFrame()
+                    design_audit["reason"] = f"DESeq2 failed: {exc}"
+                    return pd.DataFrame(), design_audit
                 log.warning(
                     f"DESeq2 failed for {group_label} {condition2} vs {condition1}; "
                     f"falling back to Welch logCPM ({exc})"
@@ -1849,10 +2075,15 @@ def run_pseudobulk_de(
                 f"Skipping {group_label} {condition2} vs {condition1}: "
                 f"method='{active_config.method}' requires >=2 samples per condition"
             )
-            return pd.DataFrame()
+            design_audit["reason"] = (
+                f"method='{active_config.method}' requires at least two independent "
+                "experimental units per condition."
+            )
+            return pd.DataFrame(), design_audit
 
         if result.empty:
-            return result
+            design_audit["reason"] = "The selected model returned no testable genes."
+            return result, design_audit
         result["group"] = group_label
         result["groupby"] = groupby or "all"
         result["condition1"] = condition1
@@ -1861,15 +2092,24 @@ def run_pseudobulk_de(
         result["direction"] = f"{condition2} - {condition1}"
         result["design_covariates"] = ",".join(design_covariates)
         result["block_col"] = active_config.block_col or ""
+        result["experimental_unit_col"] = experimental_unit_col
         if "n_samples_condition1" not in result:
             result["n_samples_condition1"] = n1
         if "n_samples_condition2" not in result:
             result["n_samples_condition2"] = n2
+        result["n_experimental_units_condition1"] = n_units1
+        result["n_experimental_units_condition2"] = n_units2
         result["replicate_status"] = (
             "replicated" if has_formal_replicates else "single_sample_or_unreplicated"
         )
         result["inference_level"] = "sample_level"
-        result["valid_for_publication_inference"] = bool(has_formal_replicates)
+        pvalue_col = "pvals" if "pvals" in result else "pval" if "pval" in result else None
+        estimable = (
+            np.isfinite(pd.to_numeric(result[pvalue_col], errors="coerce"))
+            if pvalue_col
+            else pd.Series(False, index=result.index)
+        )
+        result["valid_for_publication_inference"] = bool(has_formal_replicates) & estimable
         result["pseudoreplication_warning"] = False
         if result["method"].astype(str).eq("descriptive_pseudobulk").all():
             result["inference_level"] = "descriptive_single_sample"
@@ -1880,14 +2120,29 @@ def run_pseudobulk_de(
             result["pseudoreplication_warning"] = True
         if not has_formal_replicates and "pseudobulk_warning" not in result:
             result["pseudobulk_warning"] = "Insufficient biological replicates for formal inference"
-        return _tag_pseudobulk_de_result(result)
+        tagged = _tag_pseudobulk_de_result(result)
+        design_audit["status"] = (
+            "READY"
+            if bool(tagged["valid_for_publication_inference"].all())
+            else "REVIEW"
+        )
+        design_audit["reason"] = (
+            "Replicate-aware sample-level model completed."
+            if design_audit["status"] == "READY"
+            else "Result is descriptive or exploratory and cannot support formal inference."
+        )
+        design_audit["method_used"] = sorted(tagged["method"].astype(str).unique().tolist())
+        design_audit["n_tested_genes"] = int(tagged.shape[0])
+        return tagged, design_audit
 
     if active_config.n_jobs > 1 and len(tasks) > 1:
         with ThreadPoolExecutor(max_workers=active_config.n_jobs) as pool:
-            result_parts = list(pool.map(_run_one, tasks))
+            task_outputs = list(pool.map(_run_one, tasks))
     else:
-        result_parts = [_run_one(task) for task in tasks]
+        task_outputs = [_run_one(task) for task in tasks]
 
+    design_audits = [audit for _, audit in task_outputs]
+    result_parts = [part for part, _ in task_outputs]
     result_parts = [part for part in result_parts if part is not None and not part.empty]
     results = pd.concat(result_parts, ignore_index=True) if result_parts else pd.DataFrame()
 
@@ -1906,6 +2161,16 @@ def run_pseudobulk_de(
 
     root = adata.uns.setdefault("sclucid", {}).setdefault("analysis", {}).setdefault("de", {})
     root[active_config.key_added] = results
+    root[f"{active_config.key_added}_design"] = sanitize_for_hdf5(
+        {
+            "sample_col": active_config.sample_col,
+            "condition_key": active_config.condition_key,
+            "experimental_unit_col": experimental_unit_col,
+            "block_col": active_config.block_col,
+            "design_covariates": design_covariates,
+            "contrasts": design_audits,
+        }
+    )
     params = active_config.to_dict()
     params["recommended_primary_method"] = "sample_level_pseudobulk"
     params["cell_level_fallback_policy"] = "exploratory_only"

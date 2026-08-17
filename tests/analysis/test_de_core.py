@@ -621,6 +621,151 @@ class TestRunPseudobulkDE:
         with pytest.raises(ValueError, match="multiple values in covariate"):
             run_pseudobulk_de(adata, config)
 
+    def test_pseudobulk_config_rejects_invalid_contrasts(self):
+        with pytest.raises(ValueError, match="distinct conditions"):
+            PseudobulkDEConfig(
+                sample_col="sample",
+                condition_key="condition",
+                contrasts=[("ctrl", "ctrl")],
+            )
+        with pytest.raises(ValueError, match="Duplicate"):
+            PseudobulkDEConfig(
+                sample_col="sample",
+                condition_key="condition",
+                contrasts=[("ctrl", "treat"), ("ctrl", "treat")],
+            )
+
+    def test_pseudobulk_rejects_unobserved_contrast_level(self):
+        adata = self._make_pseudobulk_adata(n_reps=2)
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            contrasts=[("ctrl", "missing")],
+            min_cells_per_sample=1,
+            min_counts=0,
+        )
+
+        with pytest.raises(ValueError, match="unobserved condition"):
+            run_pseudobulk_de(adata, config)
+
+    def test_pseudobulk_rejects_repeated_units_without_block(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        sample_meta = adata.obs[["sample", "condition"]].drop_duplicates().copy()
+        sample_meta["patient"] = sample_meta["sample"].str.rsplit("_", n=1).str[-1]
+        patient_map = dict(zip(sample_meta["sample"], sample_meta["patient"]))
+        adata.obs["patient"] = adata.obs["sample"].map(patient_map)
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            experimental_unit_col="patient",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+        )
+
+        with pytest.raises(ValueError, match="block_col is not configured"):
+            run_pseudobulk_de(adata, config)
+
+    def test_pseudobulk_rejects_block_that_does_not_identify_repeated_units(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        sample_meta = adata.obs[["sample", "condition"]].drop_duplicates().copy()
+        sample_meta["patient"] = sample_meta["sample"].str.rsplit("_", n=1).str[-1]
+        patient_map = dict(zip(sample_meta["sample"], sample_meta["patient"]))
+        adata.obs["patient"] = adata.obs["sample"].map(patient_map)
+        adata.obs["shared_block"] = "one_block"
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            experimental_unit_col="patient",
+            block_col="shared_block",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+        )
+
+        with pytest.raises(ValueError, match="must uniquely identify"):
+            run_pseudobulk_de(adata, config)
+
+    def test_pseudobulk_revalidates_contrast_overrides(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            contrasts=[("ctrl", "treat")],
+        )
+
+        with pytest.raises(ValueError, match="distinct conditions"):
+            run_pseudobulk_de(adata, config, contrasts=[("ctrl", "ctrl")])
+
+    def test_pseudobulk_counts_experimental_units_and_records_design(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        sample_meta = adata.obs[["sample", "condition"]].drop_duplicates().copy()
+        sample_meta["patient"] = sample_meta["sample"].str.rsplit("_", n=1).str[-1]
+        patient_map = dict(zip(sample_meta["sample"], sample_meta["patient"]))
+        adata.obs["patient"] = adata.obs["sample"].map(patient_map)
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            experimental_unit_col="patient",
+            block_col="patient",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+        )
+
+        result = run_pseudobulk_de(adata, config)
+
+        assert set(result["n_experimental_units_condition1"]) == {3}
+        assert set(result["n_experimental_units_condition2"]) == {3}
+        assert set(result["experimental_unit_col"]) == {"patient"}
+        design = adata.uns["sclucid"]["analysis"]["de"][f"{config.key_added}_design"]
+        first = design["contrasts"]["0"]
+        assert first["status"] == "READY"
+        assert first["experimental_units_per_condition"] == {"ctrl": 3, "treat": 3}
+
+    def test_pseudobulk_rejects_rank_deficient_covariate(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        adata.obs["batch"] = adata.obs["condition"].map(
+            {"ctrl": "batch1", "treat": "batch2"}
+        )
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            groupby="cell_type",
+            group_names=["T"],
+            contrasts=[("ctrl", "treat")],
+            min_cells_per_sample=1,
+            min_counts=0,
+            method="linear_model_logcpm",
+            design_covariates=["batch"],
+        )
+
+        with pytest.raises(ValueError, match="rank deficient"):
+            run_pseudobulk_de(adata, config)
+
+    def test_pseudobulk_rejects_covariate_ignoring_backend(self):
+        adata = self._make_pseudobulk_adata(n_reps=3)
+        adata.obs["batch"] = "batch1"
+        config = PseudobulkDEConfig(
+            sample_col="sample",
+            condition_key="condition",
+            contrasts=[("ctrl", "treat")],
+            method="welch_logcpm",
+            design_covariates=["batch"],
+        )
+
+        with pytest.raises(ValueError, match="does not model"):
+            run_pseudobulk_de(adata, config)
+
 
 class TestStatsmodelsBackends:
     """Tests for Python-native statsmodels GLM/GEE pseudobulk backends."""

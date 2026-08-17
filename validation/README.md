@@ -144,6 +144,25 @@ from raw workflow internals:
   where analysts still needed manual interpretation, and which defaults caused
   avoidable review churn.
 
+## Analysis Inference Contract Evidence
+
+`validation/analysis/run_inference_contract_benchmark.py` is the executable
+checkpoint for sample, condition, experimental-unit, paired-block, contrast,
+and covariate semantics. It writes generated artifacts under
+`validation_outputs/analysis_inference_contract/` and includes SHA-256 input
+provenance in its manifest.
+
+The Kang2018 PBMC path derives one pseudobulk observation per
+`donor × condition`, counts eight paired donors as the independent units, and
+uses raw counts for gene-level pseudobulk. The Lin2020 PDAC path is evidence for
+safe refusal: its single condition and empty cell-type labels are recorded as
+BLOCKED instead of being replaced with synthetic metadata.
+
+```bash
+python validation/analysis/run_inference_contract_benchmark.py \
+  --data-dir /path/to/scLucid/data
+```
+
 ## First Scripts
 
 Run these lightweight manifest builders before writing heavier benchmarks:

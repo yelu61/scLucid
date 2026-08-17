@@ -289,6 +289,9 @@ def _run_pseudobulk_first_de(
     method: str = "auto",
     min_cells_per_sample: int = 5,
     min_samples_per_condition: int = 1,
+    experimental_unit_col: Optional[str] = None,
+    block_col: Optional[str] = None,
+    design_covariates: Optional[List[str]] = None,
     key_added: str = "pseudobulk_first",
 ) -> Tuple[AnnData, Dict[str, Any]]:
     """Run sample-level pseudobulk DE per cell type after clustering/annotation."""
@@ -324,54 +327,68 @@ def _run_pseudobulk_first_de(
         method=method,
         min_cells_per_sample=min_cells_per_sample,
         min_samples_per_condition=min_samples_per_condition,
+        experimental_unit_col=experimental_unit_col,
+        block_col=block_col,
+        design_covariates=list(design_covariates or []),
         key_added=f"{key_added}_de",
         fallback_to_cell_level=False,
         single_sample_mode="descriptive",
     )
     results_df = run_pseudobulk_de(adata, config=pb_config)
+    de_design = (
+        adata.uns.get("sclucid", {})
+        .get("analysis", {})
+        .get("de", {})
+        .get(f"{key_added}_de_design", {})
+    )
 
     per_cell_type_results: Dict[str, pd.DataFrame] = {}
     if not results_df.empty and "group" in results_df.columns:
         for cell_type, sub_df in results_df.groupby(results_df["group"].astype(str)):
             per_cell_type_results[cell_type] = sub_df.reset_index(drop=True)
 
-    # Build contrast records with per-cell-type replication information.
-    contrast_records: List[Dict[str, Any]] = []
+    # Build contrast records with per-cell-type independent-unit information,
+    # including blocked groups that produced no gene-level rows.
+    raw_contrast_records = de_design.get("contrasts", [])
+    if isinstance(raw_contrast_records, dict) and all(
+        str(key).isdigit() for key in raw_contrast_records
+    ):
+        raw_contrast_records = [
+            raw_contrast_records[key]
+            for key in sorted(raw_contrast_records, key=lambda key: int(str(key)))
+        ]
+    contrast_records: List[Dict[str, Any]] = [
+        dict(record) for record in raw_contrast_records if isinstance(record, dict)
+    ]
     under_replicated = False
     warning_message = ""
-    for cell_type, sub_df in per_cell_type_results.items():
-        for contrast in contrasts:
-            condition1, condition2 = contrast
-            rows = sub_df[
-                (sub_df["condition1"] == condition1) & (sub_df["condition2"] == condition2)
-            ]
-            if rows.empty:
-                continue
-            first_row = rows.iloc[0]
-            n1 = int(first_row.get("n_samples_condition1", 0))
-            n2 = int(first_row.get("n_samples_condition2", 0))
-            valid = bool(first_row.get("valid_for_publication_inference", False))
-            if min(n1, n2) < 3:
-                under_replicated = True
-                warning_message = (
-                    f"Contrast '{condition2}_vs_{condition1}' in '{cell_type}' has "
-                    f"fewer than 3 samples per group ({n1} vs {n2}). "
-                    "Treat results as descriptive only and do not use for formal inference."
+    for record in contrast_records:
+        condition1 = str(record.get("condition1", ""))
+        condition2 = str(record.get("condition2", ""))
+        unit_counts = record.get("experimental_units_per_condition", {})
+        n1 = int(unit_counts.get(condition1, 0)) if isinstance(unit_counts, dict) else 0
+        n2 = int(unit_counts.get(condition2, 0)) if isinstance(unit_counts, dict) else 0
+        if min(n1, n2) < 3:
+            under_replicated = True
+            if min(n1, n2) < 2:
+                interpretation = (
+                    "The result is descriptive only and cannot support formal inference."
                 )
-            contrast_records.append(
-                {
-                    "cell_type": cell_type,
-                    "condition1": condition1,
-                    "condition2": condition2,
-                    "contrast": f"{condition2}_vs_{condition1}",
-                    "n_samples_condition1": n1,
-                    "n_samples_condition2": n2,
-                    "valid_for_publication_inference": valid,
-                }
+            else:
+                interpretation = (
+                    "The sample-level model is estimable but low-powered; effect uncertainty "
+                    "and sensitivity require review."
+                )
+            warning_message = (
+                f"Contrast '{condition2}_vs_{condition1}' in "
+                f"'{record.get('group', 'all')}' has fewer than 3 independent units per "
+                f"condition ({n1} vs {n2}). {interpretation}"
             )
 
     overall_valid = (
         bool(per_cell_type_results)
+        and bool(contrast_records)
+        and all(record.get("status") != "BLOCKED" for record in contrast_records)
         and all(
             bool(df["valid_for_publication_inference"].all())
             for df in per_cell_type_results.values()
@@ -386,6 +403,7 @@ def _run_pseudobulk_first_de(
         },
         "inference_level": "sample_level",
         "valid_for_publication_inference": overall_valid,
+        "design": sanitize_for_hdf5(de_design),
         "params": sanitize_for_hdf5(pb_config.to_dict()),
     }
 
@@ -409,6 +427,9 @@ def run_pseudobulk_first_analysis(
     method: str = "auto",
     min_cells_per_sample: int = 5,
     min_samples_per_condition: int = 1,
+    experimental_unit_col: Optional[str] = None,
+    block_col: Optional[str] = None,
+    design_covariates: Optional[List[str]] = None,
     key_added: str = "pseudobulk_first",
     show_progress: bool = True,
     **kwargs,
@@ -442,6 +463,12 @@ def run_pseudobulk_first_analysis(
         Minimum cells per sample to include the sample.
     min_samples_per_condition : int, default=1
         Minimum samples per condition required to test a contrast.
+    experimental_unit_col : str, optional
+        Independent biological unit used to count replicates.
+    block_col : str, optional
+        Paired/repeated-measures unit included in the sample-level design.
+    design_covariates : list of str, optional
+        Explicit sample-level adjustment covariates.
     key_added : str, default="pseudobulk_first"
         Namespace for stored results.
     show_progress : bool, default=True
@@ -479,6 +506,9 @@ def run_pseudobulk_first_analysis(
         method=method,
         min_cells_per_sample=min_cells_per_sample,
         min_samples_per_condition=min_samples_per_condition,
+        experimental_unit_col=experimental_unit_col,
+        block_col=block_col,
+        design_covariates=design_covariates,
         key_added=key_added,
     )
 
@@ -1093,8 +1123,26 @@ def run_standard_analysis(
             # Step 9: Sample-level pseudobulk DE per cell type
             elif step_name == "pseudobulk_first":
                 log.info("Step: Pseudobulk-first differential expression")
-                pb_condition_col = kwargs.get("condition_col")
-                pb_sample_col = kwargs.get("sample_col")
+                resolved_context = infer_analysis_context(adata, context=context)
+                pb_condition_col = kwargs.get("condition_col") or resolved_context.condition_key
+                pb_sample_col = (
+                    kwargs.get("sample_col")
+                    or resolved_context.sample_key
+                    or resolved_context.experimental_unit_key
+                )
+                pb_experimental_unit_col = (
+                    kwargs.get("experimental_unit_col")
+                    or resolved_context.experimental_unit_key
+                    or pb_sample_col
+                )
+                pb_block_col = kwargs.get("block_col") or resolved_context.paired_key
+                if "design_covariates" in kwargs:
+                    pb_design_covariates = list(kwargs.get("design_covariates") or [])
+                else:
+                    # Batch metadata is a design candidate, not an automatic
+                    # adjustment. Applying it without a rank/confounding review
+                    # can remove the condition effect the user intends to test.
+                    pb_design_covariates = []
                 if not pb_condition_col or not pb_sample_col:
                     raise ValueError(
                         "Step 'pseudobulk_first' requires condition_col and sample_col arguments."
@@ -1110,6 +1158,9 @@ def run_standard_analysis(
                     method=kwargs.get("method", "auto"),
                     min_cells_per_sample=kwargs.get("min_cells_per_sample", 5),
                     min_samples_per_condition=kwargs.get("min_samples_per_condition", 1),
+                    experimental_unit_col=pb_experimental_unit_col,
+                    block_col=pb_block_col,
+                    design_covariates=pb_design_covariates,
                     key_added=kwargs.get("key_added", "pseudobulk_first"),
                 )
                 successful_steps.append("pseudobulk_first")

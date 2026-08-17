@@ -61,6 +61,30 @@ QC evidence runners write current Phase 2 outputs under
 - `qc_evidence_package/qc_evidence_report.md`: compact reviewer-facing
   summary
 
+The Analysis inference-contract runner writes local, generated evidence under
+`validation_outputs/analysis_inference_contract/`:
+
+- `metadata_propagation_matrix.tsv`: resolved metadata names and statistical
+  roles across context, proportion, and pseudobulk
+- `real_data_design_audit.tsv`: dataset-level READY/BLOCKED design facts
+- `pbmc_proportion_statistics.tsv`: paired donor-level CLR results
+- `pbmc_pseudobulk_de.tsv`: paired donor-blocked logCPM model results
+- `analysis_inference_evidence_manifest.json`: input hashes, selected genes and
+  cell types, design audits, artifact paths, and the gate status
+
+Run it against the local real-data inventory:
+
+``` bash
+python validation/analysis/run_inference_contract_benchmark.py \
+  --data-dir /path/to/scLucid/data
+```
+
+Kang2018 PBMC is executable only after defining one aggregation observation per
+`donor × condition`; `donor` remains both the independent experimental unit and
+paired block. Lin2020 PDAC is intentionally recorded as BLOCKED for condition
+inference because it contains one observed condition and no usable cell-type
+labels. The runner does not invent a control group or annotation.
+
 ## Programmatic Use
 
 ``` python

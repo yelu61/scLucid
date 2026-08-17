@@ -411,6 +411,7 @@ class TestPseudobulkFirstAnalysis:
             adata,
             condition_col="condition",
             sample_col="sample",
+            layer="counts",
             method="welch_logcpm",
             config=config,
             show_progress=False,
@@ -556,3 +557,66 @@ class TestPseudobulkFirstAnalysis:
         assert seen["config"].experimental_unit_col == "patient"
         review = result.uns["sclucid"]["analysis"]["review_summary"]["data"]
         assert review["proportion"]["sample_col"] == "orig.ident"
+
+    def test_pseudobulk_defaults_propagate_context_design_roles(self, monkeypatch):
+        """Context roles reach pseudobulk without auto-applying batch adjustment."""
+        from scLucid.utils.context import ProjectContext
+
+        adata = _make_pb_adata(
+            conditions=["pre", "post"], samples=["S1", "S2", "S3", "S4"]
+        )
+        adata.obs["orig.ident"] = adata.obs.pop("sample")
+        adata.obs["cohort"] = adata.obs["orig.ident"].map(
+            {"S1": "pre", "S2": "pre", "S3": "post", "S4": "post"}
+        )
+        adata.obs["patient"] = adata.obs["orig.ident"].map(
+            {"S1": "P1", "S2": "P2", "S3": "P1", "S4": "P2"}
+        )
+        adata.obs["batch"] = adata.obs["orig.ident"].map(
+            {"S1": "B1", "S2": "B2", "S3": "B1", "S4": "B2"}
+        )
+        seen = {}
+
+        def fake_pseudobulk(input_adata, condition_col, sample_col, cell_types, config, **kwargs):
+            seen.update(
+                {
+                    "condition_col": condition_col,
+                    "sample_col": sample_col,
+                    **kwargs,
+                }
+            )
+            input_adata.uns.setdefault("sclucid", {}).setdefault("analysis", {})[
+                "pseudobulk_first"
+            ] = {"per_cell_type_results": {}}
+            return input_adata, {
+                "under_replicated": False,
+                "warning_message": "",
+                "valid_for_publication_inference": False,
+            }
+
+        monkeypatch.setattr("scLucid.analysis.workflow._run_pseudobulk_first_de", fake_pseudobulk)
+        config = AnalysisWorkflowConfig(
+            annotation=None,
+            characterize=False,
+            run_clustering_review=False,
+            pseudobulk_first=True,
+        )
+        run_standard_analysis(
+            adata,
+            config=config,
+            context=ProjectContext(
+                sample_key="orig.ident",
+                condition_key="cohort",
+                experimental_unit_key="patient",
+                paired_key="patient",
+                batch_key="batch",
+            ),
+            steps=["pseudobulk_first"],
+            show_progress=False,
+        )
+
+        assert seen["sample_col"] == "orig.ident"
+        assert seen["condition_col"] == "cohort"
+        assert seen["experimental_unit_col"] == "patient"
+        assert seen["block_col"] == "patient"
+        assert seen["design_covariates"] == []

@@ -83,8 +83,9 @@ independent biological replicates.
 from scLucid.analysis import PseudobulkDEConfig, run_pseudobulk_de
 
 config = PseudobulkDEConfig(
-    sample_col="sampleID",
+    sample_col="donor_condition_sample",
     condition_key="condition",
+    experimental_unit_col="patient_id",
     groupby="cell_type_final",
     group_names=["T cell", "B cell"],
     contrasts=[("control", "treated")],
@@ -101,6 +102,12 @@ Formal results should report `inference_level == "sample_level"` and
 `valid_for_publication_inference == True`. If only one biological sample exists
 per group, scLucid should return descriptive effect-size results rather than
 formal p-values.
+
+`sample_col` identifies the aggregate pseudobulk row; it is not automatically
+the biological replicate. For paired or repeated designs, set both
+`experimental_unit_col` and `block_col`. scLucid rejects unobserved contrast
+levels, repeated units without a block, unresolved technical replicates, and
+covariates that the selected backend ignores or cannot identify.
 
 ## scCODA
 

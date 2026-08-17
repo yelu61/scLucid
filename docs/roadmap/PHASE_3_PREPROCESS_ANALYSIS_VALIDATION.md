@@ -144,6 +144,15 @@ scLucid 不应默认“强行校正”，而应先诊断：
 
 ### Step 6. DE/proportion inference safety
 
+Current checkpoint (2026-08-17): the sample/condition/experimental-unit
+propagation matrix is frozen in the user contract. Proportion and pseudobulk
+paths now count independent units explicitly and fail closed on metadata
+conflicts, invalid contrasts, unmodeled repeated measures, ignored covariates,
+and rank-deficient designs. The real-data evidence runner records Kang2018 as
+an executable paired donor design and Lin2020 PDAC as a non-inferential BLOCKED
+design. This checkpoint validates the inference contract; it does not complete
+the broader multi-dataset annotation, batch, or comparative-method benchmarks.
+
 输出必须区分：
 
 - exploratory cell-level。
@@ -193,4 +202,3 @@ Figure 3D: inference semantics guardrails for DE/proportion。
 | annotation ground truth 不可靠 | label agreement 误导 | 分 major lineage 和 subtype/state 两层评估 |
 | batch correction 争议大 | 不同工具目标不同 | 强调 diagnostic recommendation 而非单一最优 |
 | DE 结果被过度解释 | 审稿人质疑统计 | inference semantics 作为核心防线 |
-

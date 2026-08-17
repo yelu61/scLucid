@@ -17,6 +17,13 @@ class ProportionConfig(SclucidBaseConfig):
 
     # Optional fields
     pairing_col: Optional[str] = Field(default=None)
+    experimental_unit_col: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column identifying independent biological units. Defaults to pairing_col "
+            "for repeated designs and sample_col otherwise."
+        ),
+    )
     batch_col: Optional[str] = Field(default=None)
     timepoint_col: Optional[str] = Field(default=None)
 

@@ -8,7 +8,10 @@ from pydantic import ValidationError
 
 from scLucid.analysis.config import ProportionConfig as PublicProportionConfig
 from scLucid.analysis.proportion.config import ProportionConfig
-from scLucid.analysis.proportion.pseudobulk import celltype_proportion_analysis
+from scLucid.analysis.proportion.pseudobulk import (
+    _auto_configure_analysis,
+    celltype_proportion_analysis,
+)
 from scLucid.analysis.proportion.stats import (
     _run_ancom_like_clr_test,
     composition_transform,
@@ -36,6 +39,27 @@ def test_proportion_config_defaults_to_clr_sample_level():
 
     assert cfg.test_method == "clr-t-test"
     assert cfg.composition_transform == "clr"
+
+
+def test_proportion_auto_configure_false_preserves_method_and_empty_plot_plan():
+    adata = AnnData(X=np.ones((24, 1)))
+    adata.obs["sample"] = np.repeat([f"s{i}" for i in range(6)], 4)
+    adata.obs["condition"] = adata.obs["sample"].map(
+        {"s0": "A", "s1": "A", "s2": "A", "s3": "B", "s4": "B", "s5": "B"}
+    )
+    config = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        auto_configure=False,
+        test_method="clr-t-test",
+        plot_types=[],
+    )
+
+    resolved = _auto_configure_analysis(adata, config)
+
+    assert resolved.test_method == "clr-t-test"
+    assert resolved.plot_types == []
 
 
 def test_proportion_config_rejects_unimplemented_fisher():
@@ -382,3 +406,180 @@ def test_pseudobulk_two_group_plots_use_sample_level_metadata():
 
     assert list(prop_df.index) == ["s1", "s2", "s3", "s4"]
     assert "effect_size_cohens_d" in stat_df.columns
+
+
+def test_proportion_rejects_sample_condition_conflicts():
+    """A sample may not be silently assigned the first of several conditions."""
+    adata = AnnData(X=np.ones((8, 1)))
+    adata.obs["sample"] = ["s1"] * 4 + ["s2"] * 4
+    adata.obs["condition"] = ["A", "A", "B", "B"] + ["B"] * 4
+    adata.obs["cell_type"] = ["T", "B"] * 4
+    cfg = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        plot_types=[],
+    )
+
+    with pytest.raises(ValueError, match="conflicting sample mappings"):
+        celltype_proportion_analysis(adata, cfg)
+
+
+def test_proportion_paired_design_counts_complete_experimental_units():
+    rows = []
+    for donor_index, donor in enumerate(["p1", "p2", "p3"]):
+        for condition in ["pre", "post"]:
+            sample = f"{donor}_{condition}"
+            t_cells = 2 + donor_index + (3 if condition == "post" else 0)
+            b_cells = 8 - t_cells
+            for cell_type in ["T"] * t_cells + ["B"] * b_cells:
+                rows.append(
+                    {
+                        "sample": sample,
+                        "condition": condition,
+                        "patient": donor,
+                        "cell_type": cell_type,
+                    }
+                )
+    adata = AnnData(X=np.ones((len(rows), 1)), obs=pd.DataFrame(rows))
+    cfg = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        experimental_unit_col="patient",
+        pairing_col="patient",
+        test_method="clr-paired-t-test",
+        auto_configure=False,
+        plot_types=[],
+    )
+
+    _, stat_df = celltype_proportion_analysis(adata, cfg)
+
+    design = adata.uns["sclucid"]["proportion"]["design"]
+    assert design["experimental_unit_col"] == "patient"
+    assert design["n_complete_pairs"] == 3
+    assert design["replicate_basis"] == "complete_pairs"
+    assert set(stat_df["n_complete_pairs"]) == {3}
+    assert stat_df["valid_for_publication_inference"].all()
+
+
+def test_proportion_rejects_pair_column_that_does_not_identify_repeated_units():
+    rows = []
+    for donor in ["p1", "p2", "p3"]:
+        for condition in ["pre", "post"]:
+            for cell_type in ["T", "T", "B", "B"]:
+                rows.append(
+                    {
+                        "sample": f"{donor}_{condition}",
+                        "condition": condition,
+                        "patient": donor,
+                        "shared_pair": "all_patients",
+                        "cell_type": cell_type,
+                    }
+                )
+    adata = AnnData(X=np.ones((len(rows), 1)), obs=pd.DataFrame(rows))
+    config = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        experimental_unit_col="patient",
+        pairing_col="shared_pair",
+        test_method="clr-paired-t-test",
+        auto_configure=False,
+        plot_types=[],
+    )
+
+    with pytest.raises(ValueError, match="must uniquely identify"):
+        celltype_proportion_analysis(adata, config)
+
+
+def test_proportion_does_not_promote_legacy_raw_test_to_formal_inference():
+    adata = AnnData(X=np.ones((16, 1)))
+    adata.obs["sample"] = np.repeat(["a1", "a2", "b1", "b2"], 4)
+    adata.obs["condition"] = adata.obs["sample"].map(
+        {"a1": "A", "a2": "A", "b1": "B", "b2": "B"}
+    )
+    adata.obs["cell_type"] = ["T", "T", "B", "B"] * 4
+    cfg = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        test_method="t-test",
+        auto_configure=False,
+        legacy_exploratory=True,
+        plot_types=[],
+    )
+
+    _, stat_df = celltype_proportion_analysis(adata, cfg)
+
+    assert set(stat_df["inference_level"]) == {"exploratory_legacy_proportion"}
+    assert not stat_df["valid_for_publication_inference"].any()
+
+
+def test_proportion_rejects_condition_batch_confounding():
+    adata = AnnData(X=np.ones((16, 1)))
+    adata.obs["sample"] = np.repeat(["a1", "a2", "b1", "b2"], 4)
+    adata.obs["condition"] = adata.obs["sample"].map(
+        {"a1": "A", "a2": "A", "b1": "B", "b2": "B"}
+    )
+    adata.obs["batch"] = adata.obs["condition"].map({"A": "batch1", "B": "batch2"})
+    adata.obs["cell_type"] = ["T", "T", "B", "B"] * 4
+    cfg = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        batch_col="batch",
+        test_method="clr-ols",
+        auto_configure=False,
+        plot_types=[],
+    )
+
+    with pytest.raises(ValueError, match="rank deficient"):
+        celltype_proportion_analysis(adata, cfg)
+
+
+def test_proportion_rejects_missing_values_in_configured_covariate():
+    adata = AnnData(X=np.ones((16, 1)))
+    adata.obs["sample"] = np.repeat(["a1", "a2", "b1", "b2"], 4)
+    adata.obs["condition"] = adata.obs["sample"].map(
+        {"a1": "A", "a2": "A", "b1": "B", "b2": "B"}
+    )
+    adata.obs["batch"] = adata.obs["sample"].map(
+        {"a1": "batch1", "a2": None, "b1": "batch1", "b2": "batch2"}
+    )
+    adata.obs["cell_type"] = ["T", "T", "B", "B"] * 4
+    config = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        batch_col="batch",
+        test_method="clr-ols",
+        auto_configure=False,
+        plot_types=[],
+    )
+
+    with pytest.raises(ValueError, match="complete non-empty metadata in 'batch'"):
+        celltype_proportion_analysis(adata, config)
+
+
+def test_ancom_like_clr_allows_unpaired_two_condition_design():
+    adata = AnnData(X=np.ones((24, 1)))
+    adata.obs["sample"] = np.repeat(["a1", "a2", "a3", "b1", "b2", "b3"], 4)
+    adata.obs["condition"] = adata.obs["sample"].map(
+        {"a1": "A", "a2": "A", "a3": "A", "b1": "B", "b2": "B", "b3": "B"}
+    )
+    adata.obs["cell_type"] = ["T", "T", "B", "B"] * 6
+    config = ProportionConfig(
+        celltype_col="cell_type",
+        sample_col="sample",
+        condition_col="condition",
+        test_method="ancom-like-clr",
+        auto_configure=False,
+        plot_types=[],
+    )
+
+    _, results = celltype_proportion_analysis(adata, config)
+
+    assert not results.empty
+    assert set(results["method"]) == {"ancom-like-clr"}
+    assert not results["valid_for_publication_inference"].any()

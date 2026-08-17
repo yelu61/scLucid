@@ -149,6 +149,37 @@ Do not store the entire `ReasoningBrief` in `study_objective`. Until a versioned
 implementation exists, keep the full brief as a project-side artifact and pass
 only current supported metadata into `ProjectContext`.
 
+## Frozen Analysis Metadata Propagation Matrix
+
+For proportion and pseudobulk inference, field names and statistical roles are
+separate contracts. `AnalysisPlan.context` preserves the resolved
+`ProjectContext`, while its `sample_level_inference` decision records the
+condition, experimental unit, pairing, and observed replicate counts. Execution
+must resolve the following matrix without substituting a hard-coded column name:
+
+| Project context | Analysis execution | Proportion config | Pseudobulk config | Statistical role | Fail-closed rule |
+| --- | --- | --- | --- | --- | --- |
+| `sample_key` | `sample_col` | `sample_col` | `sample_col` | one aggregate observation | each value maps to exactly one condition and one experimental unit |
+| `condition_key` | `condition_col` | `condition_col` | `condition_key` | comparison factor | at least two observed levels; every requested contrast level exists |
+| `experimental_unit_key` | `experimental_unit_col` | `experimental_unit_col` | `experimental_unit_col` | independent biological replicate | replicate counts use unique units, never cells or technical rows |
+| `paired_key` | `pairing_col` / `block_col` | `pairing_col` | `block_col` | repeated-measures identity | a repeated unit across conditions requires an explicit paired/block design |
+| `batch_key` | explicit review candidate | `batch_col` | `design_covariates` | technical adjustment candidate | never auto-apply; reject ignored, constant, confounded, or rank-deficient covariates |
+| `cell_type_key` | resolved annotation key | `celltype_col` | `groupby` | analysis stratum | labels must be present and non-empty for the cells being analyzed |
+
+`sample_key` does not necessarily mean independent replicate. When a source
+column is a capture or library label shared by several donors, derive an
+aggregation identifier such as `donor + condition`, record that derivation in
+the evidence artifact, and retain `donor` as the experimental unit. Multiple
+technical samples for the same experimental-unit/condition pair must be
+consolidated explicitly before inference.
+
+The execution audit is stored in
+`adata.uns["sclucid"]["proportion"]["design"]` and
+`adata.uns["sclucid"]["analysis"]["de"]["<key>_design"]`. A result is not
+publication-valid merely because a model returned rows: the design must be
+identifiable, biological replication must be sufficient, and the row-level
+p-value must be finite.
+
 ## Compatibility Rules
 
 1. Existing workflows must remain valid without a `ReasoningBrief`.

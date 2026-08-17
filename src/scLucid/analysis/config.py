@@ -238,6 +238,14 @@ class PseudobulkDEConfig(SclucidBaseConfig):
             "It is included as a categorical covariate in linear_model_logcpm."
         ),
     )
+    experimental_unit_col: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column identifying independent biological units. When omitted, "
+            "block_col is used for paired/repeated designs and sample_col otherwise. "
+            "Replicate sufficiency is evaluated on this column, never on cells."
+        ),
+    )
     fallback_to_cell_level: bool = Field(
         default=False,
         description=(
@@ -252,6 +260,19 @@ class PseudobulkDEConfig(SclucidBaseConfig):
     p_adjust_method: Literal["fdr_bh", "bonferroni"] = Field(default="fdr_bh")
     key_added: str = Field(default="pseudobulk_de")
     n_jobs: int = Field(default=1, ge=1)
+
+    @field_validator("contrasts")
+    @classmethod
+    def validate_contrasts(cls, value: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+        """Require explicit, directional, non-duplicated two-level contrasts."""
+        if not value:
+            raise ValueError("contrasts must contain at least one condition comparison")
+        normalized = [(str(condition1), str(condition2)) for condition1, condition2 in value]
+        if any(condition1 == condition2 for condition1, condition2 in normalized):
+            raise ValueError("A pseudobulk contrast must compare two distinct conditions")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Duplicate pseudobulk contrasts are not allowed")
+        return normalized
 
 
 class ConservedMarkersConfig(ComparisonConfig):
@@ -370,6 +391,13 @@ class ProportionConfig(SclucidBaseConfig):
 
     # Optional fields
     pairing_col: Optional[str] = Field(default=None)
+    experimental_unit_col: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column identifying independent biological units. Defaults to pairing_col "
+            "for repeated designs and sample_col otherwise."
+        ),
+    )
     batch_col: Optional[str] = Field(default=None)
     timepoint_col: Optional[str] = Field(default=None)
 

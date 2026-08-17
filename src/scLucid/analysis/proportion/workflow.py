@@ -216,12 +216,17 @@ def analyze_celltype_proportion(
         # 根据返回类型要求返回
         if return_type == "anndata":
             # 将结果存储到 AnnData 中
-            adata.uns.setdefault("sclucid", {})["proportion"] = {
-                "method": "pseudobulk",
-                "prop_df": prop_df,
-                "stat_df": stat_df,
-                "config": config.model_dump(),
-            }
+            proportion_ns = adata.uns.setdefault("sclucid", {}).setdefault(
+                "proportion", {}
+            )
+            proportion_ns.update(
+                {
+                    "method": "pseudobulk",
+                    "prop_df": prop_df,
+                    "stat_df": stat_df,
+                    "config": config.model_dump(),
+                }
+            )
             return adata
         else:
             return prop_df, stat_df

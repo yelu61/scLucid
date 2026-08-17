@@ -48,9 +48,10 @@ implementation status.
 
 | Module | Core Differentiator | Current Maintained Surface | Next Focus |
 |--------|---------------------|----------------------------|------------|
-| QC | Reviewer-first filtering with tumor-aware guardrails | `run_standard_qc`, QC review summary, decision/reviewer tables, doublet and contamination evidence | More real-data ambient/doublet calibration and report polish |
+| Decision layer | Explicit project design and prioritized cross-stage actions | `ProjectContext`, `plan_analysis`, `review_run`, analysis plan and run-review audit panels | AK112/LPJ-like applied-override acceptance feedback |
+| QC | Reviewer-first filtering with tumor-aware guardrails | `run_qc`, QC review summary, decision/reviewer tables, doublet and contamination evidence; `run_standard_qc` for compatibility/step control | More real-data ambient/doublet calibration and report polish |
 | Preprocess | Explicit layer and inference handoff | `run_preprocessing`, normalization policy, layer contract, preprocess reviewer table | More real-data layer/HVG/batch benchmarks and docs examples |
-| Analysis | Conservative interpretation boundary | `run_standard_analysis`, analysis inference policy, output contract, decision summary, reviewer table | Pseudobulk DE reviewer summary, richer annotation evidence, real-data acceptance |
+| Analysis | Conservative interpretation boundary | `run_standard_analysis`, replicate-aware proportion/pseudobulk design audits, fail-closed metadata and contrast contracts, analysis inference policy, output contract, decision summary, reviewer table | Dedicated pseudobulk reviewer summary, richer annotation evidence, and broader real-data acceptance |
 | Annotation | Multi-evidence consensus rather than black-box labeling | marker/reference/LLM evidence merge, consensus labels, review table | clearer examples for lineage/subtype/state workflows |
 | Tumor | Tumor-context interpretation on top of stable analysis outputs | malignancy/CNV/program/TME helpers and tumor workflow scaffold | consume analysis contracts more tightly and add tumor-stage review summaries |
 | Tools / Bulk / Spatial | Support evidence rather than core product sprawl | selected bulk, spatial, deconvolution, R/Python parity helpers | dependency isolation and evidence-contract integration |
@@ -73,6 +74,8 @@ implementation status.
 - Keep QC, preprocess, and analysis review summaries serializable to `.h5ad`.
 - Keep reviewer tables as the notebook/API/report-facing surface.
 - Keep `adata.uns["sclucid"]` as the shared audit namespace.
+- Keep `review_run()` as a derived product read model; module review summaries
+  remain the source evidence.
 
 ### Stage 2: Module-Specific Hardening
 
@@ -80,8 +83,9 @@ implementation status.
   tumor-aware validation.
 - Preprocess: benchmark normalization/HVG/layer handoff across PBMC, tumor,
   low-RNA, and multi-sample settings.
-- Analysis: add a dedicated pseudobulk DE reviewer summary and validate
-  annotation evidence on real datasets.
+- Analysis: build a dedicated pseudobulk DE reviewer summary on the frozen
+  sample/condition/experimental-unit contract and validate annotation evidence
+  on additional real datasets.
 
 ### Stage 3: Tumor Interpretation And Evidence Bridges
 
