@@ -65,5 +65,6 @@ extends that spine toward three planned capabilities:
 
 The documentation-only
 [Scientific Reasoning Contracts](user/scientific_reasoning_contracts.md)
-define the planned `ReasoningBrief -> WorkflowReview -> RunEvidence` handoff.
+define the planned `ReasoningBrief -> WorkflowReview -> RunEvidence` handoff
+and keep optional expert-perspective skills upstream of the scLucid product.
 They do not change the current Python API.

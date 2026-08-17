@@ -148,6 +148,13 @@ The stable promise is narrower: make assumptions visible, preserve biological
 caution, label inference boundaries, and keep enough review evidence for another
 analyst to audit the workflow.
 
+Portable scientific-reasoning and researcher-perspective skills remain
+upstream of the package and evolve independently. They may provide a neutral
+`ReasoningBrief`, but they are not scLucid dependencies and their identities or
+opinions are never treated as execution evidence. See the
+[scientific reasoning contracts](docs/user/scientific_reasoning_contracts.md)
+for the draft boundary.
+
 Current module maturity, implementation plans, validation status, and roadmap
 details live in `docs/`, especially `docs/README.md`, `docs/user/`,
 `docs/api/`, and `docs/roadmap/`.
