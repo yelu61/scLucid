@@ -56,6 +56,10 @@ from_json/
 .ipynb_checkpoints/
 **/.ipynb_checkpoints/
 
+# Project-root notebooks are local working artifacts. Curated notebooks under
+# examples/ or other explicit subdirectories may still be version-controlled.
+/*.ipynb
+
 # OS files
 .DS_Store
 **/.DS_Store
