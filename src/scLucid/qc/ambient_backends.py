@@ -14,7 +14,9 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
+from functools import cache
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -34,6 +36,21 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Backend availability checks
 # ---------------------------------------------------------------------------
+
+_R_CAPABILITY_PROBE_TIMEOUT_SECONDS = 15.0
+_R_CAPABILITY_PROBE_CODE = """
+import sys
+
+try:
+    import rpy2.robjects  # noqa: F401
+    package = sys.argv[1] if len(sys.argv) > 1 else ""
+    if package:
+        from rpy2.robjects.packages import importr
+        importr(package)
+except BaseException as exc:
+    print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+"""
 
 
 def _check_cellbender_cli() -> Optional[str]:
@@ -56,27 +73,47 @@ def cellbender_available() -> bool:
     return _check_cellbender_cli() is not None or _check_cellbender_module()
 
 
-def _rpy2_available() -> bool:
-    """Return True if rpy2 is installed."""
-    try:
-        import rpy2.robjects as ro  # noqa: F401
+@cache
+def _probe_r_capability(package: Optional[str] = None) -> bool:
+    """Probe rpy2/R in a child process so embedded-R failures stay isolated.
 
-        return True
-    except Exception:
+    Importing :mod:`rpy2.robjects` initializes embedded R and can terminate the
+    interpreter when the local R installation is missing or ABI-incompatible.
+    A Python ``try`` block cannot catch that signal, so capability discovery
+    must never perform the import in scLucid's main process.
+    """
+    command = [sys.executable, "-c", _R_CAPABILITY_PROBE_CODE]
+    if package:
+        command.append(package)
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=_R_CAPABILITY_PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.debug("R capability probe failed for %r: %s", package or "rpy2", exc)
         return False
+    if result.returncode != 0:
+        log.debug(
+            "R capability probe reported unavailable for %r (return code %s).",
+            package or "rpy2",
+            result.returncode,
+        )
+        return False
+    return True
+
+
+def _rpy2_available() -> bool:
+    """Return True when rpy2 and embedded R initialize in an isolated process."""
+    return _probe_r_capability()
 
 
 def _r_package_available(name: str) -> bool:
-    """Return True if an R package can be imported via rpy2."""
-    if not _rpy2_available():
-        return False
-    try:
-        import rpy2.robjects.packages as rpackages
-
-        rpackages.importr(name)
-        return True
-    except Exception:
-        return False
+    """Return True if an R package can be imported in an isolated process."""
+    return _probe_r_capability(name)
 
 
 def soupx_available() -> bool:
@@ -273,7 +310,7 @@ def run_soupx(
     matrix = adata.layers[layer] if layer is not None and layer in adata.layers else adata.X
     adata.layers["_soupx_input"] = matrix
 
-    soupx = importr("SoupX")
+    importr("SoupX")
     base = importr("base")
 
     with tempfile.TemporaryDirectory(prefix="sclucid_soupx_") as tmpdir:
@@ -400,7 +437,7 @@ def run_decontx(
     matrix = adata.layers[layer] if layer is not None and layer in adata.layers else adata.X
     adata.layers["_decontx_input"] = matrix
 
-    celda = importr("celda")
+    importr("celda")
     base = importr("base")
 
     with tempfile.TemporaryDirectory(prefix="sclucid_decontx_") as tmpdir:

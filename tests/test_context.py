@@ -96,6 +96,50 @@ def test_run_pipeline_stores_context_and_passes_tumor_aware_qc(monkeypatch):
     assert out.uns["sclucid"]["pipeline_context"]["dataset_type"] == "tumor_tissue"
 
 
+def test_run_pipeline_passes_plan_design_context_to_analysis(monkeypatch):
+    """The executable analysis stage must receive the design recorded by the plan."""
+    import scLucid as scl
+
+    adata = _adata(n_obs=24)
+    adata.obs["orig.ident"] = np.repeat(["s1", "s2", "s3", "s4"], 6)
+    adata.obs["cohort"] = adata.obs["orig.ident"].map(
+        {"s1": "pre", "s2": "pre", "s3": "post", "s4": "post"}
+    )
+    adata.obs["patient"] = adata.obs["orig.ident"].map(
+        {"s1": "p1", "s2": "p2", "s3": "p1", "s4": "p2"}
+    )
+    adata.obsm["X_pca"] = np.zeros((adata.n_obs, 2))
+    adata.uns["sclucid"] = {"preprocess": {}}
+    plan = scl.plan_analysis(
+        adata,
+        stages=["analysis"],
+        context=scl.ProjectContext(
+            dataset_type="pbmc_or_blood",
+            sample_key="orig.ident",
+            condition_key="cohort",
+            experimental_unit_key="patient",
+            study_objective="paired comparison",
+        ),
+    )
+    seen = {}
+
+    def fake_analysis(input_adata, **kwargs):
+        seen["context"] = kwargs["context"]
+        input_adata.uns["sclucid"]["analysis"] = {
+            "review_summary": {"analysis_readiness": {"status": "ready", "score": 100}}
+        }
+        return input_adata
+
+    monkeypatch.setattr(scl, "run_standard_analysis", fake_analysis)
+    result = scl.run_pipeline(adata, plan=plan, show_progress=False)
+
+    assert seen["context"].sample_key == "orig.ident"
+    assert seen["context"].condition_key == "cohort"
+    assert seen["context"].experimental_unit_key == "patient"
+    assert seen["context"].paired_key == "patient"
+    assert result.uns["sclucid"]["analysis_context"]["sample_key"] == "orig.ident"
+
+
 def test_recommendation_tumor_section_disabled_for_pbmc():
     from scLucid.recommendation.config import RecommendationConfig
     from scLucid.recommendation.engine import RecommendationEngine

@@ -464,6 +464,7 @@ def run_pipeline(
         adata = run_standard_analysis(
             adata,
             config=effective_analysis_config,
+            context=analysis_context,
             show_progress=show_progress,
             **_stage_kwargs("analysis", kwargs),
         )

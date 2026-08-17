@@ -14,11 +14,27 @@ from scLucid.analysis.config import (
 )
 from scLucid.analysis.workflow import (
     WorkflowError,
+    _resolve_analysis_steps,
     compare_clustering_resolutions,
     run_custom_analysis,
     run_pseudobulk_first_analysis,
     run_standard_analysis,
 )
+
+
+def test_skip_steps_filters_configured_defaults_without_enabling_optional_steps():
+    """An empty/partial skip list must not activate opt-in analysis stages."""
+    config = AnalysisWorkflowConfig(
+        annotation=None,
+        characterize=False,
+        run_clustering_review=False,
+        run_proportion=False,
+        pseudobulk_first=False,
+        run_malignancy_interpretation=False,
+    )
+
+    assert _resolve_analysis_steps(None, [], config) == ["clustering", "markers"]
+    assert _resolve_analysis_steps(None, ["markers"], config) == ["clustering"]
 
 
 def _make_preprocessed_adata(n_obs=200, n_vars=500):
@@ -243,7 +259,7 @@ class TestCompareClusteringResolutions:
         """Results saved when save_path provided."""
         adata = _make_preprocessed_adata(n_obs=100)
         out = tmp_path / "resolutions.csv"
-        df = compare_clustering_resolutions(
+        compare_clustering_resolutions(
             adata,
             resolutions=[0.5],
             save_path=out,
@@ -486,3 +502,57 @@ class TestPseudobulkFirstAnalysis:
         review = result.uns["sclucid"]["analysis"]["review_summary"]["data"]
         assert review["proportion"]["decision"] == "sample_level_celltype_composition_review"
         assert review["proportion"]["sample_col"] == "sample"
+
+    def test_proportion_defaults_follow_project_context(self, monkeypatch):
+        """Non-standard design columns must replace legacy hard-coded fallbacks."""
+        from scLucid.utils.context import ProjectContext
+
+        adata = _make_pb_adata(
+            conditions=["pre", "post"], samples=["S1", "S2", "S3", "S4"]
+        )
+        adata.obs["cohort"] = adata.obs["sample"].map(
+            {"S1": "pre", "S2": "pre", "S3": "post", "S4": "post"}
+        )
+        adata.obs["orig.ident"] = adata.obs.pop("sample")
+        adata.obs["patient"] = adata.obs["orig.ident"].map(
+            {"S1": "P1", "S2": "P2", "S3": "P1", "S4": "P2"}
+        )
+        seen = {}
+
+        def fake_proportion(input_adata, *, config, **kwargs):
+            seen["config"] = config
+            input_adata.uns.setdefault("sclucid", {})["proportion"] = {
+                "method": "pseudobulk",
+                "stat_df": None,
+            }
+            return input_adata
+
+        monkeypatch.setattr(
+            "scLucid.analysis.workflow.analyze_celltype_proportion", fake_proportion
+        )
+        config = AnalysisWorkflowConfig(
+            annotation=None,
+            characterize=False,
+            run_clustering_review=False,
+            run_proportion=True,
+            proportion_method="pseudobulk",
+        )
+        result = run_standard_analysis(
+            adata,
+            config=config,
+            context=ProjectContext(
+                sample_key="orig.ident",
+                condition_key="cohort",
+                experimental_unit_key="patient",
+            ),
+            steps=["proportion"],
+            show_progress=False,
+        )
+
+        assert seen["config"].sample_col == "orig.ident"
+        assert seen["config"].condition_col == "cohort"
+        assert seen["config"].celltype_col == "cell_type"
+        assert seen["config"].pairing_col == "patient"
+        assert seen["config"].experimental_unit_col == "patient"
+        review = result.uns["sclucid"]["analysis"]["review_summary"]["data"]
+        assert review["proportion"]["sample_col"] == "orig.ident"

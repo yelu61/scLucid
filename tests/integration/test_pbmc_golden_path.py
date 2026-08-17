@@ -5,8 +5,9 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import numpy as np
 import pytest
-
+from anndata import AnnData
 
 REPO_ROOT = Path(__file__).parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "run_pbmc_golden_path.py"
@@ -20,6 +21,27 @@ def _load_script_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize(
+    "script_path",
+    [SCRIPT_PATH, REPO_ROOT / "scripts" / "run_pdac_golden_path.py"],
+)
+def test_golden_path_hdf5_sanitizer_encodes_empty_metadata_keys(tmp_path, script_path):
+    """Empty biological labels must not make compact audit metadata unwritable."""
+    spec = importlib.util.spec_from_file_location(f"sanitize_{script_path.stem}", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    safe = module.make_hdf5_safe(
+        {"retention": {"per_cell_type": {"": {"initial_cells": 3}, "B cells": {}}}}
+    )
+    assert "__empty_label__" in safe["retention"]["per_cell_type"]
+    adata = AnnData(X=np.ones((1, 1), dtype=float))
+    adata.uns["sclucid"] = safe
+    adata.write_h5ad(tmp_path / f"{script_path.stem}.h5ad")
 
 
 @pytest.mark.slow

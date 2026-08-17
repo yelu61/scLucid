@@ -35,6 +35,7 @@ from ..utils import (
     step_results_to_storage,
     validate_review_summary_schema,
 )
+from ..utils.context import AnalysisContext, infer_analysis_context
 from .annotation import build_annotation_consensus, run_annotation, run_annotation_evidence
 from .clustering import cluster_cells, run_clustering_review
 from .config import AnalysisWorkflowConfig, AnnotationConfig, ProportionConfig, PseudobulkDEConfig
@@ -90,10 +91,10 @@ def _resolve_analysis_steps(
 
     if steps is not None:
         resolved = list(steps)
-    elif skip_steps is not None:
-        resolved = [s for s in ANALYSIS_WORKFLOW_STEPS if s not in skip_steps]
     else:
-        # Use config flags to determine default steps
+        # Use config flags to determine default steps. ``skip_steps`` filters
+        # this configured baseline; it must not activate optional steps whose
+        # feature flags are disabled.
         resolved = []
         if config is not None and getattr(config, "run_clustering_review", False):
             resolved.append("clustering_review")
@@ -115,6 +116,8 @@ def _resolve_analysis_steps(
             resolved.append("proportion")
         if config is not None and getattr(config, "pseudobulk_first", False):
             resolved.append("pseudobulk_first")
+        if skip_steps is not None:
+            resolved = [step for step in resolved if step not in skip_steps]
 
     resolved = [_CUSTOM_STEP_ALIASES.get(step, step) for step in resolved]
     invalid = set(resolved) - set(ANALYSIS_WORKFLOW_STEPS)
@@ -165,6 +168,64 @@ def _resolve_cell_type_key(adata: AnnData, config: AnalysisWorkflowConfig) -> st
     raise ValueError(
         "No cell-type column found for pseudobulk grouping. "
         "Run annotation first or provide a 'cell_type' column."
+    )
+
+
+def _build_context_aware_proportion_config(
+    adata: AnnData,
+    config: AnalysisWorkflowConfig,
+    *,
+    context: Optional[Union[AnalysisContext, Dict[str, Any]]] = None,
+    **kwargs: Any,
+) -> ProportionConfig:
+    """Build default proportion settings from the resolved study-design contract.
+
+    Explicit ``ProportionConfig`` objects are handled by the caller and never
+    reach this helper.  This path exists only for ``run_proportion=True`` with
+    no explicit proportion configuration, where falling back to conventional
+    column names would otherwise discard the project context.
+    """
+    resolved_context = infer_analysis_context(adata, context=context)
+    sample_col = (
+        kwargs.get("sample_col")
+        or resolved_context.sample_key
+        or resolved_context.experimental_unit_key
+    )
+    condition_col = kwargs.get("condition_col") or resolved_context.condition_key
+    celltype_col = kwargs.get("celltype_col") or resolved_context.cell_type_key
+    if not celltype_col:
+        try:
+            celltype_col = _resolve_cell_type_key(adata, config)
+        except ValueError:
+            celltype_col = None
+
+    missing = [
+        name
+        for name, value in (
+            ("sample_key/sample_col", sample_col),
+            ("condition_key/condition_col", condition_col),
+            ("cell_type_key/celltype_col", celltype_col),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(
+            "Step 'proportion' could not resolve the required metadata fields: "
+            f"{', '.join(missing)}. Provide them in ProjectContext, pass the "
+            "corresponding *_col arguments, or set config.proportion explicitly."
+        )
+
+    pairing_col = kwargs.get("pairing_col") or resolved_context.paired_key
+    batch_col = kwargs.get("batch_col") or resolved_context.batch_key
+    return ProportionConfig(
+        celltype_col=str(celltype_col),
+        sample_col=str(sample_col),
+        condition_col=str(condition_col),
+        pairing_col=pairing_col,
+        experimental_unit_col=(
+            resolved_context.experimental_unit_key or pairing_col or str(sample_col)
+        ),
+        batch_col=batch_col,
     )
 
 
@@ -452,6 +513,7 @@ def run_standard_analysis(
     adata: AnnData,
     config: Optional[AnalysisWorkflowConfig] = None,
     *,
+    context: Optional[Union[AnalysisContext, Dict[str, Any]]] = None,
     show_progress: bool = True,
     # Step control
     steps: Optional[List[str]] = None,
@@ -478,6 +540,9 @@ def run_standard_analysis(
         Annotated data matrix. Should have preprocessing completed (normalized, HVGs, PCA).
     config : AnalysisWorkflowConfig, optional
         Analysis workflow configuration. If None, uses defaults.
+    context : AnalysisContext or dict, optional
+        Resolved project metadata used for sample-aware analysis defaults.
+        Explicit analysis and proportion configuration remains authoritative.
     show_progress : bool, default=True
         Show progress bar for workflow steps.
     steps : list of str, optional
@@ -984,10 +1049,11 @@ def run_standard_analysis(
                 if isinstance(proportion_config, dict):
                     proportion_config = ProportionConfig(**proportion_config)
                 elif proportion_config is None:
-                    proportion_config = ProportionConfig(
-                        celltype_col=kwargs.get("celltype_col", "cell_type"),
-                        sample_col=kwargs.get("sample_col", "sample_id"),
-                        condition_col=kwargs.get("condition_col", "condition"),
+                    proportion_config = _build_context_aware_proportion_config(
+                        adata,
+                        config,
+                        context=context,
+                        **kwargs,
                     )
                 config.proportion = proportion_config
                 result = analyze_celltype_proportion(

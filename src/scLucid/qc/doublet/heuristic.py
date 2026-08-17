@@ -16,8 +16,8 @@ import scanpy as sc
 import seaborn as sns
 from anndata import AnnData
 
-from ...utils import get_marker_manager
 from ...plotting.plotting_utils import _show_or_close
+from ...utils import get_marker_manager
 from ..config import DoubletConfig
 from .core import (
     FINAL_PRED_COL,
@@ -29,6 +29,15 @@ from .core import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _load_upset_plot():
+    """Return the optional UpSet plotting callable without requiring it at import time."""
+    try:
+        from upsetplot import plot as plot_upset
+    except ImportError:
+        return None
+    return plot_upset
 
 
 def _extract_conflict_pairs(manager) -> list[tuple[str, str]]:
@@ -496,10 +505,17 @@ def _plot_doublet_summary(
                 lineage_combinations = lineage_combinations[lineage_combinations > 0]
 
                 if not lineage_combinations.empty:
+                    plot_upset = _load_upset_plot()
+                    if plot_upset is None:
+                        log.warning(
+                            "Skipping doublet UpSet plot because the optional "
+                            "'upsetplot' package is not installed."
+                        )
+                        return
                     try:
                         # Upsetplot creates its own figure
                         fig_upset = plt.figure(figsize=(12, 7), facecolor="white")
-                        upset_plot(
+                        plot_upset(
                             lineage_combinations,
                             fig=fig_upset,
                             element_size=32,

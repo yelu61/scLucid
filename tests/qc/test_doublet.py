@@ -29,16 +29,23 @@ from scLucid.qc.doublet import (
     HOMOTYPIC_RISK_COL,
     audit_doublets,
     predict_doublets,
-    DoubletEvidenceProfiler as ExportedDoubletEvidenceProfiler,
     predict_doublets_with_profiling,
+)
+from scLucid.qc.doublet import (
+    DoubletEvidenceProfiler as ExportedDoubletEvidenceProfiler,
 )
 from scLucid.qc.doublet._scrublet_compat import (
     _plot_scrublet_embedding_fallback,
     apply_scrublet_compatibility_shims,
 )
-from scLucid.qc.doublet.algorithms import _raw_count_guard, _run_scanpy_scrublet, _run_scdblfinder, _run_scrublet
+from scLucid.qc.doublet.algorithms import (
+    _raw_count_guard,
+    _run_scanpy_scrublet,
+    _run_scdblfinder,
+    _run_scrublet,
+)
 from scLucid.qc.doublet.ensemble import _export_doublet_stats, _merge_doublet_predictions
-from scLucid.qc.doublet.heuristic import _run_heuristic
+from scLucid.qc.doublet.heuristic import _plot_doublet_summary, _run_heuristic
 from scLucid.qc.doublet.profiler import DoubletEvidenceProfiler
 
 # ---------------------------------------------------------------------------
@@ -904,6 +911,69 @@ class TestDoubletEvidenceProfiler:
         assert summary["total_rows"] == adata.n_obs
         assert summary["exported_rows"] == 5
         assert summary["truncated"] is True
+
+
+# ---------------------------------------------------------------------------
+# Optional UpSet summary plot
+# ---------------------------------------------------------------------------
+
+
+def _upset_ready_adata() -> AnnData:
+    adata = AnnData(X=np.ones((4, 3), dtype=float))
+    adata.obs_names = [f"cell_{index}" for index in range(4)]
+    adata.obs["sampleID"] = "sample_1"
+    adata.obs["scrublet_predicted"] = [False, True, False, True]
+    adata.obs["scrublet_score"] = [0.1, 0.8, 0.2, 0.9]
+    adata.obs["predicted_doublet"] = [False, True, False, True]
+    adata.obs["heuristic_predicted"] = [False, True, True, True]
+    adata.obsm["lineage_module_scores"] = pd.DataFrame(
+        {
+            "T": [0.2, 0.5, 0.4, 0.7],
+            "B": [0.3, 0.6, 0.05, 0.8],
+        },
+        index=adata.obs_names,
+    )
+    return adata
+
+
+def test_upset_summary_skips_cleanly_without_optional_dependency(monkeypatch, caplog):
+    """Missing upsetplot should be an explicit skip, never an undefined-name error."""
+    import scLucid.qc.doublet.heuristic as heuristic
+
+    monkeypatch.setattr(heuristic, "_load_upset_plot", lambda: None)
+    with caplog.at_level("WARNING"):
+        _plot_doublet_summary(
+            _upset_ready_adata(),
+            show=False,
+            plot_bar=False,
+            plot_scatter=False,
+            plot_upset=True,
+        )
+
+    assert "optional 'upsetplot' package is not installed" in caplog.text
+    assert "not defined" not in caplog.text
+
+
+def test_upset_summary_calls_optional_plotter_when_available(monkeypatch):
+    """The guarded branch should call the lazily resolved plotting function."""
+    import scLucid.qc.doublet.heuristic as heuristic
+
+    calls = []
+
+    def fake_plot(data, **kwargs):
+        calls.append((data, kwargs))
+
+    monkeypatch.setattr(heuristic, "_load_upset_plot", lambda: fake_plot)
+    _plot_doublet_summary(
+        _upset_ready_adata(),
+        show=False,
+        plot_bar=False,
+        plot_scatter=False,
+        plot_upset=True,
+    )
+
+    assert len(calls) == 1
+    assert calls[0][1]["show_counts"] is True
 
 
 # ---------------------------------------------------------------------------

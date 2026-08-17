@@ -106,7 +106,10 @@ def make_hdf5_safe(value: Any) -> Any:
     if isinstance(value, list):
         return {str(index): make_hdf5_safe(item) for index, item in enumerate(value)}
     if isinstance(value, dict):
-        return {str(key): make_hdf5_safe(item) for key, item in value.items()}
+        return {
+            (str(key) or "__empty_label__"): make_hdf5_safe(item)
+            for key, item in value.items()
+        }
     if isinstance(value, (str, int, float, bool, np.number, np.bool_)):
         return value
     if value is None:

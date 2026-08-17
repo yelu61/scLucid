@@ -1,5 +1,7 @@
 """Tests for Python-native ambient RNA diagnostics and correction."""
 
+import subprocess
+
 import numpy as np
 import pytest
 import scipy.sparse as sparse
@@ -19,11 +21,47 @@ from scLucid.qc.ambient import (
     record_ambient_correction_status,
 )
 from scLucid.qc.ambient_backends import (
+    _probe_r_capability,
+    _rpy2_available,
     correct_ambient_rna,
     decontx_available,
     list_ambient_backends,
     soupx_available,
 )
+
+
+def test_rpy2_probe_contains_a_crashed_embedded_r(monkeypatch):
+    """A signal exit from embedded R must be reported without touching this process."""
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, returncode=-11, stdout="", stderr="segfault")
+
+    _probe_r_capability.cache_clear()
+    monkeypatch.setattr("scLucid.qc.ambient_backends.subprocess.run", fake_run)
+    try:
+        assert _rpy2_available() is False
+    finally:
+        _probe_r_capability.cache_clear()
+
+    assert len(calls) == 1
+    assert "rpy2.robjects" in calls[0][0][2]
+    assert calls[0][1]["check"] is False
+    assert calls[0][1]["capture_output"] is True
+
+
+def test_r_package_probe_timeout_is_unavailable(monkeypatch):
+    """A wedged R initialization must time out and leave the test process alive."""
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, timeout=kwargs["timeout"])
+
+    _probe_r_capability.cache_clear()
+    monkeypatch.setattr("scLucid.qc.ambient_backends.subprocess.run", fake_run)
+    try:
+        assert _probe_r_capability("SoupX") is False
+    finally:
+        _probe_r_capability.cache_clear()
 
 
 def test_diagnose_ambient_rna_returns_risk_summary():
