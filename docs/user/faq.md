@@ -24,22 +24,33 @@ now skipped silently rather than raising an `ImportWarning`.
 
 ## Workflow
 
-**Q: When should I use \`\`run_pipeline\`\` versus the per-stage API?**
+**Q: When should I use `run_pipeline` versus the per-stage API?**
 
-Use `run_pipeline(stages=[...])` for standard analysis: it propagates
-`AnalysisContext` (species, tissue, cancer type) through QC, preprocess,
-and analysis, and records contract validation results under
-`adata.uns["sclucid"]`. Drop to the per-stage API (`run_standard_qc`,
-`run_preprocessing`, `run_standard_analysis`) when you need to inspect
-or override intermediate results.
+Start with `ProjectContext` and `plan_analysis()`, then use
+`run_pipeline(plan=plan)` for a conservative first pass. It propagates
+the project context through QC, preprocess, and analysis and records
+contract validation results under `adata.uns["sclucid"]`. Call
+`review_run()` to see prioritized next actions. Drop to the stage API
+(`run_qc`, `run_preprocessing`, `run_standard_analysis`) only for the
+stage that needs an override. `run_standard_qc` is the compatibility and
+explicit step/resume-control path.
 
 **Q: How do I tell scLucid that my data is tumor tissue?**
 
-Pass `dataset_type="tumor_tissue"` (and optionally `cancer_type=...`) to
-`run_pipeline`. The QC stage will then preserve high-mitochondrial cells
-as a tumor-aware warning rather than removing them outright, and later
-stages can adapt their assumptions accordingly. See `workflow_hardening`
-for the validated tumor path on PDAC.
+Create `ProjectContext(dataset_type="tumor_tissue", cancer_type=...)`
+and pass it through `plan_analysis()` to `run_pipeline()`. The QC stage
+then treats high-mitochondrial tumor states as biological-risk evidence
+rather than a simple automatic filter, and later stages can adapt their
+assumptions accordingly. See `workflow_hardening` for the tumor
+acceptance path on PDAC.
+
+**Q: How do I know what to do after the pipeline finishes?**
+
+Use `review = review_run(adata)`. `review.to_frame()` shows the stage,
+status, recommended/applied value, rationale, evidence, next action, and
+rerun scope. Resolve `BLOCKED` rows first, then `REVIEW` rows. `READY`
+means the declared handoff is valid; it does not make automated labels
+or exploratory statistics final biological truth.
 
 ## Reproducibility
 

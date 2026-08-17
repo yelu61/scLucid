@@ -18,10 +18,16 @@ Use this layer when:
 
 Primary entrypoints:
 
+- `scLucid.plan_analysis`
 - `scLucid.run_pipeline`
-- `scLucid.qc.run_standard_qc`
+- `scLucid.review_run`
+- `scLucid.qc.run_qc`
 - `scLucid.preprocess.run_preprocessing`
 - `scLucid.analysis.run_standard_analysis`
+
+`scLucid.qc.run_standard_qc` remains available for compatibility, explicit
+step/resume control, and legacy threshold-filtering behavior. It is not the
+default reviewer-first QC entrypoint.
 
 Canonical example:
 
@@ -33,6 +39,7 @@ Expected output:
 - stage review summaries
 - contract validation records
 - optional sidecar reports and figures when `save_dir` is set
+- a unified `adata.uns["sclucid"]["run_review"]` decision surface
 
 ## Layer 2: Simple API
 
@@ -91,9 +98,10 @@ adata.uns["sclucid"][module]["steps_executed"]
 adata.uns["sclucid"][module]["review_summary"]
 ```
 
-Until these helpers are exposed as package-level finalizers, the
-advanced notebooks are the reference implementation for normalizing,
-validating, and exporting manual review summaries.
+Use `scLucid.utils.finalize_manual_review_summary()` to normalize, validate,
+store, and optionally export a manual stage into this contract. The advanced
+notebooks remain narrative examples, but notebook-local finalizers should no
+longer be copied into new projects.
 
 ## Layer 3: Advanced
 
@@ -153,7 +161,7 @@ print(get_api_layer_spec("workflow"))
 A common project flow is:
 
 1.  Run the workflow layer to get a baseline.
-2.  Inspect QC and preprocessing review summaries.
+2.  Inspect `review_run()` and its prioritized next actions.
 3.  Drop into the simple API layer for the stage that needs adjustment.
 4.  Finalize the manual decisions into the same review contract.
 5.  Promote the final decisions into an advanced notebook or golden-path

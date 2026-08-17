@@ -33,6 +33,38 @@ external CellBender/SoupX/DecontX-style outputs can be registered into
 the canonical QC schema and counts-layer contract when available. Custom
 rpy2 execution branches are not part of the recommended default path.
 
+## Project Decision Contract
+
+For a new dataset, start with:
+
+```python
+context = scl.ProjectContext(
+    dataset_type="tumor_tissue",
+    sample_key="sample",
+    condition_key="condition",
+    experimental_unit_key="patient",
+    paired_key="patient",
+    study_objective="paired treatment response",
+)
+plan = scl.plan_analysis(adata, context=context)
+adata = scl.run_pipeline(adata, plan=plan)
+review = scl.review_run(adata)
+```
+
+The plan is a structural and study-design check, not an automatic claim that
+its parameters are biologically optimal. Resolve missing metadata and inspect
+all `REVIEW` items before promoting automated annotations, differential
+signals, proportion changes, or malignant labels to final results.
+
+Use the stage entrypoints consistently:
+
+- full core workflow: `scl.run_pipeline()`
+- reviewer-first QC stage: `scl.run_qc()` or `scl.qc.run_qc()`
+- preprocessing stage: `scl.pp.run_preprocessing()`
+- analysis stage: `scl.analysis.run_standard_analysis()`
+- tumor interpretation stage: `scl.tumor.run_tumor_analysis()`
+- cross-stage decision surface: `scl.review_run()`
+
 ## Recommended Pipeline Shape
 
 scLucid's maintained path is a light-dependency default with optional

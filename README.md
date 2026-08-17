@@ -22,14 +22,17 @@ treated as exploratory, and what extra evidence would make the claim stronger.
 
 ## 60-Second Quickstart
 
-From a Cell Ranger output to a clustered, annotated AnnData with a shareable
-HTML audit trail in four lines:
+From a Cell Ranger output to a reviewable first-pass AnnData and a shareable
+HTML audit trail:
 
 ```python
 import scLucid as scl
 
 adata = scl.read_10x("path/to/filtered_feature_bc_matrix/", species="human")
-adata = scl.run_pipeline(adata, dataset_type="pbmc_or_blood")
+context = scl.ProjectContext(dataset_type="pbmc_or_blood", sample_key="sample")
+plan = scl.plan_analysis(adata, context=context)
+adata = scl.run_pipeline(adata, plan=plan)
+review = scl.review_run(adata)
 scl.export_audit_report(adata, "report.html")
 ```
 
@@ -37,6 +40,12 @@ scl.export_audit_report(adata, "report.html")
 counts to `layers["counts"]` automatically, and attaches your dataset context
 (species / tissue / cancer type) so downstream stages pick it up without extra
 arguments.
+
+`plan_analysis()` exposes the assumptions that must be confirmed before the
+run. `review_run()` then reduces stage-specific evidence to `READY`, `REVIEW`,
+or `BLOCKED`, together with the next action and rerun scope. Automated
+annotation and tumor interpretation remain first-pass evidence until their
+review items are resolved.
 
 ## Why scLucid
 
@@ -100,12 +109,22 @@ adata = scl.read_10x(
 )
 
 # Run the supported core workflow
+context = scl.ProjectContext(
+    dataset_type="pbmc_or_blood",
+    sample_key="sample",
+    study_objective="broad cell atlas",
+)
+plan = scl.plan_analysis(adata, context=context)
 adata_final = scl.run_pipeline(
     adata,
-    stages=["qc", "preprocess", "analysis"],
-    dataset_type="pbmc_or_blood",
+    plan=plan,
     show_progress=True,
 )
+
+# Read the prioritized decisions before interpreting results
+review = scl.review_run(adata_final)
+print(review.to_frame())
+print(review.show_next_actions())
 
 # Export an auditable HTML report
 scl.export_audit_report(adata_final, "results/audit_report.html")
@@ -163,7 +182,8 @@ Implementation details, field names, design plans, and roadmaps live in
 
 | Goal | Layer | Entry Point | Best For |
 |------|-------|-------------|----------|
-| One-line analysis | **Workflow** | `scl.run_pipeline()` | Beginners, standard projects, reproducible pipelines |
+| Guided first pass | **Workflow** | `scl.plan_analysis()`, `scl.run_pipeline()`, `scl.review_run()` | Beginners, standard projects, reproducible baselines |
+| One stage | **Stage workflow** | `scl.run_qc()`, `scl.pp.run_preprocessing()`, `scl.analysis.run_standard_analysis()` | Analysts rerunning one decision boundary |
 | Composable steps | **Simple API** | `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, etc. | Analysts who need parameter control |
 | Full transparency | **Advanced** | `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb` | Review-grade audits |
 
@@ -172,6 +192,9 @@ Implementation details, field names, design plans, and roadmaps live in
 * **Quick Start**: [docs/user/quickstart.md](docs/user/quickstart.md)
 * **Installation Guide**: [docs/user/installation.md](docs/user/installation.md)
 * **Best Practices**: [docs/user/best_practices.md](docs/user/best_practices.md)
+* **Project Context**: [docs/user/project_context.md](docs/user/project_context.md)
+* **Reviewing Results**: [docs/user/reviewing_results.md](docs/user/reviewing_results.md)
+* **Parameter Profiles**: [docs/user/parameter_profiles.md](docs/user/parameter_profiles.md)
 * **Core Data Contracts**: [docs/user/data_contracts.md](docs/user/data_contracts.md)
 * **API Reference**: [docs/api/](docs/api/)
 * **Strategic Plan**: [docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md](docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md)

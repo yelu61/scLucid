@@ -24,6 +24,7 @@ Use these layers in order when documents disagree:
 
 | Module | Distinctive role | Maintained entrypoints | Review surface | Current focus |
 |----|----|----|----|----|
+| Decision layer | Project design and cross-stage action contract | `ProjectContext`, `plan_analysis`, `review_run` | `analysis_plan`, `run_review`, READY/REVIEW/BLOCKED action table | Real-project acceptance and applied-override feedback |
 | QC | Reviewer-first filtering with sample-aware, tumor-aware, ambient/stress, and benchmark scorecard guardrails | `run_qc`, `run_iterative_qc`, `run_standard_qc`, `run_qc_threshold_decision` | `qc_reviewer_table`, `qc_decision`, `qc_reason`, `qc_confidence`, `ambient_evidence_summary`, `doublet_evidence_summary`, `post_annotation_qc_review`, `qc_benchmark_scorecard` | Real raw-matrix ambient evidence and larger homotypic/solid-tissue doublet validation |
 | Preprocess | Explicit layer contract from counts to graph | `run_preprocessing`, `run_embedding_pipeline` | `normalization_decision_policy`, `preprocess_layer_contract`, `preprocess_decision_summary`, `preprocess_reviewer_table` | Larger multi-sample validation and clearer batch/HVG evidence |
 | Analysis | Conservative inference boundary for clustering, markers, annotation, and DE | `run_standard_analysis`, `run_pseudobulk_de` | `analysis_inference_policy`, `analysis_output_contract`, `analysis_decision_summary`, `analysis_reviewer_table` | Pseudobulk DE review summary and real-data annotation acceptance |
@@ -44,7 +45,7 @@ decisions:
 | QC interpretation | Conservative reviewer-first filtering, ambient/doublet/stress summaries, post-annotation QC review | Report biological impact of competing QC policies, especially tumor purity and immune/TME composition changes | Quality-state attribution and sensitivity analysis for cells that could be low-quality, stressed, hypoxic, doublet-like, or biologically meaningful |
 | Inference semantics | `claim_level`, `inference_level`, review summaries, layer contracts | Harmonize evidence, claim, and inference terms across QC, preprocess, analysis, annotation, tumor, bulk, and spatial outputs | Unified evidence ontology that downstream reports and agent interfaces can consume without overclaiming |
 | Tumor interpretation | Malignancy, CNV, TME, therapy, and program-oriented scaffolds | Make tumor modules consume stable analysis contracts and write tumor-stage review summaries | Sample-level ecosystem and ecotype-style interpretation with stability, limitations, and support evidence |
-| Product surface | HTML/report artifacts, reviewer tables, notebooks, examples | Stronger audit reports and Methods-ready summaries | Interactive review and natural-language interfaces over mature evidence bundles |
+| Product surface | `ProjectContext`, analysis plans, unified run review, HTML/report artifacts, reviewer tables, notebooks, examples | Real-project decision cards, applied overrides, and Methods-ready summaries | Interactive review and natural-language interfaces over mature evidence bundles |
 
 Planned items in the right columns should remain roadmap claims until they are
 backed by code, tests, executed notebooks, or validation outputs.
@@ -54,7 +55,7 @@ backed by code, tests, executed notebooks, or validation outputs.
 The current core workflow should remain readable as a chain of
 contracts:
 
-`QC decision -> preprocess layer contract -> analysis inference policy -> tumor/annotation evidence`
+`ProjectContext -> analysis plan -> QC decision -> preprocess layer contract -> analysis inference policy -> tumor/annotation evidence -> run review`
 
 The practical layer contract for preprocessing is:
 
@@ -79,7 +80,8 @@ when they are not the current implementation truth.
 Stage 1: Core contract stabilization  
 Keep QC, preprocess, and analysis review summaries aligned around stable
 schema fields. New outputs should extend reviewer tables instead of
-creating isolated `adata.uns` payloads.
+creating isolated `adata.uns` payloads. Use `review_run()` as the common
+product-facing read model rather than duplicating module evidence.
 
 Stage 2: Validation hardening  
 Expand PBMC and tumor real-data validation for QC thresholds, doublets,

@@ -6,11 +6,12 @@ analyses, see `notebooks`.
 
 ## Recommended Learning Order
 
-1.  Start with `scLucid.run_pipeline()` for the supported QC ->
-    preprocessing -> analysis path
-2.  Inspect the review summaries stored under `adata.uns["sclucid"]`
-3.  Drop down to stage-specific functions when you need explicit control
-4.  Export reviewer-facing summaries before making biological claims
+1.  Describe the project with `scLucid.ProjectContext`
+2.  Inspect `scLucid.plan_analysis()` before running
+3.  Run the supported QC -> preprocessing -> analysis path
+4.  Use `scLucid.review_run()` to resolve `BLOCKED` and `REVIEW` items
+5.  Drop down to a stage workflow only for decisions that need adjustment
+6.  Export reviewer-facing summaries before making biological claims
 
 ## Minimal End-To-End Example
 
@@ -21,18 +22,32 @@ import scLucid as scl
 adata = sc.read_h5ad("data/pbmc3k.h5ad")
 adata.layers["counts"] = adata.X.copy()
 
-adata = scl.run_pipeline(
-    adata,
-    stages=["qc", "preprocess", "analysis"],
+context = scl.ProjectContext(
     dataset_type="pbmc_or_blood",
     species="human",
-    qc_save_dir="results/qc",
+    sample_key="sample",
+    study_objective="broad cell atlas",
+)
+plan = scl.plan_analysis(adata, context=context)
+print(plan.to_frame())
+
+adata = scl.run_pipeline(
+    adata,
+    plan=plan,
     preprocess_save_dir="results/preprocess",
     show_progress=True,
 )
 
+review = scl.review_run(adata)
+print(review.to_frame())
+print(review.show_next_actions())
+
 adata.write("results/final_annotated.h5ad")
 ```
+
+Replace `"sample"` with the actual biological-sample column in
+`adata.obs`. For treatment or response projects, also provide
+`condition_key`, `experimental_unit_key`, and `paired_key` when applicable.
 
 ## What This Path Gives You
 
@@ -45,6 +60,21 @@ adata.write("results/final_annotated.h5ad")
 - clustering labels in `adata.obs`
 - annotation evidence, analysis output contract, inference policy, and
   analysis reviewer table in `adata.obs` and `adata.uns`
+- one cross-stage `run_review` with status, rationale, next action, and
+  rerun scope under `adata.uns["sclucid"]["run_review"]`
+
+## How To Read The Outcome
+
+- `BLOCKED`: a structural prerequisite is missing; do not rely on downstream
+  interpretation until it is fixed
+- `REVIEW`: the workflow may continue as a first pass, but a biological or
+  statistical decision still needs confirmation
+- `READY`: the recorded contract contains no unresolved blocker for that stage
+- `NOT_RUN`: the stage was absent; this is not automatically an error
+
+`READY` means ready for the declared handoff, not proof that a biological claim
+is true. See [Reviewing Results](reviewing_results.md) for the full action
+contract.
 
 ## Light Default, Optional Enhancements
 
@@ -102,11 +132,12 @@ Use `scl.recommendation.run_intelligent_preprocessing()` when:
 
 ## When To Use Stage-Specific Functions
 
-Use `run_standard_qc()`, `run_preprocessing()`, `cluster_cells()`, and
-`run_annotation()` directly when you are building a manuscript workflow,
-testing a single module, or overriding a specific parameter family. The
-unified pipeline is the recommended first screen; stage-specific
-functions are the expert path.
+Use `scl.run_qc()`, `scl.pp.run_preprocessing()`, and
+`scl.analysis.run_standard_analysis()` when rerunning a complete stage.
+`run_standard_qc()` is the compatibility/step-control QC path; low-level
+functions such as `cluster_cells()` and `run_annotation()` belong to the
+simple API layer. The unified plan -> run -> review path remains the
+recommended first screen.
 
 See [Usage Layers](usage_layers.md) for the full product-layer model and
 [QC And Preprocess Maturity](qc_preprocess_maturity.md) for the

@@ -114,18 +114,27 @@ def normalize_dataset_type(value: Optional[str]) -> DatasetType:
 
 
 class AnalysisContext(SclucidBaseConfig):
-    """Shared dataset context used to tune defaults without splitting workflows."""
+    """Shared project context used to tune defaults and expose design assumptions.
+
+    The original dataset-oriented fields remain stable.  The additional study
+    design fields make the biological replicate and paired structure explicit
+    before scLucid recommends integration or sample-level inference.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     dataset_type: DatasetType = Field(default="unknown")
     species: str = Field(default="human")
+    assay: str = Field(default="scrna")
     tissue: Optional[str] = Field(default=None)
     tissue_type: str = Field(default="unknown")
     cancer_type: Optional[str] = Field(default=None)
+    study_objective: Optional[str] = Field(default=None)
     sample_key: Optional[str] = Field(default=None)
     batch_key: Optional[str] = Field(default=None)
     condition_key: Optional[str] = Field(default=None)
+    experimental_unit_key: Optional[str] = Field(default=None)
+    paired_key: Optional[str] = Field(default=None)
     cell_type_key: Optional[str] = Field(default=None)
     is_spatial: bool = Field(default=False)
     is_multi_sample: bool = Field(default=False)
@@ -162,6 +171,7 @@ class AnalysisContext(SclucidBaseConfig):
 
 
 DatasetProfile = AnalysisContext
+ProjectContext = AnalysisContext
 
 
 def _first_existing_obs_key(adata: AnnData, candidates: list[str]) -> Optional[str]:
@@ -207,13 +217,17 @@ def infer_analysis_context(
     *,
     context: Optional[Union[AnalysisContext, Dict[str, Any]]] = None,
     dataset_type: Optional[str] = None,
-    species: str = "human",
+    species: Optional[str] = None,
+    assay: Optional[str] = None,
     tissue: Optional[str] = None,
     tissue_type: str = "unknown",
     cancer_type: Optional[str] = None,
+    study_objective: Optional[str] = None,
     sample_key: Optional[str] = None,
     batch_key: Optional[str] = None,
     condition_key: Optional[str] = None,
+    experimental_unit_key: Optional[str] = None,
+    paired_key: Optional[str] = None,
     cell_type_key: Optional[str] = None,
 ) -> AnalysisContext:
     """Infer a conservative analysis context from explicit hints and AnnData metadata."""
@@ -245,11 +259,41 @@ def infer_analysis_context(
         adata, ["sampleID", "sample", "Sample", "orig.ident", "orig_ident", "donor", "patient"]
     )
     resolved_batch_key = batch_key or base.batch_key or _first_existing_obs_key(
-        adata, ["batch", "Batch", "sampleID", "sample", "orig.ident"]
+        adata,
+        [
+            "batch",
+            "Batch",
+            "library_batch",
+            "sequencing_batch",
+            "seq_batch",
+            "run_id",
+        ],
     )
     resolved_condition_key = condition_key or base.condition_key or _first_existing_obs_key(
         adata, ["condition", "group", "treatment", "response", "disease", "phenotype"]
     )
+    resolved_experimental_unit_key = (
+        experimental_unit_key
+        or base.experimental_unit_key
+        or _first_existing_obs_key(
+            adata,
+            ["patient_id", "patient", "donor_id", "donor", "subject_id", "subject"],
+        )
+        or resolved_sample_key
+    )
+    resolved_paired_key = paired_key or base.paired_key
+    if (
+        resolved_paired_key is None
+        and resolved_condition_key
+        and resolved_experimental_unit_key
+        and resolved_condition_key in adata.obs.columns
+        and resolved_experimental_unit_key in adata.obs.columns
+    ):
+        condition_counts = adata.obs.groupby(
+            resolved_experimental_unit_key, observed=True
+        )[resolved_condition_key].nunique()
+        if bool((condition_counts > 1).any()):
+            resolved_paired_key = resolved_experimental_unit_key
     resolved_cell_type_key = cell_type_key or base.cell_type_key or _first_existing_obs_key(
         adata, ["cell_type_auto", "cell_type", "celltype", "annotation", "CellType"]
     )
@@ -276,16 +320,31 @@ def infer_analysis_context(
         notes.append("Spatial coordinates detected in adata.obsm['spatial'].")
     if is_multi_sample:
         notes.append("Multiple samples or batches detected.")
+    if resolved_experimental_unit_key:
+        notes.append(
+            f"Experimental unit defaults to obs[{resolved_experimental_unit_key!r}]; "
+            "verify this before formal inference."
+        )
+    if resolved_paired_key:
+        notes.append(
+            f"Repeated conditions were detected within obs[{resolved_paired_key!r}]."
+        )
 
     return AnalysisContext(
         dataset_type=resolved_dataset_type,
         species=species or base.species,
+        assay=assay or base.assay,
         tissue=tissue if tissue is not None else base.tissue,
         tissue_type=resolved_tissue_type,
         cancer_type=cancer_type if cancer_type is not None else base.cancer_type,
+        study_objective=(
+            study_objective if study_objective is not None else base.study_objective
+        ),
         sample_key=resolved_sample_key,
         batch_key=resolved_batch_key,
         condition_key=resolved_condition_key,
+        experimental_unit_key=resolved_experimental_unit_key,
+        paired_key=resolved_paired_key,
         cell_type_key=resolved_cell_type_key,
         is_spatial=is_spatial,
         is_multi_sample=is_multi_sample,
@@ -301,6 +360,7 @@ __all__ = [
     "AnalysisContext",
     "DatasetProfile",
     "DatasetType",
+    "ProjectContext",
     "infer_analysis_context",
     "infer_dataset_profile",
     "is_multi_sample_hint",

@@ -113,6 +113,8 @@ class UnsKeys:
     REVIEW_SUMMARY = "review_summary"
     PIPELINE_CONTEXT = "pipeline_context"
     ANALYSIS_CONTEXT = "analysis_context"
+    ANALYSIS_PLAN = "analysis_plan"
+    RUN_REVIEW = "run_review"
     CONFIG_LINEAGE = "config_lineage"
     CONTRACT = "contract"
     ARTIFACTS = "artifacts"
@@ -150,12 +152,15 @@ API_LAYER_CONTRACTS: dict[APILayerName, APILayerContract] = {
         purpose="Run the supported baseline workflow with minimal user code.",
         primary_entrypoints=(
             "scLucid.run_pipeline",
-            "scLucid.qc.run_standard_qc",
+            "scLucid.plan_analysis",
+            "scLucid.review_run",
+            "scLucid.qc.run_qc",
             "scLucid.preprocess.run_preprocessing",
             "scLucid.analysis.run_standard_analysis",
         ),
         example_artifacts=("examples/01_workflow/basic_pipeline.py",),
         expected_outputs=(
+            'adata.uns["sclucid"]["run_review"]',
             'adata.uns["sclucid"]["qc"]["review_summary"]',
             'adata.uns["sclucid"]["preprocess"]["review_summary"]',
             'adata.uns["sclucid"]["analysis"]["review_summary"]',

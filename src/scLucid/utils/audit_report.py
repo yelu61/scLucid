@@ -21,7 +21,7 @@ from typing import Any, Mapping, Optional, Union
 
 from anndata import AnnData
 
-from .contracts import Modules, SCLUCID_ROOT, UnsKeys
+from .contracts import SCLUCID_ROOT, Modules, UnsKeys
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,8 @@ _DEFAULT_MODULE_ORDER = (
 _RESERVED_ROOT_KEYS = {
     UnsKeys.PIPELINE_CONTEXT,
     UnsKeys.ANALYSIS_CONTEXT,
+    UnsKeys.ANALYSIS_PLAN,
+    UnsKeys.RUN_REVIEW,
     UnsKeys.NAMESPACE_METADATA,
 }
 
@@ -119,6 +121,8 @@ def _render_html(
     parts.append(_render_header(adata, title))
     parts.append(_render_dataset_panel(adata, sclucid_data))
     parts.append(_render_pipeline_context_panel(sclucid_data))
+    parts.append(_render_analysis_plan_panel(sclucid_data))
+    parts.append(_render_run_review_panel(sclucid_data))
 
     module_keys = _ordered_module_keys(sclucid_data)
     if module_keys:
@@ -393,6 +397,65 @@ def _render_pipeline_context_panel(sclucid_data: Mapping[str, Any]) -> str:
     if isinstance(lineage, Mapping):
         body += _render_collapsible("Pipeline config lineage", _pretty_json_html(lineage))
     return _render_panel("Pipeline Context", body)
+
+
+def _render_analysis_plan_panel(sclucid_data: Mapping[str, Any]) -> str:
+    plan = sclucid_data.get(UnsKeys.ANALYSIS_PLAN)
+    if not isinstance(plan, Mapping):
+        return ""
+    rows = [
+        ("Profile", _scalar_html(plan.get("profile", "unknown"))),
+        ("Plan status", _scalar_html(plan.get("status", "unknown"))),
+        ("Stages", _scalar_html(plan.get("stages", []))),
+        ("Required metadata", _scalar_html(plan.get("required_metadata", []))),
+        ("Smallest next step", _scalar_html(plan.get("smallest_next_step", ""))),
+    ]
+    blockers = plan.get("blockers")
+    if blockers:
+        rows.append(("Blockers", _scalar_html(blockers)))
+    return _render_panel("Analysis Plan", _render_kv_table(rows))
+
+
+def _render_run_review_panel(sclucid_data: Mapping[str, Any]) -> str:
+    review = sclucid_data.get(UnsKeys.RUN_REVIEW)
+    if not isinstance(review, Mapping):
+        return ""
+
+    overall = str(review.get("overall_status", "unknown"))
+    css_class = {
+        "READY": "ok",
+        "REVIEW": "warn",
+        "BLOCKED": "err",
+    }.get(overall.upper(), "muted")
+    body = (
+        f'<p><span class="badge {css_class}">{_html.escape(overall)}</span>'
+        " Unified decision status</p>"
+    )
+
+    stage_rows = []
+    for stage in _iter_action_items(review.get("stages")):
+        if not isinstance(stage, Mapping):
+            continue
+        stage_rows.append(
+            (
+                str(stage.get("stage", "unknown")),
+                _scalar_html(
+                    {
+                        "status": stage.get("status"),
+                        "raw_status": stage.get("raw_status"),
+                        "next_action": stage.get("next_action"),
+                    }
+                ),
+            )
+        )
+    if stage_rows:
+        body += _render_kv_table(stage_rows)
+
+    actions = _iter_action_items(review.get("next_actions"))
+    if actions:
+        items = "".join(f"<li>{_html.escape(str(action))}</li>" for action in actions)
+        body += f"<div class='action-list'><strong>What to do next:</strong><ul>{items}</ul></div>"
+    return _render_panel("Run Decision Review", body)
 
 
 def _render_module_section(

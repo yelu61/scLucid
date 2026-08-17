@@ -89,9 +89,12 @@ except Exception as exc:
         return False
 
 from .config import get_config, reset_config, set_config
+from .decision import AnalysisPlan, RunReview, plan_analysis, review_run
+from .utils.audit_report import export_audit_report
 from .utils.context import (
     AnalysisContext,
     DatasetProfile,
+    ProjectContext,
     infer_analysis_context,
     infer_dataset_profile,
     normalize_dataset_type,
@@ -101,19 +104,19 @@ from .utils.contracts import (
     UnsKeys,
     build_config_lineage,
     ensure_sclucid_namespace,
-    record_contract_result,
     record_config_lineage,
+    record_contract_result,
     validate_stage_contract,
 )
+from .utils.io import read_10x, read_h5ad
+from .utils.result_cleanup import compact_sclucid_uns
+from .utils.sanitize import sanitize_for_hdf5
 from .utils.validation import (
     ValidationError,
     assert_analysis_ready,
     assert_preprocessing_ready,
     assert_qc_ready,
 )
-from .utils.audit_report import export_audit_report
-from .utils.io import read_10x, read_h5ad
-from .utils.result_cleanup import compact_sclucid_uns
 
 
 def _stage_kwargs(prefix: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -181,6 +184,7 @@ FONT_TRADITIONAL = "traditional"
 
 # --- High-Level Workflows ---
 run_standard_qc = None
+run_qc = None
 run_preprocessing = None
 run_iterative_preprocessing = None
 run_annotation = None
@@ -191,6 +195,7 @@ run_tumor_analysis = None
 _qc_workflow = _import_optional("qc.workflow")
 if _qc_workflow is not None:
     run_standard_qc = getattr(_qc_workflow, "run_standard_qc", None)
+    run_qc = getattr(_qc_workflow, "run_qc", None)
 
 _preprocess_workflow = _import_optional("preprocess.workflow")
 if _preprocess_workflow is not None:
@@ -222,6 +227,8 @@ def run_pipeline(
     stages: list[str] = None,
     *,
     context=None,
+    plan=None,
+    allow_blocked_plan: bool = False,
     dataset_type: str = None,
     qc_config=None,
     preprocess_config=None,
@@ -229,11 +236,15 @@ def run_pipeline(
     show_progress: bool = True,
     tissue_type: str = "unknown",
     tissue: str = None,
-    species: str = "human",
+    species: str = None,
+    assay: str = None,
     cancer_type: str = None,
+    study_objective: str = None,
     sample_key: str = None,
     batch_key: str = None,
     condition_key: str = None,
+    experimental_unit_key: str = None,
+    paired_key: str = None,
     **kwargs,
 ):
     """
@@ -259,6 +270,13 @@ def run_pipeline(
         Show progress bars
     context : AnalysisContext or dict, optional
         Shared dataset context used to tune defaults and document assumptions.
+    plan : AnalysisPlan or dict, optional
+        Project plan returned by :func:`plan_analysis`. Explicit ``stages`` and
+        ``context`` arguments take precedence over values carried by the plan.
+    allow_blocked_plan : bool, default=False
+        Allow execution when the supplied plan contains structural blockers.
+        This should be reserved for explicitly exploratory or prerequisite-only
+        runs; the blocked status remains recorded in the plan.
     dataset_type : str, optional
         Canonical or alias dataset type, e.g. ``"pbmc_or_blood"``,
         ``"normal_tissue"``, ``"tumor_tissue"``, ``"cell_line"``,
@@ -286,6 +304,20 @@ def run_pipeline(
     >>> # Skip QC, start from preprocessed data
     >>> adata = scl.run_pipeline(adata, stages=["analysis"])
     """
+    active_plan = None
+    if plan is not None:
+        active_plan = plan if isinstance(plan, AnalysisPlan) else AnalysisPlan.model_validate(plan)
+        if active_plan.status == "BLOCKED" and not allow_blocked_plan:
+            blockers = "; ".join(active_plan.blockers) or "unresolved project metadata"
+            raise ValueError(
+                "Analysis plan is BLOCKED. Resolve the project context before running, "
+                f"or set allow_blocked_plan=True for an explicitly exploratory run. {blockers}"
+            )
+        if stages is None:
+            stages = list(active_plan.stages)
+        if context is None:
+            context = active_plan.context
+
     if stages is None:
         stages = ["qc", "preprocess", "analysis"]
 
@@ -295,24 +327,28 @@ def run_pipeline(
         raise ValueError(f"Invalid stages: {invalid}. Valid stages are: {valid_stages}")
 
     global_config = get_config()
-    effective_dataset_type = (
-        dataset_type
-        if dataset_type is not None
-        else getattr(global_config, "default_dataset_type", "unknown")
-    )
-    effective_species = species or getattr(global_config, "default_species", "human")
+    effective_dataset_type = dataset_type
+    if effective_dataset_type is None and context is None:
+        effective_dataset_type = getattr(global_config, "default_dataset_type", "unknown")
+    effective_species = species
+    if effective_species is None and context is None:
+        effective_species = getattr(global_config, "default_species", "human")
 
     analysis_context = infer_analysis_context(
         adata,
         context=context,
         dataset_type=effective_dataset_type,
         species=effective_species,
+        assay=assay,
         tissue=tissue,
         tissue_type=tissue_type,
         cancer_type=cancer_type,
+        study_objective=study_objective,
         sample_key=sample_key,
         batch_key=batch_key,
         condition_key=condition_key,
+        experimental_unit_key=experimental_unit_key,
+        paired_key=paired_key,
     )
 
     # Cross-module context to propagate settings across stages
@@ -446,6 +482,9 @@ def run_pipeline(
     root_namespace = ensure_sclucid_namespace(adata)
     root_namespace[UnsKeys.PIPELINE_CONTEXT] = pipeline_context
     root_namespace[UnsKeys.ANALYSIS_CONTEXT] = analysis_context.to_dict()
+    if active_plan is not None:
+        root_namespace[UnsKeys.ANALYSIS_PLAN] = sanitize_for_hdf5(active_plan.to_dict())
+    review_run(adata, store=True)
 
     return adata
 
@@ -465,6 +504,9 @@ __all__ = [
     "recommendation",
     "AnalysisContext",
     "DatasetProfile",
+    "ProjectContext",
+    "AnalysisPlan",
+    "RunReview",
     "infer_analysis_context",
     "infer_dataset_profile",
     "normalize_dataset_type",
@@ -477,11 +519,14 @@ __all__ = [
     "FONT_CELL",
     "FONT_TRADITIONAL",
     "run_standard_qc",
+    "run_qc",
     "run_preprocessing",
     "run_iterative_preprocessing",
     "run_standard_analysis",
     "run_custom_analysis",
     "run_pipeline",
+    "plan_analysis",
+    "review_run",
     "run_annotation",
     "characterize_clusters",
     "recommend_analysis_parameters",

@@ -39,6 +39,7 @@ from .context import (
     AnalysisContext,
     DatasetProfile,
     DatasetType,
+    ProjectContext,
     infer_analysis_context,
     infer_dataset_profile,
     is_multi_sample_hint,
@@ -108,7 +109,7 @@ from .helpers import (
     subset_from_annotations,
     use_layer_as_X,
 )
-from .io import read_10x, read_h5ad, load_10x_data
+from .io import load_10x_data, read_10x, read_h5ad
 
 # Import and expose key functions and classes from the submodule
 from .manager import (
@@ -264,6 +265,7 @@ __all__ = [
     "AnalysisContext",
     "DatasetProfile",
     "DatasetType",
+    "ProjectContext",
     "infer_analysis_context",
     "infer_dataset_profile",
     "is_multi_sample_hint",

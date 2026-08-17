@@ -14,6 +14,10 @@ claim level is justified, and what evidence would change the interpretation.
 
 - [Installation](user/installation.md)
 - [Quickstart](user/quickstart.md)
+- [Project Context](user/project_context.md)
+- [Reviewing Results](user/reviewing_results.md)
+- [Parameter Profiles](user/parameter_profiles.md)
+- [Scientific Reasoning Contracts](user/scientific_reasoning_contracts.md)
 - [Usage Layers](user/usage_layers.md)
 - [Module Features And Stage Plan](user/module_features_and_plan.md)
 
@@ -34,7 +38,7 @@ Use these layers in order when documents disagree:
 ## Main Workflow Spine
 
 ```text
-QC decision -> preprocess layer contract -> analysis inference policy -> tumor/annotation evidence
+ProjectContext -> analysis plan -> QC -> preprocess -> analysis -> tumor -> unified run review
 ```
 
 The core layer contract for preprocessing is:
@@ -58,3 +62,8 @@ extends that spine toward three planned capabilities:
   analysis, annotation, tumor interpretation, and support evidence modules
 - sensitivity and validation artifacts that make workflow claims reviewable and
   falsifiable instead of merely reproducible
+
+The documentation-only
+[Scientific Reasoning Contracts](user/scientific_reasoning_contracts.md)
+define the planned `ReasoningBrief -> WorkflowReview -> RunEvidence` handoff.
+They do not change the current Python API.
