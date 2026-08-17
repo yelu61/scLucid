@@ -23,6 +23,30 @@ recorded here; resolved entries are moved to the **Resolved** section.
 
 ---
 
+## P0.5 Surface Classification Snapshot
+
+**Audited:** 2026-08-14
+**Evidence:** current `__all__` declarations, `scripts/audit_public_api.py`, API
+docs, import/contract tests, and deprecation warnings. The generated inventory
+contains 1,099 exported symbols; its syntactic "stable" label means exported
+and unflagged, not that every optional scientific method is release-stable.
+
+| Surface | Stable contract | Experimental / optional | Deprecated / compatibility | Internal or unresolved |
+|---|---|---|---|---|
+| Top level (`scLucid`) | Context/plan/run-review objects, I/O helpers, `run_pipeline`, and canonical QC/preprocess/analysis entrypoints | Optional submodule aliases when their dependencies are unavailable | None removed in P0.5 | Dynamic placeholder-to-import pattern remains T009 |
+| `qc` | `run_qc`, `run_standard_qc`, QC configs, decisions, traces, review summaries | External correction backends and optional R integrations | Compatibility config aliases | Backend probes and workflow implementation helpers |
+| `preprocess` | `run_preprocessing`, `run_iterative_preprocessing`, layer contracts, graph/integration diagnostics | Specialized adaptive/quality-aware normalization helpers | `results_dir`, renamed configuration fields, and method aliases | Workflow implementation and backend helpers |
+| `analysis` | Clustering, annotation, scoring, proportion, pseudobulk-first and review contracts | Optional proportion backends and support-evidence integrations | Analysis-level malignancy wrapper and `analysis.bulk` shim | Private workflow helpers; malignancy belongs to `tumor` |
+| `tumor` | Tumor workflow, malignancy/CNV/TME review surfaces | Therapy/evolution utilities and external-data-dependent helpers | Deprecated aliases recorded by the generated inventory | `AnalysisStep` adapters (T002) and TCGA placeholder (T011) |
+| `recommendation` | Public schema and result contract | Recommendation engine remains evidence-expanding; treat outputs as advice requiring review | No removal in P0.5 | Engine implementation modules |
+| `tools` | Importable optional support-evidence namespaces | Bulk, spatial, pyMonocle3, deconvolution and communication methods remain optional support evidence | Bulk legacy aliases and `analysis.bulk` compatibility path | Backend-specific implementation modules; unsupported limma branch (T012) |
+
+P0.5 removes no callable API. Symbols that might have external callers remain
+importable and are triaged for a versioned deprecation cycle instead of being
+deleted from source.
+
+---
+
 ## Active Triage Items
 
 ### T001: `run_malignancy_interpretation` in `scLucid.analysis`
@@ -152,6 +176,45 @@ recorded here; resolved entries are moved to the **Resolved** section.
 | **Concern** | `utils` is the largest subpackage by symbol count. It mixes contracts, validation, storage, profiling, marker management, I/O, and workflow utilities. |
 | **Proposed Action** | keep for now; consider exposing thematic sub-namespaces (e.g., `utils.contracts`, `utils.storage`) as public subpackages in v0.3.0 |
 | **Decision Deadline** | 2026-12-01 |
+| **Decision** | — |
+| **Decision Date** | — |
+
+### T011: `query_tcga_data` placeholder
+
+| Field | Value |
+|-------|-------|
+| **Symbol** | `query_tcga_data` |
+| **Location** | `scLucid.tumor.utils` |
+| **Current Status** | experimental public placeholder |
+| **Concern** | Returns a one-row explanatory DataFrame without querying TCGA. Treating it as evidence would violate the source/provenance contract. |
+| **Proposed Action** | keep behavior unchanged in P0.5; decide whether to replace it with a connector-backed implementation or deprecate the export |
+| **Decision Deadline** | maintainer decision before v0.2.0 |
+| **Decision** | — |
+| **Decision Date** | — |
+
+### T012: bulk `limma` method option
+
+| Field | Value |
+|-------|-------|
+| **Symbol** | `BulkDEConfig.method="limma"` |
+| **Location** | `scLucid.tools.bulk` |
+| **Current Status** | explicit unsupported option (`NotImplementedError`) |
+| **Concern** | The config surface accepts a method that is not implemented; older design notes can be read as implying parity. |
+| **Proposed Action** | keep the explicit error in P0.5; either implement with validation evidence in a later support-evidence milestone or remove through a documented breaking-change cycle |
+| **Decision Deadline** | maintainer decision before v0.2.0 |
+| **Decision** | — |
+| **Decision Date** | — |
+
+### T013: CNV reference-signature comparison placeholder
+
+| Field | Value |
+|-------|-------|
+| **Symbol** | `CNVSigExtractor.compare_to_reference` |
+| **Location** | `scLucid.tumor.cnv` |
+| **Current Status** | experimental public method with placeholder comparison values |
+| **Concern** | Returns `best_match="unknown"` and `correlation=0.0` for every reference. It must not be presented as a completed biological comparison. |
+| **Proposed Action** | keep unchanged in P0.5 because removal changes public behavior; either implement a validated comparison or deprecate the method with a versioned migration |
+| **Decision Deadline** | maintainer decision before tumor validation claims expand |
 | **Decision** | — |
 | **Decision Date** | — |
 

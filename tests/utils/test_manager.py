@@ -413,7 +413,7 @@ def test_registry_views_cover_doublet_detection_and_plotting():
 
 def test_marker_curation_candidates_cover_all_batches_and_targets():
     """Each batch curation document should have at least one classified queue item."""
-    candidates_path = DOCS_DIR / "marker_curation_candidates.jsonl"
+    candidates_path = DOCS_DIR / "marker_resources" / "marker_curation_candidates.jsonl"
     rows = [
         json.loads(line)
         for line in candidates_path.read_text().splitlines()
@@ -459,7 +459,9 @@ def test_marker_curation_candidates_cover_all_batches_and_targets():
 
 def test_marker_curation_literature_index_covers_all_batch_sources():
     """The literature index should make all batch-md source papers auditable."""
-    index_path = DOCS_DIR / "marker_curation_literature_index.jsonl"
+    index_path = (
+        DOCS_DIR / "marker_resources" / "marker_curation_literature_index.jsonl"
+    )
     rows = [
         json.loads(line)
         for line in index_path.read_text().splitlines()

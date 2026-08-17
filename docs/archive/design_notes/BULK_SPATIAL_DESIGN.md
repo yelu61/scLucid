@@ -1,6 +1,13 @@
 # Bulk and Spatial Design for scLucid
 
-**Status**: Current design contract for bulk/spatial evidence modules  
+> **ARCHIVED / SUPERSEDED (2026-08-14)**
+>
+> This design note is retained for provenance. Current callable behavior is
+> defined by `scLucid.tools.bulk`, `scLucid.tools.spatial`, their tests, and the
+> maintained API documentation. Bulk and spatial remain optional support
+> evidence rather than the core workflow spine.
+
+**Historical status**: former design contract for bulk/spatial evidence modules
 **Scope**: Define the API shape, storage contracts, diagnostics, and inference semantics for the new `scLucid.tools.bulk` and `scLucid.tools.spatial` modules.
 
 ## Positioning

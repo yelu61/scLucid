@@ -1,11 +1,11 @@
 # Validation Scaffold
 
-scLucid uses a two-stage validation strategy. The current lightweight
-scaffold locks down QC/preprocess workflow maturity without claiming
-that scLucid is scientifically superior to Scanpy, Seurat, scran, or
-other standard workflows. Formal comparative validation should happen
-after the analysis module reaches the same auditability level as QC and
-preprocessing.
+scLucid uses three coordinated validation tracks. The current lightweight
+scaffold locks down QC/preprocess workflow maturity without claiming that
+scLucid is scientifically superior to Scanpy, Seurat, scran, or other
+standard workflows. Real-project product acceptance runs in parallel on
+active projects, while formal comparative scientific validation starts once
+the affected Analysis/Tumor slice has a stable evidence contract.
 
 ## Current Scope
 
@@ -77,8 +77,18 @@ scl.ut.write_validation_outputs(validation, "results/golden/pbmc3k/validation")
 
 ## Recommended Timing
 
-Use this scaffold now to stabilize QC/preprocess maturity claims. After
-analysis has comparable review-summary and evidence contracts, extend
-the validation layer into `qc_preprocess_analysis_validation` with PBMC,
-PDAC, cross-dataset tumor validation, and optional external workflow
-comparisons.
+Run the three tracks in parallel rather than waiting for every module to be
+fully redesigned:
+
+1. contract validation: keep QC/preprocess and Analysis review schemas
+   executable in CI;
+2. product acceptance: use AK112/LPJ-like active projects to record parameter
+   friction, misunderstood outputs, analyst overrides, and rerun scope;
+3. scientific validation: extend `qc_preprocess_analysis_validation` through
+   PBMC, PDAC, and a second tumor cohort, then add optional external workflow
+   comparisons.
+
+When a real-project or benchmark run exposes a blocker, improve that specific
+QC, preprocess, analysis, or tumor boundary and rerun the same vertical slice.
+Do not postpone usability validation until all four modules are considered
+complete.

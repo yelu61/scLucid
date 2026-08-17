@@ -1,6 +1,8 @@
 """Smoke tests for package import stability and public surfaces."""
 
 import importlib
+import subprocess
+import sys
 import warnings
 
 import pytest
@@ -79,3 +81,24 @@ def test_optional_import_helper_gracefully_handles_missing_module():
 
     assert result is None
     assert any("Could not import module" in str(item.message) for item in caught)
+
+
+@pytest.mark.smoke
+def test_core_import_does_not_initialize_heavy_optional_backends():
+    """Core import must not initialize optional R/CNV/deep-learning runtimes."""
+    code = """
+import sys
+import scLucid as scl
+
+blocked = ('infercnvpy', 'rpy2', 'scvi', 'squidpy', 'torch')
+loaded = [name for name in blocked if name in sys.modules]
+assert not loaded, loaded
+assert callable(scl.tumor.run_cnv_analysis)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr

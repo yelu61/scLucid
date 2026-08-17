@@ -37,6 +37,7 @@ htmlcov/
 .ruff_cache/
 .hypothesis/
 pytestdebug.log
+*.bak
 
 # Test output directories (hardcoded paths in old tests)
 results/
@@ -77,4 +78,3 @@ data/
 
 # Local editor / tool caches
 .claude/
-

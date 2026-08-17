@@ -1,5 +1,14 @@
 # Real-project QC + preprocess + analysis execution plan
 
+> **POINT-IN-TIME / EXTERNAL-EVIDENCE NOTE (2026-08-14)**
+>
+> This document records a real-project evidence plan, not the current repository
+> execution priority. Its two named Step1 notebooks are project-local inputs and
+> are not present in this worktree. Current implementation truth comes from code,
+> tests, golden-path scripts, and `docs/CURRENT_IMPLEMENTATION_AND_DOCS_POLICY.md`.
+> Do not interpret this note as authorization to restore or delete the separate
+> tracked `Step1-QC_and_Preprocessing_v2.ipynb` path.
+
 This note records how to use the two local Step1 notebooks as evidence for
 hardening scLucid's QC, preprocessing, and downstream analysis review modules.
 The notebooks are intentionally not tracked by git; they are project-specific

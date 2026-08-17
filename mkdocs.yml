@@ -15,6 +15,7 @@ exclude_docs: |
   dev/IMPROVEMENT_LOG.md
   dev/QC_MODULE_BENCHMARK_GAP_AUDIT.md
   dev/QC_PREPROCESS_API_CLEANUP_AUDIT.md
+  dev/REAL_PROJECT_QC_PREPROCESS_EXECUTION_PLAN.md
   dev/DATA_USAGE_GUIDE.md
   dev/NAMING_CONVENTIONS.md
   dev/PLUGIN_DEVELOPMENT_GUIDE.md
@@ -70,9 +71,13 @@ nav:
   - Start Here:
       - Installation: user/installation.md
       - Quickstart: user/quickstart.md
+      - Project Context: user/project_context.md
+      - Reviewing Results: user/reviewing_results.md
+      - Parameter Profiles: user/parameter_profiles.md
       - Usage Layers: user/usage_layers.md
       - Module Features And Stage Plan: user/module_features_and_plan.md
   - Workflow Guidance:
+      - Scientific Reasoning Contracts: user/scientific_reasoning_contracts.md
       - Best Practices: user/best_practices.md
       - Data Contracts: user/data_contracts.md
       - Marker Resources: user/marker_resources.md
@@ -89,6 +94,7 @@ nav:
       - Proportion Methods: user/proportion_methods_guide.md
       - FAQ: user/faq.md
   - API:
+      - Planning And Run Review: api/decision.md
       - QC: api/qc.md
       - Preprocess: api/preprocess.md
       - Analysis: api/analysis.md
@@ -102,6 +108,14 @@ nav:
       - Current Implementation Policy: CURRENT_IMPLEMENTATION_AND_DOCS_POLICY.md
       - Repository Structure And Cleanup: dev/REPOSITORY_STRUCTURE_AND_CLEANUP.md
       - Strategic Plan: SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md
-      - Roadmap: roadmap/index.md
-      - R/Python Parity Roadmap: roadmap/PHASE_7_SUPPORT_EVIDENCE_AND_R_PYTHON_PARITY.md
+      - Roadmap:
+          - Overview: roadmap/index.md
+          - Phase 1 — Core API And Contracts: roadmap/PHASE_1_CORE_API_AND_CONTRACTS.md
+          - Phase 2 — QC Evidence Benchmark: roadmap/PHASE_2_QC_EVIDENCE_BENCHMARK.md
+          - Phase 3 — Preprocess Analysis Validation: roadmap/PHASE_3_PREPROCESS_ANALYSIS_VALIDATION.md
+          - Phase 4 — Tumor Interpretation Case Studies: roadmap/PHASE_4_TUMOR_INTERPRETATION_CASE_STUDIES.md
+          - Phase 5 — Tumor Ecosystem Modeling: roadmap/PHASE_5_TUMOR_ECOSYSTEM_MODELING.md
+          - Phase 6 — Knowledge Evidence Infrastructure: roadmap/PHASE_6_KNOWLEDGE_EVIDENCE_INFRASTRUCTURE.md
+          - Phase 7 — Support Evidence And R/Python Parity: roadmap/PHASE_7_SUPPORT_EVIDENCE_AND_R_PYTHON_PARITY.md
+          - Phase 8 — Release Manuscript And Submission: roadmap/PHASE_8_RELEASE_MANUSCRIPT_AND_SUBMISSION.md
       - MkDocs Migration: dev/migration/MKDOCS_MIGRATION.md

@@ -86,3 +86,94 @@ remove ignored local output directories such as `results/`, run:
 ```bash
 python scripts/clean_workspace.py --include-outputs
 ```
+
+## P0.5 Repository Consolidation Audit (2026-08-14)
+
+This section is the evidence log for the bounded P0.5 cleanup. It does not
+replace the strategic plan or create a parallel backlog.
+
+### Pre-cleanup baseline
+
+| Measure | Count / status |
+|---|---:|
+| Tracked files | 574 |
+| Files present in the worktree, excluding `.git` | 1,180 |
+| Package Python files | 227 |
+| Test Python files | 134 |
+| Documentation Markdown files | 80 |
+| Present tracked example notebooks | 5 |
+| Script and validation files | 53 |
+| P0 focused/contract test gate | 136 passed |
+| P0 real PBMC/PDAC acceptance gate | 13 passed |
+| P0 safe core gate with local real-data fixtures | 1,321 passed, 6 skipped; four resource tests separately blocked by a stale path contract |
+
+The working tree already contained decision/context/audit/documentation work
+and the P0 fixes. Those changes were treated as protected inputs. The deleted
+status of `Step1-QC_and_Preprocessing_v2.ipynb` was present before P0.5 and was
+not changed.
+
+### Candidate classification
+
+| Candidate | Classification | Evidence and action |
+|---|---|---|
+| `src/scLucid/{qc,preprocess,analysis,tumor}` and their contract tests | **Keep** | Canonical QC → Preprocess → Analysis → Tumor spine; protected by unit, contract, integration, and acceptance tests. |
+| `tools/bulk`, `tools/spatial`, pyMonocle3 and other optional evidence modules | **Keep** | Optional support evidence, not the main product spine. Low coverage alone is not deletion evidence. |
+| `docs/marker_resources/*.jsonl` | **Consolidate** | These tracked files are the live resource sources. Code/tests still used the pre-migration `docs/*.jsonl` paths; consumers were corrected instead of copying a second queue. |
+| `docs/roadmap/README.md` and `docs/roadmap/index.md` | **Consolidate** | `index.md` is canonical. The former long README was archived for provenance and replaced by a short pointer. |
+| Point-in-time QC/API audits in `docs/dev/` | **Keep / Archive marker** | Existing superseded banners distinguish them from current contracts. The real-project execution note received an explicit point-in-time/external-input banner. |
+| `analysis.bulk`, bulk legacy aliases, analysis malignancy wrapper, `plotting.main` | **Deprecate / compatibility** | They retain potential external callers and compatibility tests. No callable API was removed in P0.5; decisions remain in `API_TRIAGE.md`. |
+| TCGA and CNV-reference placeholders plus reserved bulk limma method | **Experimental / blocked** | All are explicitly triaged; none may be treated as executed evidence. Behavior remains unchanged pending a versioned maintainer decision. |
+| Caches, coverage HTML/XML, `override/`, bytecode | **Delete** | Ignored deterministic products identified by `scripts/clean_workspace.py`; 65 targets removed. |
+| `build_review_summary_evidence_tables.py.bak` | **Delete** | Untracked older subset of the tracked script. It contained no unique project-mode logic; the formal script also adds benchmark mode. `*.bak` is now ignored. |
+| `Step1-QC_and_Preprocessing_v2.ipynb` deletion | **Keep current state / decision required** | The pre-existing deletion is ambiguous. P0.5 neither restored the file nor converted the deletion into a permanent cleanup decision. |
+
+### Test and validation boundaries
+
+| Layer | Canonical location | Contract |
+|---|---|---|
+| Unit | `tests/qc`, `tests/preprocess`, `tests/analysis`, `tests/tumor`, `tests/tools` | Small behavioral and failure-mode checks. |
+| Cross-module contract | `tests/test_context.py`, `tests/test_decision.py`, `tests/test_contracts.py`, `tests/test_semantics_contracts.py` | Context, planning, stage storage, evidence semantics, and inference boundaries. |
+| Integration | `tests/integration/` | Executable vertical slices and artifact handoffs. |
+| Real-data acceptance | PBMC golden path and Lin2020 PDAC acceptance tests | Maintained real-data outcomes and round-trip artifacts; data remain local and ignored. |
+| Scientific validation | `validation/<module>/` with thin runner tests under `tests/` | Benchmark evidence, provenance, and claim calibration. Generated outputs belong in ignored `validation_outputs/`. |
+
+Golden-path scripts and acceptance tests are not duplicates: scripts own
+artifact generation, while tests own executable assertions. No runner or
+fixture was removed without stronger equivalence evidence.
+
+### Source-of-truth order
+
+For this repository, implementation disputes are resolved in this order:
+
+1. code plus passing contract/acceptance tests;
+2. tracked resource sources and executable validation runners;
+3. maintained API and user documentation;
+4. roadmap and developer audit notes;
+5. archived design or curation provenance.
+
+The four authoritative navigation entries remain `README.md`,
+`docs/CURRENT_IMPLEMENTATION_AND_DOCS_POLICY.md`,
+`docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md`, and `docs/roadmap/index.md`.
+
+### Post-cleanup outcome
+
+| Measure | Before | After | Interpretation |
+|---|---:|---:|---|
+| Tracked files | 574 | 574 | No tracked source, resource, test, or user artifact was deleted. |
+| Files present in the worktree, excluding `.git` | 1,180 | 582 | Deterministic ignored caches and generated products were removed. |
+| Directories present in the worktree, excluding `.git` | not recorded | 93 | Reported for the post-cleanup baseline. |
+| Package Python files | 227 | 227 | No package implementation file was removed. |
+| Test Python files | 134 | 134 | No test layer was collapsed without equivalence evidence. |
+| Documentation Markdown files | 80 | 82 | Archive governance and the preserved roadmap provenance added two documents. |
+| Present example notebooks | 5 | 5 | Notebook content was not changed by P0.5. |
+| Script and validation files | 53 | 35 | The decrease is cache/bytecode removal; maintained runners and source data were retained. |
+
+The stale marker-resource consumers now use the canonical tracked files under
+`docs/marker_resources/`; no resource content was fabricated or duplicated.
+The completed gates were 188 focused tests, all four formerly blocked resource
+tests, 13 PBMC/PDAC real-data acceptance tests, and the safe core suite with
+1,326 passed and 6 skipped (100 explicitly deselected out-of-scope tests).
+Core-import smoke checks, strict MkDocs, generated-API consistency, Python
+compilation, targeted Ruff checks, and `git diff --check` also passed. These
+checks preserve the P0 scientific behavior while tightening repository and
+optional-dependency boundaries.

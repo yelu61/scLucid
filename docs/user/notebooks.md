@@ -49,12 +49,6 @@ See `examples/03_advanced_notebooks/` for:
   differential expression, and enrichment.
 - `Step4-Signature_and_Target_Analysis.ipynb` - project-specific
   signatures, focused cell-state analysis, and target-oriented exports.
-- `Step1-QC_and_Preprocessing.ipynb` and
-  `Step2-Celltype_annotation.ipynb` - legacy unsplit project references.
-- `04_advanced_topics.ipynb`
-- `04_differential_expression.ipynb`
-- `05_trajectory_inference.ipynb`
-- `06_advanced_tools.ipynb`
 
 If these notebooks evolve into a publication-facing tutorial set, keep
 them in `examples/03_advanced_notebooks/` and maintain a short README

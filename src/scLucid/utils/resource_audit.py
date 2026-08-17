@@ -87,7 +87,12 @@ def load_reference_index() -> dict[str, dict[str, Any]]:
 
 def load_marker_curation_literature_index() -> list[dict[str, Any]]:
     """Load the local curation literature queue when present."""
-    path = Path(__file__).parents[3] / "docs" / "marker_curation_literature_index.jsonl"
+    path = (
+        Path(__file__).parents[3]
+        / "docs"
+        / "marker_resources"
+        / "marker_curation_literature_index.jsonl"
+    )
     if not path.is_file():
         raise FileNotFoundError(path)
     rows: list[dict[str, Any]] = []

@@ -43,12 +43,6 @@ decisions and preprocessing decisions.
 | `Step2-Annotation_and_Malignancy.ipynb` | Evidence-first analysis acceptance shell. It calls `scripts/run_analysis_acceptance.py` and writes `data/processed/Step3-sce_annotated.h5ad`. |
 | `Step3-Standard_Downstream.ipynb` | Standard downstream composition, proportion, differential expression, and enrichment analyses. |
 | `Step4-Signature_and_Target_Analysis.ipynb` | Project-specific signatures, focused cell-state analysis, and target-oriented exports. |
-| `Step1-QC_and_Preprocessing.ipynb` | Legacy unsplit QC + preprocessing reference retained for comparison, not the recommended template. |
-| `Step2-Celltype_annotation.ipynb` | Legacy unsplit project notebook retained for comparison, not the recommended template. |
-| `04_advanced_topics.ipynb` | Advanced-topic reference. |
-| `04_differential_expression.ipynb` | Differential-expression reference. |
-| `05_trajectory_inference.ipynb` | Trajectory-analysis reference. |
-| `06_advanced_tools.ipynb` | Advanced-tools reference. |
 
 ## Manual Review Contract
 
@@ -63,10 +57,12 @@ adata.uns["sclucid"][module]["steps_executed"]
 adata.uns["sclucid"][module]["review_summary"]
 ```
 
-Step1A and Step1B currently demonstrate this pattern with a notebook-local
-manual review finalizer. That finalizer should be treated as a reference pattern
-until package-level helpers are exposed. New project notebooks should not invent
-a separate review-summary schema.
+Use `scLucid.utils.finalize_manual_review_summary()` when a notebook executes a
+stage manually. It normalizes, validates, stores, and optionally exports the
+same review contract as the workflow layer. Existing notebook-local finalizers
+are migration references and should not be copied into new projects. After the
+manual stages are finalized, call `scLucid.review_run()` for one cross-stage
+action table.
 
 ## Step Boundaries
 

@@ -186,7 +186,9 @@ def run_bulk_de(
 ) -> pd.DataFrame:
     """Run bulk differential expression analysis.
 
-    Supports Welch t-test, Student's t-test, and optional pydeseq2/limma backends.
+    Implements Welch t-test, Student's t-test, and the optional pydeseq2
+    backend. The reserved ``limma`` option is not implemented and raises an
+    explicit ``NotImplementedError`` rather than returning placeholder results.
     Results are annotated with inference-level semantics.
 
     Parameters

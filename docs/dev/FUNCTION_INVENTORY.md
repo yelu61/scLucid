@@ -35,8 +35,8 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
   script with `--write`.
 
 <!-- AUTO-GENERATED INVENTORY START -->
-<!-- Generated: 2026-06-18 05:27:29 by scripts/audit_public_api.py -->
-<!-- Total public symbols: 979 -->
+<!-- Generated: 2026-08-14 19:25:32 by scripts/audit_public_api.py -->
+<!-- Total public symbols: 1099 -->
 
 ## scLucid
 
@@ -58,6 +58,7 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
 | `AnalysisContext` | Function | `src/scLucid/__init__.py` |  |
+| `AnalysisPlan` | Function | `src/scLucid/__init__.py` |  |
 | `AnalysisStep` | Function | `src/scLucid/__init__.py` |  |
 | `AnalysisStepFactory` | Function | `src/scLucid/__init__.py` |  |
 | `CellAnnotator` | Function | `src/scLucid/__init__.py` |  |
@@ -70,13 +71,19 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 | `infer_dataset_profile` | Function | `src/scLucid/__init__.py` |  |
 | `is_interactive_mode` | Function | `src/scLucid/__init__.py` |  |
 | `normalize_dataset_type` | Function | `src/scLucid/__init__.py` |  |
+| `plan_analysis` | Function | `src/scLucid/__init__.py` |  |
 | `PlottingBackend` | Function | `src/scLucid/__init__.py` |  |
+| `ProjectContext` | Function | `src/scLucid/__init__.py` |  |
 | `ProportionAnalysisMethod` | Function | `src/scLucid/__init__.py` |  |
 | `QCFilter` | Function | `src/scLucid/__init__.py` |  |
-| `read_10x` | Function | `src/scLucid/__init__.py` | re-exported from `utils.io` |
-| `read_h5ad` | Function | `src/scLucid/__init__.py` | re-exported from `utils.io` |
+| `read_10x` | Function | `src/scLucid/__init__.py` |  |
+| `read_h5ad` | Function | `src/scLucid/__init__.py` |  |
 | `recommend_analysis_parameters` | Function | `src/scLucid/__init__.py` | dynamically resolved from submodule workflow |
 | `reset_config` | Function | `src/scLucid/__init__.py` |  |
+| `review_run` | Function | `src/scLucid/__init__.py` |  |
+| `run_iterative_preprocessing` | Function | `src/scLucid/__init__.py` |  |
+| `run_qc` | Function | `src/scLucid/__init__.py` |  |
+| `RunReview` | Function | `src/scLucid/__init__.py` |  |
 | `ScoringMethod` | Function | `src/scLucid/__init__.py` |  |
 | `set_config` | Function | `src/scLucid/__init__.py` |  |
 
@@ -112,11 +119,9 @@ above the `AUTO-GENERATED` markers; they will be preserved across regenerations.
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-#### Deprecated
+*No flagged symbols.*
 
-No deprecated top-level QC workflow aliases are currently exported.
-
-**Summary:** 48 symbols (48 stable, 0 flagged). workflow=5, config=0, class=0, function=22, alias=17, constant=3, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+**Summary:** 55 symbols (55 stable, 0 flagged). workflow=6, config=0, class=0, function=29, alias=17, constant=3, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.analysis
 
@@ -128,6 +133,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 |--------|------|--------|-------|
 | `run_annotation` | Workflow Orchestrator | `src/scLucid/analysis/__init__.py` | [W] from `annotation` |
 | `run_custom_analysis` | Workflow Orchestrator | `src/scLucid/analysis/__init__.py` | [W] from `workflow` |
+| `run_pseudobulk_first_analysis` | Workflow Orchestrator | `src/scLucid/analysis/__init__.py` | [W] from `workflow` |
 | `run_standard_analysis` | Workflow Orchestrator | `src/scLucid/analysis/__init__.py` | [W] from `workflow` |
 
 #### Config Class
@@ -169,7 +175,10 @@ No deprecated top-level QC workflow aliases are currently exported.
 | `apply_subset_annotation_reconciliation` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
 | `batch_compare_scores` | Function | `src/scLucid/analysis/__init__.py` | from `scoring` |
 | `batch_plot_delta_heatmap` | Function | `src/scLucid/analysis/__init__.py` | from `scoring` |
+| `build_analysis_decision_summary` | Function | `src/scLucid/analysis/__init__.py` | from `trace` |
+| `build_analysis_inference_policy` | Function | `src/scLucid/analysis/__init__.py` | from `trace` |
 | `build_annotation_consensus` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
+| `build_annotation_evidence_report` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
 | `build_hierarchical_annotation_plan` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
 | `build_llm_annotation_bundle` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
 | `build_subset_annotation_reconciliation` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
@@ -186,6 +195,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 | `estimate_size_factors_median_ratio` | Function | `src/scLucid/analysis/__init__.py` | [O] from `bulk`; optional |
 | `evaluate_annotation` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
 | `export_analysis_data` | Function | `src/scLucid/analysis/__init__.py` | [O] from `proportion`; optional |
+| `export_annotation_evidence_report` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
 | `filter_bulk_genes` | Function | `src/scLucid/analysis/__init__.py` | [O] from `bulk`; optional |
 | `filter_marker_table_for_annotation` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
 | `flag_suspect_clusters` | Function | `src/scLucid/analysis/__init__.py` | from `annotation` |
@@ -244,6 +254,8 @@ No deprecated top-level QC workflow aliases are currently exported.
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
 | `ANALYSIS_REQUIRED_REVIEW_SECTIONS` | Trace / Contract | `src/scLucid/analysis/__init__.py` | [T] from `trace` |
+| `build_analysis_output_contract` | Trace / Contract | `src/scLucid/analysis/__init__.py` | [T] from `trace` |
+| `build_analysis_reviewer_table` | Trace / Contract | `src/scLucid/analysis/__init__.py` | [T] from `trace` |
 | `build_annotation_review_table` | Trace / Contract | `src/scLucid/analysis/__init__.py` | [T] from `annotation` |
 | `build_bulk_review_summary` | Trace / Contract | `src/scLucid/analysis/__init__.py` | [T] [O] from `bulk`; optional |
 | `build_posthoc_qc_review_summary` | Trace / Contract | `src/scLucid/analysis/__init__.py` | [T] from `trace` |
@@ -261,7 +273,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 |--------|------|--------|-------|
 | `run_malignancy_interpretation` | Deprecated | `src/scLucid/analysis/__init__.py` | [D] |
 
-**Summary:** 112 symbols (111 stable, 1 flagged). workflow=3, config=21, class=0, function=78, alias=0, constant=0, trace=9, deprecated=1, uncertain=0, private_but_exposed=0.
+**Summary:** 119 symbols (118 stable, 1 flagged). workflow=4, config=21, class=0, function=82, alias=0, constant=0, trace=11, deprecated=1, uncertain=0, private_but_exposed=0.
 
 ## scLucid.analysis.annotation
 
@@ -282,14 +294,17 @@ No deprecated top-level QC workflow aliases are currently exported.
 | `apply_final_annotation` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `apply_subset_annotation_reconciliation` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `build_annotation_consensus` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
+| `build_annotation_evidence_report` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `build_hierarchical_annotation_plan` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `build_llm_annotation_bundle` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `build_subset_annotation_reconciliation` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `evaluate_annotation` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `evaluate_annotation_benchmark` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
+| `export_annotation_evidence_report` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `filter_marker_table_for_annotation` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `flag_suspect_clusters` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `merge_annotation_evidence` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
+| `recommend_celltypist_model` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `remap_labels` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `run_annotation_evidence` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
 | `run_celltypist` | Function | `src/scLucid/analysis/annotation/__init__.py` |  |
@@ -314,7 +329,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 *No flagged symbols.*
 
-**Summary:** 28 symbols (28 stable, 0 flagged). workflow=1, config=0, class=0, function=24, alias=0, constant=0, trace=3, deprecated=0, uncertain=0, private_but_exposed=0.
+**Summary:** 31 symbols (31 stable, 0 flagged). workflow=1, config=0, class=0, function=27, alias=0, constant=0, trace=3, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.analysis.bulk
 
@@ -381,6 +396,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 | `plot_volcano` | Function | `src/scLucid/analysis/differential_expression/__init__.py` |  |
 | `ResultManager` | Function | `src/scLucid/analysis/differential_expression/__init__.py` |  |
 | `run_enrichment` | Function | `src/scLucid/analysis/differential_expression/__init__.py` |  |
+| `run_mixedlm_de` | Function | `src/scLucid/analysis/differential_expression/__init__.py` |  |
 | `run_pseudobulk_de` | Function | `src/scLucid/analysis/differential_expression/__init__.py` |  |
 | `save_results` | Function | `src/scLucid/analysis/differential_expression/__init__.py` |  |
 | `summarize_markers_and_enrichment` | Function | `src/scLucid/analysis/differential_expression/__init__.py` |  |
@@ -390,7 +406,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 *No flagged symbols.*
 
-**Summary:** 17 symbols (17 stable, 0 flagged). workflow=0, config=0, class=0, function=17, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+**Summary:** 18 symbols (18 stable, 0 flagged). workflow=0, config=0, class=0, function=18, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.analysis.proportion
 
@@ -436,6 +452,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 | `plot_proportion_with_ci` | Function | `src/scLucid/analysis/proportion/__init__.py` |  |
 | `ProportionMethod` | Function | `src/scLucid/analysis/proportion/__init__.py` |  |
 | `recommend_method` | Function | `src/scLucid/analysis/proportion/__init__.py` |  |
+| `recommend_sccoda_reference` | Function | `src/scLucid/analysis/proportion/__init__.py` |  |
 | `run_sccoda` | Function | `src/scLucid/analysis/proportion/__init__.py` |  |
 | `run_statistical_test` | Function | `src/scLucid/analysis/proportion/__init__.py` |  |
 | `summarize_sccoda` | Function | `src/scLucid/analysis/proportion/__init__.py` |  |
@@ -451,7 +468,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 *No flagged symbols.*
 
-**Summary:** 36 symbols (36 stable, 0 flagged). workflow=0, config=2, class=0, function=33, alias=1, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+**Summary:** 37 symbols (37 stable, 0 flagged). workflow=0, config=2, class=0, function=34, alias=1, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.plotting
 
@@ -501,6 +518,7 @@ No deprecated top-level QC workflow aliases are currently exported.
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
 | `AdaptiveNormalizationConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
+| `GeneBiotypeConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `GraphConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `HVGConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
 | `IntegrationConfig` | Config Class | `src/scLucid/preprocess/__init__.py` | [C] |
@@ -516,6 +534,10 @@ No deprecated top-level QC workflow aliases are currently exported.
 |--------|------|--------|-------|
 | `annotate_gene_biotypes` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `batch_correction` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `build_layer_transition_table` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `build_normalization_decision_policy` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `build_preprocess_decision_summary` | Function | `src/scLucid/preprocess/__init__.py` |  |
+| `build_preprocess_method_semantics` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `build_qc_input_context` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `build_step_evidence_summary` | Function | `src/scLucid/preprocess/__init__.py` |  |
 | `decide_integration` | Function | `src/scLucid/preprocess/__init__.py` |  |
@@ -555,7 +577,9 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 | Symbol | Kind | Source | Notes |
 |--------|------|--------|-------|
+| `build_preprocess_layer_contract` | Trace / Contract | `src/scLucid/preprocess/__init__.py` | [T] |
 | `build_preprocess_module_maturity_assessment` | Trace / Contract | `src/scLucid/preprocess/__init__.py` | [T] |
+| `build_preprocess_reviewer_table` | Trace / Contract | `src/scLucid/preprocess/__init__.py` | [T] |
 | `enrich_preprocessing_review_summary` | Trace / Contract | `src/scLucid/preprocess/__init__.py` | [T] |
 | `get_preprocess_module_contract` | Trace / Contract | `src/scLucid/preprocess/__init__.py` | [T] |
 | `PREPROCESS_MODULE_MATURITY_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/preprocess/__init__.py` | [T] |
@@ -568,9 +592,403 @@ No deprecated top-level QC workflow aliases are currently exported.
 
 ### Deprecated / Uncertain / Private-but-Exposed
 
-No deprecated top-level preprocess aliases are exported.
+*No flagged symbols.*
 
-**Summary:** 58 symbols (58 stable, 0 flagged). workflow=2, config=9, class=0, function=37, alias=0, constant=1, trace=10, deprecated=0, uncertain=0, private_but_exposed=0.
+**Summary:** 58 symbols (58 stable, 0 flagged). workflow=1, config=10, class=0, function=34, alias=0, constant=1, trace=12, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.preprocess.hvg
+
+### Stable APIs
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `evaluate_hvg_stability` | Function | `src/scLucid/preprocess/hvg/__init__.py` |  |
+| `find_hvgs` | Function | `src/scLucid/preprocess/hvg/__init__.py` |  |
+| `plot_hvg_metrics` | Function | `src/scLucid/preprocess/hvg/__init__.py` |  |
+| `select_and_audit_hvgs` | Function | `src/scLucid/preprocess/hvg/__init__.py` |  |
+| `select_hvg_sets` | Function | `src/scLucid/preprocess/hvg/__init__.py` |  |
+| `suggest_hvg_choice` | Function | `src/scLucid/preprocess/hvg/__init__.py` |  |
+
+#### Constant
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `PROTECTED_GENE_PRESETS` | Constant | `src/scLucid/preprocess/hvg/__init__.py` |  |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 7 symbols (7 stable, 0 flagged). workflow=0, config=0, class=0, function=6, alias=0, constant=1, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.preprocess.workflow
+
+### Stable APIs
+
+#### Workflow Orchestrator
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_preprocessing` | Workflow Orchestrator | `src/scLucid/preprocess/workflow/__init__.py` | [W] |
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `PartialWorkflowResult` | Function | `src/scLucid/preprocess/workflow/__init__.py` |  |
+| `run_iterative_preprocessing` | Function | `src/scLucid/preprocess/workflow/__init__.py` |  |
+| `WorkflowError` | Function | `src/scLucid/preprocess/workflow/__init__.py` |  |
+
+#### Constant
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `WORKFLOW_STEPS` | Constant | `src/scLucid/preprocess/workflow/__init__.py` |  |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 5 symbols (5 stable, 0 flagged). workflow=1, config=0, class=0, function=3, alias=0, constant=1, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.qc
+
+### Stable APIs
+
+#### Workflow Orchestrator
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_iterative_qc` | Workflow Orchestrator | `src/scLucid/qc/__init__.py` | [W] from `workflow` |
+| `run_qc` | Workflow Orchestrator | `src/scLucid/qc/__init__.py` | [W] from `workflow` |
+| `run_standard_qc` | Workflow Orchestrator | `src/scLucid/qc/__init__.py` | [W] from `workflow` |
+
+#### Config Class
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `DoubletConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
+| `FilterConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
+| `MarkerConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
+| `MarkingConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
+| `MetricsReportingConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
+| `QCWorkflowConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `AdaptiveThresholdLearner` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.adaptive_threshold`; optional |
+| `apply_qc_policy` | Function | `src/scLucid/qc/__init__.py` | from `workflow` |
+| `apply_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `policy.thresholds` |
+| `audit_doublets` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
+| `build_ambient_evidence_summary` | Function | `src/scLucid/qc/__init__.py` | from `trace` |
+| `build_qc_benchmark_assessment` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `build_qc_benchmark_scorecard` | Function | `src/scLucid/qc/__init__.py` | from `trace` |
+| `build_qc_decision_table` | Function | `src/scLucid/qc/__init__.py` | from `trace` |
+| `build_qc_decisions` | Function | `src/scLucid/qc/__init__.py` | from `policy.decisions` |
+| `build_qc_handoff_readiness` | Function | `src/scLucid/qc/__init__.py` | from `trace` |
+| `build_threshold_result` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.adaptive_threshold`; optional |
+| `calculate_qc_metric` | Function | `src/scLucid/qc/__init__.py` | from `metrics` |
+| `cellbender_available` | Function | `src/scLucid/qc/__init__.py` | [O] from `ambient_backends`; optional |
+| `cleanup_qc_intermediates` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `compute_marker_fidelity` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `compute_retention_metrics` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `correct_ambient_rna` | Function | `src/scLucid/qc/__init__.py` | [O] from `ambient_backends`; optional |
+| `create_custom_marker_dict` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
+| `decide_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `policy.thresholds` |
+| `diagnose_ambient_rna` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
+| `evaluate_qc_benchmark` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `export_qc_benchmark_report` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `filter_cells` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
+| `generate_doublet_rates` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
+| `generate_qc_html_report` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
+| `generate_qc_report` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
+| `infer_qc_benchmark_profile` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `infer_qc_metric_type` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.adaptive_threshold`; optional |
+| `IntelligentQCRecommender` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.intelligent_qc`; optional |
+| `MultiMetricAdaptiveLearner` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.adaptive_threshold`; optional |
+| `predict_doublets` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
+| `QCRecommendation` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.intelligent_qc`; optional |
+| `QCThresholds` | Function | `src/scLucid/qc/__init__.py` | from `config` |
+| `QCWorkflowError` | Function | `src/scLucid/qc/__init__.py` | from `workflow` |
+| `recommend_intelligent_qc` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.intelligent_qc`; optional |
+| `recommend_qc_policy` | Function | `src/scLucid/qc/__init__.py` | from `workflow` |
+| `recommend_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `policy.thresholds` |
+| `recommended_threshold_methods` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.adaptive_threshold`; optional |
+| `record_benchmark_review` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `record_filter_result` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `record_mark_evidence` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `record_qc_artifact_contract` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `record_qc_decision_artifact` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `record_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `record_threshold_recommendation` | Function | `src/scLucid/qc/__init__.py` | from `artifacts` |
+| `register_external_ambient_result` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
+| `render_qc_benchmark_compact_markdown` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `render_qc_benchmark_markdown` | Function | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `run_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `policy.thresholds` |
+| `score_cell_cycle` | Function | `src/scLucid/qc/__init__.py` | from `cycle` |
+| `score_qc_gene_panels` | Function | `src/scLucid/qc/__init__.py` | from `policy.decisions` |
+| `StrategyType` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.intelligent_qc`; optional |
+| `summarize_qc_decisions` | Function | `src/scLucid/qc/__init__.py` | from `policy.decisions` |
+| `ThresholdRecommendation` | Function | `src/scLucid/qc/__init__.py` | [O] from `policy.intelligent_qc`; optional |
+
+#### Constant
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `AMBIENT_CORRECTED_COUNTS_LAYER` | Constant | `src/scLucid/qc/__init__.py` | from `ambient` |
+| `BENCHMARK_PROFILES` | Constant | `src/scLucid/qc/__init__.py` | from `policy.benchmark` |
+| `DOUBLET_OBS_COLUMNS` | Constant | `src/scLucid/qc/__init__.py` | from `doublet` |
+| `QC_DECISION_VALUES` | Constant | `src/scLucid/qc/__init__.py` | from `policy.decisions` |
+| `QC_WORKFLOW_STEPS` | Constant | `src/scLucid/qc/__init__.py` | from `workflow` |
+
+#### Trace / Contract
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `build_post_annotation_qc_review` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `build_qc_module_maturity_assessment` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `enrich_qc_decision_table_for_review` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `enrich_qc_review_summary` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `get_qc_artifact_contract` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `artifacts` |
+| `get_qc_module_contract` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `QC_ARTIFACT_CONTRACT` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `artifacts` |
+| `QC_ARTIFACT_CONTRACT_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `artifacts` |
+| `QC_BENCHMARK_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `policy.benchmark` |
+| `QC_DECISION_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `policy.decisions` |
+| `QC_MODULE_MATURITY_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `QC_REQUIRED_OBS_METRICS` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `QC_REQUIRED_REVIEW_SECTIONS` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `QC_STABLE_ENTRYPOINTS` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `QC_TRACE_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `summarize_qc_review_summary` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `THRESHOLD_RESULT_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] [O] from `policy.adaptive_threshold`; optional |
+| `validate_qc_module_completeness` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+| `validate_qc_review_summary` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 87 symbols (87 stable, 0 flagged). workflow=3, config=6, class=0, function=54, alias=0, constant=5, trace=19, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.qc.doublet
+
+### Stable APIs
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `audit_doublets` | Function | `src/scLucid/qc/doublet/__init__.py` |  |
+| `create_custom_marker_dict` | Function | `src/scLucid/qc/doublet/__init__.py` |  |
+| `DoubletEvidenceProfiler` | Function | `src/scLucid/qc/doublet/__init__.py` |  |
+| `generate_doublet_rates` | Function | `src/scLucid/qc/doublet/__init__.py` |  |
+| `predict_doublets` | Function | `src/scLucid/qc/doublet/__init__.py` |  |
+
+#### Constant
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `ALGORITHM_PRED_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `ALGORITHM_SCORE_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `COMBINED_SCORE_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `DOUBLET_OBS_COLUMNS` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `EXPECTED_HETEROTYPIC_RATE_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `EXPECTED_HOMOTYPIC_RATE_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `EXPECTED_TOTAL_RATE_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `FINAL_PRED_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `HETEROTYPIC_RISK_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `HEURISTIC_PRED_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `HEURISTIC_SCORE_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `HOMOTYPIC_RISK_COL` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+| `LINEAGE_SCORES_KEY` | Constant | `src/scLucid/qc/doublet/__init__.py` |  |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+#### Deprecated
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `predict_doublets_with_profiling` | Deprecated | `src/scLucid/qc/doublet/__init__.py` | [D] |
+
+**Summary:** 19 symbols (18 stable, 1 flagged). workflow=0, config=0, class=0, function=5, alias=0, constant=13, trace=0, deprecated=1, uncertain=0, private_but_exposed=0.
+
+## scLucid.qc.policy
+
+### Stable APIs
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `apply_qc_threshold_decision` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `build_qc_benchmark_assessment` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `build_qc_decisions` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `compute_marker_fidelity` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `compute_retention_metrics` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `decide_qc_thresholds` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `evaluate_qc_benchmark` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `export_qc_benchmark_report` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `infer_qc_benchmark_profile` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `IntelligentQCRecommender` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `QCRecommendation` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `recommend_intelligent_qc` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `recommend_qc_thresholds` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `render_qc_benchmark_compact_markdown` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `render_qc_benchmark_markdown` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `run_qc_threshold_decision` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `score_qc_gene_panels` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `StrategyType` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `summarize_qc_decisions` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+| `ThresholdRecommendation` | Function | `src/scLucid/qc/policy/__init__.py` |  |
+
+#### Constant
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `BENCHMARK_PROFILES` | Constant | `src/scLucid/qc/policy/__init__.py` |  |
+| `QC_DECISION_VALUES` | Constant | `src/scLucid/qc/policy/__init__.py` |  |
+
+#### Trace / Contract
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `QC_BENCHMARK_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/policy/__init__.py` | [T] |
+| `QC_DECISION_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/policy/__init__.py` | [T] |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 24 symbols (24 stable, 0 flagged). workflow=0, config=0, class=0, function=20, alias=0, constant=2, trace=2, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.qc.trace
+
+### Stable APIs
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `build_ambient_evidence_summary` | Function | `src/scLucid/qc/trace/__init__.py` |  |
+| `build_qc_benchmark_scorecard` | Function | `src/scLucid/qc/trace/__init__.py` |  |
+| `build_qc_decision_table` | Function | `src/scLucid/qc/trace/__init__.py` |  |
+| `build_qc_handoff_readiness` | Function | `src/scLucid/qc/trace/__init__.py` |  |
+
+#### Trace / Contract
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `build_post_annotation_qc_review` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `build_qc_module_maturity_assessment` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `build_qc_reviewer_table` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `enrich_qc_decision_table_for_review` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `enrich_qc_review_summary` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `get_qc_module_contract` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `QC_MODULE_MATURITY_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `QC_REQUIRED_OBS_METRICS` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `QC_REQUIRED_REVIEW_SECTIONS` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `QC_STABLE_ENTRYPOINTS` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `QC_TRACE_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `summarize_qc_review_summary` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `validate_qc_module_completeness` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+| `validate_qc_review_summary` | Trace / Contract | `src/scLucid/qc/trace/__init__.py` | [T] |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 18 symbols (18 stable, 0 flagged). workflow=0, config=0, class=0, function=4, alias=0, constant=0, trace=14, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.qc.workflow
+
+### Stable APIs
+
+#### Workflow Orchestrator
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `run_standard_qc` | Workflow Orchestrator | `src/scLucid/qc/workflow/__init__.py` | [W] |
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `apply_qc_policy` | Function | `src/scLucid/qc/workflow/__init__.py` |  |
+| `QCWorkflowError` | Function | `src/scLucid/qc/workflow/__init__.py` |  |
+| `recommend_qc_policy` | Function | `src/scLucid/qc/workflow/__init__.py` |  |
+| `run_iterative_qc` | Function | `src/scLucid/qc/workflow/__init__.py` |  |
+| `run_qc` | Function | `src/scLucid/qc/workflow/__init__.py` |  |
+
+#### Constant
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `QC_WORKFLOW_STEPS` | Constant | `src/scLucid/qc/workflow/__init__.py` |  |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 7 symbols (7 stable, 0 flagged). workflow=1, config=0, class=0, function=5, alias=0, constant=1, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.recommendation
+
+### Stable APIs
+
+#### Config Class
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `IntelligentPreprocessConfig` | Config Class | `src/scLucid/recommendation/__init__.py` | [C] |
+| `RecommendationConfig` | Config Class | `src/scLucid/recommendation/__init__.py` | [C] |
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `BatchCorrectionRecommendation` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `DataProfile` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `HVGRecommendation` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `IntelligentPreprocessRecommender` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `NeighborsRecommendation` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `ParameterRecommendation` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `PCARecommendation` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `PreprocessingStrategy` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `recommend_analysis_parameters` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `recommend_intelligent_preprocessing` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `RecommendationEngine` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `RecommendationSection` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `ResolutionRecommendation` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `run_intelligent_preprocessing` | Function | `src/scLucid/recommendation/__init__.py` |  |
+| `WorkflowRecommendations` | Function | `src/scLucid/recommendation/__init__.py` |  |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 17 symbols (17 stable, 0 flagged). workflow=0, config=2, class=0, function=15, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
+
+## scLucid.recommendation.engine
+
+### Stable APIs
+
+#### Function
+
+| Symbol | Kind | Source | Notes |
+|--------|------|--------|-------|
+| `recommend_analysis_parameters` | Function | `src/scLucid/recommendation/engine/__init__.py` |  |
+| `RecommendationEngine` | Function | `src/scLucid/recommendation/engine/__init__.py` |  |
+
+### Deprecated / Uncertain / Private-but-Exposed
+
+*No flagged symbols.*
+
+**Summary:** 2 symbols (2 stable, 0 flagged). workflow=0, config=0, class=0, function=2, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.recommendation.preprocess
 
@@ -602,144 +1020,6 @@ No deprecated top-level preprocess aliases are exported.
 *No flagged symbols.*
 
 **Summary:** 11 symbols (11 stable, 0 flagged). workflow=0, config=1, class=0, function=10, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
-
-## scLucid.qc
-
-### Stable APIs
-
-#### Workflow Orchestrator
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `run_standard_qc` | Workflow Orchestrator | `src/scLucid/qc/__init__.py` | [W] from `workflow` |
-
-#### Config Class
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `DoubletConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
-| `FilterConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
-| `MarkerConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
-| `MarkingConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
-| `MetricsReportingConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
-| `QCWorkflowConfig` | Config Class | `src/scLucid/qc/__init__.py` | [C] from `config` |
-
-#### Function
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `AdaptiveThresholdLearner` | Function | `src/scLucid/qc/__init__.py` | [O] from `adaptive_threshold`; optional |
-| `audit_doublets` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
-| `apply_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
-| `build_qc_benchmark_assessment` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `build_qc_decision_table` | Function | `src/scLucid/qc/__init__.py` | from `trace` |
-| `calculate_qc_metric` | Function | `src/scLucid/qc/__init__.py` | from `metrics` |
-| `compute_marker_fidelity` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `compute_retention_metrics` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `create_custom_marker_dict` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
-| `decide_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
-| `diagnose_ambient_rna` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
-| `diagnose_empty_droplets` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
-| `EnhancedQCReport` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
-| `evaluate_qc_benchmark` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `export_qc_benchmark_report` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `filter_cells` | Function | `src/scLucid/qc/__init__.py` | from `filtering` |
-| `generate_doublet_rates` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
-| `generate_qc_html_report` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
-| `generate_qc_report` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
-| `infer_qc_benchmark_profile` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `IntelligentQCRecommender` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
-| `InteractiveReportGenerator` | Function | `src/scLucid/qc/__init__.py` | [O] from `reporting`; optional |
-| `MultiMetricAdaptiveLearner` | Function | `src/scLucid/qc/__init__.py` | [O] from `adaptive_threshold`; optional |
-| `predict_doublets` | Function | `src/scLucid/qc/__init__.py` | from `doublet` |
-| `QCRecommendation` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
-| `QCThresholds` | Function | `src/scLucid/qc/__init__.py` | from `config` |
-| `recommend_intelligent_qc` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
-| `record_ambient_correction_status` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
-| `recommend_qc_thresholds` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
-| `register_external_ambient_result` | Function | `src/scLucid/qc/__init__.py` | from `ambient` |
-| `render_qc_benchmark_compact_markdown` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `render_qc_benchmark_markdown` | Function | `src/scLucid/qc/__init__.py` | from `benchmark` |
-| `run_qc_threshold_decision` | Function | `src/scLucid/qc/__init__.py` | from `thresholds` |
-| `score_cell_cycle` | Function | `src/scLucid/qc/__init__.py` | from `cycle` |
-| `StrategyType` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
-| `ThresholdRecommendation` | Function | `src/scLucid/qc/__init__.py` | [O] from `intelligent_qc`; optional |
-
-#### Constant
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `BENCHMARK_PROFILES` | Constant | `src/scLucid/qc/__init__.py` | from `benchmark` |
-
-#### Trace / Contract
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `build_qc_module_maturity_assessment` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `enrich_qc_review_summary` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `get_qc_module_contract` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `QC_BENCHMARK_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `benchmark` |
-| `QC_MODULE_MATURITY_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `QC_REQUIRED_OBS_METRICS` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `QC_REQUIRED_REVIEW_SECTIONS` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `QC_STABLE_ENTRYPOINTS` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `QC_TRACE_SCHEMA_VERSION` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `summarize_qc_review_summary` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `validate_qc_module_completeness` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-| `validate_qc_review_summary` | Trace / Contract | `src/scLucid/qc/__init__.py` | [T] from `trace` |
-
-### Deprecated / Uncertain / Private-but-Exposed
-
-#### Deprecated
-
-No deprecated QC workflow aliases are currently exported.
-
-**Summary:** QC threshold public APIs are consolidated around `recommend_qc_thresholds`
-and `run_qc_threshold_decision`; older threshold aliases are no longer listed as
-package-level APIs.
-
-## scLucid.recommendation
-
-### Stable APIs
-
-#### Config Class
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `RecommendationConfig` | Config Class | `src/scLucid/recommendation/__init__.py` | [C] |
-
-#### Function
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `ParameterRecommendation` | Function | `src/scLucid/recommendation/__init__.py` |  |
-| `recommend_analysis_parameters` | Function | `src/scLucid/recommendation/__init__.py` |  |
-| `RecommendationEngine` | Function | `src/scLucid/recommendation/__init__.py` |  |
-| `RecommendationSection` | Function | `src/scLucid/recommendation/__init__.py` |  |
-| `WorkflowRecommendations` | Function | `src/scLucid/recommendation/__init__.py` |  |
-
-### Deprecated / Uncertain / Private-but-Exposed
-
-*No flagged symbols.*
-
-**Summary:** 6 symbols (6 stable, 0 flagged). workflow=0, config=1, class=0, function=5, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
-
-## scLucid.recommendation.engine
-
-### Stable APIs
-
-#### Function
-
-| Symbol | Kind | Source | Notes |
-|--------|------|--------|-------|
-| `recommend_analysis_parameters` | Function | `src/scLucid/recommendation/engine/__init__.py` |  |
-| `RecommendationEngine` | Function | `src/scLucid/recommendation/engine/__init__.py` |  |
-
-### Deprecated / Uncertain / Private-but-Exposed
-
-*No flagged symbols.*
-
-**Summary:** 2 symbols (2 stable, 0 flagged). workflow=0, config=0, class=0, function=2, alias=0, constant=0, trace=0, deprecated=0, uncertain=0, private_but_exposed=0.
 
 ## scLucid.tools
 
@@ -1449,6 +1729,7 @@ package-level APIs.
 | `assert_preprocessing_ready` | Function | `src/scLucid/utils/__init__.py` |  |
 | `assert_qc_ready` | Function | `src/scLucid/utils/__init__.py` |  |
 | `assert_trusted_resources` | Function | `src/scLucid/utils/__init__.py` |  |
+| `assess_matrix_semantics` | Function | `src/scLucid/utils/__init__.py` |  |
 | `audit_curation_index` | Function | `src/scLucid/utils/__init__.py` |  |
 | `audit_geneset_resources` | Function | `src/scLucid/utils/__init__.py` |  |
 | `audit_marker_entry_quality` | Function | `src/scLucid/utils/__init__.py` |  |
@@ -1500,12 +1781,11 @@ package-level APIs.
 | `infer_dataset_profile` | Function | `src/scLucid/utils/__init__.py` |  |
 | `is_ci_environment` | Function | `src/scLucid/utils/__init__.py` |  |
 | `is_multi_sample_hint` | Function | `src/scLucid/utils/__init__.py` |  |
-| `assess_matrix_semantics` | Function | `src/scLucid/utils/__init__.py` |  |
 | `LayerKeys` | Function | `src/scLucid/utils/__init__.py` |  |
 | `LayerSemanticKeys` | Function | `src/scLucid/utils/__init__.py` |  |
 | `list_results` | Function | `src/scLucid/utils/__init__.py` |  |
 | `list_sclucid_modules` | Function | `src/scLucid/utils/__init__.py` |  |
-| `load_10x_data` | Function | `src/scLucid/utils/__init__.py` | re-exported from `utils.io` |
+| `load_10x_data` | Function | `src/scLucid/utils/__init__.py` |  |
 | `load_all_datasets` | Function | `src/scLucid/utils/__init__.py` |  |
 | `load_config` | Function | `src/scLucid/utils/__init__.py` |  |
 | `load_gene_set_manager` | Function | `src/scLucid/utils/__init__.py` |  |
@@ -1541,7 +1821,8 @@ package-level APIs.
 | `profile_function` | Function | `src/scLucid/utils/__init__.py` |  |
 | `profile_performance` | Function | `src/scLucid/utils/__init__.py` |  |
 | `progress_decorator` | Function | `src/scLucid/utils/__init__.py` |  |
-| `read_10x` | Function | `src/scLucid/utils/__init__.py` | re-exported from `utils.io` |
+| `ProjectContext` | Function | `src/scLucid/utils/__init__.py` |  |
+| `read_10x` | Function | `src/scLucid/utils/__init__.py` |  |
 | `read_h5ad` | Function | `src/scLucid/utils/__init__.py` |  |
 | `record_artifact` | Function | `src/scLucid/utils/__init__.py` |  |
 | `record_config_lineage` | Function | `src/scLucid/utils/__init__.py` |  |
@@ -1624,22 +1905,22 @@ package-level APIs.
 |--------|------|--------|-------|
 | `_get_cancer_markers` | Private-but-Exposed | `src/scLucid/utils/__init__.py` | [P] |
 
-**Summary:** 165 symbols (164 stable, 1 flagged). workflow=0, config=0, class=0, function=136, alias=0, constant=11, trace=17, deprecated=0, uncertain=0, private_but_exposed=1.
+**Summary:** 166 symbols (165 stable, 1 flagged). workflow=0, config=0, class=0, function=137, alias=0, constant=11, trace=17, deprecated=0, uncertain=0, private_but_exposed=1.
 
 ## Global Summary
 
 | Kind | Count |
 |------|-------|
-| Workflow Orchestrator | 12 |
-| Config Class | 81 |
+| Workflow Orchestrator | 17 |
+| Config Class | 82 |
 | Class | 0 |
-| Function | 773 |
+| Function | 841 |
 | Alias | 21 |
-| Constant | 18 |
-| Trace / Contract | 66 |
-| Deprecated | 7 |
+| Constant | 40 |
+| Trace / Contract | 93 |
+| Deprecated | 4 |
 | Uncertain | 0 |
 | Private-but-Exposed | 1 |
-| **Total** | **979** |
+| **Total** | **1099** |
 
 <!-- AUTO-GENERATED INVENTORY END -->
