@@ -16,7 +16,11 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use("Agg", force=True)
+
+import matplotlib.pyplot as plt  # noqa: E402, I001
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -295,19 +299,6 @@ def run_tumor_stage(adata, tumor_config: TumorAnalysisConfig):
             log.warning(msg)
             stage_warnings.append(msg)
 
-    # Malignancy classification
-    if tumor_config.run_malignancy:
-        try:
-            from scLucid.tumor.malignancy.classification import classify_malignant_cells
-
-            log.info("Tumor stage: classifying malignant cells")
-            classify_malignant_cells(adata, method="cnv", key_added="is_malignant")
-            executed_steps.append("malignancy_classification")
-        except Exception as exc:
-            msg = f"Malignancy classification failed: {exc}"
-            log.warning(msg)
-            stage_warnings.append(msg)
-
     # CNV inference
     if tumor_config.run_cnv:
         try:
@@ -338,6 +329,41 @@ def run_tumor_stage(adata, tumor_config: TumorAnalysisConfig):
             msg = f"CNV inference failed: {exc}"
             log.warning(msg)
             stage_warnings.append(msg)
+
+    # Malignancy classification requires usable chromosome-aware CNV evidence.
+    if tumor_config.run_malignancy:
+        cnv_summary = adata.uns.get("cnv_summary", {})
+        input_quality = cnv_summary.get("input_quality", {})
+        cnv_scores = adata.obs.get("cnv_score")
+        cnv_evidence_ready = bool(
+            input_quality.get("has_genomic_coordinates", False)
+            and cnv_scores is not None
+            and pd.to_numeric(cnv_scores, errors="coerce").notna().any()
+        )
+        if not cnv_evidence_ready:
+            msg = (
+                "Malignancy classification skipped: genomic coordinates or finite "
+                "CNV scores are unavailable."
+            )
+            log.warning(msg)
+            stage_warnings.append(msg)
+        else:
+            try:
+                from scLucid.tumor.malignancy.classification import (
+                    classify_malignant_cells,
+                )
+
+                log.info("Tumor stage: classifying malignant cells")
+                classify_malignant_cells(
+                    adata,
+                    method=tumor_config.malignancy_method,
+                    key_added="is_malignant",
+                )
+                executed_steps.append("malignancy_classification")
+            except Exception as exc:
+                msg = f"Malignancy classification failed: {exc}"
+                log.warning(msg)
+                stage_warnings.append(msg)
 
     return adata, executed_steps, stage_warnings
 

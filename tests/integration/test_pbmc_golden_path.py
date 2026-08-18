@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +24,33 @@ def _load_script_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize(
+    "script_path",
+    [SCRIPT_PATH, REPO_ROOT / "scripts" / "run_pdac_golden_path.py"],
+)
+def test_golden_path_scripts_force_headless_backend(script_path):
+    """Batch runners must not enter an interactive GUI event loop."""
+    env = os.environ.copy()
+    env["MPLBACKEND"] = "svg"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import runpy; "
+                f"runpy.run_path({str(script_path)!r}); "
+                "import matplotlib; print(matplotlib.get_backend())"
+            ),
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip().lower() == "agg"
 
 
 @pytest.mark.parametrize(

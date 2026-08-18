@@ -156,6 +156,18 @@ class TestLin2020PDACAcceptance:
             f"(n_malignant={n_malignant}, n_cells={n_cells})."
         )
 
+    def test_malignancy_calls_fail_closed_without_genomic_coordinates(
+        self, pdac_manifest
+    ):
+        """Coordinate-free CNV evidence must not produce binary malignancy calls."""
+        manifest, _ = pdac_manifest
+        assert manifest["obs_summary"]["n_malignant"] is None
+        assert "malignancy_classification" not in manifest["tumor"]["steps_executed"]
+        assert any(
+            "genomic coordinates" in warning
+            for warning in manifest["tumor"]["warnings"]
+        )
+
     def test_review_summary_artifacts_written(self, pdac_manifest):
         """Each stage's review_summary should be persisted to disk."""
         _, output_dir = pdac_manifest

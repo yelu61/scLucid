@@ -54,7 +54,9 @@ research needs drive the roadmap.
 2.  PDAC tumor golden path Run QC, preprocessing, standard analysis, and
     the first tumor-specific slice on `data/lin2020.pdac.h5ad`. The
     initial tumor slice should focus on malignancy/CNV/TME rather than
-    every advanced tumor module.
+    every advanced tumor module. If genomic coordinates or finite CNV
+    scores are unavailable, the runner keeps CNV outputs exploratory,
+    skips binary malignancy calls, and records the limitation in its manifest.
 3.  Cross-dataset tumor validation Repeat the same workflow on
     `data/schlesinger2020.pdac.h5ad` and compare retained cells, QC
     decisions, annotation coverage, tumor warnings, and runtime.
