@@ -1,84 +1,76 @@
-"""Intelligent QC example.
+"""Evidence-calibrated QC review without automatic filtering.
 
-Demonstrates data-driven QC recommendations for normal and tumor-aware contexts.
-Use this as a concept example; project notebooks should still inspect thresholds
-and filtering effects before deleting cells.
+This example compares project contexts through the current DecisionCard/QCPolicy
+API. Candidate impacts are review evidence, not a scalar quality score or proof
+that one strategy is universally superior.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import scanpy as sc
 
 import scLucid as scl
 
-OUTPUT_DIR = Path("results/examples/intelligent_qc")
-
 
 def prepare_pbmc_demo():
     adata = sc.datasets.pbmc3k()
-    adata.var["mt"] = adata.var_names.str.upper().str.startswith("MT-")
-    sc.pp.calculate_qc_metrics(
-        adata,
-        qc_vars=["mt"],
-        percent_top=None,
-        log1p=False,
-        inplace=True,
-    )
+    if "counts" not in adata.layers:
+        adata.layers["counts"] = adata.X.copy()
     if "sampleID" not in adata.obs.columns:
         adata.obs["sampleID"] = "pbmc3k"
     return adata
 
 
-def print_recommendation(label: str, recommendation) -> None:
-    print(f"\n{label}")
-    print("-" * len(label))
-    print(f"Strategy: {recommendation.overall_strategy}")
-    print(f"Confidence: {recommendation.overall_confidence:.2f}")
-    print(f"Data quality score: {recommendation.data_quality_score:.1f}/100")
-    print(
-        "min_genes: "
-        f"{recommendation.min_genes.threshold} "
-        f"[{recommendation.min_genes.ci_lower}, {recommendation.min_genes.ci_upper}]"
-    )
-    print(
-        "max_mt_percent: "
-        f"{recommendation.max_mt_percent.threshold:.1f} "
-        f"[{recommendation.max_mt_percent.ci_lower:.1f}, "
-        f"{recommendation.max_mt_percent.ci_upper:.1f}]"
-    )
-    if recommendation.concerns:
-        print("Concerns:")
-        for concern in recommendation.concerns:
-            print(f"  - {concern}")
+def print_review(label: str, card: scl.DecisionCard) -> None:
+    """Print the first-screen decision and counterfactual candidate impacts."""
+    print(f"\n{label}: {card.status}")
+    print("-" * (len(label) + len(card.status) + 2))
+    print(f"Reason: {card.reason}")
+    print(f"Affected: {card.affected}")
+    print(f"Next action: {card.next_action}")
+    print("Candidate impacts:")
+    for candidate in card.comparison:
+        print(
+            f"  - {candidate['name']}: "
+            f"flagged={candidate['candidate_flagged_cells']}, "
+            f"additional_vs_selector={candidate['additional_vs_selector']}"
+        )
+    if card.missing_evidence:
+        print("Missing evidence:")
+        for item in card.missing_evidence:
+            print(f"  - {item}")
 
 
-def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    adata = prepare_pbmc_demo()
-
-    normal_rec = scl.qc.recommend_intelligent_qc(
+def review_contexts(adata):
+    """Return PBMC and tumor-context reviews without mutating ``adata``."""
+    normal = scl.recommend_qc_policy(
         adata,
-        tissue_type="pbmc_or_blood",
-        strategy="auto",
-        plot=False,
-        save_dir=OUTPUT_DIR / "normal",
+        scl.ProjectContext(
+            dataset_type="pbmc_or_blood",
+            species="human",
+            sample_key="sampleID",
+            input_provenance="filtered_counts",
+        ),
     )
-    print_recommendation("Normal/PBMC recommendation", normal_rec)
-
-    tumor_like = adata.copy()
-    tumor_like.obs["pct_counts_mt"] = tumor_like.obs["pct_counts_mt"] * 1.5 + 5
-    tumor_rec = scl.qc.recommend_intelligent_qc(
-        tumor_like,
-        tissue_type="tumor",
-        strategy="tumor_aware",
-        plot=False,
-        save_dir=OUTPUT_DIR / "tumor_aware",
+    tumor = scl.recommend_qc_policy(
+        adata,
+        scl.ProjectContext(
+            dataset_type="tumor_tissue",
+            species="human",
+            sample_key="sampleID",
+            input_provenance="filtered_counts",
+        ),
     )
-    print_recommendation("Tumor-aware recommendation", tumor_rec)
+    return normal, tumor
 
-    print(f"\nRecommendation sidecars saved under: {OUTPUT_DIR}")
+
+def main(adata=None):
+    adata = prepare_pbmc_demo() if adata is None else adata
+    normal_review, tumor_review = review_contexts(adata)
+    print_review("PBMC review", normal_review)
+    print_review("Tumor-context sensitivity review", tumor_review)
+    print("\nNo cells were removed. Apply a reviewed QCPolicy explicitly if appropriate.")
+    return normal_review, tumor_review
 
 
 if __name__ == "__main__":

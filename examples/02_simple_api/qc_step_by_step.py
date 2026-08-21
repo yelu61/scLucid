@@ -24,7 +24,6 @@ import scanpy as sc
 
 import scLucid as scl
 
-
 DATA_PATH = Path("data/pbmc3k.h5ad")
 
 
@@ -54,13 +53,22 @@ def main() -> None:
     print("Metrics added: n_genes_by_counts, total_counts, pct_counts_mt, phase, ...")
 
     # ---------------------------------------------------------------------------
-    # Step 2: Intelligent threshold recommendations
+    # Step 2: Read-only policy review
     # ---------------------------------------------------------------------------
-    print("\n--- Step 2: Intelligent Recommendations ---")
-    rec = scl.qc.recommend_intelligent_qc(adata, tissue_type="pbmc_or_blood")
-    print(f"Recommended min_genes: {rec.min_genes.threshold}")
-    print(f"Recommended max_mt:    {rec.max_mt_percent.threshold}")
-    print(f"Overall confidence:    {rec.overall_confidence:.2f}")
+    print("\n--- Step 2: Evidence-Calibrated Policy Review ---")
+    qc_review = scl.recommend_qc_policy(
+        adata,
+        scl.ProjectContext(
+            dataset_type="pbmc_or_blood",
+            species="human",
+            sample_key="sampleID",
+            input_provenance="filtered_counts",
+        ),
+    )
+    print(f"Status: {qc_review.status}")
+    print(f"Reason: {qc_review.reason}")
+    print(f"Candidate impacts: {qc_review.comparison}")
+    print(f"Next action: {qc_review.next_action}")
 
     # ---------------------------------------------------------------------------
     # Step 3: Ambient RNA / empty-droplet diagnostics
@@ -120,11 +128,7 @@ def main() -> None:
     threshold_decision = scl.qc.decide_qc_thresholds(
         adata,
         threshold_method="mad",
-        threshold_policy="intelligent_then_mad",
-        intelligent_thresholds={
-            "min_genes": rec.min_genes.threshold,
-            "max_mt_percent": rec.max_mt_percent.threshold,
-        },
+        threshold_policy="mad_then_intelligent",
     )
     print("Resolved thresholds:")
     print(threshold_decision["resolved_thresholds"].to_dict())
@@ -189,7 +193,7 @@ def main() -> None:
     output_path = Path("results/qc_filtered.h5ad")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     adata_filtered.write_h5ad(output_path)
-    print(f"\nQC complete!")
+    print("\nQC complete!")
     print(f"Final: {adata_filtered.n_obs:,} cells x {adata_filtered.n_vars:,} genes")
     print(f"Saved to: {output_path}")
 

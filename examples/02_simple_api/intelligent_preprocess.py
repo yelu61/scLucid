@@ -1,18 +1,10 @@
-"""Intelligent preprocessing example.
-
-Shows how to request data-driven preprocessing recommendations, inspect them,
-and optionally apply them through the standard preprocessing workflow.
-"""
+"""Evidence-calibrated preprocessing review and optional explicit execution."""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import scanpy as sc
 
 import scLucid as scl
-
-OUTPUT_DIR = Path("results/examples/intelligent_preprocess")
 
 
 def prepare_pbmc_demo():
@@ -24,86 +16,46 @@ def prepare_pbmc_demo():
     return adata
 
 
-def print_strategy(strategy) -> None:
-    print("\nIntelligent preprocessing recommendation")
+def print_review(card: scl.DecisionCard) -> None:
+    print(f"\nPreprocessing review: {card.status}")
     print("-" * 45)
-    print(f"Cells: {strategy.data_profile.n_cells:,}")
-    print(f"Genes: {strategy.data_profile.n_genes:,}")
-    print(f"Strategy type: {strategy.data_profile.strategy_type}")
-    print(f"HVGs: {strategy.hvg.n_top_genes} (confidence={strategy.hvg.confidence:.2f})")
-    print(f"PCs: {strategy.pca.n_pcs} (confidence={strategy.pca.confidence:.2f})")
-    print(
-        "Neighbors: "
-        f"n_neighbors={strategy.neighbors.n_neighbors}, "
-        f"n_pcs={strategy.neighbors.n_pcs}"
-    )
-    print(
-        "Resolution: "
-        f"{strategy.resolution.resolution} "
-        f"(~{strategy.resolution.n_clusters} clusters)"
-    )
-    if strategy.batch_correction:
-        print(f"Batch correction needed: {strategy.batch_correction.needs_correction}")
-    if strategy.concerns:
-        print("Concerns:")
-        for concern in strategy.concerns:
-            print(f"  - {concern}")
+    print(f"Recommended: {card.recommended}")
+    print(f"Reason: {card.reason}")
+    print(f"Affected: {card.affected}")
+    print("Candidates:")
+    for candidate in card.candidates:
+        selected = " selected" if candidate.get("selected") else ""
+        print(f"  - {candidate.get('name', candidate.get('decision'))}: {candidate['status']}{selected}")
+    print(f"Next action: {card.next_action}")
 
 
-def recommendation_only() -> None:
-    adata = prepare_pbmc_demo()
-    _, strategy = scl.recommendation.run_intelligent_preprocessing(
+def review_policy(adata):
+    """Return the read-only default exploration policy."""
+    return scl.recommend_preprocess_policy(
         adata,
-        batch_key="sampleID",
-        apply_recommendations=False,
-        save_dir=str(OUTPUT_DIR / "recommendation_only"),
-        fast_mode=True,
+        scl.ProjectContext(
+            dataset_type="pbmc_or_blood",
+            species="human",
+            sample_key="sampleID",
+            input_provenance="filtered_counts",
+        ),
+        consumer="exploration",
     )
-    print_strategy(strategy)
-    config = strategy.to_config()
-    print(f"\nConfig preview: HVGs={config.hvg.n_top_genes}, n_pcs={config.graph.n_pcs}")
 
 
-def custom_recommender_config() -> None:
-    config = scl.recommendation.IntelligentPreprocessConfig(
-        variance_explained_threshold=0.90,
-        min_hvg_genes=1000,
-        max_hvg_genes=5000,
-        pca_method="cumulative_variance",
-        pca_variance_threshold=0.95,
-        resolution_search_space=[0.4, 0.8, 1.2],
-        n_bootstrap=10,
-    )
-    recommender = scl.recommendation.IntelligentPreprocessRecommender(config=config)
-    print("\nCustom recommender initialized")
-    print(f"HVG range: {config.min_hvg_genes}-{config.max_hvg_genes}")
-    print(f"Resolution search: {config.resolution_search_space}")
-    return recommender
-
-
-def optional_apply_recommendations() -> None:
-    adata = prepare_pbmc_demo()
-    processed, strategy = scl.recommendation.run_intelligent_preprocessing(
-        adata,
-        batch_key="sampleID",
-        apply_recommendations=True,
-        save_dir=str(OUTPUT_DIR / "applied"),
-        fast_mode=True,
-    )
-    print_strategy(strategy)
-    print(f"Processed shape: {processed.n_obs:,} cells x {processed.n_vars:,} genes")
-    print("Review summary stored in adata.uns['sclucid']['preprocess']")
-
-
-def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    recommendation_only()
-    custom_recommender_config()
-
-    # Uncomment for a complete preprocessing run using recommended parameters.
-    # optional_apply_recommendations()
-
-    print(f"\nOutputs saved under: {OUTPUT_DIR}")
+def main(adata=None, *, apply: bool = False):
+    adata = prepare_pbmc_demo() if adata is None else adata
+    review = review_policy(adata)
+    print_review(review)
+    if not apply:
+        print("\nReview only: the input AnnData was not modified.")
+        return review
+    if review.status == "BLOCKED":
+        raise RuntimeError(review.next_action)
+    evidence = scl.apply_preprocess_policy(adata, review.policy)
+    print(f"\nApplied policy {review.policy.policy_id}; RunEvidence={evidence.run_id}")
+    print("Formal count models remain bound to layers['counts'].")
+    return evidence
 
 
 if __name__ == "__main__":

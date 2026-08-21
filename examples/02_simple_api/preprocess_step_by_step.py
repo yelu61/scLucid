@@ -10,12 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import scanpy as sc
+import scipy.sparse as sparse
 
 import scLucid as scl
 
-DATA_PATH = Path("results/qc_filtered.h5ad")  # output from qc_step_by_step.py or qc_preprocess_review.py
+DATA_PATH = Path("results/qc_filtered.h5ad")  # output from qc_step_by_step.py
 OUTPUT_DIR = Path("results/preprocess_step_by_step")
-OUTPUT_PATH = OUTPUT_DIR / "preprocessed.h5ad"
 
 
 def ensure_counts_layer(adata):
@@ -67,19 +67,23 @@ def finalize_manual_preprocess_review(adata, config, steps_executed, save_dir: P
     return review_summary
 
 
-def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def main(
+    data_path: Path = DATA_PATH,
+    output_dir: Path = OUTPUT_DIR,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "preprocessed.h5ad"
 
-    adata = sc.read_h5ad(DATA_PATH)
+    adata = sc.read_h5ad(data_path)
     adata = ensure_counts_layer(adata)
 
     config = scl.pp.PreprocessingWorkflowConfig(
         normalization=scl.pp.NormalizationConfig(
             method="standard",
             input_layer="counts",
-            output_layer="normalized",
+            output_layer="normalized_full",
             target_sum=1e4,
-            save_dir=str(OUTPUT_DIR / "normalization"),
+            save_dir=str(output_dir / "normalization"),
         ),
         hvg=scl.pp.HVGConfig(
             method="scanpy",
@@ -93,7 +97,7 @@ def main() -> None:
         run_gene_filtering=True,
         run_regression=False,
         run_integration=False,
-        save_dir=str(OUTPUT_DIR),
+        save_dir=str(output_dir),
         n_jobs=1,
     )
 
@@ -117,6 +121,7 @@ def main() -> None:
     steps_executed.append("normalization")
 
     print("Storing full-gene normalized expression in adata.raw...")
+    adata.X = adata.layers["normalized_full"].copy()
     adata.raw = adata.copy()
     steps_executed.append("set_raw")
 
@@ -124,38 +129,48 @@ def main() -> None:
     adata = scl.pp.find_hvgs(
         adata,
         config=config.hvg,
-        input_layer="normalized",
+        input_layer="normalized_full",
         force=True,
-        save_dir=str(OUTPUT_DIR / "hvg"),
+        save_dir=str(output_dir / "hvg"),
     )
     steps_executed.append("hvg_selection")
 
-    print("Subsetting to selected HVGs...")
-    hvg_keys = [k for k in adata.var.columns if k.startswith("highly_variable") and not k.endswith(("_means", "_dispersions", "_dispersions_norm"))]
+    print("Marking discovery features without subsetting the full expression space...")
+    hvg_keys = [
+        key
+        for key in adata.var.columns
+        if key.startswith("highly_variable")
+        and not key.endswith(("_means", "_dispersions", "_dispersions_norm"))
+    ]
     if not hvg_keys:
         hvg_keys = ["highly_variable"]
     adata = scl.pp.select_hvg_sets(
         adata,
         hvg_keys=hvg_keys,
         mode="direct",
-        subset=True,
+        subset=False,
         keep_raw=True,
-        output_key="highly_variable_selected",
+        output_key="discovery_feature",
         plot_venn=False,
-        save_dir=str(OUTPUT_DIR / "hvg"),
+        save_dir=str(output_dir / "hvg"),
     )
-    steps_executed.append("subset_hvg")
+    steps_executed.append("mark_discovery_features")
 
-    print("Scaling data...")
-    if "normalized" in adata.layers:
-        adata.X = adata.layers["normalized"].copy()
-    adata = scl.pp.scale_data(adata, config=config.scaling, output_layer="scaled")
-    steps_executed.append("scaling")
-
-    print("Running PCA...")
-    n_pcs = min(config.graph.n_pcs, adata.n_obs - 1, adata.n_vars - 1)
-    sc.tl.pca(adata, n_comps=n_pcs)
-    steps_executed.append("pca")
+    print("Scaling only the temporary discovery-feature matrix and running PCA...")
+    discovery_mask = adata.var["discovery_feature"].to_numpy(bool)
+    discovery = adata[:, discovery_mask].copy()
+    discovery_source = adata.layers["normalized_full"][:, discovery_mask]
+    discovery.X = (
+        discovery_source.toarray()
+        if sparse.issparse(discovery_source)
+        else discovery_source.copy()
+    )
+    sc.pp.scale(discovery, max_value=config.scaling.max_value, zero_center=True)
+    n_pcs = min(config.graph.n_pcs, discovery.n_obs - 1, discovery.n_vars - 1)
+    sc.tl.pca(discovery, n_comps=n_pcs)
+    adata.obsm["X_pca"] = discovery.obsm["X_pca"].copy()
+    adata.X = adata.layers["normalized_full"].copy()
+    steps_executed.append("discovery_pca")
 
     print("Skipping batch correction in this light manual path.")
 
@@ -168,20 +183,33 @@ def main() -> None:
     sc.tl.umap(adata)
     steps_executed.append("neighbors_umap")
 
+    adata.uns.setdefault("sclucid", {}).setdefault("preprocess", {})[
+        "representation_contract"
+    ] = {
+        "counts": "layers[counts]",
+        "normalized_full": "layers[normalized_full] and raw",
+        "discovery_rep": "obsm[X_pca]",
+        "integrated_rep": "not_selected",
+        "marker_program_source": "layers[normalized_full]",
+        "formal_count_model_source": "layers[counts]",
+        "scaled_matrix": "temporary discovery-feature matrix only",
+    }
+
     review_summary = finalize_manual_preprocess_review(
         adata,
         config=config,
         steps_executed=steps_executed,
-        save_dir=OUTPUT_DIR,
+        save_dir=output_dir,
     )
     compact = scl.pp.summarize_preprocess_review_summary(review_summary)
 
-    adata.write_h5ad(OUTPUT_PATH, compression="gzip")
+    scl.ut.write_h5ad_safe(adata, output_path, compression="gzip")
     print("Preprocessing complete")
     print(f"Final shape: {adata.n_obs:,} cells x {adata.n_vars:,} genes")
     print(f"Raw shape: {adata.raw.shape if adata.raw is not None else 'missing'}")
-    print(f"Readiness: {compact['readiness_status']} ({compact['readiness_score']})")
-    print(f"Saved to: {OUTPUT_PATH}")
+    print(f"Readiness: {compact['readiness_status']}")
+    print(f"Saved to: {output_path}")
+    return output_path
 
 
 if __name__ == "__main__":

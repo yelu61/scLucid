@@ -17,8 +17,8 @@ adata.uns["sclucid"][module]["review_summary"]
 
 | User need | Start here | Why |
 |---|---|---|
-| Fast baseline | `01_workflow/basic_pipeline.py` | Runs the supported QC → preprocessing → analysis path and records stage contracts automatically. |
-| Reviewable QC/preprocess handoff | `02_simple_api/qc_preprocess_review.py` | Uses stage-level workflow APIs and prints module completeness/readiness summaries. |
+| Recommended first screen | `02_simple_api/qc_preprocess_review.py` | Uses the four-action read-only review → explicit apply contract. |
+| Compatibility pipeline | `01_workflow/basic_pipeline.py` | Preserves the previous QC → preprocessing → analysis entrypoint during migration. |
 | Fully auditable project notebook | `03_advanced_notebooks/Step1A-QC_Audit.ipynb` then `Step1B-Preprocessing_Audit.ipynb` | Shows manual audit checkpoints while still writing scLucid review contracts. |
 | Evidence-first annotation | `03_advanced_notebooks/Step2-Annotation_and_Malignancy.ipynb` | Delegates the analysis acceptance path to `scripts/run_analysis_acceptance.py`. |
 
@@ -37,7 +37,7 @@ For **beginners and standard projects**. Load data, configure, run.
 
 | Script | Current role |
 |---|---|
-| `basic_pipeline.py` | Canonical minimal end-to-end example: QC → preprocess → cluster → annotate in one call. |
+| `basic_pipeline.py` | Compatibility minimal end-to-end example: QC → preprocess → cluster → annotate in one call. |
 | `plugin_development.py` | Extension reference. It should not imply arbitrary registered plugins are executed by `run_custom_analysis()` unless the package implements that registry bridge. |
 
 **When to use**: You have a standard dataset and want a reproducible first pass.
@@ -53,17 +53,21 @@ For **analysts who need control**. Inspect, tweak, or replace individual stages.
 
 | Script | Current role |
 |---|---|
-| `qc_preprocess_review.py` | Canonical stage-level example. Prefer this when you want more control than `run_pipeline()` but still want review summaries. |
+| `qc_preprocess_review.py` | Canonical DecisionCard/QCPolicy/PreprocessPolicy/RunEvidence example. |
 | `qc_step_by_step.py` | Manual QC teaching example. It should be paired with a manual review finalizer before being used as a project template. |
-| `preprocess_step_by_step.py` | Manual preprocessing teaching example. It should preserve `.raw` before HVG subsetting and write a preprocess review contract before being treated as canonical. |
-| `intelligent_qc.py` | Intelligent QC concept example; keep runnable and synchronized with the current recommender API. |
-| `intelligent_preprocess.py` | Intelligent preprocessing concept example; keep imports synchronized with the current recommender API. |
+| `preprocess_step_by_step.py` | Manual preprocessing teaching example. It preserves full-gene `counts`/`normalized_full`, limits scaling to the temporary discovery matrix, and writes a review contract. |
+| `intelligent_qc.py` | Read-only DecisionCard context-sensitivity example; candidate impacts are not a scalar quality score. |
+| `intelligent_preprocess.py` | Read-only PreprocessPolicy example with optional explicit application and RunEvidence. |
 | `annotation_workflow.py` | Curated annotation recipe for marker/enrichment evidence, manual mapping, module scoring, and composition plots. |
 | `annotation_report.py` | Reviewer-facing annotation report export. |
 | `qc_evaluation.py` | QC decision evaluation and benchmark-style reporting. |
 
 **When to use**: You want to understand what each step does and adjust parameters.
-**Primary APIs**: `scl.qc.calculate_qc_metric()`, `scl.qc.decide_qc_thresholds()`, `scl.qc.apply_qc_threshold_decision()`, `scl.qc.build_qc_decisions()`, `scl.qc.filter_cells()`, `scl.pp.normalize_data()`, `scl.pp.find_hvgs()`, `scl.pp.scale_data()`, `scl.pp.batch_correction()`.
+**Primary policy APIs**: `scl.recommend_qc_policy()`, `scl.apply_qc_policy()`, `scl.recommend_preprocess_policy()`, `scl.apply_preprocess_policy()`.
+
+The low-level teaching scripts additionally show maintained composable calls
+such as `calculate_qc_metric()`, `filter_cells()`, `normalize_data()`, and
+`find_hvgs()`, but they do not define product defaults.
 
 Manual simple-API scripts must not stop at producing modified AnnData. If a
 manual path is promoted to a project template, it should finalize the same review
@@ -95,9 +99,9 @@ product-facing path:
 - `Step1-QC_and_Preprocessing.ipynb`
 - `Step2-Celltype_annotation.ipynb`
 
-QC and preprocessing are stable handoff layers. New tumor-specific work should
-live in `Step2-Annotation_and_Malignancy.ipynb` and the analysis/tumor modules
-rather than expanding Step1 with heavy correction tools. Doublet-heavy,
+QC and preprocessing are `REVIEW` layers, not scientifically locked `CORE`
+modules. Analysis/Tumor feature development is frozen until their acceptance
+gates pass. Doublet-heavy,
 high-mitochondrial, stress-high, and low tumor-purity signals should first be
 surfaced as review evidence, then acted on after project-specific manual
 confirmation.
