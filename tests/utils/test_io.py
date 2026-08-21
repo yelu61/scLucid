@@ -1,16 +1,19 @@
 """Tests for the user-facing 10x / h5ad data readers."""
 
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
 
 import scLucid as scl
-from scLucid.utils.contracts import LayerKeys, SCLUCID_ROOT, UnsKeys
-from scLucid.utils.io import _looks_like_counts, read_10x
-from scLucid.utils.io import read_h5ad
+from scLucid.utils.contracts import SCLUCID_ROOT, LayerKeys, UnsKeys
+from scLucid.utils.io import (
+    _looks_like_counts,
+    export_adata_subset,
+    read_10x,
+    read_h5ad,
+    write_seurat_conversion_script,
+)
 
 
 def _make_counts_adata(n_cells=20, n_genes=50, seed=0):
@@ -137,6 +140,7 @@ class TestRead10x:
         """
         import gzip
         import shutil
+
         import scipy.io
         import scipy.sparse as sp
 
@@ -149,9 +153,10 @@ class TestRead10x:
         matrix = sp.random(n_genes, n_cells, density=0.2, random_state=0)
         matrix.data = rng.integers(1, 5, size=matrix.nnz).astype(float)
         scipy.io.mmwrite(cr_dir / "matrix.mtx", matrix.tocoo())
-        with open(cr_dir / "matrix.mtx", "rb") as fh, gzip.open(
-            cr_dir / "matrix.mtx.gz", "wb"
-        ) as gz:
+        with (
+            open(cr_dir / "matrix.mtx", "rb") as fh,
+            gzip.open(cr_dir / "matrix.mtx.gz", "wb") as gz,
+        ):
             shutil.copyfileobj(fh, gz)
         (cr_dir / "matrix.mtx").unlink()
 
@@ -166,9 +171,7 @@ class TestRead10x:
         try:
             adata = read_10x(cr_dir, cache=False, species="human")
         except Exception as exc:
-            pytest.skip(
-                f"scanpy.read_10x_mtx rejected the synthetic directory: {exc}"
-            )
+            pytest.skip(f"scanpy.read_10x_mtx rejected the synthetic directory: {exc}")
 
         assert adata.n_obs == n_cells
         assert adata.n_vars == n_genes
@@ -185,6 +188,74 @@ class TestTopLevelAPI:
     def test_read_h5ad_top_level(self):
         assert hasattr(scl, "read_h5ad")
         assert hasattr(scl.utils, "read_h5ad")
+
+    def test_subset_export_top_level(self):
+        assert hasattr(scl, "export_adata_subset")
+        assert hasattr(scl.utils, "export_adata_subset")
+        assert hasattr(scl, "write_seurat_conversion_script")
+        assert hasattr(scl.utils, "write_seurat_conversion_script")
+
+
+class TestSubsetExport:
+    def test_export_adata_subset_writes_handoff_bundle(self, tmp_path):
+        adata = _make_counts_adata(n_cells=6, n_genes=5)
+        adata.obs["cell_type"] = ["T", "T", "B", "B", "T", "B"]
+        adata.obs["condition"] = ["ctrl", "case", "ctrl", "case", "ctrl", "case"]
+        adata.raw = adata.copy()
+
+        result = export_adata_subset(
+            adata,
+            filters={"cell_type": "T"},
+            output_dir=tmp_path,
+            prefix="t_cells",
+            obs_columns=["cell_type", "condition"],
+            seurat_formats=("h5seurat", "rds", "rdata"),
+        )
+
+        subset = result["adata"]
+        paths = result["paths"]
+        manifest = result["manifest"]
+
+        assert subset.n_obs == 3
+        assert subset.raw is not None
+        assert subset.raw.n_vars == adata.raw.n_vars
+        assert paths["h5ad"].exists()
+        assert paths["metadata"].exists()
+        assert paths["manifest"].exists()
+        assert paths["seurat_script"].exists()
+        assert manifest["n_obs"] == 3
+        assert manifest["filters"] == {"cell_type": "T"}
+        assert manifest["r_conversion_executed"] is False
+        manifest_on_disk = pd.read_json(paths["manifest"], typ="series")
+        assert "manifest" in manifest_on_disk["artifacts"]
+
+        metadata = pd.read_csv(paths["metadata"], index_col=0)
+        assert list(metadata.columns) == ["cell_type", "condition"]
+        assert set(metadata["cell_type"]) == {"T"}
+
+        script = paths["seurat_script"].read_text()
+        assert "Convert(h5ad_path, dest = 'h5seurat'" in script
+        assert "saveRDS(seurat_obj, rds_path)" in script
+        assert "save(seurat_obj, file = rdata_path)" in script
+
+    def test_export_adata_subset_rejects_missing_metadata_column(self, tmp_path):
+        adata = _make_counts_adata(n_cells=6, n_genes=5)
+
+        with pytest.raises(KeyError, match="obs_columns"):
+            export_adata_subset(
+                adata,
+                output_dir=tmp_path,
+                prefix="bad",
+                obs_columns=["missing"],
+            )
+        assert not (tmp_path / "bad.h5ad").exists()
+
+    def test_write_seurat_conversion_script_validates_formats(self, tmp_path):
+        h5ad = tmp_path / "input.h5ad"
+        h5ad.write_text("placeholder")
+
+        with pytest.raises(ValueError, match="Unsupported"):
+            write_seurat_conversion_script(h5ad, formats=("loom",))
 
 
 class TestRead10xMultiSampleMode:

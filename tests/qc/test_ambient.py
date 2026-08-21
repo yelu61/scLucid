@@ -221,6 +221,28 @@ def test_diagnose_empty_droplets_is_pure_by_default_and_can_record_explicitly():
     assert "empty_droplet_summary" in adata.uns["sclucid"]["qc"]
 
 
+def test_boolean_empty_droplet_indicator_uses_true_as_empty():
+    empty = np.tile(np.array([[20, 5, 0, 0]], dtype=float), (20, 1))
+    cells = np.tile(np.array([[1, 0, 5, 4]], dtype=float), (100, 1))
+    adata = AnnData(X=np.vstack([empty, cells]))
+    adata.obs["likely_empty_droplet"] = [True] * 20 + [False] * 100
+
+    diagnostic = diagnose_empty_droplets(
+        adata,
+        cell_call_key="likely_empty_droplet",
+        min_barcodes=50,
+    )
+    correction = correct_ambient_rna_linear(
+        adata,
+        empty_droplet_key="likely_empty_droplet",
+        output_layer="ambient_corrected",
+    )
+
+    assert diagnostic["n_putative_empty_droplets"] == 20
+    assert diagnostic["n_called_cells"] == 100
+    assert correction["n_putative_empty_droplets"] == 20
+
+
 def test_linear_correction_reduces_ambient_marker_expression():
     """Synthetic ambient profile should be partially removed by linear correction."""
     rng = np.random.default_rng(42)

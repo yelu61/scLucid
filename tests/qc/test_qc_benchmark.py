@@ -12,6 +12,7 @@ from anndata import AnnData
 
 from validation.qc.run_threshold_benchmark import _annotate_decision_rows_with_strategy_evidence
 from validation.qc.run_doublet_evidence_benchmark import (
+    _auprc as _doublet_auprc,
     _algorithm_weight_recommendation_rows as _doublet_algorithm_weight_recommendation_rows,
     _threshold_calibration_rows as _doublet_threshold_calibration_rows,
 )
@@ -23,6 +24,13 @@ from validation.qc.run_tumor_biological_fidelity_benchmark import (
 )
 from scLucid.qc.policy.adaptive_threshold import AdaptiveThresholdLearner
 from scLucid.qc.policy.intelligent_qc import recommend_intelligent_qc, StrategyType
+
+
+def test_doublet_auprc_uses_ranking_scores():
+    truth = pd.Series([False, True, False, True])
+    score = pd.Series([0.1, 0.9, 0.2, 0.8])
+
+    assert _doublet_auprc(truth, score) == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------

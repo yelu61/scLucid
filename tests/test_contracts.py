@@ -16,16 +16,19 @@ def _adata(n_obs=20, n_vars=30):
 def test_contract_constants_define_core_keys():
     from scLucid.utils.contracts import (
         API_LAYER_ORDER,
+        STAGE_ORDER,
         LayerKeys,
         Modules,
         ObsKeys,
         ObsmKeys,
-        STAGE_ORDER,
         UnsKeys,
+        VarKeys,
     )
 
     assert LayerKeys.COUNTS == "counts"
+    assert LayerKeys.NORMALIZED_FULL == "normalized_full"
     assert LayerKeys.NORMALIZED == "normalized"
+    assert VarKeys.DISCOVERY_FEATURE == "discovery_feature"
     assert ObsmKeys.PCA == "X_pca"
     assert ObsKeys.QC_N_GENES == "n_genes_by_counts"
     assert Modules.PREPROCESS == "preprocess"
@@ -57,17 +60,40 @@ def test_contract_spec_is_serializable_and_documents_stages():
     assert spec["canonical_keys"]["uns"]["namespace_metadata"] == "_metadata"
     assert spec["canonical_keys"]["uns"]["config_lineage"] == "config_lineage"
     assert spec["canonical_keys"]["layers"]["counts"] == "counts"
+    assert spec["canonical_keys"]["layers"]["normalized_full"] == "normalized_full"
+    assert spec["canonical_keys"]["var"]["discovery_feature"] == "discovery_feature"
     assert spec["canonical_keys"]["modalities"]["spatial"] == "spatial"
     assert spec["canonical_keys"]["layer_semantics"]["raw_counts"] == "raw_counts"
     assert spec["stages"]["qc"]["name"] == "qc"
     assert preprocess["input_layers"] == ["counts"]
     assert preprocess["output_obsm"] == ["X_pca"]
     assert workflow_layer["primary_entrypoints"][0] == "scLucid.run_pipeline"
+    assert (
+        get_api_layer_spec("simple_api")["primary_entrypoints"][:4]
+        == [
+            "scLucid.recommend_qc_policy",
+            "scLucid.apply_qc_policy",
+            "scLucid.recommend_preprocess_policy",
+            "scLucid.apply_preprocess_policy",
+        ]
+    )
     assert workflow_contract["required_stage_namespace_keys"] == [
         "workflow_config",
         "steps_executed",
         "review_summary",
     ]
+
+
+def test_infer_semantics_recognizes_policy_normalized_full_layer():
+    from scLucid.utils.contracts import infer_anndata_semantics
+
+    adata = _adata()
+    adata.layers["normalized_full"] = adata.X.copy()
+
+    semantics = infer_anndata_semantics(adata)
+
+    assert semantics["layer_semantics"]["counts"] == "raw_counts"
+    assert semantics["layer_semantics"]["normalized_full"] == "log_normalized"
 
 
 def test_normalize_review_summary_preserves_review_lists():

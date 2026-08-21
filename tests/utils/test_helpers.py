@@ -1,12 +1,12 @@
 """Tests for scLucid.utils.helpers utility functions."""
 
-
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
 from anndata import AnnData
 
-from scLucid.utils.helpers import assess_matrix_semantics, build_metadata_dicts
+from scLucid.utils.helpers import assess_matrix_semantics, build_metadata_dicts, subset_adata
 
 
 class TestBuildMetadataDicts:
@@ -15,9 +15,7 @@ class TestBuildMetadataDicts:
         group_dict = {"S1": "tumor", "S2": "normal", "S3": "tumor", "S4": "other"}
         batch_dict = {"S1": "A", "S2": "A", "S3": "B", "S4": "C"}
 
-        result = build_metadata_dicts(
-            samples, group_dict=group_dict, batch_dict=batch_dict
-        )
+        result = build_metadata_dicts(samples, group_dict=group_dict, batch_dict=batch_dict)
 
         assert result == {
             "group": {"S1": "tumor", "S2": "normal", "S3": "tumor"},
@@ -32,9 +30,7 @@ class TestBuildMetadataDicts:
     def test_custom_keys(self):
         samples = ["S1", "S2"]
         group_dict = {"S1": "ctrl", "S2": "treat"}
-        result = build_metadata_dicts(
-            samples, group_dict=group_dict, group_key="condition"
-        )
+        result = build_metadata_dicts(samples, group_dict=group_dict, group_key="condition")
         assert result == {"condition": {"S1": "ctrl", "S2": "treat"}}
 
     def test_extra_dicts_and_default_value(self):
@@ -58,6 +54,21 @@ class TestBuildMetadataDicts:
                 group_dict={"S1": "ctrl"},
                 strict=True,
             )
+
+
+class TestSubsetAdata:
+    def test_subset_adata_retains_raw_all_genes(self):
+        adata = AnnData(np.ones((4, 3)))
+        adata.obs_names = [f"cell_{i}" for i in range(4)]
+        adata.var_names = ["gene_a", "gene_b", "gene_c"]
+        adata.obs["cell_type"] = pd.Categorical(["T", "B", "T", "B"])
+        adata.raw = adata.copy()
+
+        subset = subset_adata(adata, {"cell_type": "T"})
+
+        assert subset.n_obs == 2
+        assert subset.raw is not None
+        assert list(subset.raw.var_names) == ["gene_a", "gene_b", "gene_c"]
 
 
 class TestAssessMatrixSemantics:
@@ -121,7 +132,9 @@ class TestAssessMatrixSemantics:
         x[25:, 10:] = rng.poisson(3, size=(25, 10))
         adata = AnnData(x)
         adata.layers["counts"] = adata.X.copy()
-        adata.layers["normalized"] = adata.X.astype(float) / adata.X.sum(axis=1, keepdims=True) * 1e4
+        adata.layers["normalized"] = (
+            adata.X.astype(float) / adata.X.sum(axis=1, keepdims=True) * 1e4
+        )
 
         counts_result = assess_matrix_semantics(adata, layer="counts")
         norm_result = assess_matrix_semantics(adata, layer="normalized")
