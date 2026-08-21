@@ -295,7 +295,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("validation_outputs/preprocess_layer_contract"),
+        default=Path("validation_outputs/work/preprocess_layer_contract"),
     )
     parser.add_argument(
         "--datasets",

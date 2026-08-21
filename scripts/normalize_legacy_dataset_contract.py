@@ -33,26 +33,32 @@ DATASET_META: dict[str, dict[str, Any]] = {
     "lin2020.pdac": {
         "path": Path("data/lin2020.pdac.h5ad"),
         "dataset_key": "lin2020.pdac",
-        "title": "Lin 2020 PDAC local fixture",
-        "geo_accession": "TBD",
-        "pmid": None,
+        "title": "Lin et al. 2020 PDAC",
+        "geo_accession": "GSE154778",
+        "pmid": "32988401",
         "species": "human",
         "tissue": "PDAC",
         "condition": "tumor",
         "sample_source": "sampleID",
-        "citation": "Local PDAC benchmark fixture; source accession and PMID require provenance confirmation.",
+        "citation": "Lin W, Noel P, Borazanci EH, et al. Single-cell transcriptome analysis of tumor and stromal compartments of pancreatic ductal adenocarcinoma primary tumors and metastatic lesions. Genome Med. 2020;12:80.",
+        "limitations": [
+            "Development failure-control cohort; author cell labels are missing or unreliable in the local fixture."
+        ],
     },
     "schlesinger2020.pdac": {
         "path": Path("data/schlesinger2020.pdac.h5ad"),
         "dataset_key": "schlesinger2020.pdac",
-        "title": "Schlesinger 2020 PDAC local fixture",
-        "geo_accession": "TBD",
-        "pmid": None,
+        "title": "Schlesinger et al. 2020 human PDAC sample",
+        "geo_accession": "GSE141017",
+        "pmid": "32908137",
         "species": "human",
         "tissue": "PDAC",
         "condition": "tumor",
         "sample_source": "sampleID",
-        "citation": "Local PDAC benchmark fixture; source accession and PMID require provenance confirmation.",
+        "citation": "Schlesinger Y, Yosefov-Levi O, Kolodkin-Gal D, et al. Single-cell transcriptomes of pancreatic preinvasive lesions and cancer reveal acinar metaplastic cells' heterogeneity. Nat Commun. 2020;11:4516.",
+        "limitations": [
+            "The local human fixture is the single sample GSM4293555 and cannot validate cross-sample borrowing."
+        ],
     },
 }
 
@@ -130,11 +136,7 @@ def normalize_dataset(key: str, output: Path | None = None) -> Path:
             "raw_counts_layer": "counts",
             "normalized_layer": None,
         },
-        "limitations": [
-            "Legacy local fixture; provenance should be confirmed before manuscript-level claims."
-        ]
-        if "pdac" in meta["dataset_key"]
-        else [],
+        "limitations": meta.get("limitations", []),
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     adata.write_h5ad(out_path, compression="gzip")

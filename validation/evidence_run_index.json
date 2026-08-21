@@ -1,0 +1,215 @@
+{
+  "schema_name": "scLucidEvidenceRunIndex",
+  "schema_version": "1.0.0",
+  "last_updated": "2026-08-20",
+  "runs": [
+    {
+      "dataset_id": "scmixology_gse118767",
+      "endpoint_id": "pp_selector_regret",
+      "status": "PASS",
+      "artifact": "validation_outputs/current/preprocess_mixology/preprocess_sensitivity_gate.json",
+      "metric_snapshot": {
+        "selected_candidate": "standard_unintegrated",
+        "relative_regret": 0.004858013958853978,
+        "biology_loss": 0.0
+      },
+      "claim_boundary": "Controlled leave-one-protocol-out mixology across three preregistered HVG/PC variants only."
+    },
+    {
+      "dataset_id": "scmixology_gse118767",
+      "endpoint_id": "pp_integration_pareto",
+      "status": "PASS_BASELINE",
+      "artifact": "validation_outputs/current/preprocess_mixology/mixology_preprocess_benchmark.json",
+      "metric_snapshot": {
+        "selected_candidate": "unintegrated",
+        "harmony_pareto_dominates": false,
+        "batch_identity_cramers_v": 0.04121753464660747
+      },
+      "claim_boundary": "Harmony did not dominate the unintegrated baseline on this controlled mixture."
+    },
+    {
+      "dataset_id": "kang2018_pbmc",
+      "endpoint_id": "qc_doublet_calibration",
+      "status": "REVIEW",
+      "artifact": "validation_outputs/current/qc_doublet/doublet_benchmark_report_summary.json",
+      "metric_snapshot": {
+        "best_method": "scdblfinder_python_pyscdblfinder",
+        "best_method_auprc": 0.6050951233797643,
+        "best_method_auc": 0.887742749616254
+      },
+      "claim_boundary": "Kang demuxlet only; same-donor doublets and probability calibration remain unresolved."
+    },
+    {
+      "dataset_id": "emtab2600_microscopy_quality",
+      "endpoint_id": "qc_cell_calling",
+      "status": "BLOCKED",
+      "artifact": "validation_outputs/current/qc_emtab2600/cell_calling_damage_truth_evaluation.json",
+      "metric_snapshot": {
+        "prepared_runs": 168,
+        "explicit_microscopy_labels": 147,
+        "predicted_cell_call_available": false,
+        "low_rna_truth_available": false
+      },
+      "claim_boundary": "The processed E-MTAB-2600 reconstruction has independent intact/damaged/empty labels, but scLucid produced no cell-calling prediction and the source does not identify a low-RNA truth subset."
+    },
+    {
+      "dataset_id": "emtab2600_microscopy_quality",
+      "endpoint_id": "qc_damage_classification",
+      "status": "FAIL",
+      "artifact": "validation_outputs/current/qc_emtab2600/cell_calling_damage_truth_evaluation.json",
+      "metric_snapshot": {
+        "intact_cells_evaluated": 91,
+        "damaged_cells_evaluated": 30,
+        "keep_false_removal_rate": 0.0,
+        "damaged_cell_recall": 0.0,
+        "absolute_recall_gain_vs_each_baseline": 0.0
+      },
+      "claim_boundary": "On the 168-run processed reconstruction, the conservative selector protected intact cells but did not REMOVE microscopy-labelled damaged cells; QC superiority is not established."
+    },
+    {
+      "dataset_id": "tenx_hgmm_6k",
+      "endpoint_id": "qc_ambient_correction",
+      "status": "FAIL",
+      "artifact": "validation_outputs/current/qc_hgmm/hgmm_ambient_truth_benchmark.json",
+      "metric_snapshot": {
+        "species_singlets_evaluated": 6600,
+        "contamination_reduction": 0.0,
+        "native_marker_loss": 0.0,
+        "identity_accuracy_loss": 0.0
+      },
+      "claim_boundary": "On gene-level 10x HGMM raw matrices with 6,600 species singlets and 10,000 low-UMI background droplets, the linear fallback preserved native species counts and identity but removed none of the measured cross-species contamination."
+    },
+    {
+      "dataset_id": "tenx_hgmm_6k",
+      "endpoint_id": "qc_doublet_calibration",
+      "status": "PASS",
+      "artifact": "validation_outputs/current/qc_hgmm/hgmm_doublet_truth_benchmark.json",
+      "metric_snapshot": {
+        "cross_species_doublets": 206,
+        "selected_method": "scrublet",
+        "selected_auprc": 0.8811280368489621,
+        "best_method": "scdblfinder_python_pyscdblfinder",
+        "best_auprc": 0.9186237640499822,
+        "auprc_regret": 0.037495727201020124
+      },
+      "claim_boundary": "The configured Scrublet default met the registered AUPRC-regret threshold on 10x HGMM cross-species doublets; same-species and homotypic doublets remain outside this PASS."
+    },
+    {
+      "dataset_id": "kang2018_pbmc",
+      "endpoint_id": "an_pseudobulk_de",
+      "status": "CONTRACT_PASS_NOT_PERFORMANCE",
+      "artifact": "validation_outputs/current/analysis_inference/analysis_inference_evidence_manifest.json",
+      "metric_snapshot": {
+        "paired_donors": 8,
+        "design_status": "READY"
+      },
+      "claim_boundary": "The paired donor-level execution contract passed; empirical FDR and power have not been established."
+    },
+    {
+      "dataset_id": "lin2020_pdac",
+      "endpoint_id": "qc_selector_superiority",
+      "status": "BLOCKED",
+      "artifact": "validation_outputs/current/qc_locked/locked_qc_acceptance.json",
+      "metric_snapshot": {
+        "missing_expert_sample_labels": 46,
+        "missing_expert_cell_labels": 4195
+      },
+      "claim_boundary": "Blinded expert labels are incomplete; no QC superiority claim is supported."
+    },
+    {
+      "dataset_id": "real_project_panel",
+      "endpoint_id": "pp_selector_regret",
+      "status": "BLOCKED",
+      "artifact": "validation_outputs/current/real_project_ux/real_project_ux_acceptance.json",
+      "metric_snapshot": {
+        "projects_complete": 0,
+        "projects_required": 3
+      },
+      "claim_boundary": "The three real projects have not yet produced complete acceptance records."
+    },
+    {
+      "dataset_id": "controlled_qc_truth_suite",
+      "endpoint_id": "qc_input_contract",
+      "status": "PASS",
+      "artifact": "validation_outputs/current/qc_controlled_truth/controlled_qc_contract_benchmark.json",
+      "metric_snapshot": {
+        "counts_integrity_rate": 1.0,
+        "sample_key_fail_closed_rate": 1.0,
+        "review_mutation_count": 0
+      },
+      "claim_boundary": "Engineering contract PASS on a deterministic simulated fixture; no scientific QC performance claim."
+    },
+    {
+      "dataset_id": "controlled_qc_truth_suite",
+      "endpoint_id": "qc_policy_execution",
+      "status": "PASS",
+      "artifact": "validation_outputs/current/qc_controlled_truth/controlled_qc_contract_benchmark.json",
+      "metric_snapshot": {
+        "policy_apply_agreement": 1.0,
+        "repeat_run_agreement": 1.0,
+        "retained_counts_preservation": 1.0,
+        "retained_layers_preservation": 1.0
+      },
+      "claim_boundary": "Exact repeatable policy execution and retained-count/layer preservation on the controlled fixture only."
+    },
+    {
+      "dataset_id": "controlled_qc_truth_suite",
+      "endpoint_id": "qc_scalability",
+      "status": "SIMULATION_PASS_NOT_EXTERNAL",
+      "artifact": "validation_outputs/current/qc_controlled_truth/controlled_qc_contract_benchmark.json",
+      "metric_snapshot": {
+        "unintended_dense_expansion": false,
+        "repeat_run_agreement": 1.0,
+        "n_observations": 778,
+        "n_genes": 240
+      },
+      "claim_boundary": "Small-fixture resource regression only; not a real-size or hardware-independent scalability PASS."
+    },
+    {
+      "dataset_id": "controlled_preprocess_contract_fixture",
+      "endpoint_id": "pp_input_representation_contract",
+      "status": "PASS",
+      "artifact": "validation_outputs/current/preprocess_contract/controlled_preprocess_contract_benchmark.json",
+      "metric_snapshot": {
+        "contract_checks_passed": 19,
+        "contract_checks_total": 19,
+        "review_is_read_only": true,
+        "counts_are_permanent_and_exact": true,
+        "representation_contract_complete": true,
+        "persistent_expression_spaces_remain_sparse": true,
+        "bounded_temporary_discovery_matrix_audited": true
+      },
+      "claim_boundary": "Endpoint-scoped engineering PASS for representation and provenance contracts; the artifact-level result remains CONTRACT_PASS_NOT_PERFORMANCE."
+    },
+    {
+      "dataset_id": "controlled_preprocess_contract_fixture",
+      "endpoint_id": "pp_policy_execution",
+      "status": "PASS",
+      "artifact": "validation_outputs/current/preprocess_contract/controlled_preprocess_contract_benchmark.json",
+      "metric_snapshot": {
+        "review_is_read_only": true,
+        "repeat_policy_agreement": true,
+        "repeat_execution_agreement": true,
+        "fingerprint_rejects_changed_counts": true
+      },
+      "claim_boundary": "Endpoint-scoped engineering PASS for public policy execution only; no normalization, feature-selection, integration, or tumor-fidelity performance claim."
+    },
+    {
+      "dataset_id": "controlled_preprocess_contract_fixture",
+      "endpoint_id": "pp_scalability",
+      "status": "CONTRACT_PASS_NOT_PERFORMANCE",
+      "artifact": "validation_outputs/current/preprocess_contract/controlled_preprocess_contract_benchmark.json",
+      "metric_snapshot": {
+        "n_cells": 120,
+        "n_genes": 160,
+        "peak_memory_measured": false,
+        "implicit_densification_warning_observed": false,
+        "temporary_densification_occurred": true,
+        "temporary_dense_matrix_bytes": 74400,
+        "estimated_peak_bytes": 203800,
+        "real_scale_run": false
+      },
+      "claim_boundary": "Small execution smoke test only; production-scale sparse behavior, peak memory, and reference-hardware runtime remain unvalidated."
+    }
+  ]
+}

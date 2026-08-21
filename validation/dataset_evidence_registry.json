@@ -1,0 +1,857 @@
+{
+  "schema_name": "scLucidDatasetEvidenceRegistry",
+  "schema_version": "1.2.0",
+  "last_verified": "2026-08-20",
+  "status_semantics": {
+    "GT-A": "experimental or externally measured truth",
+    "GT-B": "controlled identity, mixture, treatment, or protocol truth",
+    "SS": "silver-standard author annotation or matched external reference",
+    "SIM": "simulation truth with known generating parameters",
+    "RV": "real-project expert review without complete cell-level truth",
+    "ENG": "engineering fixture; cannot support a scientific performance claim"
+  },
+  "license_policy": {
+    "REPOSITORY_TERMS": "Public analysis access is available, but the repository does not transfer all contributor rights; redistribution requires source review.",
+    "EXPLICIT_OPEN": "The named data license was verified on the download record.",
+    "GENERATED_LOCAL": "The benchmark is generated locally; package license and source-data rights remain separate.",
+    "PRIVATE_USER_CONTROLLED": "Use is governed by the originating project approvals and consent.",
+    "REVIEW": "A dataset-specific license was not verified; do not redistribute."
+  },
+  "endpoint_definitions": {
+    "qc_input_contract": {
+      "module": "qc",
+      "estimand": "Integrity and fail-closed handling of the count matrix, provenance, assay, and sample/library identity before QC review.",
+      "experimental_unit": "input_object_or_library",
+      "metrics": ["counts_integrity_rate", "sample_key_fail_closed_rate", "review_mutation_count"],
+      "acceptance": {
+        "counts_integrity_rate_min": 1.0,
+        "sample_key_fail_closed_rate_min": 1.0,
+        "review_mutation_count_max": 0
+      }
+    },
+    "qc_profile_selection": {
+      "module": "qc",
+      "estimand": "Selection and disclosure of an assay-appropriate safety profile without imposing one universal mitochondrial cutoff.",
+      "experimental_unit": "library",
+      "metrics": ["profile_provenance_rate", "locked_high_quality_false_block_rate", "universal_mt_cutoff_used"],
+      "acceptance": {
+        "profile_provenance_rate_min": 1.0,
+        "locked_high_quality_false_block_rate_max": 0.0,
+        "universal_mt_cutoff_used": false
+      }
+    },
+    "qc_selector_superiority": {
+      "module": "qc",
+      "estimand": "Low-quality-cell recall at a fixed expert KEEP false-removal guardrail.",
+      "experimental_unit": "sample_or_library",
+      "metrics": ["keep_false_removal_rate", "low_quality_recall_gain", "grouped_bootstrap_ci"],
+      "acceptance": {
+        "keep_false_removal_rate_max": 0.02,
+        "absolute_recall_gain_vs_each_baseline_min": 0.05,
+        "grouped_bootstrap_95ci_lower_gt": 0.0
+      }
+    },
+    "qc_catastrophic_sample_detection": {
+      "module": "qc",
+      "estimand": "Detection of locked failed samples without falsely blocking locked high-quality libraries.",
+      "experimental_unit": "sample_or_library",
+      "metrics": ["failed_sample_recall", "high_quality_false_block_rate"],
+      "acceptance": {
+        "failed_sample_recall_min": 1.0,
+        "high_quality_false_block_rate_max": 0.0
+      }
+    },
+    "qc_doublet_calibration": {
+      "module": "qc",
+      "estimand": "Selection and calibration of a doublet evidence head against experimental labels.",
+      "experimental_unit": "capture_or_library",
+      "metrics": ["auprc", "auprc_regret", "expected_calibration_error"],
+      "acceptance": {
+        "auprc_regret_vs_best_registered_method_max": 0.05,
+        "expected_calibration_error_max_if_probability_available": 0.1,
+        "automatic_removal_without_independent_confirmation": false
+      }
+    },
+    "qc_cell_calling": {
+      "module": "qc",
+      "estimand": "Recovery of true cells, including low-RNA cells, from an unfiltered droplet matrix.",
+      "experimental_unit": "library",
+      "metrics": ["true_cell_recall", "low_rna_cell_recall", "empty_droplet_fdr"],
+      "acceptance": {
+        "true_cell_recall_min": 0.95,
+        "low_rna_cell_recall_min": 0.9,
+        "empty_droplet_fdr_max": 0.01
+      }
+    },
+    "qc_ambient_correction": {
+      "module": "qc",
+      "estimand": "Removal of cross-species or known soup contamination without erasing native identity signal.",
+      "experimental_unit": "library",
+      "metrics": ["contamination_reduction", "native_marker_loss", "identity_accuracy_loss"],
+      "acceptance": {
+        "contamination_reduction_min": 0.5,
+        "native_marker_loss_max": 0.02,
+        "identity_accuracy_loss_max": 0.02
+      }
+    },
+    "qc_rare_population_preservation": {
+      "module": "qc",
+      "estimand": "False removal and compositional distortion of known rare or QC-atypical populations.",
+      "experimental_unit": "sample_or_library",
+      "metrics": ["rare_population_false_removal_rate", "max_lineage_retention_gap"],
+      "acceptance": {
+        "rare_population_false_removal_rate_max": 0.02,
+        "max_lineage_retention_gap_max": 0.05
+      }
+    },
+    "qc_damage_classification": {
+      "module": "qc",
+      "estimand": "Recognition of microscopy- or expert-supported damaged cells while protecting independently supported intact cells.",
+      "experimental_unit": "capture_site_or_library",
+      "metrics": ["keep_false_removal_rate", "damaged_cell_recall", "recall_gain_vs_each_baseline", "calibration_error"],
+      "acceptance": {
+        "keep_false_removal_rate_max": 0.02,
+        "absolute_recall_gain_vs_each_baseline_min": 0.05,
+        "probability_calibration_must_be_reported_if_available": true,
+        "uncertain_labels_excluded_from_primary_binary_endpoint": true
+      }
+    },
+    "qc_iterative_review": {
+      "module": "qc",
+      "estimand": "Incremental value and biological safety of evidence-added second-round QC after a bounded temporary map.",
+      "experimental_unit": "sample_or_library",
+      "metrics": ["round2_added_remove_recall", "round2_keep_false_removal_rate", "lineage_retention_gap", "policy_convergence"],
+      "acceptance": {
+        "round2_keep_false_removal_rate_max": 0.02,
+        "new_remove_requires_independent_evidence": true,
+        "cluster_position_alone_can_remove": false,
+        "no_new_evidence_status": "REVIEW"
+      }
+    },
+    "qc_policy_execution": {
+      "module": "qc",
+      "estimand": "Exact, reproducible, and count-preserving execution of a reviewed immutable policy.",
+      "experimental_unit": "policy_run",
+      "metrics": ["review_mutation_count", "policy_apply_agreement", "repeat_run_agreement", "retained_counts_preservation"],
+      "acceptance": {
+        "review_mutation_count_max": 0,
+        "policy_apply_agreement_min": 1.0,
+        "repeat_run_agreement_min": 1.0,
+        "retained_counts_preservation_min": 1.0
+      }
+    },
+    "qc_decisioncard_ux": {
+      "module": "qc",
+      "estimand": "Ability of the compact review surface to support the correct next action without project-specific workarounds.",
+      "experimental_unit": "project_run_or_user_task",
+      "metrics": ["config_field_reduction", "critical_action_error_count", "manual_workaround_count", "run_evidence_completion_rate"],
+      "acceptance": {
+        "config_field_reduction_min": 0.7,
+        "critical_action_error_count_max": 0,
+        "manual_workaround_count_max": 0,
+        "run_evidence_completion_rate_min": 1.0
+      }
+    },
+    "qc_scalability": {
+      "module": "qc",
+      "estimand": "Robust bounded execution across registered dataset sizes without unintended dense expansion or nondeterministic decisions.",
+      "experimental_unit": "dataset_run_on_reference_hardware",
+      "metrics": ["runtime_seconds", "peak_memory_bytes", "unintended_dense_expansion", "repeat_run_agreement", "failure_rate"],
+      "acceptance": {
+        "unintended_dense_expansion": false,
+        "repeat_run_agreement_min": 1.0,
+        "failure_rate_max": 0.0,
+        "hardware_independent_wall_time_claim_allowed": false
+      }
+    },
+    "pp_input_representation_contract": {
+      "module": "preprocess",
+      "estimand": "Integrity, provenance, and consumer-safe separation of counts, normalized full expression, discovery, and integrated representations.",
+      "experimental_unit": "input_object_or_policy_run",
+      "metrics": ["counts_exact_preservation", "representation_provenance_completeness", "consumer_contract_violation_count", "review_mutation_count"],
+      "acceptance": {
+        "counts_exact_preservation_min": 1.0,
+        "representation_provenance_completeness_min": 1.0,
+        "consumer_contract_violation_count_max": 0,
+        "review_mutation_count_max": 0,
+        "counts_required_for_count_based_candidate": true
+      }
+    },
+    "pp_normalization_selection": {
+      "module": "preprocess",
+      "estimand": "Held-out downstream utility of the selected normalization method under protocol, technology, and depth shifts, with the shifted-log baseline retained.",
+      "experimental_unit": "heldout_protocol_or_dataset",
+      "metrics": ["relative_utility_regret", "biology_loss", "technical_dependence_change", "silent_fallback_count", "candidate_assumption_eligibility_rate"],
+      "acceptance": {
+        "relative_utility_regret_max": 0.05,
+        "biology_loss_max": 0.02,
+        "shifted_log_baseline_required": true,
+        "complex_method_requires_pareto_improvement": true,
+        "silent_fallback_count_max": 0,
+        "candidate_assumption_eligibility_rate_min": 1.0
+      }
+    },
+    "pp_feature_selection": {
+      "module": "preprocess",
+      "estimand": "Held-out identity, rare-population, and biological-program preservation of unsupervised feature selection without circular marker injection.",
+      "experimental_unit": "heldout_protocol_or_dataset",
+      "metrics": ["relative_utility_regret", "rare_class_recall_loss", "program_preservation_loss", "parameter_sensitivity_pass_rate", "protected_marker_injection_count"],
+      "acceptance": {
+        "relative_utility_regret_max": 0.05,
+        "rare_class_recall_loss_max": 0.02,
+        "program_preservation_loss_max": 0.02,
+        "parameter_sensitivity_pass_rate_min": 1.0,
+        "minimum_preregistered_feature_counts": 3,
+        "protected_marker_injection_count_max": 0
+      }
+    },
+    "pp_selector_regret": {
+      "module": "preprocess",
+      "estimand": "Held-out task utility of the policy-selected preprocessing candidate relative to the best eligible candidate.",
+      "experimental_unit": "heldout_dataset_or_protocol",
+      "metrics": ["relative_regret", "biology_loss", "selected_candidate_consistency", "eligible_candidate_coverage"],
+      "acceptance": {
+        "relative_regret_max": 0.05,
+        "biology_loss_max": 0.02,
+        "selected_candidate_consistency_min": 1.0,
+        "eligible_candidate_coverage_min": 1.0,
+        "minimum_preregistered_parameter_variants": 3
+      }
+    },
+    "pp_graph_stability": {
+      "module": "preprocess",
+      "estimand": "Stability of the selected discovery representation and neighborhood conclusions across registered seeds, feature counts, dimensions, and neighborhood sizes.",
+      "experimental_unit": "dataset_or_heldout_protocol",
+      "metrics": ["graph_seed_stability_loss", "neighbor_identity_loss", "major_partition_stability_regret", "conclusion_consistency"],
+      "acceptance": {
+        "graph_seed_stability_loss_max": 0.02,
+        "neighbor_identity_loss_max": 0.02,
+        "major_partition_stability_regret_max": 0.05,
+        "conclusion_consistency_min": 1.0,
+        "absolute_graph_stability_claim_without_baseline_allowed": false
+      }
+    },
+    "pp_integration_need_confounding": {
+      "module": "preprocess",
+      "estimand": "Correct recommendation of no integration, integration review, or fail-closed blocking under unnecessary correction and batch-biological confounding scenarios.",
+      "experimental_unit": "dataset_or_controlled_batch_scenario",
+      "metrics": ["unintegrated_baseline_coverage", "confounded_design_false_ready_rate", "unnecessary_integration_recommendation_rate", "condition_structure_loss"],
+      "acceptance": {
+        "unintegrated_baseline_coverage_min": 1.0,
+        "confounded_design_false_ready_rate_max": 0.0,
+        "unnecessary_integration_recommendation_rate_max": 0.05,
+        "condition_structure_loss_max": 0.02,
+        "batch_condition_cramers_v_block_at_or_above": 0.7,
+        "automatic_integration_when_design_not_identifiable": false
+      }
+    },
+    "pp_integration_pareto": {
+      "module": "preprocess",
+      "estimand": "Batch removal subject to biological-conservation, rare-population, and stability guardrails.",
+      "experimental_unit": "dataset_or_heldout_batch",
+      "metrics": ["batch_mixing", "biological_conservation", "rare_population_recall", "program_preservation", "graph_stability"],
+      "acceptance": {
+        "unintegrated_baseline_required": true,
+        "complex_method_requires_pareto_improvement": true,
+        "biology_loss_max": 0.02,
+        "rare_population_recall_loss_max": 0.02,
+        "program_preservation_loss_max": 0.02,
+        "graph_stability_loss_max": 0.02,
+        "batch_condition_cramers_v_block_at_or_above": 0.7
+      }
+    },
+    "pp_identity_preservation": {
+      "module": "preprocess",
+      "estimand": "Preservation of externally known cell identity across protocol, technology, center, or depth perturbations.",
+      "experimental_unit": "heldout_protocol_or_batch",
+      "metrics": ["balanced_accuracy", "macro_f1", "rare_class_recall", "rare_population_abundance_bias"],
+      "acceptance": {
+        "utility_regret_vs_best_candidate_max": 0.05,
+        "rare_class_recall_loss_max": 0.02,
+        "rare_population_abundance_bias_max": 0.02
+      }
+    },
+    "pp_tumor_structure_preservation": {
+      "module": "preprocess",
+      "estimand": "Preservation of patient, lineage, and tumor-program structure relative to the simple unintegrated baseline.",
+      "experimental_unit": "patient_or_sample",
+      "metrics": ["lineage_retention", "tumor_program_correlation", "patient_structure_loss"],
+      "acceptance": {
+        "lineage_retention_loss_max": 0.02,
+        "tumor_program_correlation_loss_max": 0.02,
+        "patient_structure_loss_max": 0.02
+      }
+    },
+    "pp_policy_execution": {
+      "module": "preprocess",
+      "estimand": "Exact, deterministic, count-preserving execution of an explicitly reviewed preprocessing policy.",
+      "experimental_unit": "policy_run",
+      "metrics": ["review_mutation_count", "policy_apply_agreement", "repeat_run_agreement", "counts_preservation", "representation_provenance_completeness"],
+      "acceptance": {
+        "review_mutation_count_max": 0,
+        "policy_apply_agreement_min": 1.0,
+        "repeat_run_agreement_min": 1.0,
+        "counts_preservation_min": 1.0,
+        "representation_provenance_completeness_min": 1.0
+      }
+    },
+    "pp_decisioncard_ux": {
+      "module": "preprocess",
+      "estimand": "Ability of the compact preprocessing review to support the correct consumer-specific action without project-specific workarounds.",
+      "experimental_unit": "project_run_or_user_task",
+      "metrics": ["config_field_reduction", "critical_action_error_count", "manual_workaround_count", "run_evidence_completion_rate"],
+      "acceptance": {
+        "config_field_reduction_min": 0.7,
+        "critical_action_error_count_max": 0,
+        "manual_workaround_count_max": 0,
+        "run_evidence_completion_rate_min": 1.0
+      }
+    },
+    "pp_scalability": {
+      "module": "preprocess",
+      "estimand": "Sparse, bounded, and reproducible preprocessing across registered dataset sizes on declared reference hardware.",
+      "experimental_unit": "dataset_run_on_reference_hardware",
+      "metrics": ["runtime_seconds", "peak_memory_bytes", "unintended_dense_expansion", "repeat_policy_agreement", "failure_rate"],
+      "acceptance": {
+        "unintended_dense_expansion": false,
+        "repeat_policy_agreement_min": 1.0,
+        "failure_rate_max": 0.0,
+        "reference_hardware_required": true,
+        "hardware_independent_wall_time_claim_allowed": false
+      }
+    },
+    "an_annotation_accuracy": {
+      "module": "analysis",
+      "estimand": "Accuracy and calibration of hierarchical annotation against independent labels.",
+      "experimental_unit": "heldout_donor_or_dataset",
+      "metrics": ["macro_f1", "balanced_accuracy", "unknown_detection_auprc"],
+      "acceptance": {
+        "macro_f1_regret_vs_best_registered_baseline_max": 0.05,
+        "balanced_accuracy_regret_vs_best_registered_baseline_max": 0.05,
+        "unknown_detection_must_be_reported": true
+      }
+    },
+    "an_pseudobulk_de": {
+      "module": "analysis",
+      "estimand": "Replicated condition effect estimated at the biological-sample level.",
+      "experimental_unit": "donor_or_biological_sample",
+      "metrics": ["empirical_fdr", "power", "effect_sign_concordance", "null_pvalue_calibration"],
+      "acceptance": {
+        "empirical_fdr_max": 0.06,
+        "effect_sign_concordance_min_for_detectable_truth": 0.95,
+        "cell_level_pseudoreplication_allowed": false
+      }
+    },
+    "an_composition": {
+      "module": "analysis",
+      "estimand": "Recovery of known cell-type proportions and sample-level differential abundance.",
+      "experimental_unit": "sample_or_mixture",
+      "metrics": ["mean_absolute_error", "absolute_bias", "interval_coverage"],
+      "acceptance": {
+        "mean_absolute_error_max": 0.05,
+        "absolute_bias_max": 0.02,
+        "nominal_95_interval_coverage_min": 0.9
+      }
+    },
+    "an_perturbation_program": {
+      "module": "analysis",
+      "estimand": "Recovery of treatment and dose programs in held-out perturbations.",
+      "experimental_unit": "replicate_treatment_dose",
+      "metrics": ["heldout_program_correlation", "dose_order_concordance", "null_fdr"],
+      "acceptance": {
+        "heldout_program_spearman_min": 0.5,
+        "dose_order_concordance_min": 0.8,
+        "empirical_fdr_max": 0.06
+      }
+    },
+    "an_trajectory_future": {
+      "module": "analysis",
+      "estimand": "Agreement of inferred fate or ordering with clone and time labels.",
+      "experimental_unit": "clone_or_timepoint",
+      "metrics": ["fate_macro_auroc", "time_order_concordance", "root_sensitivity"],
+      "acceptance": {
+        "fate_macro_auroc_regret_vs_best_registered_method_max": 0.05,
+        "time_order_concordance_min": 0.7,
+        "conclusion_stable_across_preregistered_roots": true
+      }
+    }
+  },
+  "datasets": [
+    {
+      "dataset_id": "lin2020_pdac",
+      "display_name": "Lin et al. PDAC primary and metastatic cohort",
+      "priority": "P0",
+      "release_scope": "qc_development_failure_control",
+      "modules": ["qc", "preprocess"],
+      "truth_types": ["RV"],
+      "truth_detail": "Known catastrophic sample GSM4679533 plus blinded expert KEEP/REMOVE/UNCERTAIN regions; not a universal QC gold standard.",
+      "accessions": [{"repository": "GEO", "id": "GSE154778", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE154778"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/lin2020.pdac.h5ad",
+      "required_metadata": ["sample", "condition", "capture_chemistry", "primary_or_metastatic", "expert_sample_label", "expert_cell_region_label"],
+      "validation_objectives": ["catastrophic sample detection", "sample-aware cell filtering", "tumor/lineage retention"],
+      "endpoint_ids": ["qc_profile_selection", "qc_selector_superiority", "qc_catastrophic_sample_detection", "qc_rare_population_preservation", "qc_damage_classification", "qc_iterative_review", "pp_tumor_structure_preservation"],
+      "limitations": ["GSM4679533 is a failure control, not evidence that the cohort is globally high quality.", "Author cell labels in the current local fixture are missing or unreliable."]
+    },
+    {
+      "dataset_id": "schlesinger2020_pdac",
+      "display_name": "Schlesinger et al. human PDAC sample",
+      "priority": "P1",
+      "release_scope": "qc_tumor_generalization",
+      "modules": ["qc", "preprocess"],
+      "truth_types": ["RV"],
+      "truth_detail": "Single human PDAC sample GSM4293555 for out-of-cohort behavior and tumor-signal sensitivity review.",
+      "accessions": [{"repository": "GEO", "id": "GSE141017/GSM4293555", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM4293555"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/schlesinger2020.pdac.h5ad",
+      "required_metadata": ["sample", "species", "tissue", "expert_cell_region_label"],
+      "validation_objectives": ["single-sample fail-closed behavior", "tumor-program preservation"],
+      "endpoint_ids": ["qc_rare_population_preservation", "pp_tumor_structure_preservation"],
+      "limitations": ["One human sample cannot validate cross-sample borrowing or sample-level inference."]
+    },
+    {
+      "dataset_id": "moncada2020_pdac",
+      "display_name": "Moncada et al. multi-patient PDAC",
+      "priority": "P1",
+      "release_scope": "external_tumor_generalization",
+      "modules": ["qc", "preprocess", "analysis"],
+      "truth_types": ["SS", "RV"],
+      "truth_detail": "Six-patient PDAC study with author cell-state annotations and matched spatial context; annotations are a silver standard.",
+      "accessions": [{"repository": "GEO", "id": "GSE111672", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE111672"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/moncada2020.pdac.h5ad",
+      "required_metadata": ["patient", "sample", "condition", "cell_type", "cell_subtype", "assay_or_capture"],
+      "validation_objectives": ["patient-aware tumor QC", "tumor-program and lineage preservation", "annotation generalization"],
+      "endpoint_ids": ["qc_rare_population_preservation", "pp_tumor_structure_preservation", "an_annotation_accuracy"],
+      "limitations": ["Author annotations and spatial co-localization are informative but are not independent cell-level QC truth."]
+    },
+    {
+      "dataset_id": "zilionis2019_nsclc",
+      "display_name": "Zilionis et al. human/mouse NSCLC",
+      "priority": "P1",
+      "release_scope": "external_tumor_generalization",
+      "modules": ["qc", "preprocess", "analysis"],
+      "truth_types": ["SS", "RV"],
+      "truth_detail": "Author annotations, patient/tumor/blood structure, and cross-species cohort context.",
+      "accessions": [{"repository": "GEO", "id": "GSE127465", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE127465"}],
+      "download": {"raw_reads": "PARTIAL_MOUSE_ONLY_HUMAN_RESTRICTED", "raw_counts": "PARTIAL", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/zilionis2019.nsclc.h5ad",
+      "required_metadata": ["patient", "sample", "tissue_source", "barcoding_emulsion", "cell_type", "species"],
+      "validation_objectives": ["patient/library retention bias", "myeloid rare-state preservation", "annotation generalization"],
+      "endpoint_ids": ["qc_rare_population_preservation", "pp_tumor_structure_preservation", "an_annotation_accuracy"],
+      "limitations": ["Human FASTQ files are unavailable for privacy reasons; do not use the human arm for raw cell-calling claims."]
+    },
+    {
+      "dataset_id": "lee2020_crc",
+      "display_name": "Lee et al. colorectal cancer cohort",
+      "priority": "P1",
+      "release_scope": "external_tumor_generalization",
+      "modules": ["qc", "preprocess", "analysis"],
+      "truth_types": ["SS", "RV"],
+      "truth_detail": "Author cell annotations across 23 tumors and 10 matched normal mucosa samples.",
+      "accessions": [{"repository": "GEO", "id": "GSE132465", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE132465"}],
+      "download": {"raw_reads": "RESTRICTED_NOT_PROVIDED", "raw_counts": "AVAILABLE_PROCESSED_UMI_MATRIX", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/lee2020.crc.h5ad",
+      "required_metadata": ["patient", "sample", "tumor_or_normal", "cell_type", "matched_pair"],
+      "validation_objectives": ["patient-aware retention", "integration overcorrection", "annotation and composition consistency"],
+      "endpoint_ids": ["qc_rare_population_preservation", "pp_integration_pareto", "pp_tumor_structure_preservation", "an_annotation_accuracy", "an_composition"],
+      "limitations": ["The public UMI matrix is already filtered; no raw-droplet or cell-calling validation is supported."]
+    },
+    {
+      "dataset_id": "kang2018_pbmc",
+      "display_name": "Kang/demuxlet IFN-beta PBMC",
+      "priority": "P0",
+      "release_scope": "current_core",
+      "modules": ["qc", "preprocess", "analysis"],
+      "truth_types": ["GT-A", "GT-B"],
+      "truth_detail": "Genotype-based donor and multiplet labels plus eight-donor paired control/IFN design.",
+      "accessions": [{"repository": "GEO", "id": "GSE96583", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE96583"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/kang2018.pbmc.h5ad",
+      "required_metadata": ["donor", "condition", "capture", "demuxlet_multiplets", "cell_type", "paired_design"],
+      "validation_objectives": ["doublet calibration", "donor-aware preprocessing", "paired pseudobulk DE"],
+      "endpoint_ids": ["qc_doublet_calibration", "pp_identity_preservation", "an_pseudobulk_de"],
+      "limitations": ["Demuxlet labels mainly identify genotype-detectable inter-donor multiplets and do not cover all same-donor doublets."]
+    },
+    {
+      "dataset_id": "cell_hashing_gse108313",
+      "display_name": "Cell Hashing multiplexing benchmark",
+      "priority": "P0",
+      "release_scope": "qc_external_truth",
+      "modules": ["qc", "analysis"],
+      "truth_types": ["GT-A"],
+      "truth_detail": "Hashtag oligo assignments provide independent sample and multiplet evidence.",
+      "accessions": [{"repository": "GEO", "id": "GSE108313", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE108313"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": null,
+      "required_metadata": ["capture", "hto_classification", "sample_hash", "rna_barcode", "cell_line_or_sample_identity"],
+      "validation_objectives": ["orthogonal doublet calibration", "unknown/negative hash handling"],
+      "endpoint_ids": ["qc_doublet_calibration", "an_annotation_accuracy"],
+      "limitations": ["HTO failures and homotypic doublets must be reported separately.", "GEO supplies candidate RNA barcodes and raw HTO counts, not the complete unfiltered RNA droplet universe; complete RNA cell-calling performance is not evaluable."]
+    },
+    {
+      "dataset_id": "solo_mkidney_gse140262",
+      "display_name": "Hashed mouse-kidney doublet benchmark",
+      "priority": "P1",
+      "release_scope": "qc_external_truth",
+      "modules": ["qc"],
+      "truth_types": ["GT-A"],
+      "truth_detail": "Cell-multiplexing oligo labels and curated doublet information across kidney captures.",
+      "accessions": [{"repository": "GEO", "id": "GSE140262", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE140262"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": null,
+      "required_metadata": ["capture", "cmo_hash", "doublet_truth", "cell_type", "kidney_source"],
+      "validation_objectives": ["cross-tissue doublet calibration", "lineage concentration of errors"],
+      "endpoint_ids": ["qc_doublet_calibration", "qc_rare_population_preservation"],
+      "limitations": ["Hash-based truth has its own negative/ambiguous class and is not perfect truth for homotypic doublets."]
+    },
+    {
+      "dataset_id": "tenx_hgmm_6k",
+      "display_name": "10x 6k human-mouse mixture",
+      "priority": "P0",
+      "release_scope": "qc_external_truth",
+      "modules": ["qc", "preprocess"],
+      "truth_types": ["GT-A", "GT-B"],
+      "truth_detail": "Species identity and mixed-species droplets provide controlled cell-calling, doublet, and ambient-contamination evidence.",
+      "accessions": [{"repository": "10x Genomics", "id": "6k_HGMM_3p_v2", "url": "https://www.10xgenomics.com/datasets/6-k-1-1-mixture-of-fresh-frozen-human-hek-293-t-and-mouse-nih-3-t-3-cells-2-standard-1-2-0"}],
+      "download": {"raw_reads": "AVAILABLE_10X", "raw_counts": "AVAILABLE_10X", "processed": "AVAILABLE_10X"},
+      "license": {"status": "EXPLICIT_OPEN", "identifier": "CC-BY-4.0", "url": "https://creativecommons.org/licenses/by/4.0/", "redistribution": "ALLOWED_WITH_ATTRIBUTION"},
+      "local_path": null,
+      "required_metadata": ["barcode", "human_umi", "mouse_umi", "filtered_cell_call", "raw_droplet_matrix", "library"],
+      "validation_objectives": ["cell calling", "cross-species doublet detection", "ambient correction"],
+      "endpoint_ids": ["qc_cell_calling", "qc_doublet_calibration", "qc_ambient_correction", "qc_scalability", "pp_identity_preservation", "pp_scalability"],
+      "limitations": ["Two robust cell lines do not reproduce fragile primary tumor lineages."]
+    },
+    {
+      "dataset_id": "sampleqc_public_metrics",
+      "display_name": "SampleQC simulations and 172-sample anonymized QC metrics",
+      "priority": "P0",
+      "release_scope": "qc_model_validation",
+      "modules": ["qc"],
+      "truth_types": ["SIM", "SS"],
+      "truth_detail": "Known simulated healthy/outlier labels plus anonymized QC metrics from 867k nuclei across 172 samples.",
+      "accessions": [{"repository": "PMC/GitHub", "id": "PMCID:PMC9912498", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9912498/"}],
+      "download": {"raw_reads": "NOT_PUBLIC_FOR_172_SAMPLE_COHORT", "raw_counts": "NOT_PUBLIC_FOR_172_SAMPLE_COHORT", "processed": "ANONYMIZED_QC_METRICS_AND_SIMULATION_CODE_AVAILABLE"},
+      "license": {"status": "EXPLICIT_OPEN", "identifier": "CC-BY-4.0 article/data unless otherwise credited; MIT analysis code", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9912498/", "redistribution": "VERIFY_PER_FILE_CREDIT"},
+      "local_path": null,
+      "required_metadata": ["sample", "qc_group", "known_simulated_outlier", "qc_metrics", "rare_qc_population"],
+      "validation_objectives": ["multimodal QC model selection", "rare-population preservation", "sample-distribution shift"],
+      "endpoint_ids": ["qc_profile_selection", "qc_selector_superiority", "qc_catastrophic_sample_detection", "qc_rare_population_preservation", "qc_damage_classification", "qc_iterative_review"],
+      "limitations": ["The full 172-sample expression matrix is not public; only QC-space questions are evaluable."]
+    },
+    {
+      "dataset_id": "scmixology_gse118767",
+      "display_name": "scMixology multi-protocol cell-line mixtures",
+      "priority": "P0",
+      "release_scope": "current_core",
+      "modules": ["preprocess", "analysis"],
+      "truth_types": ["GT-A", "GT-B"],
+      "truth_detail": "Known cell-line identity, controlled RNA/cell mixtures, and protocol labels.",
+      "accessions": [{"repository": "GEO", "id": "GSE118767", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE118767"}],
+      "download": {"raw_reads": "AVAILABLE_SRA_FOR_SUBSERIES", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO_AND_CELLBENCH"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/public_mixology.h5ad",
+      "required_metadata": ["protocol", "mixture_id", "mixology_identity", "cell_or_rna_mixture", "expected_proportion"],
+      "validation_objectives": ["normalization and feature-selection selection", "integration Pareto review", "clustering/annotation", "composition recovery"],
+      "endpoint_ids": ["pp_input_representation_contract", "pp_normalization_selection", "pp_feature_selection", "pp_selector_regret", "pp_graph_stability", "pp_integration_need_confounding", "pp_integration_pareto", "pp_identity_preservation", "pp_policy_execution", "an_annotation_accuracy", "an_composition"],
+      "limitations": ["Released objects were already sample-QC filtered and are not low-quality-cell truth."]
+    },
+    {
+      "dataset_id": "mereu_protocol_gse133544",
+      "display_name": "Mereu et al. multicenter protocol benchmark",
+      "priority": "P0",
+      "release_scope": "preprocess_external_generalization",
+      "modules": ["preprocess", "analysis"],
+      "truth_types": ["GT-B"],
+      "truth_detail": "Standardized reference mixture measured across centers and 13 single-cell/single-nucleus protocols.",
+      "accessions": [{"repository": "GEO", "id": "GSE133544", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE133544"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": null,
+      "required_metadata": ["center", "protocol", "species", "cell_line", "spike_in_fraction", "replicate"],
+      "validation_objectives": ["leave-one-center/protocol-out selection", "rare spike-in preservation", "batch correction"],
+      "endpoint_ids": ["pp_normalization_selection", "pp_feature_selection", "pp_selector_regret", "pp_integration_pareto", "pp_identity_preservation", "an_annotation_accuracy", "an_composition"],
+      "limitations": ["Reference mixtures emphasize technical variation more than primary-tissue biology."]
+    },
+    {
+      "dataset_id": "ding_methods_gse132044",
+      "display_name": "Ding et al. cross-technology benchmark",
+      "priority": "P0",
+      "release_scope": "preprocess_external_generalization",
+      "modules": ["preprocess", "analysis"],
+      "truth_types": ["GT-B", "SS"],
+      "truth_detail": "Same-source human/mouse mixture, PBMC, and cortex aliquots measured with seven technologies and replicate experiments.",
+      "accessions": [{"repository": "GEO", "id": "GSE132044", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE132044"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO_AND_SCP424_426"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": null,
+      "required_metadata": ["sample_type", "technology", "experiment_day", "replicate", "species", "cell_type"],
+      "validation_objectives": ["cross-technology transformation", "feature selection", "integration and annotation conservation"],
+      "endpoint_ids": ["pp_normalization_selection", "pp_feature_selection", "pp_selector_regret", "pp_integration_pareto", "pp_identity_preservation", "an_annotation_accuracy"],
+      "limitations": ["Some cell types use silver-standard rather than experimental labels."]
+    },
+    {
+      "dataset_id": "scib_pancreas_figshare",
+      "display_name": "scIB pancreas atlas benchmark",
+      "priority": "P0",
+      "release_scope": "preprocess_integration_gate",
+      "modules": ["preprocess", "analysis"],
+      "truth_types": ["SS"],
+      "truth_detail": "Curated author cell-type labels and batch structure across pancreas studies.",
+      "accessions": [{"repository": "Figshare", "id": "10.6084/m9.figshare.25953868", "url": "https://figshare.com/articles/dataset/scIB_pancreas_dataset/25953868"}],
+      "download": {"raw_reads": "SOURCE_STUDIES_ONLY", "raw_counts": "AVAILABLE_H5AD", "processed": "AVAILABLE_H5AD"},
+      "license": {"status": "EXPLICIT_OPEN", "identifier": "CC-BY-4.0", "url": "https://creativecommons.org/licenses/by/4.0/", "redistribution": "ALLOWED_WITH_ATTRIBUTION"},
+      "local_path": null,
+      "required_metadata": ["batch", "study", "cell_type", "reference_or_query", "donor_if_available"],
+      "validation_objectives": ["integration Pareto frontier", "reference-query mapping", "rare endocrine population preservation"],
+      "endpoint_ids": ["pp_graph_stability", "pp_integration_need_confounding", "pp_integration_pareto", "pp_identity_preservation", "an_annotation_accuracy"],
+      "limitations": ["Author annotations are silver standard and may share preprocessing assumptions with the benchmark object."]
+    },
+    {
+      "dataset_id": "zheng_facs_mixtures",
+      "display_name": "Zheng FACS-sorted PBMC mixtures",
+      "priority": "P1",
+      "release_scope": "analysis_annotation_truth",
+      "modules": ["preprocess", "analysis"],
+      "truth_types": ["GT-A"],
+      "truth_detail": "Pre-sorted PBMC populations combined into known equal and unequal mixtures.",
+      "accessions": [{"repository": "Bioconductor", "id": "DuoClustering2018::Zhengmix4eq/4uneq/8eq", "url": "https://www.bioconductor.org/packages/release/data/experiment/html/DuoClustering2018.html"}],
+      "download": {"raw_reads": "SOURCE_10X_COLLECTION_REVIEW", "raw_counts": "AVAILABLE_EXPERIMENTHUB", "processed": "AVAILABLE_EXPERIMENTHUB"},
+      "license": {"status": "REVIEW", "identifier": "Bioconductor package and source-data terms must be checked separately", "url": "https://www.bioconductor.org/packages/release/data/experiment/html/DuoClustering2018.html", "redistribution": "DO_NOT_BUNDLE_UNTIL_REVIEWED"},
+      "local_path": null,
+      "required_metadata": ["facs_cell_type", "mixture_id", "expected_proportion", "cell_barcode"],
+      "validation_objectives": ["annotation accuracy", "rare-class behavior", "composition recovery"],
+      "endpoint_ids": ["pp_identity_preservation", "an_annotation_accuracy", "an_composition"],
+      "limitations": ["FACS labels can contain sorting impurity and the artificial mixtures do not represent tumor states."]
+    },
+    {
+      "dataset_id": "baron2016_pancreas",
+      "display_name": "Baron human pancreas",
+      "priority": "P1",
+      "release_scope": "preprocess_annotation_generalization",
+      "modules": ["preprocess", "analysis"],
+      "truth_types": ["SS"],
+      "truth_detail": "Four human donors with author cell-type labels.",
+      "accessions": [{"repository": "GEO", "id": "GSE84133", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84133"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": "data/baron2016.pancreas.h5ad",
+      "required_metadata": ["donor", "sample", "cell_type", "species"],
+      "validation_objectives": ["donor-aware HVG/integration", "annotation", "rare endocrine preservation"],
+      "endpoint_ids": ["pp_integration_pareto", "pp_identity_preservation", "an_annotation_accuracy"],
+      "limitations": ["Normal pancreas cannot validate malignant or treatment programs."]
+    },
+    {
+      "dataset_id": "kinker2020_pan_cancer_cell_lines",
+      "display_name": "Kinker pan-cancer cell-line states",
+      "priority": "P1",
+      "release_scope": "preprocess_program_generalization",
+      "modules": ["preprocess", "analysis"],
+      "truth_types": ["GT-B", "SS"],
+      "truth_detail": "Known cell-line identity across a large pan-cancer collection with curated recurrent programs.",
+      "accessions": [{"repository": "GEO", "id": "GSE157220", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE157220"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_VIA_SERIES_OR_SCP542", "processed": "AVAILABLE_GEO_OR_SCP542"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms; SCP terms require separate review", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": null,
+      "required_metadata": ["cell_line", "cancer_type", "library", "known_program", "doublet_or_low_quality_label"],
+      "validation_objectives": ["cell-line identity preservation", "program-space preservation", "complex-method selector"],
+      "endpoint_ids": ["pp_feature_selection", "pp_selector_regret", "pp_identity_preservation", "pp_tumor_structure_preservation", "pp_scalability", "an_annotation_accuracy"],
+      "limitations": ["Cell-line programs are controlled but less representative of primary TME lineages."]
+    },
+    {
+      "dataset_id": "scdesign3_simulations",
+      "display_name": "scDesign3 preregistered simulations",
+      "priority": "P1",
+      "release_scope": "controlled_stress_tests",
+      "modules": ["qc", "preprocess", "analysis"],
+      "truth_types": ["SIM"],
+      "truth_detail": "Locally generated counts with locked degradation, rare-population, batch, and effect parameters.",
+      "accessions": [{"repository": "GitHub", "id": "SONGDONGYUAN1994/scDesign3", "url": "https://github.com/SONGDONGYUAN1994/scDesign3"}],
+      "download": {"raw_reads": "NOT_APPLICABLE", "raw_counts": "GENERATED_LOCAL", "processed": "GENERATED_LOCAL"},
+      "license": {"status": "GENERATED_LOCAL", "identifier": "MIT software; generated data inherit source-data constraints", "url": "https://github.com/SONGDONGYUAN1994/scDesign3/blob/master/LICENSE", "redistribution": "ONLY_IF_SOURCE_MODEL_DATA_PERMITS"},
+      "local_path": null,
+      "required_metadata": ["simulation_seed", "generator_version", "source_fingerprint", "true_quality_state", "true_batch", "true_cell_type", "true_effect"],
+      "validation_objectives": ["controlled QC degradation", "rare-population stress tests", "batch confounding", "known DE/composition"],
+      "endpoint_ids": ["qc_selector_superiority", "qc_rare_population_preservation", "pp_selector_regret", "pp_integration_need_confounding", "pp_integration_pareto", "an_pseudobulk_de", "an_composition"],
+      "limitations": ["Simulation pass is necessary but cannot replace experimental or real-project evidence."]
+    },
+    {
+      "dataset_id": "muscat_simulations",
+      "display_name": "muscat multi-sample differential-state simulations",
+      "priority": "P0",
+      "release_scope": "analysis_inference_gate",
+      "modules": ["analysis"],
+      "truth_types": ["SIM"],
+      "truth_detail": "Known cluster-specific DE/DD/DP/DM/DB state changes with explicit sample and group structure.",
+      "accessions": [{"repository": "Bioconductor", "id": "10.18129/B9.bioc.muscat", "url": "https://bioconductor.org/packages/release/bioc/html/muscat.html"}],
+      "download": {"raw_reads": "NOT_APPLICABLE", "raw_counts": "GENERATED_LOCAL", "processed": "GENERATED_LOCAL"},
+      "license": {"status": "GENERATED_LOCAL", "identifier": "GPL-3 software; generated data inherit reference-data constraints", "url": "https://bioconductor.org/packages/release/bioc/html/muscat.html", "redistribution": "ONLY_IF_REFERENCE_DATA_PERMITS"},
+      "local_path": null,
+      "required_metadata": ["sample_id", "group_id", "cluster_id", "gene_truth_class", "true_logfc", "simulation_seed"],
+      "validation_objectives": ["pseudobulk type-I error", "power and sign recovery", "sample-level inference contract"],
+      "endpoint_ids": ["an_pseudobulk_de"],
+      "limitations": ["Rankings may depend on the generating model; repeat across parameter grids and real matched references."]
+    },
+    {
+      "dataset_id": "squair_de_compendium",
+      "display_name": "Squair matched scRNA/bulk DE benchmark compendium",
+      "priority": "P0",
+      "release_scope": "analysis_external_truth",
+      "modules": ["analysis"],
+      "truth_types": ["GT-A", "SS"],
+      "truth_detail": "Eighteen matched single-cell/bulk perturbation datasets and null benchmarks across species and systems.",
+      "accessions": [{"repository": "Zenodo", "id": "10.5281/zenodo.5048449", "url": "https://doi.org/10.5281/zenodo.5048449"}],
+      "download": {"raw_reads": "VARIES_BY_SOURCE_STUDY", "raw_counts": "AVAILABLE_IN_BENCHMARK_RECORD", "processed": "AVAILABLE_ZENODO"},
+      "license": {"status": "REVIEW", "identifier": "Verify the Zenodo record and each source dataset before redistribution", "url": "https://doi.org/10.5281/zenodo.5048449", "redistribution": "DO_NOT_BUNDLE_UNTIL_REVIEWED"},
+      "local_path": null,
+      "required_metadata": ["dataset", "biological_replicate", "condition", "cell_type", "matched_bulk_truth", "null_or_signal"],
+      "validation_objectives": ["false-discovery control", "matched bulk concordance", "pseudobulk superiority over pseudoreplicated tests"],
+      "endpoint_ids": ["an_pseudobulk_de"],
+      "limitations": ["Matched bulk is an external approximation to truth, not exact cell-state-specific ground truth."]
+    },
+    {
+      "dataset_id": "real_project_panel",
+      "display_name": "202604JJH, 202507LPJ, and 202603AK112",
+      "priority": "P0",
+      "release_scope": "external_real_project_gate",
+      "modules": ["qc", "preprocess", "analysis"],
+      "truth_types": ["RV"],
+      "truth_detail": "Blinded expert review, project design, expected biology, and usability evidence under leave-one-project-out validation.",
+      "accessions": [{"repository": "Local controlled projects", "id": "202604JJH|202507LPJ|202603AK112", "url": "LOCAL_ONLY"}],
+      "download": {"raw_reads": "PROJECT_CONTROLLED", "raw_counts": "PROJECT_CONTROLLED", "processed": "PROJECT_CONTROLLED"},
+      "license": {"status": "PRIVATE_USER_CONTROLLED", "identifier": "Project consent and institutional approvals", "url": "LOCAL_ONLY", "redistribution": "PROHIBITED_WITHOUT_PROJECT_APPROVAL"},
+      "local_path": null,
+      "required_metadata": ["project", "sample", "experimental_unit", "condition", "batch", "paired_key_if_applicable", "expert_review", "run_evidence"],
+      "validation_objectives": ["external scientific validity", "leave-one-project-out selector behavior", "four-action UX", "sample-level analysis identifiability"],
+      "endpoint_ids": ["qc_input_contract", "qc_profile_selection", "qc_selector_superiority", "qc_catastrophic_sample_detection", "qc_rare_population_preservation", "qc_damage_classification", "qc_iterative_review", "qc_policy_execution", "qc_decisioncard_ux", "qc_scalability", "pp_input_representation_contract", "pp_normalization_selection", "pp_feature_selection", "pp_selector_regret", "pp_graph_stability", "pp_integration_need_confounding", "pp_integration_pareto", "pp_identity_preservation", "pp_tumor_structure_preservation", "pp_policy_execution", "pp_decisioncard_ux", "pp_scalability", "an_annotation_accuracy", "an_pseudobulk_de", "an_composition"],
+      "limitations": ["Expert review is not independent experimental truth; claims remain project-specific."]
+    },
+    {
+      "dataset_id": "emtab2600_microscopy_quality",
+      "display_name": "Microscopy-labelled intact, damaged, and empty capture sites",
+      "priority": "P0",
+      "release_scope": "qc_external_damage_truth",
+      "modules": ["qc"],
+      "truth_types": ["GT-A", "SS"],
+      "truth_detail": "Microscopy inspection provides an external label for intact cells, visibly damaged cells, and empty capture sites; labels remain an imperfect phenotype rather than molecular ground truth.",
+      "accessions": [{"repository": "ArrayExpress/ENA", "id": "E-MTAB-2600 / PRJEB6455", "url": "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-2600"}],
+      "download": {"raw_reads": "AVAILABLE_ENA_PRJEB6455", "raw_counts": "PROCESSED_168_RUN_RECONSTRUCTION_AVAILABLE_ZENODO", "processed": "MICROSCOPY_LABELS_RECOVERED_FROM_PUBLICATION_AND_ZENODO"},
+      "license": {"status": "MIXED_SOURCE_REVIEW", "identifier": "Ilicic article/supplement CC-BY-4.0; ENA repository terms; ZetaSuite file-level terms", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4758103/", "redistribution": "REVIEW_SOURCE_RIGHTS_BEFORE_BUNDLING"},
+      "local_path": "data/external/qc_truth/emtab2600_microscopy_quality/prepared/emtab2600_qc_truth.h5ad",
+      "required_metadata": ["capture_site", "microscopy_quality_label", "intact_or_damaged_or_empty", "library", "cell_barcode_mapping"],
+      "validation_objectives": ["damaged-cell recognition", "intact-cell protection", "empty capture-site cell calling"],
+      "endpoint_ids": ["qc_cell_calling", "qc_damage_classification"],
+      "limitations": ["Legacy Fluidigm C1/Smart-seq technology differs from current droplet scRNA-seq.", "Microscopy cannot identify every molecularly compromised or recoverable cell.", "The local processed reconstruction covers 168 runs with 147 explicit labels; the source workbook contains 960 capture-site labels."]
+    },
+    {
+      "dataset_id": "controlled_qc_truth_suite",
+      "display_name": "scLucid deterministic controlled QC truth suite",
+      "priority": "P0",
+      "release_scope": "qc_engineering_and_simulation_control",
+      "modules": ["qc"],
+      "truth_types": ["SIM", "ENG"],
+      "truth_detail": "Locally generated counts with explicit intact, low-RNA, rare, damaged, empty, doublet, ambient, assay-profile, and library labels.",
+      "accessions": [{"repository": "Generated locally", "id": "sclucid-controlled-qc-v1", "url": "LOCAL_GENERATED"}],
+      "download": {"raw_reads": "NOT_APPLICABLE", "raw_counts": "GENERATED_LOCAL", "processed": "GENERATED_LOCAL"},
+      "license": {"status": "GENERATED_LOCAL", "identifier": "scLucid package license", "url": "LOCAL_GENERATED", "redistribution": "CODE_AND_GENERATED_OUTPUT_SEPARATE"},
+      "local_path": "validation_outputs/current/qc_controlled_truth/controlled_qc_truth.h5ad",
+      "required_metadata": ["library", "assay_profile", "truth_droplet_class", "truth_policy_label", "truth_lineage", "truth_is_rare", "truth_ambient_fraction", "truth_damage_fraction"],
+      "validation_objectives": ["input and policy execution contract", "mechanism positive/negative controls", "determinism and bounded-memory checks"],
+      "endpoint_ids": ["qc_input_contract", "qc_profile_selection", "qc_cell_calling", "qc_ambient_correction", "qc_damage_classification", "qc_rare_population_preservation", "qc_policy_execution", "qc_scalability"],
+      "limitations": ["Simulation can falsify engineering and mechanism assumptions but cannot establish real-world scientific superiority.", "PASS on engineering endpoints must not promote simulated scientific endpoints to PASS."]
+    },
+    {
+      "dataset_id": "controlled_preprocess_contract_fixture",
+      "display_name": "scLucid deterministic controlled Preprocess contract fixture",
+      "priority": "P0",
+      "release_scope": "preprocess_engineering_contract",
+      "modules": ["preprocess"],
+      "truth_types": ["SIM", "ENG"],
+      "truth_detail": "A deterministic 120-cell by 160-gene synthetic UMI object generated inside the maintained public review/apply contract runner; the transient input object is not persisted as a scientific dataset.",
+      "accessions": [{"repository": "Generated locally", "id": "sclucid-controlled-preprocess-contract-v1", "url": "LOCAL_GENERATED"}],
+      "download": {"raw_reads": "NOT_APPLICABLE", "raw_counts": "GENERATED_EPHEMERAL", "processed": "GENERATED_BENCHMARK_REPORT"},
+      "license": {"status": "GENERATED_LOCAL", "identifier": "scLucid package license", "url": "LOCAL_GENERATED", "redistribution": "CODE_AND_GENERATED_OUTPUT_SEPARATE"},
+      "local_path": "validation_outputs/current/preprocess_contract/controlled_preprocess_contract_benchmark.json",
+      "required_metadata": ["seed", "fixture_shape", "counts_fingerprint", "sample_key", "batch_key", "condition_key", "consumer", "public_api", "check_results"],
+      "validation_objectives": ["representation and provenance contract", "review immutability", "policy execution agreement", "determinism", "small-fixture scalability smoke input"],
+      "endpoint_ids": ["pp_input_representation_contract", "pp_policy_execution", "pp_scalability"],
+      "limitations": ["Contract evidence only; the small synthetic fixture cannot establish scientific performance, external generalization, tumor-program preservation, or production-scale memory bounds."]
+    },
+    {
+      "dataset_id": "pbmc3k_engineering_fixture",
+      "display_name": "10x PBMC 3k engineering fixture",
+      "priority": "ENG",
+      "release_scope": "engineering_only",
+      "modules": ["qc", "preprocess"],
+      "truth_types": ["ENG"],
+      "truth_detail": "Single healthy-donor PBMC object for smoke tests and representation-contract checks; it has no independent cell-level truth.",
+      "accessions": [{"repository": "10x Genomics", "id": "pbmc3k Cell Ranger 1.0.0", "url": "https://www.10xgenomics.com/datasets/3-k-pbm-cs-from-a-healthy-donor-1-standard-1-0-0"}],
+      "download": {"raw_reads": "AVAILABLE_10X", "raw_counts": "AVAILABLE_10X", "processed": "AVAILABLE_10X"},
+      "license": {"status": "EXPLICIT_OPEN", "identifier": "CC-BY-4.0", "url": "https://creativecommons.org/licenses/by/4.0/", "redistribution": "ALLOWED_WITH_ATTRIBUTION"},
+      "local_path": "data/pbmc3k.h5ad",
+      "required_metadata": ["counts", "species", "single_donor"],
+      "validation_objectives": ["fast smoke testing", "counts/layer/representation contracts"],
+      "endpoint_ids": ["pp_input_representation_contract", "pp_policy_execution", "pp_scalability"],
+      "limitations": ["Engineering fixture only; one donor and absent external labels cannot support QC or preprocessing superiority claims."]
+    },
+    {
+      "dataset_id": "cellbender_tiny_fixture",
+      "display_name": "CellBender tiny ambient fixture",
+      "priority": "ENG",
+      "release_scope": "engineering_only",
+      "modules": ["qc"],
+      "truth_types": ["ENG"],
+      "truth_detail": "Small local fixture for raw-droplet schema, likely-cell, and likely-empty contract tests.",
+      "accessions": [{"repository": "CellBender tutorial", "id": "heart_10k_v3-derived", "url": "https://cellbender.readthedocs.io/en/latest/tutorial/index.html"}],
+      "download": {"raw_reads": "SOURCE_DATASET_REVIEW", "raw_counts": "LOCAL_DERIVED_FIXTURE", "processed": "LOCAL_DERIVED_FIXTURE"},
+      "license": {"status": "REVIEW", "identifier": "Source dataset terms must be verified", "url": "https://cellbender.readthedocs.io/en/latest/tutorial/index.html", "redistribution": "DO_NOT_BUNDLE_UNTIL_REVIEWED"},
+      "local_path": "data/cellbender_tiny.h5ad",
+      "required_metadata": ["barcode", "barcode_rank", "likely_cell", "likely_empty_droplet", "raw_counts"],
+      "validation_objectives": ["schema and fail-closed ambient diagnostics"],
+      "endpoint_ids": [],
+      "limitations": ["Engineering fixture only; it cannot establish ambient-correction performance."]
+    },
+    {
+      "dataset_id": "larry_gse140802",
+      "display_name": "LARRY lineage-tracing benchmark",
+      "priority": "P2",
+      "release_scope": "future_advanced_analysis",
+      "modules": ["analysis"],
+      "truth_types": ["GT-A", "GT-B"],
+      "truth_detail": "Expressed clone barcodes, time points, cytokine conditions, and transcriptional states.",
+      "accessions": [{"repository": "GEO", "id": "GSE140802", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE140802"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": null,
+      "required_metadata": ["clone_id", "timepoint", "condition", "state", "replicate"],
+      "validation_objectives": ["trajectory direction and fate validation"],
+      "endpoint_ids": ["an_trajectory_future"],
+      "limitations": ["Future module only; not counted toward current Analysis CORE readiness."]
+    },
+    {
+      "dataset_id": "sciplex_gse139944",
+      "display_name": "sci-Plex chemical perturbation atlas",
+      "priority": "P2",
+      "release_scope": "future_program_analysis",
+      "modules": ["analysis"],
+      "truth_types": ["GT-B"],
+      "truth_detail": "Known compound, dose, cell line, well, and replicate assignments from nuclear hashing.",
+      "accessions": [{"repository": "GEO", "id": "GSE139944", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE139944"}],
+      "download": {"raw_reads": "AVAILABLE_SRA", "raw_counts": "AVAILABLE_GEO", "processed": "AVAILABLE_GEO"},
+      "license": {"status": "REPOSITORY_TERMS", "identifier": "NCBI-GEO terms", "url": "https://www.ncbi.nlm.nih.gov/geo/info/disclaimer.html", "redistribution": "REVIEW_SOURCE_RIGHTS"},
+      "local_path": null,
+      "required_metadata": ["cell_line", "compound", "dose", "well", "replicate", "hash_assignment"],
+      "validation_objectives": ["perturbation program recovery", "dose ordering", "held-out compound generalization"],
+      "endpoint_ids": ["an_perturbation_program"],
+      "limitations": ["Future program-analysis gate; not counted toward current Analysis CORE readiness."]
+    }
+  ]
+}

@@ -255,7 +255,11 @@ def run(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, default=Path("validation_outputs/preprocess_graph_stability"))
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("validation_outputs/work/preprocess_graph_stability"),
+    )
     parser.add_argument("--datasets", nargs="*", help="Optional dataset keys to include.")
     parser.add_argument("--max-cells", type=int, default=2000, help="Pilot subset size. Use 0 for full data.")
     parser.add_argument("--seed", type=int, default=19)

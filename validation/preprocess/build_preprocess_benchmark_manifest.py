@@ -203,7 +203,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("validation_outputs/preprocess_manifest"),
+        default=Path("validation_outputs/work/preprocess_manifest"),
     )
     args = parser.parse_args()
     paths = build_manifest(args.output_dir)

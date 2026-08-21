@@ -18,7 +18,7 @@ from validation.dataset_registry import DATASETS
 
 
 DEFAULT_INPUT_ROOT = Path("validation_outputs")
-DEFAULT_OUTPUT_DIR = Path("validation_outputs/qc_evidence_package")
+DEFAULT_OUTPUT_DIR = Path("validation_outputs/work/qc_evidence_package")
 
 
 def _read_tsv(path: Path) -> pd.DataFrame:

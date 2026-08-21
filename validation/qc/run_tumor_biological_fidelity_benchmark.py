@@ -648,7 +648,7 @@ def run(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("validation_outputs/qc_tumor_fidelity")
+        "--output-dir", type=Path, default=Path("validation_outputs/work/qc_tumor_fidelity")
     )
     parser.add_argument("--datasets", nargs="*", help="Optional dataset keys to include.")
     parser.add_argument(

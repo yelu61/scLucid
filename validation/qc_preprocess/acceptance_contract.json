@@ -1,0 +1,260 @@
+{
+  "schema_version": "sclucid_qc_preprocess_acceptance_v1.2",
+  "status": "LOCKED_NOT_YET_PASSED",
+  "truth_policy": {
+    "truth_pack_schema": "sclucid_qc_truth_pack_v1",
+    "expert_labels": ["KEEP", "REMOVE", "UNCERTAIN"],
+    "blinding_required": true,
+    "prediction_independent_sampling_required": true,
+    "primary_cell_sampling": "uniform_within_library",
+    "metric_tail_challenge_in_primary_endpoint": false,
+    "source_sha256_lock_required": true,
+    "uncertain_in_primary_binary_endpoint": false,
+    "external_truth": ["experimental_doublet_labels", "mixology_identity", "controlled_mixture"]
+  },
+  "qc_primary_endpoint": {
+    "max_keep_false_removal_rate": 0.02,
+    "min_absolute_low_quality_recall_gain": 0.05,
+    "baselines": ["expert_global", "per_sample_mad"],
+    "bootstrap_unit": "sample_or_library",
+    "bootstrap_ci": 0.95,
+    "required_ci_lower_bound": 0.0,
+    "catastrophic_sample_detection_rate": 1.0,
+    "locked_high_quality_false_block_rate": 0.0
+  },
+  "qc_validation_design": {
+    "scope_start": "count_matrix_and_provenance",
+    "scope_exclusion": "FASTQ alignment, read mapping, and upstream quantification are recorded as provenance but are not implemented or performance-validated by scLucid.",
+    "evidence_heads": [
+      "qc_input_contract",
+      "qc_profile_selection",
+      "qc_cell_calling",
+      "qc_ambient_correction",
+      "qc_catastrophic_sample_detection",
+      "qc_damage_classification",
+      "qc_doublet_calibration",
+      "qc_rare_population_preservation",
+      "qc_selector_superiority",
+      "qc_iterative_review",
+      "qc_policy_execution",
+      "qc_decisioncard_ux",
+      "qc_scalability"
+    ],
+    "no_aggregate_quality_score": true,
+    "review_is_read_only": true,
+    "apply_requires_explicit_policy": true,
+    "optional_project_head_without_required_input": "NOT_EVALUABLE",
+    "not_evaluable_counts_as_pass": false,
+    "simulation_can_establish": ["engineering_contract", "determinism", "mechanism_sanity"],
+    "simulation_cannot_establish": ["external_scientific_superiority", "tumor_project_generalization"],
+    "multi_round_rule": {
+      "fixed_number_of_rounds_required": false,
+      "new_removal_requires_independent_evidence": true,
+      "cluster_position_alone_can_remove": false,
+      "no_new_evidence_action": "REVIEW_OR_STOP"
+    },
+    "scalability_rule": {
+      "reference_hardware_required": true,
+      "runtime_and_peak_memory_must_be_reported": true,
+      "unintended_dense_expansion_allowed": false,
+      "universal_wall_time_threshold": null
+    }
+  },
+  "preprocess_primary_endpoint": {
+    "max_held_out_regret": 0.05,
+    "max_biology_loss": 0.02,
+    "unintegrated_is_mandatory_baseline": true,
+    "complex_method_requires_pareto_improvement": true
+  },
+  "preprocess_validation_design": {
+    "scope_start": "post_qc_authoritative_counts",
+    "scope_end": "consumer_specific_expression_and_neighborhood_representations",
+    "controlled_dataset": "public_mixology",
+    "primary_estimand": "balanced cell-line identity accuracy in a held-out protocol",
+    "experimental_unit": "protocol",
+    "holdout_scheme": "leave_one_protocol_out",
+    "selected_policy": "standard_unintegrated",
+    "evidence_heads": [
+      "pp_input_representation_contract",
+      "pp_normalization_selection",
+      "pp_feature_selection",
+      "pp_selector_regret",
+      "pp_graph_stability",
+      "pp_integration_need_confounding",
+      "pp_integration_pareto",
+      "pp_identity_preservation",
+      "pp_tumor_structure_preservation",
+      "pp_policy_execution",
+      "pp_decisioncard_ux",
+      "pp_scalability"
+    ],
+    "consumer_representation_contract": {
+      "counts": "authoritative untransformed counts for count models and pseudobulk",
+      "normalized_full": "full-gene normalized expression for marker, program, and interpretable plots",
+      "discovery_rep": "unsupervised feature space used for PCA, neighbors, and clustering",
+      "integrated_rep": "optional graph or latent representation for an explicitly reviewed integration consumer",
+      "integrated_expression_is_default_marker_or_de_input": false
+    },
+    "candidate_families": [
+      "standard_unintegrated",
+      "pearson_residuals",
+      "multinomial_deviance",
+      "pearson_residuals_deviance"
+    ],
+    "candidate_rules": {
+      "shifted_log_is_mandatory_simple_baseline": true,
+      "pearson_residuals_require_umi_counts": true,
+      "scran_without_declared_dependency_is_not_evaluable": true,
+      "silent_fallback_allowed": false,
+      "protected_markers_forced_into_unsupervised_features": false,
+      "hypothesis_driven_features_are_sensitivity_only": true
+    },
+    "integration_pareto_objectives": [
+      "cross_protocol_identity_purity",
+      "identity_silhouette",
+      "batch_mixing_js_similarity",
+      "graph_seed_stability"
+    ],
+    "integration_absolute_loss_tolerances": {
+      "cross_protocol_identity_purity": 0.02,
+      "identity_silhouette": 0.02,
+      "batch_mixing_js_similarity": 0.01,
+      "graph_seed_stability": 0.02
+    },
+    "integration_minimum_gain_thresholds": {
+      "cross_protocol_identity_purity": 0.01,
+      "identity_silhouette": 0.01,
+      "batch_mixing_js_similarity": 0.02,
+      "graph_seed_stability": 0.01
+    },
+    "sensitivity_gate": {
+      "minimum_parameter_variants": 3,
+      "selected_candidate_consistency": 1.0,
+      "all_variants_must_pass_regret_guardrail": true,
+      "registered_variants": [
+        {"n_top_genes": 1000, "n_pcs": 20},
+        {"n_top_genes": 2000, "n_pcs": 30},
+        {"n_top_genes": 3000, "n_pcs": 50}
+      ]
+    },
+    "integration_need_rule": {
+      "unintegrated_is_mandatory_baseline": true,
+      "batch_effect_must_be_demonstrated_before_correction": true,
+      "batch_condition_cramers_v_block_at_or_above": 0.7,
+      "non_identifiable_design_action": "BLOCKED",
+      "no_pareto_improvement_action": "SELECT_UNINTEGRATED_BASELINE"
+    },
+    "not_evaluable_rule": {
+      "status": "NOT_EVALUABLE",
+      "counts_as_pass": false,
+      "allowed_only_when_required_input_or_dependency_is_absent": true,
+      "required_fields": ["head", "missing_requirement", "affected_candidates", "claim_limitation", "next_action"],
+      "whole_release_head_can_be_skipped": false
+    },
+    "simulation_can_establish": ["engineering_contract", "determinism", "controlled_confounding_behavior", "mechanism_sanity"],
+    "simulation_cannot_establish": ["external_scientific_generalization", "primary_tumor_program_preservation", "real_project_usability"],
+    "scalability_rule": {
+      "reference_hardware_required": true,
+      "runtime_and_peak_memory_must_be_reported": true,
+      "unintended_dense_expansion_allowed": false,
+      "universal_wall_time_threshold": null
+    }
+  },
+  "ux_primary_endpoint": {
+    "min_config_field_reduction": 0.70,
+    "manual_workarounds_allowed": false,
+    "project_specific_patch_count": 0,
+    "run_evidence_required": true
+  },
+  "development_datasets": [
+    "lin2020.pdac",
+    "pbmc3k",
+    "schlesinger2020.pdac",
+    "kang2018.pbmc",
+    "public_mixology"
+  ],
+  "external_projects": ["202604JJH", "202507LPJ", "202603AK112"],
+  "external_validation_design": "leave_one_project_out",
+  "required_dataset_portfolio": {
+    "qc": [
+      "lin2020_pdac",
+      "kang2018_pbmc",
+      "cell_hashing_gse108313",
+      "tenx_hgmm_6k",
+      "sampleqc_public_metrics",
+      "emtab2600_microscopy_quality",
+      "controlled_qc_truth_suite",
+      "real_project_panel"
+    ],
+    "preprocess": [
+      "controlled_preprocess_contract_fixture",
+      "pbmc3k_engineering_fixture",
+      "scmixology_gse118767",
+      "mereu_protocol_gse133544",
+      "ding_methods_gse132044",
+      "scib_pancreas_figshare",
+      "tenx_hgmm_6k",
+      "scdesign3_simulations",
+      "lin2020_pdac",
+      "moncada2020_pdac",
+      "zilionis2019_nsclc",
+      "lee2020_crc",
+      "kinker2020_pan_cancer_cell_lines",
+      "real_project_panel"
+    ],
+    "analysis": [
+      "kang2018_pbmc",
+      "scmixology_gse118767",
+      "muscat_simulations",
+      "squair_de_compendium",
+      "real_project_panel"
+    ]
+  },
+  "required_endpoint_portfolio": {
+    "qc": {
+      "qc_input_contract": ["controlled_qc_truth_suite", "real_project_panel"],
+      "qc_profile_selection": ["sampleqc_public_metrics", "lin2020_pdac", "real_project_panel"],
+      "qc_cell_calling": ["emtab2600_microscopy_quality", "tenx_hgmm_6k"],
+      "qc_ambient_correction": ["tenx_hgmm_6k"],
+      "qc_catastrophic_sample_detection": ["lin2020_pdac", "sampleqc_public_metrics", "real_project_panel"],
+      "qc_damage_classification": ["emtab2600_microscopy_quality", "sampleqc_public_metrics", "lin2020_pdac", "real_project_panel"],
+      "qc_doublet_calibration": ["kang2018_pbmc", "cell_hashing_gse108313", "solo_mkidney_gse140262", "tenx_hgmm_6k"],
+      "qc_rare_population_preservation": ["sampleqc_public_metrics", "lin2020_pdac", "real_project_panel"],
+      "qc_selector_superiority": ["sampleqc_public_metrics", "lin2020_pdac", "real_project_panel"],
+      "qc_iterative_review": ["sampleqc_public_metrics", "lin2020_pdac", "real_project_panel"],
+      "qc_policy_execution": ["controlled_qc_truth_suite", "real_project_panel"],
+      "qc_decisioncard_ux": ["real_project_panel"],
+      "qc_scalability": ["controlled_qc_truth_suite", "tenx_hgmm_6k", "real_project_panel"]
+    },
+    "preprocess": {
+      "pp_input_representation_contract": ["controlled_preprocess_contract_fixture", "pbmc3k_engineering_fixture", "scmixology_gse118767", "real_project_panel"],
+      "pp_normalization_selection": ["scmixology_gse118767", "mereu_protocol_gse133544", "ding_methods_gse132044", "real_project_panel"],
+      "pp_feature_selection": ["scmixology_gse118767", "mereu_protocol_gse133544", "kinker2020_pan_cancer_cell_lines", "real_project_panel"],
+      "pp_selector_regret": ["scmixology_gse118767", "mereu_protocol_gse133544", "ding_methods_gse132044", "real_project_panel"],
+      "pp_graph_stability": ["scmixology_gse118767", "scib_pancreas_figshare", "real_project_panel"],
+      "pp_integration_need_confounding": ["scdesign3_simulations", "scmixology_gse118767", "scib_pancreas_figshare", "real_project_panel"],
+      "pp_integration_pareto": ["scmixology_gse118767", "mereu_protocol_gse133544", "ding_methods_gse132044", "scib_pancreas_figshare", "real_project_panel"],
+      "pp_identity_preservation": ["scmixology_gse118767", "mereu_protocol_gse133544", "scib_pancreas_figshare", "tenx_hgmm_6k", "real_project_panel"],
+      "pp_tumor_structure_preservation": ["lin2020_pdac", "moncada2020_pdac", "zilionis2019_nsclc", "lee2020_crc", "kinker2020_pan_cancer_cell_lines", "real_project_panel"],
+      "pp_policy_execution": ["controlled_preprocess_contract_fixture", "pbmc3k_engineering_fixture", "scmixology_gse118767", "real_project_panel"],
+      "pp_decisioncard_ux": ["real_project_panel"],
+      "pp_scalability": ["controlled_preprocess_contract_fixture", "pbmc3k_engineering_fixture", "tenx_hgmm_6k", "kinker2020_pan_cancer_cell_lines", "real_project_panel"]
+    }
+  },
+  "portfolio_gate_policy": {
+    "registered_or_downloadable_is_not_scientific_pass": true,
+    "missing_metadata_fails_closed": true,
+    "missing_run_evidence_status": "NOT_RUN",
+    "simulation_only_scientific_status": "SIMULATION_PASS_NOT_EXTERNAL",
+    "contract_only_status": "CONTRACT_PASS_NOT_PERFORMANCE",
+    "passing_evidence_statuses": ["PASS", "PASS_BASELINE"],
+    "future_analysis_datasets_count_toward_current_core": false,
+    "redistribution_requires_verified_source_rights": true
+  },
+  "release_gate": {
+    "qc_status_until_pass": "REVIEW",
+    "preprocess_status_until_pass": "REVIEW",
+    "analysis_tumor_feature_development": "FROZEN",
+    "universal_superiority_claim": "PROHIBITED"
+  }
+}

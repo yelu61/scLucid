@@ -215,7 +215,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("validation_outputs/qc_manifest"),
+        default=Path("validation_outputs/work/qc_manifest"),
     )
     args = parser.parse_args()
     paths = build_manifest(args.output_dir)

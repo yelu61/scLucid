@@ -2,7 +2,7 @@
 
 This registry is intentionally small and explicit. It maps local h5ad files to
 the evidence claims they can support, so benchmark scripts can stay aligned with
-``data/DATASETS.md`` and the roadmap phase documents.
+``validation/README.md`` and the roadmap phase documents.
 """
 
 from __future__ import annotations
@@ -44,13 +44,13 @@ DATASETS: tuple[DatasetSpec, ...] = (
         key="lin2020.pdac",
         path=Path("data/lin2020.pdac.h5ad"),
         tissue="PDAC",
-        modality_role="tumor_baseline",
-        qc_roles=("tumor_aware_qc", "sample_retention_bias"),
+        modality_role="catastrophic_sample_failure_control",
+        qc_roles=("sample_failure_detection", "sample_retention_bias"),
         preprocess_roles=("tumor_marker_preservation", "golden_path"),
         figure2_panels=("2B", "2C"),
         figure3_panels=("3A", "3B", "3C"),
         required_obs=("sample", "dataset"),
-        benchmark_notes="Legacy PDAC fixture. cell_type/cell_subtype annotations are missing/unreliable; benchmarks that require them degrade to sample-level retention only.",
+        benchmark_notes="Development failure-control, not a high-quality lockbox. GSM4679533 has catastrophic low-complexity/high-mitochondrial/top-gene-dominance evidence. Cell labels are missing/unreliable.",
     ),
     DatasetSpec(
         key="schlesinger2020.pdac",
@@ -63,6 +63,18 @@ DATASETS: tuple[DatasetSpec, ...] = (
         figure3_panels=("3B",),
         required_obs=("dataset",),
         benchmark_notes="Legacy PDAC fixture. cell_type/cell_subtype annotations are missing/unreliable; benchmarks that require them degrade to sample-level retention only.",
+    ),
+    DatasetSpec(
+        key="moncada2020.pdac",
+        path=Path("data/moncada2020.pdac.h5ad"),
+        tissue="PDAC",
+        modality_role="multi_patient_tumor_generalization",
+        qc_roles=("tumor_aware_qc", "patient_retention_bias"),
+        preprocess_roles=("tumor_marker_preservation", "patient_structure"),
+        figure2_panels=(),
+        figure3_panels=(),
+        required_obs=("sample", "patient", "condition", "dataset"),
+        benchmark_notes="Six-patient GSE111672 fixture with author annotations; useful for generalization but not independent QC truth.",
     ),
     DatasetSpec(
         key="zilionis2019.nsclc",
@@ -116,6 +128,34 @@ DATASETS: tuple[DatasetSpec, ...] = (
             "dataset",
         ),
         benchmark_notes="Use singlet/doublet for metrics; report ambs separately.",
+    ),
+    DatasetSpec(
+        key="public_mixology",
+        path=Path("data/public_mixology.h5ad"),
+        tissue="LUAD cell-line mixture",
+        modality_role="controlled_mixology_ground_truth",
+        qc_roles=("external_identity_truth", "controlled_mixture"),
+        preprocess_roles=(
+            "cell_identity_preservation",
+            "protocol_batch_diagnostic",
+            "feature_selection_ground_truth",
+        ),
+        figure2_panels=(),
+        figure3_panels=(),
+        required_obs=(
+            "sample",
+            "condition",
+            "protocol",
+            "mixology_identity",
+            "dataset",
+        ),
+        annotation_obs=("cell_type", "cell_subtype", "mixology_identity"),
+        benchmark_notes=(
+            "Three LUAD cell lines measured by 10x, CEL-seq2, and Drop-seq. "
+            "Identity truth supports controlled biological-fidelity endpoints; "
+            "the released objects were already sample-QC filtered and are not "
+            "low-quality-cell truth."
+        ),
     ),
     DatasetSpec(
         key="cellbender_tiny",

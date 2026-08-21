@@ -145,14 +145,14 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("validation_outputs/qc_doublet_evidence/r_scdblfinder_reference.csv"),
+        default=Path("validation_outputs/work/qc_doublet_evidence/r_scdblfinder_reference.csv"),
     )
     parser.add_argument("--max-cells", type=int, default=6000)
     parser.add_argument("--seed", type=int, default=23)
     parser.add_argument(
         "--work-dir",
         type=Path,
-        default=Path("validation_outputs/qc_doublet_evidence/r_reference_inputs"),
+        default=Path("validation_outputs/work/qc_doublet_evidence/r_reference_inputs"),
     )
     args = parser.parse_args()
     path = export_reference(

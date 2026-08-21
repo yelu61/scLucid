@@ -256,7 +256,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("validation_outputs/qc_ambient_evidence"),
+        default=Path("validation_outputs/work/qc_ambient_evidence"),
     )
     parser.add_argument(
         "--raw-10x-dir",

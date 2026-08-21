@@ -69,6 +69,24 @@ def _auc(truth: pd.Series, score: pd.Series) -> float | None:
         return None
 
 
+def _auprc(truth: pd.Series, score: pd.Series) -> float | None:
+    """Return average precision, the primary ranking metric for rare doublets."""
+    try:
+        from sklearn.metrics import average_precision_score
+
+        valid = score.notna()
+        if valid.sum() == 0 or truth.loc[valid].nunique() < 2:
+            return None
+        return float(
+            average_precision_score(
+                truth.loc[valid].astype(bool),
+                score.loc[valid].astype(float),
+            )
+        )
+    except Exception:
+        return None
+
+
 def _stratified_subset(
     adata: ad.AnnData,
     labels: pd.Series,
@@ -342,8 +360,10 @@ def _scdblfinder_python_vs_r_reference_rows(
             "score_spearman": score_spearman,
             "prediction_agreement": prediction_agreement,
             "prediction_jaccard": prediction_jaccard,
-            "python_auc": _auc(truth_overlap, py_score),
-            "r_auc": _auc(truth_overlap, r_score),
+                "python_auc": _auc(truth_overlap, py_score),
+                "r_auc": _auc(truth_overlap, r_score),
+                "python_auprc": _auprc(truth_overlap, py_score),
+                "r_auprc": _auprc(truth_overlap, r_score),
             "python_f1": py_metrics["f1"],
             "r_f1": r_metrics["f1"],
             "f1_delta_python_minus_r": py_metrics["f1"] - r_metrics["f1"],
@@ -520,6 +540,7 @@ def _threshold_calibration_rows(
                     "default_recall": float(default_metrics["recall"]),
                     "default_f1": float(default_metrics["f1"]),
                     "score_auc": _auc(truth_valid, score_valid),
+                    "score_auprc": _auprc(truth_valid, score_valid),
                     "recall_gain_vs_default": float(chosen["recall"] - default_metrics["recall"]),
                     "f1_gain_vs_default": float(chosen["f1"] - default_metrics["f1"]),
                     "review_required": bool(
@@ -671,11 +692,14 @@ def _benchmark_summary_payload(
     weights = pd.DataFrame(weight_rows)
     payload: dict[str, Any] = {"schema_version": "doublet_benchmark_evidence_v1"}
     if not evidence.empty:
-        best = evidence.sort_values(["f1", "score_auc"], ascending=False).iloc[0]
+        best = evidence.sort_values(["f1", "score_auprc", "score_auc"], ascending=False).iloc[0]
         payload["best_method"] = str(best["method"])
         payload["best_method_f1"] = float(best["f1"])
         payload["best_method_auc"] = (
             None if pd.isna(best.get("score_auc")) else float(best.get("score_auc"))
+        )
+        payload["best_method_auprc"] = (
+            None if pd.isna(best.get("score_auprc")) else float(best.get("score_auprc"))
         )
     if not parity.empty and parity.iloc[0].get("reference_status") == "ok":
         row = parity.iloc[0]
@@ -849,6 +873,7 @@ def run(
                 "predicted_rate": float(predicted.mean()),
                 "expected_rate_from_demuxlet": expected_rate,
                 "score_auc": _auc(truth, scores[method]),
+                "score_auprc": _auprc(truth, scores[method]),
                 "heterotypic_risk_proxy": "external_demuxlet_positive",
                 "homotypic_risk_proxy": "not_measurable_without_cell-type-pair evidence",
                 "runtime_seconds": float(status["runtime_seconds"]),
@@ -970,7 +995,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("validation_outputs/qc_doublet_evidence"),
+        default=Path("validation_outputs/work/qc_doublet_evidence"),
     )
     parser.add_argument(
         "--max-cells", type=int, default=6000, help="Stratified pilot subset. Use 0 for full data."

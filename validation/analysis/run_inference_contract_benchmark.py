@@ -460,7 +460,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("validation_outputs/analysis_inference_contract"),
+        default=Path("validation_outputs/work/analysis_inference_contract"),
     )
     parser.add_argument("--max-genes", type=int, default=200)
     parser.add_argument("--max-cell-types", type=int, default=4)

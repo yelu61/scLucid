@@ -510,7 +510,7 @@ def run(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("validation_outputs/preprocess_batch_diagnostic")
+        "--output-dir", type=Path, default=Path("validation_outputs/work/preprocess_batch_diagnostic")
     )
     parser.add_argument("--datasets", nargs="*", help="Optional dataset keys to include.")
     parser.add_argument(

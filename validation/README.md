@@ -5,6 +5,27 @@ reviewable evidence. The goal is not to prove that every default is optimal.
 The goal is to make each QC and preprocessing decision inspectable, comparable,
 and biologically defensible.
 
+The accession-level source of truth for QC, Preprocess, and current Analysis
+validation is `validation/dataset_evidence_registry.json`. Run
+`validation/build_dataset_evidence_registry_report.py` to audit acquisition,
+license, metadata, and executed-endpoint readiness. A registered or downloadable
+dataset is never counted as a scientific pass.
+
+The complete QC release gate is defined in
+`docs/user/qc_full_validation_protocol.md`. It uses 13 independent evidence
+heads and exact endpoint/dataset bindings. Generate the deterministic mechanism
+and engineering controls with
+`validation/qc/generate_controlled_qc_truth_suite.py`, verify review/apply
+contracts with `validation/qc/run_controlled_qc_contract_benchmark.py`, and
+build the no-score head readiness report with
+`validation/qc/build_full_qc_validation_report.py`. Simulation-only and
+contract-only outcomes never satisfy an external scientific endpoint.
+
+`validation_outputs/current/` is the only canonical generated evidence tree.
+Legacy and exploratory runners write to `validation_outputs/work/`; that tree is
+disposable and is never read as release evidence. A result enters `current/`
+only through an explicit evidence-run binding and a regenerated maturity gate.
+
 ## Dataset Evidence Map
 
 | Dataset | QC evidence | Preprocess evidence | Why it matters |
@@ -12,16 +33,18 @@ and biologically defensible.
 | `pbmc3k` | Fixed-threshold baseline, fast smoke path | Layer contract, Scanpy-style baseline | Shows the default path behaves on a familiar non-tumor dataset. |
 | `lin2020.pdac` | Tumor-aware QC, sample retention bias | Tumor marker preservation, PDAC golden path | First tumor case for high-mito/high-stress warnings and malignant/TME signal preservation. |
 | `schlesinger2020.pdac` | Tumor-aware generalization, single-sample behavior | Tumor marker preservation | Prevents the PDAC claim from depending on one fixture. |
+| `moncada2020.pdac` | Patient-aware tumor generalization | Tumor structure and annotation preservation | Adds a multi-patient PDAC silver-standard cohort without treating author labels as QC truth. |
 | `zilionis2019.nsclc` | Tumor/blood retention, cell-type retention | TME marker/state preservation | Second cancer type with paired blood control and author labels. |
 | `lee2020.crc` | Tumor/normal retention, patient-level retention bias | Patient-aware integration diagnostics, marker preservation | Large patient-diverse tumor dataset for retention and overcorrection evidence. |
 | `baron2016.pancreas` | Normal reference | Donor batch diagnostic, integration risk | Tests whether scLucid recommends correction conservatively instead of flipping a default switch. |
 | `kang2018.pbmc` | Demuxlet singlet/doublet/ambiguous evidence | Donor/stimulation-aware preprocessing | Makes doublet claims measurable and perturbation structure visible. |
+| `public_mixology` | Controlled mixture context; not low-quality-cell truth | Cross-protocol cell-line identity preservation | Provides external identity truth across 10x, CEL-seq2, and Drop-seq without treating post-QC cells as QC failures. |
 | `cellbender_tiny` | Ambient RNA and empty-droplet diagnostic contract | Not a preprocess benchmark | Tiny fixture for ambient diagnostic plumbing, not biological performance claims. |
 
 ## Phase 2 QC Benchmark
 
-Primary outputs should live under `validation_outputs/qc_*` and eventually feed
-the QC evidence package:
+Exploratory outputs live under `validation_outputs/work/qc_*` and may eventually
+feed a reviewed QC evidence package. They are not release evidence by default:
 
 - `qc_evidence_package/qc_source_data.tsv`: unified QC source-data
   table with harmonized panels (`2A` ambient contract, `2B` threshold decision
@@ -105,7 +128,13 @@ Current claim-scorecard interpretation:
 
 ## Phase 3 Preprocess Benchmark
 
-Primary outputs should live under `validation_outputs/preprocess_*` and
+The controlled mixology gate is implemented in
+`validation/preprocess/run_mixology_preprocess_benchmark.py`. It evaluates the
+actual selected policy by leaving out each protocol in turn, and keeps
+integration objectives separate on a Pareto evidence surface. Passing this
+controlled task does not satisfy the real-project release gate.
+
+Exploratory outputs live under `validation_outputs/work/preprocess_*` and may
 eventually feed the preprocess evidence package:
 
 - `layer_contract_report.tsv`: layer transition table for counts, normalized,
@@ -149,7 +178,7 @@ from raw workflow internals:
 `validation/analysis/run_inference_contract_benchmark.py` is the executable
 checkpoint for sample, condition, experimental-unit, paired-block, contrast,
 and covariate semantics. It writes generated artifacts under
-`validation_outputs/analysis_inference_contract/` and includes SHA-256 input
+`validation_outputs/work/analysis_inference_contract/` and includes SHA-256 input
 provenance in its manifest.
 
 The Kang2018 PBMC path derives one pseudobulk observation per
@@ -183,8 +212,8 @@ python validation/preprocess/build_preprocess_evidence_package.py
 python validation/qc_preprocess/build_qc_preprocess_evidence_package.py
 ```
 
-They verify metadata readiness and write dataset/strategy/Figure-panel plans
-under `validation_outputs/`. The executable runners then add the first
+They verify metadata readiness and write disposable dataset/strategy/Figure-panel
+plans under `validation_outputs/work/`. The executable runners then add the first
 real-data evidence tables for QC threshold decisions, tumor biological
 fidelity, demuxlet-grounded doublet evidence, ambient/empty-droplet contracts,
 preprocessing layer contracts, HVG marker/program preservation, and
