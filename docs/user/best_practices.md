@@ -108,9 +108,8 @@ Review evidence, not automatic deletion:
 - cell-cycle regression diagnostics report associations and group
   imbalance; regression should be enabled only when the
   biology/technical tradeoff is explicit
-- HVG biological protection can rescue marker/pathway/tumor genes, and
-  any cap on rescued genes is reported with a deterministic truncation
-  policy
+- curated marker/pathway/tumor genes belong in a labeled sensitivity
+  analysis; they are not forced into the default unsupervised discovery set
 - integration diagnostics, post-hoc QC cluster review, and doublet
   evidence should guide manual review before removing cells or
   collapsing biology
@@ -126,21 +125,17 @@ Removed from the recommended path:
 
 Recommended default:
 
-- use `run_qc()` as the primary entrypoint; it routes through
-  reviewer-first iterative QC and filters by `qc_decision == "remove"`
-- use `run_standard_qc()` only for compatibility, step control, resume,
-  or explicit legacy-threshold filtering
-- keep `use_recommendations=True` unless
-  you have a strong reason to lock thresholds manually
-- prefer `threshold_mode="hierarchical"`
-  for multi-sample datasets
+- use `recommend_qc_policy(adata, context)` as the read-only first screen
+- inspect the `DecisionCard`, candidate disagreement, affected samples/cells,
+  and missing evidence before calling `apply_qc_policy()`
+- use `run_qc()` and `run_standard_qc()` only for compatibility, explicit
+  step control, resume, or legacy-threshold workflows
 - keep filtering conservative by requiring multiple independent
   low-quality criteria before removing cells
 - review the stored QC trace and summary outputs before finalizing
   thresholds
-- use `qc_reviewer_table` as the single reviewer-facing QC table; it
-  records recommended value, applied value, source, confidence, affected
-  cells, biological risk note, and whether manual review is required
+- use the `DecisionCard` as the first screen; detailed reviewer tables remain
+  annex evidence for thresholds, sources, affected cells, and biological risk
 - inspect `ambient_evidence_summary`, `doublet_evidence_summary`,
   `post_annotation_qc_review`, and `qc_benchmark_scorecard` before
   claiming benchmark-grade QC readiness
@@ -158,13 +153,11 @@ When to override defaults:
 
 Recommended default:
 
-- use
-  `PreprocessingWorkflowConfig.default()`
-  for the standard light-dependency path
-- reserve `scl.recommendation.run_intelligent_preprocessing()`
-  for datasets where parameter choice is uncertain
-- keep the default path as the package's canonical preprocessing route
-  in manuscripts and examples
+- use `recommend_preprocess_policy(adata, context, consumer=...)` and inspect
+  its representation and integration decisions before explicit application
+- use `apply_preprocess_policy()` for the canonical light-dependency baseline
+- keep `run_preprocessing()` and the older recommendation engine as
+  compatibility or sensitivity tools, not as the product decision surface
 - do not regress out `total_counts` or `pct_counts_mt` by default; enable
   regression only when diagnostics show a technical covariate dominates
   the biological signal
@@ -172,7 +165,7 @@ Recommended default:
   inspecting batch mixing, sample structure, and the risk of
   over-correction
 
-When to use intelligent preprocessing:
+When to compare preprocessing candidates:
 
 - when batch correction is uncertain
 - when HVG / PCA / neighbors settings need reviewable justification
@@ -185,14 +178,14 @@ Recommended stage handoff:
 - filter genes detected in too few cells at the start of preprocessing
   (default `min_cells_per_gene=3`), after cell-level QC and before
   normalization/HVG selection
-- store log-normalized expression in `adata.layers["normalized"]` and
-  `adata.raw` before optional regression or HVG subsetting
-- expect the preprocessing review summary to document the canonical
-  contract
-  `counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph` through
-  `preprocess_layer_contract` and `preprocess_reviewer_table`
-- use HVGs for PCA/neighbors, but keep `adata.raw` available for marker,
-  annotation, and differential-expression review
+- store log-normalized full-gene expression in
+  `adata.layers["normalized_full"]` and `adata.raw`
+- mark unsupervised discovery features without subsetting the persistent
+  interpretation space; scaling is a temporary PCA intermediate
+- expect the review and RunEvidence to document `counts`, `normalized_full`,
+  `discovery_rep`, and optional `integrated_rep` separately
+- use discovery features for PCA/neighbors, but use `normalized_full` for
+  marker/program interpretation and `counts` for count models
 - use integrated embeddings for visualization/clustering only when
   justified; keep unintegrated normalized expression for marker and DE
   interpretation

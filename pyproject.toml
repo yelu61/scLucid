@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 name = "scLucid"
 version = "0.1.0"
 authors = [{ name = "Ye Lu", email = "foliageyelu@gmail.com" }]
-description = "An integrated, flexible, and exploratory analysis system for single-cell RNA-seq analysis."
+description = "An evidence-calibrated decision and execution system for tumor single-cell RNA-seq projects."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }

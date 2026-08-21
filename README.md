@@ -4,36 +4,43 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/yelu61/scLucid/actions/workflows/build.yml/badge.svg)](https://github.com/yelu61/scLucid/actions)
 
-**scLucid** is a diagnostic-first, audit-ready Python framework for tumor
-single-cell interpretation. The goal is to make single-cell analysis
-**lucid**: clear in its assumptions, explicit in its inference boundaries, and
-reviewable from raw AnnData to biological interpretation.
+**scLucid** is an evidence-calibrated review, strategy-comparison, and
+reproducible execution system for real multi-sample, especially tumor,
+single-cell RNA-seq projects. It is not a large automatic analysis package and
+does not replace biological judgment. Its job is to expose where common
+strategies can fail, compare their consequences, and return an explicit
+`READY / REVIEW / BLOCKED` decision with one next action.
 
-scLucid is not trying to replace Scanpy, Seurat, or the broader single-cell
-ecosystem. It builds a tumor-focused research system around them: adaptive QC,
-conservative preprocessing, evidence-based annotation, malignancy and TME
-interpretation, explicit inference semantics, and optional bulk/spatial evidence
-modules.
-
-The long-term vision is to move routine single-cell work from "run the accepted
-workflow" toward context-aware scientific decision support: what was decided,
-why it was reasonable for this biological setting, when the result should be
-treated as exploratory, and what extra evidence would make the claim stronger.
+The current product focus is QC and preprocessing. Analysis and tumor modules
+remain available for compatibility, but new feature development is frozen until
+the locked QC/preprocessing scientific and real-project usability gates pass.
+Until then, scLucid does **not** claim universal superiority over traditional
+QC or preprocessing workflows.
 
 ## 60-Second Quickstart
 
-From a Cell Ranger output to a reviewable first-pass AnnData and a shareable
-HTML audit trail:
+The standard path has four explicit actions. Review does not modify the input;
+execution requires the reviewed policy:
 
 ```python
 import scLucid as scl
 
 adata = scl.read_10x("path/to/filtered_feature_bc_matrix/", species="human")
-context = scl.ProjectContext(dataset_type="pbmc_or_blood", sample_key="sample")
-plan = scl.plan_analysis(adata, context=context)
-adata = scl.run_pipeline(adata, plan=plan)
-review = scl.review_run(adata)
-scl.export_audit_report(adata, "report.html")
+context = scl.ProjectContext(
+    dataset_type="tumor_tissue",
+    sample_key="sample",
+    input_provenance="filtered_counts",
+)
+
+qc_review = scl.recommend_qc_policy(adata, context=context)
+qc_result = scl.apply_qc_policy(adata, qc_review.policy)
+
+pp_review = scl.recommend_preprocess_policy(
+    qc_result.adata,
+    context,
+    consumer="exploration",
+)
+pp_result = scl.apply_preprocess_policy(qc_result.adata, pp_review.policy)
 ```
 
 `scl.read_10x` handles both Cell Ranger directories and `.h5` files, copies the
@@ -41,20 +48,19 @@ counts to `layers["counts"]` automatically, and attaches your dataset context
 (species / tissue / cancer type) so downstream stages pick it up without extra
 arguments.
 
-`plan_analysis()` exposes the assumptions that must be confirmed before the
-run. `review_run()` then reduces stage-specific evidence to `READY`, `REVIEW`,
-or `BLOCKED`, together with the next action and rerun scope. Automated
-annotation and tumor interpretation remain first-pass evidence until their
-review items are resolved.
+The compatibility workflows (`run_qc`, `run_preprocessing`, and `run_pipeline`)
+remain available for one minor release. See the
+[evidence-calibrated workflow](docs/user/evidence_calibrated_workflow.md) for
+the new contract and migration boundary.
 
 ## Why scLucid
 
 | Principle | What It Means |
 |-----------|---------------|
-| **Diagnostic-first** | QC, preprocessing, DE, proportion, bulk, and spatial utilities are paired with checks and warnings before results are trusted. |
+| **Decision-first** | Review is read-only; a fingerprinted policy is applied only after an explicit decision. |
 | **Audit-ready by default** | Decisions, parameters, warnings, contracts, reviewer tables, and review summaries are stored under `adata.uns["sclucid"]` and can be exported to an HTML audit report. |
 | **Explicit inference semantics** | Results distinguish exploratory, descriptive, and sample-level inferences so exploratory signals are not overstated. |
-| **Tumor ecosystem orientation** | Annotation, CNV/malignancy evidence, TME composition, therapy signatures, cell communities, and ecotype-style concepts are first-class design targets. |
+| **Tumor project orientation** | Sample failure, fragile lineages, stress, ambient RNA, doublets, and integration confounding are separate evidence heads. |
 | **Ecosystem-aware, not ecosystem-replacing** | Mature Python/R tools can be wrapped or validated when useful, but scLucid keeps a lightweight core and records method-specific evidence. |
 | **Context-aware decisions** | Dataset context, tumor biology, and analysis intent are treated as part of the decision record rather than hidden analyst assumptions. |
 

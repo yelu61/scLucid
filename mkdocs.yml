@@ -78,12 +78,17 @@ nav:
       - Module Features And Stage Plan: user/module_features_and_plan.md
   - Workflow Guidance:
       - Scientific Reasoning Contracts: user/scientific_reasoning_contracts.md
+      - Evidence-Calibrated QC And Preprocess: user/evidence_calibrated_workflow.md
+      - Full QC Validation: user/qc_full_validation_protocol.md
+      - Blinded QC Validation: user/qc_validation_annotation_protocol.md
+      - Full Preprocess Validation: user/preprocess_full_validation_protocol.md
+      - Controlled Preprocess Validation: user/preprocess_validation_protocol.md
+      - Validation Dataset Portfolio: user/validation_dataset_portfolio.md
       - Best Practices: user/best_practices.md
       - Data Contracts: user/data_contracts.md
       - Marker Resources: user/marker_resources.md
       - Workflow Hardening: user/workflow_hardening.md
       - QC And Preprocess Maturity: user/qc_preprocess_maturity.md
-      - Validation Scaffold: user/validation_scaffold.md
   - Marker Resource Maintenance:
       - Curation Contract: marker_resources/CURATION.md
       - Data Format: marker_resources/DATA_FORMAT.md

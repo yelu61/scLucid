@@ -53,10 +53,25 @@ assets.
 
 Layers:
 
-- `adata.layers["counts"]`: raw counts used as the preferred starting
-  point
-- `adata.layers["normalized"]`: normalized expression from preprocessing
-- `adata.layers["scaled"]`: scaled expression when generated
+- `adata.layers["counts"]`: authoritative untransformed counts for count
+  models and pseudobulk
+- `adata.layers["normalized_full"]`: full-gene normalized interpretation
+  space for markers, programs, and plots
+- `adata.raw`: snapshot of the full-gene normalized interpretation space
+
+Representations:
+
+- `adata.var["discovery_feature"]`: unsupervised feature-selection mask
+- `adata.obsm["X_pca"]`: unintegrated discovery representation
+- optional integrated representations live in `adata.obsm`; they are not
+  corrected expression for marker or differential-expression testing
+- scaling/regression matrices may exist as temporary method intermediates,
+  but are not required persistent contract layers
+
+The frozen 1.0 compatibility workflow may additionally emit legacy
+`layers["normalized"]`, `layers["scaled"]`, and
+`var["highly_variable"]`. These remain readable during migration, but the
+four-space policy path above defines the recommended QC/Preprocess handoff.
 
 Observation columns:
 

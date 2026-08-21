@@ -1,4 +1,10 @@
-# Validation Scaffold
+# Validation Scaffold (historical)
+
+> This page describes the retired lightweight proxy-evidence scaffold. It is
+> retained for provenance but is not a current validation entry point. Use
+> [Validation Dataset Portfolio](validation_dataset_portfolio.md) and the
+> machine-readable `validation/dataset_evidence_registry.json`; canonical
+> generated evidence lives only under `validation_outputs/current/`.
 
 scLucid uses three coordinated validation tracks. The current lightweight
 scaffold locks down QC/preprocess workflow maturity without claiming that
@@ -18,7 +24,7 @@ The current scaffold validates whether a golden-path run is:
 - ready for later comparative validation
 
 For QC, the lightweight scaffold now also has a QC evidence
-package under `validation_outputs/qc_evidence_package/`. This package
+package under `validation_outputs/work/qc_evidence_package/`. This package
 consolidates existing threshold, tumor-aware, doublet, and ambient
 validation outputs into a reviewable source-data table and a claim
 scorecard.
@@ -47,8 +53,8 @@ The JSON includes the full scaffold manifest. The CSV is a compact
 review table with one row per metric, including status and
 interpretation.
 
-QC evidence runners write current Phase 2 outputs under
-`validation_outputs/qc_*`:
+QC evidence runners write historical Phase 2 work outputs under
+`validation_outputs/work/qc_*`:
 
 - `qc_evidence_package/qc_source_data.tsv`: harmonized QC
   source data for QC threshold decisions, tumor biological fidelity,
@@ -62,7 +68,7 @@ QC evidence runners write current Phase 2 outputs under
   summary
 
 The Analysis inference-contract runner writes local, generated evidence under
-`validation_outputs/analysis_inference_contract/`:
+`validation_outputs/work/analysis_inference_contract/`:
 
 - `metadata_propagation_matrix.tsv`: resolved metadata names and statistical
   roles across context, proportion, and pseudobulk

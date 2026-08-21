@@ -114,5 +114,6 @@ implementation status.
   reorganization.
 - Keep `docs/user/qc_preprocess_maturity.md` as the benchmark-maturity page,
   but avoid duplicating every implementation detail already covered by API docs.
-- Keep `docs/validation/qc_preprocess_evidence_pilot.md` as a validation-output
-  log, not as the current module contract.
+- Keep `docs/validation/qc_preprocess_evidence_pilot.md` only as a historical
+  proxy-evidence log; `validation/evidence_run_index.json` and
+  `validation_outputs/current/` define the active evidence surface.

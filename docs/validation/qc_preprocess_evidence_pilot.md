@@ -1,4 +1,9 @@
-# QC + Preprocess Evidence Pilot
+# QC + Preprocess Evidence Pilot (historical)
+
+> This document records the retired proxy-evidence phase. Its listed output
+> directories are no longer canonical and may have been deleted. Current
+> release evidence lives only under `validation_outputs/current/` and is
+> indexed by `validation/evidence_run_index.json`.
 
 This report summarizes the first real-data evidence runners for QC Phase 2 and
 Preprocess Phase 3. The current outputs are pilot tables, not final manuscript

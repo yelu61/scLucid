@@ -7,11 +7,11 @@ analyses, see `notebooks`.
 ## Recommended Learning Order
 
 1.  Describe the project with `scLucid.ProjectContext`
-2.  Inspect `scLucid.plan_analysis()` before running
-3.  Run the supported QC -> preprocessing -> analysis path
-4.  Use `scLucid.review_run()` to resolve `BLOCKED` and `REVIEW` items
-5.  Drop down to a stage workflow only for decisions that need adjustment
-6.  Export reviewer-facing summaries before making biological claims
+2.  Review QC without mutating the input
+3.  Explicitly apply the reviewed QC policy
+4.  Review preprocessing for a declared consumer
+5.  Explicitly apply the reviewed preprocessing policy
+6.  Do not proceed to biological claims while a blocker remains
 
 ## Minimal End-To-End Example
 
@@ -26,23 +26,23 @@ context = scl.ProjectContext(
     dataset_type="pbmc_or_blood",
     species="human",
     sample_key="sample",
-    study_objective="broad cell atlas",
-)
-plan = scl.plan_analysis(adata, context=context)
-print(plan.to_frame())
-
-adata = scl.run_pipeline(
-    adata,
-    plan=plan,
-    preprocess_save_dir="results/preprocess",
-    show_progress=True,
+    condition_key="condition",
+    input_provenance="filtered_counts",
 )
 
-review = scl.review_run(adata)
-print(review.to_frame())
-print(review.show_next_actions())
+qc_review = scl.recommend_qc_policy(adata, context=context)
+print(qc_review.status, qc_review.reason, qc_review.next_action)
+qc_result = scl.apply_qc_policy(adata, qc_review.policy)
 
-adata.write("results/final_annotated.h5ad")
+pp_review = scl.recommend_preprocess_policy(
+    qc_result.adata,
+    context,
+    consumer="exploration",
+)
+print(pp_review.status, pp_review.reason, pp_review.next_action)
+pp_result = scl.apply_preprocess_policy(qc_result.adata, pp_review.policy)
+
+pp_result.adata.write("results/qc_preprocess_reviewed.h5ad")
 ```
 
 Replace `"sample"` with the actual biological-sample column in
@@ -51,17 +51,11 @@ Replace `"sample"` with the actual biological-sample column in
 
 ## What This Path Gives You
 
-- QC trace and `qc_reviewer_table` under `adata.uns["sclucid"]["qc"]`
-- QC review sidecars when `save_dir` is set
-- standard preprocessing outputs such as normalized layers, HVG
-  metadata, PCA, and neighbors/UMAP
-- preprocessing layer contract and reviewer table describing
-  `counts -> normalized -> raw -> HVG -> scaled -> PCA -> graph`
-- clustering labels in `adata.obs`
-- annotation evidence, analysis output contract, inference policy, and
-  analysis reviewer table in `adata.obs` and `adata.uns`
-- one cross-stage `run_review` with status, rationale, next action, and
-  rerun scope under `adata.uns["sclucid"]["run_review"]`
+- a compact `DecisionCard` before either stage mutates data
+- an immutable, fingerprinted `QCPolicy` and `PreprocessPolicy`
+- separate counts, full-gene interpretation, discovery, and optional
+  integration spaces
+- executed `RunEvidence` with status, claim boundary, and limitations
 
 ## How To Read The Outcome
 
@@ -102,25 +96,17 @@ Optional enhancements:
 - `run_integration=True` with Harmony/scVI/scANVI/BBKNN/ComBat should be
   used only after inspecting batch effects and over-correction risk
 
-## Choosing Between Default And Intelligent Preprocessing
+## Current Scientific Maturity
 
-Use `PreprocessingWorkflowConfig.default()` when:
-
-- you want the canonical light-dependency package path
-- your dataset is standard scRNA-seq with familiar batch structure
-- you value stability, signal preservation, and simplicity over
-  parameter search
-
-Use `scl.recommendation.run_intelligent_preprocessing()` when:
-
-- you want data-driven parameter suggestions
-- you want a reviewer-facing summary before applying recommendations
-- you need help choosing HVG / PCA / neighbors / integration settings
+QC and Preprocess remain `REVIEW`, not `CORE`. A contract-complete run does not
+establish superiority. Analysis and Tumor feature development remains frozen
+until the locked blinded/held-out validation and all three real-project UX gates
+pass.
 
 ## Related Repository Entry Points
 
-- `examples/01_workflow/basic_pipeline.py`: shortest maintained
-  workflow-layer script
+- `examples/02_simple_api/qc_preprocess_review.py`: canonical four-action path
+- `examples/01_workflow/basic_pipeline.py`: compatibility pipeline
 - `examples/02_simple_api/qc_step_by_step.py`: composable QC inspection
   path
 - `examples/02_simple_api/preprocess_step_by_step.py`: composable
@@ -136,8 +122,8 @@ Use `scl.run_qc()`, `scl.pp.run_preprocessing()`, and
 `scl.analysis.run_standard_analysis()` when rerunning a complete stage.
 `run_standard_qc()` is the compatibility/step-control QC path; low-level
 functions such as `cluster_cells()` and `run_annotation()` belong to the
-simple API layer. The unified plan -> run -> review path remains the
-recommended first screen.
+simple API layer. These functions are compatibility or teaching paths; the
+four-action recommend/apply workflow is the recommended first screen.
 
 See [Usage Layers](usage_layers.md) for the full product-layer model and
 [QC And Preprocess Maturity](qc_preprocess_maturity.md) for the

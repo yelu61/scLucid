@@ -31,7 +31,9 @@ default reviewer-first QC entrypoint.
 
 Canonical example:
 
-- `examples/01_workflow/basic_pipeline.py`
+- `examples/02_simple_api/qc_preprocess_review.py` for the recommended
+  four-action QC/Preprocess review and apply path
+- `examples/01_workflow/basic_pipeline.py` for compatibility pipeline use
 
 Expected output:
 
@@ -57,8 +59,11 @@ Use this layer when:
 
 Primary entrypoints:
 
+- `scLucid.recommend_qc_policy`
+- `scLucid.apply_qc_policy`
+- `scLucid.recommend_preprocess_policy`
+- `scLucid.apply_preprocess_policy`
 - `scLucid.qc.calculate_qc_metric`
-- `scLucid.qc.recommend_intelligent_qc`
 - `scLucid.qc.run_qc_threshold_decision`
 - `scLucid.qc.build_qc_decisions`
 - `scLucid.qc.filter_cells`
@@ -66,6 +71,11 @@ Primary entrypoints:
 - `scLucid.preprocess.find_hvgs`
 - `scLucid.preprocess.scale_data`
 - `scLucid.preprocess.batch_correction`
+
+`scLucid.qc.recommend_intelligent_qc` and
+`scLucid.recommendation.run_intelligent_preprocessing` remain compatibility
+or sensitivity APIs. They do not replace DecisionCard review or establish
+scientific superiority.
 
 Canonical examples:
 

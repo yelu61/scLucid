@@ -6,26 +6,27 @@ as packaged public data.
 
 ## Current Local Data Layout
 
-At the time of this guide, the local workspace contains the eight ready h5ad
-datasets listed below. The authoritative inventory, benchmark roles, field
-contract, and future dataset priorities are maintained in
-`data/DATASETS.md`.
+At the time of this guide, the local workspace contains the ten ready H5AD
+fixtures listed below. The authoritative scientific inventory, accession,
+rights boundary, metadata contract, and endpoint roles are maintained in
+`validation/dataset_evidence_registry.json`.
 
 | Path | Role | Notes |
 |------|------|-------|
 | `data/pbmc3k.h5ad` | Normal baseline | PBMC reference fixture for quick workflow checks. |
 | `data/lin2020.pdac.h5ad` | Tumor fixture | PDAC-oriented real-data acceptance candidate. |
 | `data/schlesinger2020.pdac.h5ad` | Tumor fixture | PDAC-oriented real-data acceptance candidate. |
+| `data/moncada2020.pdac.h5ad` | Tumor benchmark | Multi-patient GSE111672 PDAC generalization fixture with author annotations. |
 | `data/zilionis2019.nsclc.h5ad` | Tumor benchmark | NSCLC tumor/blood benchmark with author cell-type annotations. |
 | `data/baron2016.pancreas.h5ad` | Normal donor benchmark | Multi-donor pancreas reference for preprocess and batch-diagnostic checks. |
 | `data/lee2020.crc.h5ad` | Tumor benchmark | CRC tumor/normal benchmark with author cell-type and subtype annotations. |
 | `data/kang2018.pbmc.h5ad` | Doublet/stimulation benchmark | PBMC demuxlet labels for doublet evidence plus ctrl/stim condition labels. |
+| `data/public_mixology.h5ad` | Controlled mixture benchmark | Three protocols with cell-line identity truth for preprocessing selection. |
 | `data/cellbender_tiny.h5ad` | Ambient fixture | Tiny CellBender/heart10k-derived fixture for empty-droplet diagnostics. |
 
-Optional local intermediates may also exist, for example
-`data/pbmc3k_raw.h5ad` or `data/processed/pbmc3k_prepared.h5ad`. Treat those as
-generated or checkout-specific files unless they are documented in
-`data/DATASETS.md`.
+`data/sincell_with_class.RData` and `data/public_mixology.provenance.json` are
+source/provenance sidecars for rebuilding the controlled mixology object; they
+are not independent benchmark rows.
 
 Older references to directories such as `data/pbmc3k/`,
 `data/human_LUAD_GSE131907/`, or `data/mouse_melanoma_GSE119352/` are archived

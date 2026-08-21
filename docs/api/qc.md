@@ -10,12 +10,15 @@ engine, contamination scoring, doublet calling, and filtering contracts.
 
 ## Recommended Workflow Contract
 
-For most analyses, use `scLucid.qc.run_qc()` or
-`scLucid.qc.run_iterative_qc()` instead of calling threshold internals directly.
-`run_qc()` is the canonical reviewer-first path: it routes final exclusion
-through `qc_decision == "remove"` and records ambiguous cells as `review` or
-`sensitivity_only`. Use `run_standard_qc()` only when you explicitly need the
-legacy threshold-filtering compatibility workflow or step/resume controls.
+For new analyses, use
+`recommend_qc_policy(adata, context=context)` followed by an explicit
+`apply_qc_policy(adata, review.policy)`. Recommendation is read-only and returns
+a `DecisionCard`; execution returns `RunEvidence`. `run_qc()`,
+`run_iterative_qc()`, and `run_standard_qc()` remain compatibility paths for one
+minor release.
+
+Calling `recommend_qc_policy(adata)` without context intentionally preserves the
+legacy dictionary result during migration.
 
 The maintained QC path is:
 
@@ -67,6 +70,10 @@ Important review locations:
       show_root_heading: true
 
 ## Policy And Decisions
+
+::: scLucid.qc.policy.reviewer
+    options:
+      show_root_heading: true
 
 ::: scLucid.qc.policy.thresholds
     options:

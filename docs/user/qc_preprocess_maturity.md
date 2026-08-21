@@ -1,5 +1,17 @@
 # QC And Preprocessing Maturity Plan
 
+> **Current release boundary (2026-08-20):** QC and Preprocess are `REVIEW`,
+> not `CORE`. A review bundle may be contract-complete while scientific
+> superiority remains unvalidated. Analysis and Tumor feature development is
+> frozen until `validation/qc_preprocess/acceptance_contract.json` and the three
+> real-project usability gates pass.
+
+The P0 dataset portfolio is an additional fail-closed gate. Its accessions,
+download/license boundaries, metadata requirements, and preregistered metrics
+are maintained in [Validation Dataset Portfolio](validation_dataset_portfolio.md).
+Availability is not validation: every required dataset-specific endpoint must
+have an intact `RunEvidence` artifact before QC or Preprocess can become `CORE`.
+
 This page started as a QC/preprocess maturity plan and now also records
 nearby module maturity context. For the compact current module map and
 documentation source-of-truth hierarchy, see `module_features_and_plan`.
@@ -18,11 +30,11 @@ later in this document.
 
 | Area | Current Level | What Works Now | Main Gaps |
 |----|----|----|----|
-| QC | Candidate benchmark module with QC evidence package | Adaptive/sample-aware/tumor-aware threshold decisions, reviewer tables, tumor biological-fidelity benchmarks, Kang demuxlet doublet calibration, Python/R scDblFinder parity, and claim-level scorecards | More ground-truth-like doublet/ambient datasets and stronger homotypic/solid-tissue doublet evidence |
-| Preprocessing | Candidate benchmark module | Layer contracts, normalization/HVG/PCA/neighbors/UMAP evidence, batch-correction cautions, maturity contract | Larger multi-sample validation, stronger batch-correction recommendation evidence |
-| Analysis | Second benchmark module in active hardening | `clustering_review -> markers -> annotation_evidence -> annotation_consensus -> posthoc_qc_review -> malignancy_interpretation`, manager-routed marker resources, `analysis_inference_policy`, `analysis_output_contract`, `analysis_decision_summary`, and `analysis_reviewer_table` | Real-data acceptance runs, richer CellTypist/reference evidence, and a dedicated pseudobulk DE reviewer summary |
+| QC | **REVIEW; scientific core withheld** | Read-only `DecisionCard`, sample-level fail-closed gate, four candidate families, separate evidence heads, fingerprinted policy execution | Independent blinded labels, real miQC/SampleQC adapters, passing grouped-bootstrap superiority gate, all three real-project UX runs |
+| Preprocessing | **REVIEW; scientific core withheld** | Four-space representation contract, simple baseline executor, controlled mixology held-out regret gate, integration Pareto review | External tumor-project method ranking, leave-one-project-out validation, all three real-project UX runs |
+| Analysis | **Feature development frozen** | Existing compatibility workflows remain callable | Do not expand until QC and Preprocess pass locked gates |
 | Marker Resources | Strong architectural direction | Unified `Manager`, human/mouse registry resources, tissue/tumor marker views, artifact/program/tumor routing, curation SOP | Source provenance at scale, mouse tissue/tumor parity, atlas-derived marker review |
-| Tumor Module | Feature-rich but needs integration hardening | CNV, malignancy scoring/classification, TME, therapy, heterogeneity, workflow scaffolds | Consume stable analysis outputs more tightly, store tumor-stage review summaries, validate on tumor datasets |
+| Tumor Module | **Feature development frozen** | Existing CNV, malignancy, TME, therapy, and heterogeneity code remains callable for compatibility | Resume only after QC and Preprocess pass locked gates |
 | Plotting | Useful foundation | Publication-style themes and domain plots | Top-journal figure templates, richer multi-panel reports, visual regression checks |
 | Tools / Evidence Modules | Expanding tumor support | Python-facing wrappers, bulk deconvolution, bulk/spatial clean-room utilities, R parity scaffolds | Selective method validation, dependency isolation, bulk/spatial tumor use cases |
 | Documentation / Examples | Good skeleton | Three usage layers, advanced notebooks, golden-path scripts | Keep docs synchronized with maturity contracts and real-data acceptance results |
@@ -101,12 +113,11 @@ exported:
 
 QC hardening tasks:
 
-- keep `run_qc` as the canonical reviewer-first user workflow entrypoint,
-  backed by `run_standard_qc` for compatibility, step control, and resume
-- keep `recommend_qc_policy` as the diagnostic/recommend-only entrypoint
-  and `apply_qc_policy` as the explicit execution entrypoint
-- keep `recommend_intelligent_qc` executable as a standalone simple API
-  tool
+- keep `recommend_qc_policy` as the canonical read-only first screen and
+  `apply_qc_policy` as the explicit execution entrypoint
+- keep `run_qc`, `run_standard_qc`, and `recommend_intelligent_qc` callable
+  for compatibility, step control, or sensitivity analysis, without presenting
+  them as the scientific decision surface
 - keep ambient RNA correction diagnostic-only by default, but support
   explicit external CellBender/SoupX/DecontX-style result registration
   into canonical obs columns and the ambient layer contract
@@ -121,10 +132,9 @@ QC hardening tasks:
 - keep `qc_handoff_readiness` as the QC-to-preprocess contract so real
   projects can distinguish removed cells, review-required cells,
   sensitivity-only cells, and tumor-fragile states before preprocessing
-- maintain the QC evidence package under
-  `validation_outputs/qc_evidence_package/` so threshold, tumor-aware,
-  doublet, and ambient evidence are summarized in one source-data table
-  and one claim-level scorecard
+- treat the former QC evidence package as exploratory work under
+  `validation_outputs/work/qc_evidence_package/`; only explicitly bound
+  endpoint evidence under `validation_outputs/current/` can affect maturity
 - test tumor-aware behavior on PDAC data where high mitochondrial
   content may be a warning rather than an automatic removal criterion
 - test edge cases: missing mitochondrial genes, single-sample data,
@@ -135,19 +145,19 @@ QC hardening tasks:
 
 Current QC evidence status:
 
-- QC decision auditability is supported across the local benchmark
-  inventory by threshold decision tables and strategy scorecards.
-- QC-to-preprocess handoff is now a first-class review-summary section,
-  which makes the recommended counts layer and review/sensitivity cell
-  handling machine-readable for downstream workflows.
-- Tumor-aware biological fidelity is supported as a proxy claim across
-  PDAC, NSCLC, and CRC through marker/program retention and high-mt
-  biological-signal checks.
-- Doublet calibration is supported on Kang 2018 demuxlet labels, but
-  review is still required because those labels mainly validate
-  genotype-detectable heterotypic donor doublets.
-- Ambient RNA evidence remains contract-only until a full raw 10x matrix
-  with external SoupX/CellBender-style reference is added.
+- Auditability and execution contracts are implemented, but contract
+  completeness is not scientific validation.
+- Lin 2020 is a development failure-control dataset, not a high-quality lockbox:
+  `GSM4679533` has a catastrophic joint pattern and must be blocked.
+- Existing tumor marker/program retention results are proxy evidence only and
+  cannot establish correct cell-level QC labels or superiority.
+- Kang 2018 supports a limited doublet calibration question, mainly for
+  genotype-detectable multiplets; doublets remain a separate review head.
+- Public mixology supplies cross-protocol cell-line identity truth for
+  preprocessing fidelity. Its released objects were already sample-QC filtered,
+  so they are not used as low-quality-cell truth.
+- Ambient RNA remains `NOT_EVALUABLE` without appropriate source evidence and
+  is never converted into an automatic cell-deletion pass.
 
 ## Preprocessing As The Second Benchmark Module
 
@@ -161,8 +171,9 @@ Preprocessing should answer four user questions:
 
 Required preprocessing outputs:
 
-- `adata.layers["normalized"]` when normalization runs
-- `adata.var["highly_variable"]` or the configured HVG key
+- authoritative `adata.layers["counts"]`
+- full-gene `adata.layers["normalized_full"]` and `adata.raw`
+- `adata.var["discovery_feature"]` or the recorded discovery-feature key
 - `adata.obsm["X_pca"]`
 - neighbors graph and `adata.obsm["X_umap"]` when graph steps run
 - `adata.uns["sclucid"]["preprocess"]["workflow_config"]`
@@ -192,12 +203,14 @@ Analysis entries that can usually be compacted before long-term storage:
 
 Preprocessing hardening tasks:
 
-- keep `run_preprocessing` as the canonical workflow entrypoint
+- keep `recommend_preprocess_policy` and `apply_preprocess_policy` as the
+  canonical review/apply entrypoints; retain `run_preprocessing` for compatibility
 - make layer transitions explicit in the review summary
 - make HVG selection evidence inspectable
 - keep regression and batch correction opt-in by default, and document
   when to enable them
-- document when to skip regression or HVG subsetting
+- document when to skip regression and why persistent HVG subsetting is not
+  part of the four-space policy path
 - keep `scanpy.external.pp.scran_normalize` as the only supported
   optional scran path; avoid custom rpy2/Bioconductor execution branches
 - warn when tumor data are batch-corrected in a way that may remove
@@ -219,9 +232,8 @@ Preprocessing hardening tasks:
 3.  Stabilize preprocessing. Use the QC output as input, then harden
     normalization, HVG, PCA, neighbors, and optional integration until
     the handoff to analysis is predictable.
-4.  Only then polish analysis. Analysis quality depends on the first two
-    modules. Annotation and tumor interpretation should be improved
-    after QC and preprocessing are reliable.
+4.  Only after the locked QC and preprocessing gates pass, unfreeze Analysis
+    and Tumor feature development.
 5.  Build the combined QC/preprocess evidence package from the
     stabilized review summaries, then run it inside active real projects
     as an acceptance loop. Every mismatch between reviewer output and
@@ -230,8 +242,9 @@ Preprocessing hardening tasks:
 
 ## Definition Of Done For A Module
 
-A module can be treated as a scLucid benchmark module when all of the
-following are true:
+A module can be treated as contract-complete when all of the following are
+true. It becomes scientific `CORE` only after the additional locked acceptance
+contract and real-project usability gates pass:
 
 - the workflow entrypoint passes lightweight tests
 - at least one real-data golden path exercises the module
