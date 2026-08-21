@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+from ...decision import DecisionCard, QCPolicy, RunEvidence
 from ...runtime import effective_n_jobs
 from ...utils import (
     PartialResultManager,
@@ -21,7 +22,7 @@ from ...utils import (
     WorkflowError,
     save_workflow_result,
 )
-from ...utils.context import is_tumor_context
+from ...utils.context import AnalysisContext, is_tumor_context
 from ..artifacts import (
     record_qc_decision_artifact,
     record_threshold_decision,
@@ -34,6 +35,10 @@ from ..metrics import calculate_qc_metric
 from ..policy.adaptive_threshold import AdaptiveThresholdCalculator
 from ..policy.decisions import build_qc_decisions, summarize_qc_decisions, score_qc_gene_panels
 from ..policy.marking import mark_low_quality_cell
+from ..policy.reviewer import (
+    apply_evidence_calibrated_qc,
+    recommend_evidence_calibrated_qc,
+)
 from ..policy.thresholds import _resolve_qc_thresholds
 from ..reporting import generate_qc_report
 from .artifacts import (
@@ -765,18 +770,36 @@ def run_standard_qc(
 
 def recommend_qc_policy(
     adata_in: AnnData,
-    config: Optional[QCWorkflowConfig] = None,
+    config: Optional[QCWorkflowConfig | AnalysisContext] = None,
     *,
+    context: Optional[AnalysisContext | Dict[str, Any]] = None,
     tissue_type: str = "unknown",
     show_progress: bool = False,
-) -> Dict[str, Any]:
+) -> DecisionCard | Dict[str, Any]:
     """Recommend a QC policy without filtering or mutating the input object.
 
-    The returned bundle follows the canonical QC decision flow:
+    Passing ``ProjectContext`` as the second positional argument, or via the
+    ``context`` keyword, activates the evidence-calibrated read-only decision
+    path and returns a :class:`~scLucid.decision.DecisionCard`. Omitting it
+    preserves the legacy dictionary bundle for one minor release.
+
+    The legacy returned bundle follows the canonical QC decision flow:
     profile dataset, propose candidate thresholds, score biological risk,
     choose/recommend policy, and emit a reviewer table. Filtering is not
     applied; use :func:`apply_qc_policy` or :func:`run_qc` for execution.
     """
+    if isinstance(config, AnalysisContext):
+        if context is not None:
+            raise ValueError("Provide ProjectContext either positionally or by keyword, not both.")
+        context = config
+        config = None
+    elif context is not None and config is not None:
+        raise ValueError(
+            "Legacy QCWorkflowConfig cannot be mixed with the evidence-calibrated context path."
+        )
+    if context is not None:
+        return recommend_evidence_calibrated_qc(adata_in, context)
+
     diagnostic_config = (
         config.model_copy(deep=True)
         if config is not None and hasattr(config, "model_copy")
@@ -828,14 +851,18 @@ def recommend_qc_policy(
 
 def apply_qc_policy(
     adata_in: AnnData,
-    policy: Optional[Dict[str, Any]] = None,
+    policy: Optional[DecisionCard | QCPolicy | Dict[str, Any]] = None,
     config: Optional[QCWorkflowConfig] = None,
     *,
     tissue_type: str = "unknown",
     show_progress: bool = True,
     overwrite: bool = False,
-) -> AnnData:
-    """Apply a recommended or user-provided QC policy to an AnnData object."""
+) -> AnnData | RunEvidence:
+    """Apply a reviewed policy while preserving the legacy config path."""
+    if isinstance(policy, DecisionCard):
+        policy = policy.policy
+    if isinstance(policy, QCPolicy):
+        return apply_evidence_calibrated_qc(adata_in, policy)
     if config is None and policy is not None:
         policy_config = policy.get("applied_config") or policy.get("config")
         if isinstance(policy_config, dict):

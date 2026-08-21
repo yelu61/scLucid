@@ -46,6 +46,16 @@ def _col_sums(X) -> np.ndarray:
     )
 
 
+def _empty_droplet_mask(labels) -> np.ndarray:
+    """Normalize an explicit empty-droplet indicator with ``True == empty``."""
+    if labels.dtype == bool:
+        return labels.to_numpy(dtype=bool)
+    normalized = labels.astype(str).str.strip().str.lower()
+    return normalized.isin({"empty", "background", "ambient", "true", "1", "yes", "y"}).to_numpy(
+        dtype=bool
+    )
+
+
 def _ambient_risk_method_metadata() -> Dict[str, Any]:
     return {
         "calibration_status": "heuristic_unvalidated",
@@ -470,9 +480,7 @@ def diagnose_empty_droplets(
 
     if cell_call_key and cell_call_key in adata.obs.columns:
         calls = adata.obs[cell_call_key]
-        empty_mask = (
-            calls.astype(str).str.lower().isin({"empty", "background", "ambient", "false", "0"})
-        )
+        empty_mask = _empty_droplet_mask(calls)
         called_cell_mask = ~empty_mask
     else:
         threshold = float(np.quantile(positive, empty_count_quantile))
@@ -769,9 +777,7 @@ def correct_ambient_rna_linear(
     # Define empty droplets
     if empty_droplet_key and empty_droplet_key in adata.obs.columns:
         calls = adata.obs[empty_droplet_key]
-        empty_mask = (
-            calls.astype(str).str.lower().isin({"empty", "background", "ambient", "false", "0"})
-        )
+        empty_mask = _empty_droplet_mask(calls)
     else:
         threshold = float(np.quantile(positive, empty_count_quantile))
         empty_mask = (totals > 0) & (totals <= threshold)

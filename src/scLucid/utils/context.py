@@ -126,6 +126,14 @@ class AnalysisContext(SclucidBaseConfig):
     dataset_type: DatasetType = Field(default="unknown")
     species: str = Field(default="human")
     assay: str = Field(default="scrna")
+    input_provenance: Literal[
+        "unknown",
+        "raw_reads",
+        "unfiltered_droplets",
+        "filtered_counts",
+        "processed_object",
+    ] = Field(default="unknown")
+    cell_calling_source: Optional[str] = Field(default=None)
     tissue: Optional[str] = Field(default=None)
     tissue_type: str = Field(default="unknown")
     cancer_type: Optional[str] = Field(default=None)
@@ -219,6 +227,8 @@ def infer_analysis_context(
     dataset_type: Optional[str] = None,
     species: Optional[str] = None,
     assay: Optional[str] = None,
+    input_provenance: Optional[str] = None,
+    cell_calling_source: Optional[str] = None,
     tissue: Optional[str] = None,
     tissue_type: str = "unknown",
     cancer_type: Optional[str] = None,
@@ -334,6 +344,12 @@ def infer_analysis_context(
         dataset_type=resolved_dataset_type,
         species=species or base.species,
         assay=assay or base.assay,
+        input_provenance=input_provenance or base.input_provenance,
+        cell_calling_source=(
+            cell_calling_source
+            if cell_calling_source is not None
+            else base.cell_calling_source
+        ),
         tissue=tissue if tissue is not None else base.tissue,
         tissue_type=resolved_tissue_type,
         cancer_type=cancer_type if cancer_type is not None else base.cancer_type,

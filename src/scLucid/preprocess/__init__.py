@@ -46,6 +46,7 @@ from .integrate import (
 )
 
 from .neighbors import optimize_neighbors_pcs, run_embedding_pipeline
+from .policy import apply_preprocess_policy, recommend_preprocess_policy
 
 # --- Core Functions ---
 # --- Plotting & Evaluation Functions ---
@@ -96,6 +97,8 @@ __all__ = [
     # Workflow
     "run_preprocessing",
     "run_iterative_preprocessing",
+    "recommend_preprocess_policy",
+    "apply_preprocess_policy",
     "WORKFLOW_STEPS",
     "PartialWorkflowResult",
     "WorkflowError",

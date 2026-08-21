@@ -109,7 +109,13 @@ from .helpers import (
     subset_from_annotations,
     use_layer_as_X,
 )
-from .io import load_10x_data, read_10x, read_h5ad
+from .io import (
+    export_adata_subset,
+    load_10x_data,
+    read_10x,
+    read_h5ad,
+    write_seurat_conversion_script,
+)
 
 # Import and expose key functions and classes from the submodule
 from .manager import (
@@ -254,6 +260,8 @@ __all__ = [
     "assert_analysis_ready",
     "validate_workflow_contract",
     "write_h5ad_safe",
+    "export_adata_subset",
+    "write_seurat_conversion_script",
     # Helper functions
     "load_10x_data",
     "use_layer_as_X",
@@ -409,6 +417,8 @@ __all__ = [
     "read_10x",
     "read_h5ad",
     "load_10x_data",
+    "export_adata_subset",
+    "write_seurat_conversion_script",
     "build_metadata_dicts",
     "print_sample_crosstab",
     "assess_matrix_semantics",

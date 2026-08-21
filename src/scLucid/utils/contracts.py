@@ -41,6 +41,8 @@ class LayerKeys:
     """Canonical layer keys."""
 
     COUNTS = "counts"
+    NORMALIZED_FULL = "normalized_full"
+    # Compatibility keys used by the pre-policy workflow layer.
     NORMALIZED = "normalized"
     SCALED = "scaled"
 
@@ -60,6 +62,7 @@ class ObsKeys:
 class VarKeys:
     """Canonical var column keys."""
 
+    DISCOVERY_FEATURE = "discovery_feature"
     HIGHLY_VARIABLE = "highly_variable"
 
 
@@ -170,6 +173,10 @@ API_LAYER_CONTRACTS: dict[APILayerName, APILayerContract] = {
         name="simple_api",
         purpose="Expose composable stage-level functions for inspection and overrides.",
         primary_entrypoints=(
+            "scLucid.recommend_qc_policy",
+            "scLucid.apply_qc_policy",
+            "scLucid.recommend_preprocess_policy",
+            "scLucid.apply_preprocess_policy",
             "scLucid.qc.calculate_qc_metric",
             "scLucid.qc.recommend_intelligent_qc",
             "scLucid.qc.run_qc_threshold_decision",
@@ -405,6 +412,11 @@ def infer_anndata_semantics(adata: AnnData) -> Dict[str, Any]:
     layer_semantics = dict(stored.get("layer_semantics", {}) or {})
     if LayerKeys.COUNTS in adata.layers:
         layer_semantics.setdefault(LayerKeys.COUNTS, LayerSemanticKeys.RAW_COUNTS)
+    if LayerKeys.NORMALIZED_FULL in adata.layers:
+        layer_semantics.setdefault(
+            LayerKeys.NORMALIZED_FULL,
+            LayerSemanticKeys.LOG_NORMALIZED,
+        )
     if LayerKeys.NORMALIZED in adata.layers:
         layer_semantics.setdefault(LayerKeys.NORMALIZED, LayerSemanticKeys.NORMALIZED)
     if LayerKeys.SCALED in adata.layers:
@@ -633,6 +645,7 @@ def get_contract_spec() -> Dict[str, Any]:
             },
             "layers": {
                 "counts": LayerKeys.COUNTS,
+                "normalized_full": LayerKeys.NORMALIZED_FULL,
                 "normalized": LayerKeys.NORMALIZED,
                 "scaled": LayerKeys.SCALED,
             },
@@ -646,6 +659,7 @@ def get_contract_spec() -> Dict[str, Any]:
                 "cell_type": ObsKeys.CELL_TYPE,
             },
             "var": {
+                "discovery_feature": VarKeys.DISCOVERY_FEATURE,
                 "highly_variable": VarKeys.HIGHLY_VARIABLE,
             },
             "obsm": {

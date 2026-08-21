@@ -24,6 +24,8 @@ StageStatus = Literal["BLOCKED", "REVIEW", "READY", "NOT_RUN"]
 
 RUN_REVIEW_SCHEMA_VERSION = "1.0"
 ANALYSIS_PLAN_SCHEMA_VERSION = "1.0"
+POLICY_SCHEMA_VERSION = "0.1-draft"
+RUN_EVIDENCE_SCHEMA_VERSION = "0.1-draft"
 
 _STAGE_ORDER = ("qc", "preprocess", "analysis", "tumor")
 _RERUN_SCOPE = {
@@ -61,6 +63,74 @@ class DecisionCard(_DecisionModel):
     rerun_scope: str = ""
     priority: str = "review"
     source: str = "project_context"
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    affected: dict[str, Any] = Field(default_factory=dict)
+    comparison: list[dict[str, Any]] = Field(default_factory=list)
+    uncertainty: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    sensitivity: list[str] = Field(default_factory=list)
+    policy: Any = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class QCPolicy(_DecisionModel):
+    """Immutable, review-produced QC policy consumed by explicit execution."""
+
+    schema_version: str = POLICY_SCHEMA_VERSION
+    policy_id: str
+    status: DecisionStatus
+    context: ProjectContext
+    profile: str
+    sample_key: Optional[str] = None
+    input_fingerprint: dict[str, Any] = Field(default_factory=dict)
+    sample_decisions: list[dict[str, Any]] = Field(default_factory=list)
+    candidate_policies: list[dict[str, Any]] = Field(default_factory=list)
+    remove_obs_names: list[str] = Field(default_factory=list)
+    review_obs_names: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    evidence_heads: dict[str, Any] = Field(default_factory=dict)
+    execution: dict[str, Any] = Field(default_factory=dict)
+    claim_boundary: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class PreprocessPolicy(_DecisionModel):
+    """Consumer-specific preprocessing policy selected from explicit candidates."""
+
+    schema_version: str = POLICY_SCHEMA_VERSION
+    policy_id: str
+    status: DecisionStatus
+    context: ProjectContext
+    consumer: Literal["exploration", "annotation", "integration", "expression_inference"]
+    input_fingerprint: dict[str, Any] = Field(default_factory=dict)
+    layer_contract: dict[str, str] = Field(default_factory=dict)
+    normalization_method: str = "standard"
+    feature_selection_method: str = "scanpy"
+    run_integration: bool = False
+    integration_method: Optional[str] = None
+    candidates: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    blockers: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    execution: dict[str, Any] = Field(default_factory=dict)
+    claim_boundary: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class RunEvidence(_DecisionModel):
+    """Evidence from an executed policy, separate from biological interpretation."""
+
+    schema_version: str = RUN_EVIDENCE_SCHEMA_VERSION
+    evidence_id: str
+    run_id: str
+    stage: Literal["qc", "preprocess"]
+    status: DecisionStatus
+    policy: Any
+    adata: Any = Field(default=None, exclude=True)
+    artifact: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] = Field(default_factory=dict)
+    sensitivity: list[dict[str, Any]] = Field(default_factory=list)
+    supports: list[str] = Field(default_factory=list)
+    challenges: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
 
 
 class AnalysisPlan(_DecisionModel):
@@ -842,8 +912,13 @@ __all__ = [
     "ANALYSIS_PLAN_SCHEMA_VERSION",
     "AnalysisPlan",
     "DecisionCard",
+    "POLICY_SCHEMA_VERSION",
+    "PreprocessPolicy",
     "ProjectContext",
+    "QCPolicy",
+    "RUN_EVIDENCE_SCHEMA_VERSION",
     "RUN_REVIEW_SCHEMA_VERSION",
+    "RunEvidence",
     "RunReview",
     "StageReview",
     "plan_analysis",

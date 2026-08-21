@@ -26,6 +26,7 @@ from .intelligent_qc import (
     ThresholdRecommendation,
     recommend_intelligent_qc,
 )
+from .reviewer import apply_evidence_calibrated_qc, recommend_evidence_calibrated_qc
 from .thresholds import (
     apply_qc_threshold_decision,
     decide_qc_thresholds,
@@ -43,6 +44,7 @@ __all__ = [
     "StrategyType",
     "ThresholdRecommendation",
     "apply_qc_threshold_decision",
+    "apply_evidence_calibrated_qc",
     "build_qc_benchmark_assessment",
     "build_qc_decisions",
     "compute_marker_fidelity",
@@ -52,6 +54,7 @@ __all__ = [
     "export_qc_benchmark_report",
     "infer_qc_benchmark_profile",
     "recommend_intelligent_qc",
+    "recommend_evidence_calibrated_qc",
     "recommend_qc_thresholds",
     "render_qc_benchmark_compact_markdown",
     "render_qc_benchmark_markdown",

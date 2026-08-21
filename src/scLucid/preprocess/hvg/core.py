@@ -1297,7 +1297,7 @@ def find_hvgs(
         active_config = config.model_copy()
 
     # Apply overrides from kwargs
-    ignored_override_keys = {"force", "n_jobs"}
+    ignored_override_keys = {"force", "n_jobs", "species"}
     for key, value in kwargs.items():
         if hasattr(active_config, key):
             setattr(active_config, key, value)

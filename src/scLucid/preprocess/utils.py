@@ -3,11 +3,12 @@
 import logging
 from typing import Any, Dict, Literal, Tuple, Union
 
-from anndata import AnnData
 import numpy as np
 import scipy.sparse
+from anndata import AnnData
 
 from scLucid.utils import assess_matrix_semantics
+from scLucid.utils.sanitize import sanitize_for_hdf5
 
 log = logging.getLogger(__name__)
 
@@ -133,9 +134,12 @@ def record_matrix_semantics_check(
     checks = (
         adata.uns.setdefault("sclucid", {})
         .setdefault("preprocess", {})
-        .setdefault("matrix_semantics_checks", [])
+        .setdefault("matrix_semantics_checks", {})
     )
-    checks.append(record)
+    if isinstance(checks, list):
+        checks = {str(i): sanitize_for_hdf5(item) for i, item in enumerate(checks)}
+        adata.uns["sclucid"]["preprocess"]["matrix_semantics_checks"] = checks
+    checks[str(len(checks))] = sanitize_for_hdf5(record)
     if not bool(result.get("is_valid", True)):
         log.warning(
             "Matrix semantics check flagged %s for step '%s': %s",

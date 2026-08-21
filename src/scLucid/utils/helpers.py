@@ -5,21 +5,15 @@ This module provides common helper functions that can be used
 across different parts of the analysis pipeline.
 """
 
-import gc
 import logging
-import os
-import time
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
-import anndata
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 from anndata import AnnData
 
-from .contracts import SCLUCID_ROOT, LayerKeys, UnsKeys, ensure_sclucid_namespace
 from .sanitize import sanitize_for_hdf5
 
 log = logging.getLogger(__name__)
@@ -81,7 +75,7 @@ def assess_matrix_semantics(
     max_cells, max_genes
         Subsample dimensions for large matrices.
 
-    Returns
+    Returns:
     -------
     dict with keys:
         - ``semantics``: requested semantics string.
@@ -159,9 +153,7 @@ def assess_matrix_semantics(
     has_negative = bool(np.any(finite < 0))
     positive = finite[finite > 0]
     fractional_rate = (
-        float(np.mean(np.abs(positive - np.round(positive)) > 1e-6))
-        if positive.size
-        else 0.0
+        float(np.mean(np.abs(positive - np.round(positive)) > 1e-6)) if positive.size else 0.0
     )
     max_value = float(np.max(finite))
     min_value = float(np.min(finite))
@@ -200,14 +192,10 @@ def assess_matrix_semantics(
             is_valid = False
     if semantics == "raw_counts":
         if zero_fraction < zero_fraction_threshold:
-            warnings.append(
-                f"Matrix is too dense for raw counts ({zero_fraction:.2%} zeros)"
-            )
+            warnings.append(f"Matrix is too dense for raw counts ({zero_fraction:.2%} zeros)")
             is_valid = False
         if max_value <= min_max_value:
-            warnings.append(
-                f"Matrix max value ({max_value}) is too small for raw counts"
-            )
+            warnings.append(f"Matrix max value ({max_value}) is too small for raw counts")
             is_valid = False
     if semantics == "scaled":
         # Scaled matrices typically contain negative values and small ranges.
@@ -317,9 +305,7 @@ def build_metadata_dicts(
     def _build_column(column: str, mapping: Dict[str, Any]) -> None:
         missing = [sample for sample in sample_list if sample not in mapping]
         if strict and missing:
-            raise KeyError(
-                f"Metadata column '{column}' is missing values for samples: {missing}"
-            )
+            raise KeyError(f"Metadata column '{column}' is missing values for samples: {missing}")
         metadata_dicts[column] = {
             sample: mapping.get(sample, default_value) for sample in sample_list
         }
@@ -332,18 +318,6 @@ def build_metadata_dicts(
         _build_column(str(column), mapping)
 
     return metadata_dicts
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def subset_adata(
@@ -403,17 +377,15 @@ def subset_adata(
             return AnnData()
 
     if final_cells < 10:
-        log.warning(f"Only {final_cells} cells remaining. " "Results may be unreliable.")
+        log.warning(f"Only {final_cells} cells remaining. Results may be unreliable.")
 
     # The core slicing operation
     adata_subset = adata[combined_mask, :].copy()
 
-    # AnnData slicing automatically handles .raw correctly. If we want to ensure
-    # the .raw attribute uses the original var, we can explicitly re-assign it.
     if keep_raw_genes and adata.raw is not None:
-        # Create a new raw object from the original raw data, but with subsetted cells
-        adata_subset.raw = adata.raw[adata_subset.obs_names, :].copy()
         log.info(f"Subset .raw created, retaining all {adata.raw.n_vars} original genes.")
+    elif not keep_raw_genes and adata_subset.raw is not None:
+        adata_subset.raw = None
 
     return adata_subset
 
@@ -522,7 +494,7 @@ def merge_obs_metadata(
             raise ValueError(f"Columns already exist in adata.obs: {overlapping}")
         elif handle_duplicates == "warn":
             log.warning(
-                f"Columns {overlapping} already exist. " f"New columns will be suffixed with '_new'"
+                f"Columns {overlapping} already exist. New columns will be suffixed with '_new'"
             )
             suffixes = ("", "_new")
         elif handle_duplicates == "overwrite":

@@ -1,10 +1,4 @@
-"""
-scLucid: A Comprehensive System for Single-Cell Analysis
-=========================================================
-
-scLucid is a powerful and flexible Python toolkit for the analysis of
-single-cell RNA-sequencing data.
-"""
+"""scLucid: evidence-calibrated decisions for tumor single-cell projects."""
 
 import os
 import warnings
@@ -88,8 +82,18 @@ except Exception as exc:
     def is_interactive_mode() -> bool:
         return False
 
+
 from .config import get_config, reset_config, set_config
-from .decision import AnalysisPlan, RunReview, plan_analysis, review_run
+from .decision import (
+    AnalysisPlan,
+    DecisionCard,
+    PreprocessPolicy,
+    QCPolicy,
+    RunEvidence,
+    RunReview,
+    plan_analysis,
+    review_run,
+)
 from .utils.audit_report import export_audit_report
 from .utils.context import (
     AnalysisContext,
@@ -108,7 +112,7 @@ from .utils.contracts import (
     record_contract_result,
     validate_stage_contract,
 )
-from .utils.io import read_10x, read_h5ad
+from .utils.io import export_adata_subset, read_10x, read_h5ad, write_seurat_conversion_script
 from .utils.result_cleanup import compact_sclucid_uns
 from .utils.sanitize import sanitize_for_hdf5
 from .utils.validation import (
@@ -185,8 +189,12 @@ FONT_TRADITIONAL = "traditional"
 # --- High-Level Workflows ---
 run_standard_qc = None
 run_qc = None
+recommend_qc_policy = None
+apply_qc_policy = None
 run_preprocessing = None
 run_iterative_preprocessing = None
+recommend_preprocess_policy = None
+apply_preprocess_policy = None
 run_annotation = None
 characterize_clusters = None
 recommend_analysis_parameters = None
@@ -196,11 +204,17 @@ _qc_workflow = _import_optional("qc.workflow")
 if _qc_workflow is not None:
     run_standard_qc = getattr(_qc_workflow, "run_standard_qc", None)
     run_qc = getattr(_qc_workflow, "run_qc", None)
+    recommend_qc_policy = getattr(_qc_workflow, "recommend_qc_policy", None)
+    apply_qc_policy = getattr(_qc_workflow, "apply_qc_policy", None)
 
 _preprocess_workflow = _import_optional("preprocess.workflow")
 if _preprocess_workflow is not None:
     run_preprocessing = getattr(_preprocess_workflow, "run_preprocessing", None)
     run_iterative_preprocessing = getattr(_preprocess_workflow, "run_iterative_preprocessing", None)
+
+if preprocess is not None:
+    recommend_preprocess_policy = getattr(preprocess, "recommend_preprocess_policy", None)
+    apply_preprocess_policy = getattr(preprocess, "apply_preprocess_policy", None)
 
 _analysis_workflow = _import_optional("analysis.workflow")
 if _analysis_workflow is not None:
@@ -507,6 +521,10 @@ __all__ = [
     "DatasetProfile",
     "ProjectContext",
     "AnalysisPlan",
+    "DecisionCard",
+    "QCPolicy",
+    "PreprocessPolicy",
+    "RunEvidence",
     "RunReview",
     "infer_analysis_context",
     "infer_dataset_profile",
@@ -521,8 +539,12 @@ __all__ = [
     "FONT_TRADITIONAL",
     "run_standard_qc",
     "run_qc",
+    "recommend_qc_policy",
+    "apply_qc_policy",
     "run_preprocessing",
     "run_iterative_preprocessing",
+    "recommend_preprocess_policy",
+    "apply_preprocess_policy",
     "run_standard_analysis",
     "run_custom_analysis",
     "run_pipeline",
@@ -533,6 +555,8 @@ __all__ = [
     "recommend_analysis_parameters",
     "export_audit_report",
     "compact_sclucid_uns",
+    "export_adata_subset",
+    "write_seurat_conversion_script",
     "read_10x",
     "read_h5ad",
     "get_config",
