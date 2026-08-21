@@ -40,6 +40,8 @@ from .de_core import (
 
 # Visualization
 from .de_plots import (
+    plot_categorized_gene_heatmap,
+    plot_grouped_marker_dotplot,
     plot_multi_cluster_deg,
     plot_volcano,
     visualize_markers,
@@ -83,6 +85,8 @@ __all__ = [
     "summarize_markers_and_enrichment",
     # Visualization
     "visualize_markers",
+    "plot_grouped_marker_dotplot",
+    "plot_categorized_gene_heatmap",
     "plot_volcano",
     "plot_multi_cluster_deg",
     # Result management

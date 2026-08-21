@@ -14,15 +14,49 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import scipy.sparse as sparse
 import seaborn as sns
 from adjustText import adjust_text
 from anndata import AnnData
-from matplotlib import get_backend
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
-from scLucid.plotting.plotting_utils import _is_interactive_backend, _show_or_close
+
+from scLucid.plotting.plotting_utils import _show_or_close
 
 log = logging.getLogger(__name__)
+
+
+def _flatten_marker_input(
+    markers: Union[Dict[str, List[str]], List[str], Tuple[str, ...]],
+) -> List[str]:
+    """Return unique marker genes while preserving input order."""
+    if isinstance(markers, dict):
+        genes = [gene for gene_list in markers.values() for gene in gene_list]
+    else:
+        genes = list(markers)
+    return list(dict.fromkeys([str(gene) for gene in genes]))
+
+
+def _filter_marker_dict(
+    markers: Union[Dict[str, List[str]], List[str], Tuple[str, ...]],
+    var_names,
+) -> Union[Dict[str, List[str]], List[str]]:
+    """Filter a marker list/dict to genes present in an AnnData feature index."""
+    present = set(map(str, var_names))
+    if isinstance(markers, dict):
+        filtered = {
+            str(group): [str(gene) for gene in genes if str(gene) in present]
+            for group, genes in markers.items()
+        }
+        return {group: genes for group, genes in filtered.items() if genes}
+    return [gene for gene in _flatten_marker_input(markers) if gene in present]
+
+
+def _matrix_to_frame(matrix, index: pd.Index, columns: List[str]) -> pd.DataFrame:
+    """Convert a dense or sparse matrix slice to a DataFrame."""
+    if sparse.issparse(matrix):
+        matrix = matrix.toarray()
+    return pd.DataFrame(np.asarray(matrix), index=index, columns=columns)
 
 
 def visualize_markers(
@@ -199,6 +233,204 @@ def visualize_markers(
         plt.close()
     else:
         _show_or_close(plt.gcf())
+
+
+def plot_grouped_marker_dotplot(
+    adata: AnnData,
+    markers: Union[Dict[str, List[str]], List[str]],
+    *,
+    celltype_col: str,
+    condition_col: str,
+    subset_celltypes: Optional[List[str]] = None,
+    celltype_order: Optional[List[str]] = None,
+    condition_order: Optional[List[str]] = None,
+    combined_key: str = "_sclucid_celltype_condition",
+    separator: str = " | ",
+    use_raw: bool = True,
+    layer: Optional[str] = None,
+    standard_scale: Optional[Literal["var", "group"]] = "var",
+    cmap: str = "RdBu_r",
+    figsize: Optional[Tuple[float, float]] = None,
+    save_path: Optional[str] = None,
+    **kwargs,
+):
+    """Plot markers across cell-type-by-condition groups.
+
+    This is the stable API version of the common notebook pattern
+    ``adata.obs[celltype] + '_' + adata.obs[group]`` followed by
+    ``scanpy.pl.dotplot``. It is intended for expression review, not formal
+    differential testing.
+    """
+    missing_cols = [col for col in (celltype_col, condition_col) if col not in adata.obs]
+    if missing_cols:
+        raise KeyError(f"Columns not found in adata.obs: {missing_cols}")
+
+    dotplot_use_raw = use_raw if layer is None else False
+    source_var_names = (
+        adata.raw.var_names if dotplot_use_raw and adata.raw is not None else adata.var_names
+    )
+    filtered_markers = _filter_marker_dict(markers, source_var_names)
+    if not filtered_markers or (isinstance(filtered_markers, dict) and not filtered_markers):
+        raise ValueError("No requested marker genes are present in the selected expression space")
+
+    plot_adata = adata
+    if subset_celltypes is not None:
+        mask = adata.obs[celltype_col].astype(str).isin([str(value) for value in subset_celltypes])
+        plot_adata = adata[mask].copy()
+        if plot_adata.n_obs == 0:
+            raise ValueError("subset_celltypes selected zero cells")
+    else:
+        plot_adata = adata.copy()
+
+    celltypes = (
+        [
+            str(value)
+            for value in celltype_order
+            if str(value) in set(plot_adata.obs[celltype_col].astype(str))
+        ]
+        if celltype_order is not None
+        else sorted(plot_adata.obs[celltype_col].astype(str).unique())
+    )
+    conditions = (
+        [
+            str(value)
+            for value in condition_order
+            if str(value) in set(plot_adata.obs[condition_col].astype(str))
+        ]
+        if condition_order is not None
+        else sorted(plot_adata.obs[condition_col].astype(str).unique())
+    )
+    category_order = [
+        f"{celltype}{separator}{condition}"
+        for celltype in celltypes
+        for condition in conditions
+        if (
+            (plot_adata.obs[celltype_col].astype(str) == celltype)
+            & (plot_adata.obs[condition_col].astype(str) == condition)
+        ).any()
+    ]
+    plot_adata.obs[combined_key] = (
+        plot_adata.obs[celltype_col].astype(str)
+        + separator
+        + plot_adata.obs[condition_col].astype(str)
+    )
+    plot_adata.obs[combined_key] = pd.Categorical(
+        plot_adata.obs[combined_key].astype(str),
+        categories=category_order,
+        ordered=True,
+    )
+
+    if figsize is None:
+        n_genes = len(_flatten_marker_input(markers))
+        figsize = (max(5, 0.45 * len(category_order) + 2), max(4, 0.28 * n_genes + 2))
+
+    dotplot = sc.pl.dotplot(
+        plot_adata,
+        var_names=filtered_markers,
+        groupby=combined_key,
+        use_raw=dotplot_use_raw,
+        layer=layer,
+        standard_scale=standard_scale,
+        cmap=cmap,
+        categories_order=category_order,
+        figsize=figsize,
+        return_fig=True,
+        show=False,
+        **kwargs,
+    )
+    if save_path:
+        dotplot.savefig(save_path)
+        plt.close("all")
+    return dotplot
+
+
+def plot_categorized_gene_heatmap(
+    adata: AnnData,
+    gene_dict: Dict[str, List[str]],
+    *,
+    groupby: Union[str, List[str]],
+    use_raw: bool = True,
+    layer: Optional[str] = None,
+    standard_scale: Optional[Literal["gene", "none"]] = "gene",
+    cmap: str = "RdBu_r",
+    figsize: Optional[Tuple[float, float]] = None,
+    title: str = "Categorized Gene Heatmap",
+    save_path: Optional[str] = None,
+    **kwargs,
+) -> Tuple[plt.Axes, pd.DataFrame]:
+    """Plot mean expression heatmap with genes grouped by functional category."""
+    group_cols = [groupby] if isinstance(groupby, str) else list(groupby)
+    missing_cols = [col for col in group_cols if col not in adata.obs]
+    if missing_cols:
+        raise KeyError(f"Columns not found in adata.obs: {missing_cols}")
+
+    source = adata.raw if layer is None and use_raw and adata.raw is not None else adata
+    source_var_names = source.var_names
+    filtered = _filter_marker_dict(gene_dict, source_var_names)
+    if not isinstance(filtered, dict) or not filtered:
+        raise ValueError("No requested genes are present in the selected expression space")
+
+    genes = _flatten_marker_input(filtered)
+    matrix = source[:, genes].X if layer is None else adata[:, genes].layers[layer]
+    expr_df = _matrix_to_frame(matrix, adata.obs_names, genes)
+    group_labels = adata.obs[group_cols].astype(str).agg(" | ".join, axis=1)
+    mean_df = expr_df.groupby(group_labels, observed=True).mean().T
+
+    if standard_scale == "gene":
+        row_min = mean_df.min(axis=1)
+        row_range = (mean_df.max(axis=1) - row_min).replace(0, np.nan)
+        plot_df = mean_df.sub(row_min, axis=0).div(row_range, axis=0).fillna(0)
+    elif standard_scale == "none" or standard_scale is None:
+        plot_df = mean_df
+    else:
+        raise ValueError("standard_scale must be 'gene', 'none', or None")
+
+    category_lookup = {
+        gene: category for category, category_genes in filtered.items() for gene in category_genes
+    }
+    ordered_genes = [gene for category_genes in filtered.values() for gene in category_genes]
+    plot_df = plot_df.loc[ordered_genes]
+
+    if figsize is None:
+        figsize = (max(5, 0.45 * plot_df.shape[1] + 2), max(4, 0.28 * plot_df.shape[0] + 2))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(
+        plot_df,
+        cmap=cmap,
+        linewidths=0.35,
+        linecolor="white",
+        cbar_kws={"label": "Mean expression" if standard_scale != "gene" else "Gene-scaled mean"},
+        ax=ax,
+        **kwargs,
+    )
+    ax.set_title(title)
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+
+    tick_colors = sns.color_palette("tab20", n_colors=max(1, len(filtered))).as_hex()
+    category_colors = dict(zip(filtered.keys(), tick_colors))
+    for label in ax.get_yticklabels():
+        category = category_lookup.get(label.get_text())
+        if category:
+            label.set_color(category_colors[category])
+
+    legend_handles = [
+        Rectangle((0, 0), 1, 1, color=color, label=category)
+        for category, color in category_colors.items()
+    ]
+    ax.legend(
+        handles=legend_handles,
+        title="Gene category",
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        frameon=False,
+    )
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+    return ax, mean_df
 
 
 def plot_volcano(

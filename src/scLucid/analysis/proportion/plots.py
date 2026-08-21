@@ -166,6 +166,90 @@ def _stat_lookup(stat_df: pd.DataFrame, value_col: str) -> Dict[str, float]:
     return dict(zip(stat_df[celltype_col].astype(str), values))
 
 
+def _safe_abs_max(values: np.ndarray, fallback: float = 1e-9) -> float:
+    """Return a positive symmetric color scale bound."""
+    arr = np.asarray(values, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return fallback
+    return max(float(np.max(np.abs(arr))), fallback)
+
+
+def summarize_composition_shift(
+    prop_df: pd.DataFrame,
+    condition_col: str,
+    condition1: str,
+    condition2: str,
+    *,
+    pseudocount: float = 1e-4,
+    stat_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Summarize cell-type composition shifts between two conditions.
+
+    The input is expected to be a sample-level proportion table, either wide
+    with one numeric column per cell type plus ``condition_col``, or long with
+    ``cell_type`` and ``proportion`` columns. This helper does not perform a
+    new statistical test; optional p/q values are copied from ``stat_df`` for
+    display only.
+    """
+    if prop_df.empty:
+        raise ValueError("prop_df is empty")
+    if condition_col not in prop_df.columns:
+        raise KeyError(f"prop_df missing condition_col: {condition_col}")
+
+    if {"cell_type", "proportion"}.issubset(prop_df.columns):
+        grouped = (
+            prop_df[prop_df[condition_col].isin([condition1, condition2])]
+            .groupby([condition_col, "cell_type"], observed=True)["proportion"]
+            .mean()
+            .unstack(fill_value=0)
+        )
+    else:
+        celltype_cols = [
+            col
+            for col in prop_df.columns
+            if col != condition_col and pd.api.types.is_numeric_dtype(prop_df[col])
+        ]
+        grouped = (
+            prop_df[prop_df[condition_col].isin([condition1, condition2])]
+            .groupby(condition_col, observed=True)[celltype_cols]
+            .mean()
+        )
+
+    missing = [
+        condition for condition in (condition1, condition2) if condition not in grouped.index
+    ]
+    if missing:
+        raise ValueError(f"Conditions not present in prop_df: {missing}")
+
+    summary = pd.DataFrame(
+        {
+            "cell_type": grouped.columns.astype(str),
+            f"{condition1}_mean": grouped.loc[condition1].to_numpy(dtype=float),
+            f"{condition2}_mean": grouped.loc[condition2].to_numpy(dtype=float),
+        }
+    )
+    summary["delta"] = summary[f"{condition2}_mean"] - summary[f"{condition1}_mean"]
+    summary["abs_delta"] = summary["delta"].abs()
+    summary["log2_fc"] = np.log2(
+        (summary[f"{condition2}_mean"] + pseudocount)
+        / (summary[f"{condition1}_mean"] + pseudocount)
+    )
+
+    if stat_df is not None and not stat_df.empty:
+        p_col = _resolve_pvalue_col(stat_df)
+        if p_col:
+            lookup = _stat_lookup(stat_df, p_col)
+            summary[p_col] = summary["cell_type"].map(lookup)
+        for q_col in ("padj", "pvals_adj", "qval", "fdr"):
+            if q_col in stat_df.columns:
+                lookup = _stat_lookup(stat_df, q_col)
+                summary[q_col] = summary["cell_type"].map(lookup)
+                break
+
+    return summary.sort_values("abs_delta", ascending=False).reset_index(drop=True)
+
+
 def transform_composition(
     prop_df: pd.DataFrame,
     method: Literal["proportion", "clr", "alr", "logit"] = "clr",
@@ -1379,6 +1463,125 @@ def plot_proportion_shifts(
         title=condition_col,
         loc="best",
     )
+    return fig
+
+
+@save_and_close("composition_shift_bubble")
+def plot_composition_shift_bubble(
+    shift_summary: pd.DataFrame,
+    *,
+    celltype_col: str = "cell_type",
+    effect_col: str = "log2_fc",
+    size_col: str = "abs_delta",
+    color_col: str = "delta",
+    q_col: Optional[str] = None,
+    top_n: Optional[int] = 20,
+    title: str = "Cell Type Composition Shift",
+    cmap: str = "RdBu_r",
+    figsize: Optional[Tuple[float, float]] = None,
+    out_dir: Optional[str] = None,
+) -> plt.Figure:
+    """Plot LVA-style composition shifts as a bubble chart.
+
+    ``shift_summary`` is typically produced by
+    :func:`summarize_composition_shift`. Bubble position shows effect size,
+    bubble area shows absolute proportion change, and color shows direction.
+    Optional q-values are rendered as marker outlines only; this function does
+    not compute statistical significance.
+    """
+    required = {celltype_col, effect_col, size_col, color_col}
+    missing = required - set(shift_summary.columns)
+    if missing:
+        raise KeyError(f"shift_summary missing required columns: {sorted(missing)}")
+    if shift_summary.empty:
+        raise ValueError("shift_summary is empty")
+
+    plot_df = shift_summary.copy()
+    plot_df[effect_col] = pd.to_numeric(plot_df[effect_col], errors="coerce")
+    plot_df[size_col] = pd.to_numeric(plot_df[size_col], errors="coerce").fillna(0)
+    plot_df[color_col] = pd.to_numeric(plot_df[color_col], errors="coerce")
+    plot_df = plot_df.dropna(subset=[effect_col, color_col])
+    if top_n is not None:
+        plot_df = plot_df.reindex(plot_df[size_col].sort_values(ascending=False).index).head(top_n)
+    plot_df = plot_df.iloc[::-1]
+
+    if figsize is None:
+        figsize = (8, max(4, 0.38 * len(plot_df) + 1.8))
+
+    sizes = 80 + 2200 * plot_df[size_col] / max(float(plot_df[size_col].max()), 1e-12)
+    max_abs = _safe_abs_max(plot_df[color_col].to_numpy())
+
+    fig, ax = plt.subplots(figsize=figsize)
+    edgecolors = "black"
+    linewidths = 0.4
+    if q_col and q_col in plot_df.columns:
+        q_values = pd.to_numeric(plot_df[q_col], errors="coerce")
+        linewidths = np.where(q_values <= 0.05, 1.4, 0.35)
+
+    scatter = ax.scatter(
+        plot_df[effect_col],
+        np.arange(len(plot_df)),
+        s=sizes,
+        c=plot_df[color_col],
+        cmap=cmap,
+        vmin=-max_abs,
+        vmax=max_abs,
+        edgecolors=edgecolors,
+        linewidths=linewidths,
+        alpha=0.88,
+    )
+    ax.axvline(0, color="#4d4d4d", linewidth=0.8, linestyle="--")
+    ax.set_yticks(np.arange(len(plot_df)))
+    ax.set_yticklabels(plot_df[celltype_col].astype(str))
+    ax.set_xlabel(effect_col)
+    ax.set_ylabel("")
+    ax.set_title(title)
+    cbar = fig.colorbar(scatter, ax=ax, shrink=0.85)
+    cbar.set_label(color_col)
+    return fig
+
+
+@save_and_close("composition_shift_effect")
+def plot_composition_shift_effect(
+    shift_summary: pd.DataFrame,
+    *,
+    celltype_col: str = "cell_type",
+    effect_col: str = "delta",
+    top_n: Optional[int] = 20,
+    title: str = "Cell Type Composition Effect",
+    positive_color: str = "#d62728",
+    negative_color: str = "#1f77b4",
+    figsize: Optional[Tuple[float, float]] = None,
+    out_dir: Optional[str] = None,
+) -> plt.Figure:
+    """Plot composition effects as a signed horizontal bar chart."""
+    required = {celltype_col, effect_col}
+    missing = required - set(shift_summary.columns)
+    if missing:
+        raise KeyError(f"shift_summary missing required columns: {sorted(missing)}")
+    if shift_summary.empty:
+        raise ValueError("shift_summary is empty")
+
+    plot_df = shift_summary.copy()
+    plot_df[effect_col] = pd.to_numeric(plot_df[effect_col], errors="coerce")
+    plot_df = plot_df.dropna(subset=[effect_col])
+    plot_df = plot_df.reindex(plot_df[effect_col].abs().sort_values(ascending=False).index)
+    if top_n is not None:
+        plot_df = plot_df.head(top_n)
+    plot_df = plot_df.iloc[::-1]
+
+    if figsize is None:
+        figsize = (8, max(4, 0.36 * len(plot_df) + 1.8))
+
+    colors = [positive_color if value >= 0 else negative_color for value in plot_df[effect_col]]
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.barh(np.arange(len(plot_df)), plot_df[effect_col], color=colors, edgecolor="white")
+    ax.axvline(0, color="#4d4d4d", linewidth=0.8)
+    ax.set_yticks(np.arange(len(plot_df)))
+    ax.set_yticklabels(plot_df[celltype_col].astype(str))
+    ax.set_xlabel(effect_col)
+    ax.set_ylabel("")
+    ax.set_title(title)
     return fig
 
 

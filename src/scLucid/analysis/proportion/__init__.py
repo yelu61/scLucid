@@ -35,6 +35,8 @@ from .plots import (
     plot_celltype_variability,
     plot_composition,
     plot_composition_pca,
+    plot_composition_shift_bubble,
+    plot_composition_shift_effect,
     plot_composition_transform_heatmap,
     plot_diff_stats,
     plot_effect_size_volcano,
@@ -47,6 +49,7 @@ from .plots import (
     plot_proportion_shifts,
     plot_proportion_timeseries,
     plot_proportion_with_ci,
+    summarize_composition_shift,
     transform_composition,
 )
 from .stats import export_analysis_data
@@ -108,7 +111,10 @@ __all__ = [
     "plot_paired_proportion_shifts",
     "plot_proportion_with_ci",
     "plot_celltype_variability",
+    "plot_composition_shift_bubble",
+    "plot_composition_shift_effect",
     "plot_composition_transform_heatmap",
     "plot_composition_pca",
+    "summarize_composition_shift",
     "transform_composition",
 ]
