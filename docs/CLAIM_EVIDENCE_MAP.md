@@ -89,14 +89,14 @@ any of them as an endpoint still follows the Part 3 rules.
 | # | Scenario | Ecosystem stakes | Naive default failure | Expert judgment encoded | scLucid evidence head / API | Locked endpoint & threshold | Lit | Pub | Own | Status |
 |---|----------|------------------|----------------------|-------------------------|-----------------------------|------------------------------|-----|-----|-----|--------|
 | S1 | **Stress/high-MT injury**: dissociation stress and tumor epithelial physiology raise MT%; viable stressed cells are not dead | Removing stressed/fragile cells systematically biases TME composition estimates — stressed epithelial/malignant fractions are undercounted | Fixed 5–10% MT filter removes viable stressed tumor/epithelial cells and erases stress programs | Per-sample MT distribution + joint RNA–MT modeling; MT high ≠ dead | `qc_profile_selection`, `qc_damage_classification`; miQC-family candidate (currently sensitivity proxy) | `qc_selector_superiority`: KEEP false removal ≤2%, recall gain ≥5 pt vs both MAD baselines, 95% CI lower bound >0 | van den Brink 2017 (dissociation stress); Hippen 2021 (miQC) | E-MTAB-2600 (damage labels) — currently **FAIL** | TODO(owner): which project showed this | **FAIL — top repair target** |
-| S2 | **Catastrophic sample failure**: an entire library is degraded and quietly poisons integration | One failed library can turn ecotype clustering into batch/quality clustering | Sample enters pooling/integration; batch structure is artifact | Sample-level gate before cell-level filtering | `qc_catastrophic_sample_detection` | detection rate 1.0; locked high-quality false-block rate 0.0 | SampleQC 2022 (multivariate sample QC) | lin2020 PDAC (GSM4679533 must be blocked) — currently **BLOCKED** | TODO(owner) | **BLOCKED** |
+| S2 | **Catastrophic sample failure**: an entire library is degraded and quietly poisons integration | One failed library can turn ecotype clustering into batch/quality clustering | Sample enters pooling/integration; batch structure is artifact | Sample-level gate before cell-level filtering | `qc_catastrophic_sample_detection` | detection rate 1.0; locked high-quality false-block rate 0.0 | Macnair & Robinson 2023 (SampleQC) | lin2020 PDAC (GSM4679533 must be blocked) — currently **BLOCKED** | TODO(owner) | **BLOCKED** |
 | S3 | **Doublets vs. real transition/rare states**: EMT-like, cycling, or fragile lineages look doublet-like | Killing transition/rare states erases EMT-like or cycling compartments from the ecosystem composition vector | Fixed-rate doublet removal kills rare/transitional populations | Calibrate per sample; check marker coherence before removal; rare-population guard | `qc_doublet_calibration`, `qc_rare_population_preservation`; scDblFinder parity | Kang demuxlet + cell-hashing (GSE108313) + HGMM; AUPRC/calibration thresholds per full protocol | Kang 2018 (demuxlet); Germain 2022 (scDblFinder) | Kang **REVIEW** (AUPRC 0.605); HGMM **PASS** | TODO(owner) | **REVIEW — calibration gap** |
 | S4 | **Ambient RNA contamination**: necrotic tumor tissue has high ambient; marker reads are contaminated (e.g. HBB/Ig signal in epithelium) | Contaminated counts blur tumor/stroma/immune boundaries; marker-based annotation and program scores are polluted | Marker interpretation and DE on contaminated counts | Estimate contamination fraction; correct conservatively or flag; never silent | `qc_ambient_correction` | HGMM mixture truth; contamination reduction ≥50% (full protocol) | Young & Behjati 2020 (SoupX); Fleming 2023 (CellBender) | HGMM **FAIL**; CellBender tiny fixture = plumbing only | TODO(owner) | **FAIL — top repair target** |
 | S5 | **Low-RNA biology vs. damaged cells**: neutrophils/platelets have genuinely low RNA | Dropping low-RNA biology (neutrophils/platelets) leaves the TME immune compartment systematically incomplete | `nFeature` floor removes real low-RNA cell types | Distinguish empty / damaged / low-RNA-biology before filtering | `qc_cell_calling`, `qc_damage_classification` | E-MTAB-2600 microscopy labels; true-cell recall ≥95%, empty FDR ≤1% | Ilicic 2016 (microscopy QC labels) | **BLOCKED** (no scLucid call output; no low-RNA truth subset) | TODO(owner) | **BLOCKED** |
 | S6 | **Integration necessity**: not every dataset needs integration; overcorrection erases tumor-vs-normal / patient biology | Overcorrection erases real patient-to-patient ecosystem differences; ecotypes reflect batch, not biology | Always integrate (Harmony/scVI by default) | Test batch–biology confounding first; Cramér's V ≥0.7 blocks auto-integration; complex method must Pareto-dominate unintegrated baseline | `pp_integration_need_confounding`, `pp_integration_pareto` | Mixology: PASS_BASELINE (Harmony did not dominate); multi-dataset Pareto portfolio per contract | Luecken 2022 (scIB benchmark) | Mixology **PASS_BASELINE**; multi-dataset portfolio not run | TODO(owner) | **Partial — extend beyond Mixology** |
 | S7 | **Preprocessing choice regret**: tutorial defaults copied across datasets | A wrong representation warps the neighborhood graph that all program and composition readouts are built on | Same normalization/HVG/PC settings everywhere | Held-out protocol evaluation; regret-bounded selection | `pp_selector_regret` | Mixology leave-one-protocol-out: regret ≤5%, biology loss ≤2% — **PASS** (regret ≈0.49%) | Tian 2019 (scMixology); Mereu 2020; Ding 2020 | **PASS** (Mixology); Mereu/Ding/scIB not acquired | — | **PASS on one dataset — portfolio incomplete** |
-| S8 | **Tumor structure preservation**: preprocessing/integration must not distort malignant programs or TME structure | The ecosystem feature matrix is computed directly on the structure preprocessing may have destroyed | Method ranked on batch-mixing metrics only | Identity/program/structure retention audited alongside mixing | `pp_tumor_structure_preservation`, `pp_identity_preservation` | lin2020/moncada2020 PDAC, zilionis2019 NSCLC, lee2020 CRC; biology/program/graph losses ≤2% | TODO(owner): cite tumor-atlas integration caution literature | Not run | TODO(owner) | **Not run** |
-| S9 | **Graph/clustering instability**: neighborhoods and clusters unstable under resampling or parameter jitter | Unstable graphs make ecotype assignments irreproducible | One clustering presented as the structure | Stability quantified; unstable regions flagged for review | `pp_graph_stability` | Per full protocol thresholds; primary tissue datasets | TODO(owner) | Not run | — | **Not run** |
+| S8 | **Tumor structure preservation**: preprocessing/integration must not distort malignant programs or TME structure | The ecosystem feature matrix is computed directly on the structure preprocessing may have destroyed | Method ranked on batch-mixing metrics only | Identity/program/structure retention audited alongside mixing | `pp_tumor_structure_preservation`, `pp_identity_preservation` | lin2020/moncada2020 PDAC, zilionis2019 NSCLC, lee2020 CRC; biology/program/graph losses ≤2% | Luecken 2022 (scIB bio-conservation vs batch-removal trade-off) | Not run | TODO(owner) | **Not run** |
+| S9 | **Graph/clustering instability**: neighborhoods and clusters unstable under resampling or parameter jitter | Unstable graphs make ecotype assignments irreproducible | One clustering presented as the structure | Stability quantified; unstable regions flagged for review | `pp_graph_stability` | Per full protocol thresholds; primary tissue datasets | Duò 2018 (clustering-method evaluation) | Not run | — | **Not run** |
 | S10 | **Cell-level exploration ≠ sample-level conclusion** (pseudo-replication) | Cell-level conclusions make sample-level ecosystem–clinical associations statistically invalid | Cell-level DE p-values read as biological evidence | Replicate-aware pseudobulk; fail closed without replicates; inference level labeled | `an_pseudobulk_de`, analysis inference contracts | Squair compendium empirical FDR ≤0.06, sign concordance ≥95%; muscat simulations | Squair 2021 (pseudo-replication); Crowell 2020 (muscat) | **CONTRACT_PASS_NOT_PERFORMANCE** (contract only); external benchmarks not acquired | ✓ (design intent from own projects) | **Contract pass — performance unverified** |
 
 ### Gaps this catalog exposes (decision-relevant)
@@ -108,8 +108,42 @@ any of them as an endpoint still follows the Part 3 rules.
 2. **FAIL endpoints concentrate in QC (S1, S4, S5).** These are exactly the
    scenarios with the strongest literature anchors — fixing them is both the
    gate blocker and the paper's core evidence.
-3. **S8/S9 have no literature anchor or dataset run yet** — decide whether
-   they stay in the catalog as hypotheses or are scoped out of v1 of the map.
+3. **S8/S9 now have literature anchors but no dataset runs yet** — decide
+   whether they stay in the catalog as hypotheses or are scoped out of v1 of
+   the map.
+
+**Verified literature anchors for S1–S10 (OpenAlex pass 2026-08-25; DOIs
+included where verified):**
+
+- **S1** — Hippen 2021 *PLoS Comput Biol* (miQC; doi:10.1371/journal.pcbi.1009290);
+  Subramanian 2022 *Genome Biol* (biology-inspired data-driven QC;
+  doi:10.1186/s13059-022-02820-w); van den Brink 2017 *Nat Methods*
+  (dissociation-induced stress)
+- **S2** — Macnair & Robinson 2023 *Genome Biol* (SampleQC;
+  doi:10.1186/s13059-023-02859-3)
+- **S3** — Kang 2018 *Nat Biotechnol* (demuxlet); Germain 2021 *F1000Research*
+  (scDblFinder)
+- **S4** — Young & Behjati 2020 *GigaScience* (SoupX;
+  doi:10.1093/gigascience/giaa151); Fleming 2023 *Nat Methods* (CellBender;
+  preprint verified doi:10.1101/791699); Janssen 2023 *Genome Biol* (effect
+  of background noise and its removal; doi:10.1186/s13059-023-02978-x);
+  Slyper 2020 *Nat Med* (fresh/frozen tumor toolbox;
+  doi:10.1038/s41591-020-0844-1)
+- **S5** — Ilicic 2016 *Genome Biol* (microscopy-based low-quality cell
+  labels; doi:10.1186/s13059-016-0888-1); Lun 2019 *Genome Biol* (emptyDrops;
+  doi:10.1186/s13059-019-1662-y)
+- **S6** — Luecken 2022 *Nat Methods* (scIB integration benchmark;
+  doi:10.1038/s41592-021-01336-8)
+- **S7** — Tian 2019 *Nat Methods* (scMixology); Mereu 2020 *Nat Biotechnol*;
+  Ding 2020 *Nat Biotechnol* (multi-platform method comparison)
+- **S8** — Luecken 2022 *Nat Methods* (bio-conservation vs batch-removal
+  trade-off is the scIB anchor; tumor-specific structure-preservation
+  demonstration still to be found — candidate: tumor-atlas integration case
+  studies, verify manually)
+- **S9** — Duò 2018 *F1000Research* (systematic evaluation of clustering
+  methods; doi:10.12688/f1000research.15666.2)
+- **S10** — Squair 2021 *Nat Commun* (pseudo-replication false discoveries;
+  doi:10.1038/s41467-021-25960-2); Crowell 2020 *Nat Commun* (muscat)
 
 ---
 
@@ -242,7 +276,9 @@ for title/journal/year/DOI — re-check before quoting in a manuscript):**
 
 - [ ] Tumor module tier confirmation (Part 0 table)
 - [ ] Fill the **Own** leg for S1–S8 from real projects (or mark not-observed)
-- [ ] Literature anchors for S8, S9 (or scope them out)
+- [x] ~~Literature anchors for S8, S9 (or scope them out)~~ (done 2026-08-25;
+      ⚠ S8 anchor is the general scIB trade-off — a tumor-specific
+      structure-preservation demonstration paper still needs manual search)
 - [ ] Decide whether S10 is promoted to T1 (it has the strongest prior
       literature of all rows) or remains a T2 contract claim
 - [ ] Pick the Fig 5 application direction (own clinical cohort vs public
