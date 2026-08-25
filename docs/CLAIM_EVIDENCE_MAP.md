@@ -147,6 +147,48 @@ locked endpoints without following Part 3.
 5. The catalog grows only by the three-leg rule; a scenario without a path to
    all three legs is a hypothesis, not a feature.
 
+## Part 4 — Tumor research-question map (application layer)
+
+This part maps **current tumor single-cell research trends** to the biological
+questions scLucid is *designed to help answer* — mainly around ecosystems and
+drug sensitivity/mechanism. Two disciplines apply:
+
+1. **Voice discipline.** Nothing here is claimable today. In the tool paper
+   these rows appear only as motivation ("designed to answer"); the verb
+   "answers" is reserved for the application paper (Fig 5) after the locked
+   gate passes and per-row validation exists.
+2. **Status honesty.** Rows marked *skeleton* have real but frozen,
+   unvalidated code (T2 at best). Rows marked *gap* have no implementation.
+   The strongest trend rows are currently gaps — that asymmetry is deliberate
+   information, not an oversight.
+
+| # | Research trend | Biological question | scLucid asset / gap | Status today | Path to claim | Paper |
+|---|---------------|---------------------|---------------------|--------------|---------------|-------|
+| R1 | TME ecotypes / multicellular communities | How many ecosystem types exist in this cohort, and how do they associate with outcome or treatment response? | `microenvironment/ecosystem.py`, composition analysis; sample-level ecosystem feature matrix and ecotype prototype (Phase 5) **not built** | Skeleton; core piece missing | Build Phase 5 matrix → cross-cohort ecotype stability → outcome association in own/public cohort | Fig 5 (anchor lit: Bagaev 2021) |
+| R2 | Malignant cell states / meta-programs | Which malignant programs recur, and how plastic are they? | `find_tumor` / malignancy scoring, `heterogeneity`, program scoring | Skeleton | Program calling validated against CNV/references; cross-cohort recurrence audit | Fig 5 (anchor lit: Gavish 2023) |
+| R3 | Clonal evolution under therapy | Which clones/states are selected by treatment, and where does resistance originate? | `evolution`, CNV (inferCNV-style) | Skeleton | Clone calling validated (e.g. Numbat/CopyKAT cross-check); pre/post cohort | Fig 5 |
+| R4 | Drug sensitivity / resistance mechanism | Which cell states predict response or resistance (incl. ICB-resistance programs)? | `therapy/prediction.py`, `therapy/resistance.py`; bulk bridge pyBayesPrism/pyDWLS | Skeleton | State→response association replicated across cohorts; bulk↔sc bridge benchmarked | Fig 5 |
+| R5 | Cell–cell interaction / druggable axes | Which ligand–receptor axes drive malignant phenotypes and are targetable? | `microenvironment/interaction.py`, pyCellChat | Skeleton | Interaction calls vs. known axes; spatial or perturbation corroboration | Fig 5 |
+| R6 | **Neoadjuvant / longitudinal treatment designs** (pre / post / on-treatment biopsies) | Which clones and states are selected under therapy? What distinguishes responder vs non-responder baseline ecosystems? | **Gap** — no longitudinal paired-design contract; `ProjectContext` would need treatment/timepoint fields | **Not built; highest-value gap** | Longitudinal contract → own AK112/LPJ cohorts (ivonescimab PD-1/VEGF context is squarely this trend) | **Fig 5 main line candidate** (anchor lit: Yost 2019) |
+| R7 | Immune repertoire integration (TCR/BCR + scRNA) | Does response come from pre-existing clone expansion or new recruitment? What is the fate of exhausted clones? | **Gap** — no repertoire support | Not built | Mount as external evidence (e.g. scRepertoire-style inputs), not in-house build | Fig 5 support |
+| R8 | Spatial integration (scRNA as reference) | How are ecotypes organized in space? Where is the tumor–immune interface / invasive margin? | `tools/` spatial support layer — reference-provider role only (README boundary) | Skeleton, bounded | Deconvolution reference quality audit; collaborator spatial data | Fig 5 support |
+| R9 | Drug-tolerant persisters / adaptive non-genetic resistance | Which states survive therapy and seed relapse? Reversible or fixed? | `therapy/resistance.py` + `evolution` skeleton; needs state-persistence tracking | Skeleton | State-persistence metric; longitudinal (R6) dependence | Fig 5 (drug-mechanism core) |
+| R10 | Premalignancy / field cancerization | When does the microenvironment permit tumor emergence? What is already altered in adjacent-normal tissue? | No dedicated module; QC/analysis layers apply directly | Gap (no build needed for a case study) | Cohort with precursor/adjacent-normal sampling | Fig 5 alternative scenario |
+| R11 | Therapeutic target prioritization | Which malignant program or TME interaction axis is druggable? | `therapy/target.py` | Skeleton | Prioritization recall vs. known targets | Fig 5 translational close |
+
+**Explicitly out of scope (drift guards):**
+
+- **Foundation models / virtual-cell predictors** (scGPT/scFoundation/GEARS
+  class): conflicts with the lightweight-core, ecosystem-aware-not-replacing
+  positioning; may be mounted as external annotation evidence at most.
+- **Building a spatial platform**: scLucid provides scRNA references to
+  spatial tools; it is not a spatial analysis platform (README boundary).
+- **Wet-lab / assay method development**: outside the tool boundary.
+
+**Literature status**: anchor citations above are established references;
+representative 2024–2025 exemplars per row still need a literature
+verification pass before any of these rows is cited in a manuscript.
+
 ## Open owner decisions (blocking finalization of this map)
 
 - [ ] Tumor module tier confirmation (Part 0 table)
@@ -156,3 +198,6 @@ locked endpoints without following Part 3.
       literature of all rows) or remains a T2 contract claim
 - [ ] Pick the Fig 5 application direction (own clinical cohort vs public
       pan-cancer) — non-blocking for the gate
+- [ ] Ratify Part 4: 11 research-question rows + 3 out-of-scope lines; confirm
+      R6 (longitudinal treatment response, AK112/LPJ) as the Fig 5 main line
+- [ ] Run the 2024–2025 literature verification pass for Part 4 rows
