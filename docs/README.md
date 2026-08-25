@@ -55,6 +55,7 @@ cleanup rules, read:
 
 | File | Purpose |
 |------|---------|
+| `CLAIM_EVIDENCE_MAP.md` | Claim-tier assignment (T1/T2/T3) for every module, the tumor decision-scenario catalog (S1–S10), and the claim → endpoint → figure map that ties positioning, validation, and the paper together. |
 | `SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md` | Current strategic architecture, priorities, guardrails, support layers, and long-term roadmap. |
 | `roadmap/README.md` | Phase-level execution playbook for building scLucid toward Nature Methods-level standards and Genome Biology / Nature Communications / Nature Computational Science submission readiness. |
 
