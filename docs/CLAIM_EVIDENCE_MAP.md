@@ -185,9 +185,58 @@ drug sensitivity/mechanism. Two disciplines apply:
   spatial tools; it is not a spatial analysis platform (README boundary).
 - **Wet-lab / assay method development**: outside the tool boundary.
 
-**Literature status**: anchor citations above are established references;
-representative 2024–2025 exemplars per row still need a literature
-verification pass before any of these rows is cited in a manuscript.
+**Representative recent literature (verification pass 2026-08-25, OpenAlex
+search; 2024–2026, top-journal primary studies preferred; metadata reliable
+for title/journal/year/DOI — re-check before quoting in a manuscript):**
+
+- **R1** — Subramanian 2024 *Nat Cancer* (sarcoma TME ecotypes → prognosis &
+  ICB response; doi:10.1038/s43018-024-00743-y); Zeng 2024 *npj Precis Oncol*
+  (pan-cancer ecosystem subtype predicting ICB response;
+  doi:10.1038/s41698-024-00703-w); Deng 2024 *Cell Rep Med* (multicellular
+  ecotypes in GGO→advanced LUAD; doi:10.1016/j.xcrm.2024.101489)
+- **R2** — Swanton 2024 *Cell* ("Embracing cancer complexity", cell states &
+  heterogeneity; doi:10.1016/j.cell.2024.02.009); Bhat 2024 *Cancer
+  Metastasis Rev* (plasticity → heterogeneity → drug resistance;
+  doi:10.1007/s10555-024-10172-z). ⚠ 2024+ primary-study exemplar still weak
+  — keep Gavish 2023 as anchor, verify manually.
+- **R3** — George 2024 *Nature* (SCLC evolutionary trajectories under
+  therapy; doi:10.1038/s41586-024-07177-7); Laplane & Maley 2024 *Nat Rev
+  Cancer* (evolutionary theory of cancer; doi:10.1038/s41568-024-00734-2);
+  Watson 2024 *Nat Genet* (chromosome evolution screens, aneuploidy;
+  doi:10.1038/s41588-024-01665-2)
+- **R4** — Ikeda 2025 *Nature* (immune evasion via mitochondrial transfer in
+  TME; doi:10.1038/s41586-024-08439-0); Espinosa-Carrasco 2024 *Cancer Cell*
+  (intratumoral immune triads required for ICB elimination;
+  doi:10.1016/j.ccell.2024.05.025); Morotti 2024 *Nature* (PGE2 blocks TIL
+  expansion; doi:10.1038/s41586-024-07352-w)
+- **R5** — Armingol 2024 *Nat Rev Genet* (diversification of CCI methods;
+  doi:10.1038/s41576-023-00685-8); Su 2024 *STTT* (cell–cell communication,
+  clinical implications; doi:10.1038/s41392-024-01888-z)
+- **R6** — Chen 2024 *Cancer Cell* (spatiotemporal single-cell dynamics of
+  differential ICB response in CRC; doi:10.1016/j.ccell.2024.06.009); Mathew
+  2024 *Science* (JAK inhibition + PD-1 in NSCLC; doi:10.1126/science.adf1329);
+  Verschoor 2024 *Nat Med* (neoadjuvant atezolizumab PANDA trial, gastric;
+  doi:10.1038/s41591-023-02758-x)
+- **R7** — Andrews 2024 *Cell* (LAG-3/PD-1 synergy driving exhaustion;
+  doi:10.1016/j.cell.2024.07.016); Lacher 2024 *Nature* (PGE2 limits
+  stem-like CD8 effector expansion; doi:10.1038/s41586-024-07254-x)
+- **R8** — Singhal 2024 *Nat Genet* (BANKSY tissue-domain segmentation;
+  doi:10.1038/s41588-024-01664-3); Ng 2024 *Science* (deterministic
+  neutrophil reprogramming in tumors; doi:10.1126/science.adf6493)
+- **R9** — França 2024 *Nature* (cellular adaptation to therapy along a
+  resistance continuum — the DTP exemplar; doi:10.1038/s41586-024-07690-9);
+  Loh & Ma 2024 *Cell Stem Cell* (hallmarks of cancer stemness;
+  doi:10.1016/j.stem.2024.04.004)
+- **R10** — Deng 2024 *Cell Rep Med* (GGO→LUAD progression ecotypes,
+  cross-listed with R1); Huang 2024 *eLife* (S100A4⁺ alveolar macrophages
+  accelerate premalignant AAH; doi:10.7554/eLife.101731); Zhang 2024 *STTT*
+  (tumor initiation & early tumorigenesis review;
+  doi:10.1038/s41392-024-01848-7)
+- **R11** — Peidli 2024 *Nat Methods* (scPerturb harmonized perturbation
+  data; doi:10.1038/s41592-023-02144-y); Passaro 2024 *Cell* (cancer
+  biomarkers; doi:10.1016/j.cell.2024.02.041). Boundary marker: Bunne 2024
+  *Cell* (virtual cell with AI; doi:10.1016/j.cell.2024.11.015) exemplifies
+  the explicitly out-of-scope foundation-model line.
 
 ## Open owner decisions (blocking finalization of this map)
 
@@ -200,4 +249,6 @@ verification pass before any of these rows is cited in a manuscript.
       pan-cancer) — non-blocking for the gate
 - [ ] Ratify Part 4: 11 research-question rows + 3 out-of-scope lines; confirm
       R6 (longitudinal treatment response, AK112/LPJ) as the Fig 5 main line
-- [ ] Run the 2024–2025 literature verification pass for Part 4 rows
+- [x] ~~Run the 2024–2025 literature verification pass for Part 4 rows~~
+      (done 2026-08-25 via OpenAlex; ⚠ R2 still lacks a 2024+ primary-study
+      exemplar — manual verification needed before manuscript use)
