@@ -1,246 +1,303 @@
-# scLucid: Lucid Tumor Single-Cell Interpretation System
+# scLucid
+
+### A question-driven framework for tumor single-cell research
 
 [![PyPI version](https://badge.fury.io/py/sclucid.svg)](https://badge.fury.io/py/sclucid)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/yelu61/scLucid/actions/workflows/build.yml/badge.svg)](https://github.com/yelu61/scLucid/actions)
 
-**scLucid** is an evidence-calibrated review, strategy-comparison, and
-reproducible execution system for real multi-sample, especially tumor,
-single-cell RNA-seq projects. It is not a large automatic analysis package and
-does not replace biological judgment. Its job is to expose where common
-strategies can fail, compare their consequences, and return an explicit
-`READY / REVIEW / BLOCKED` decision with one next action.
+**Start with a research question. Connect study design, analysis and evidence.**
 
-The current product focus is QC and preprocessing. Analysis and tumor modules
-remain available for compatibility, but new feature development is frozen until
-the locked QC/preprocessing scientific and real-project usability gates pass.
-Until then, scLucid does **not** claim universal superiority over traditional
-QC or preprocessing workflows.
+scLucid is a Python framework for tumor single-cell transcriptomics in
+multi-patient clinical cohorts and experimental tumor models. It organizes
+recurring research questions into reusable tasks that connect eligible inputs,
+shared analysis methods, sample-level evidence, sensitivity checks and research
+figures. Each task makes its assumptions and interpretation limits explicit.
 
-## 60-Second Quickstart
+**中文定位：** scLucid 是面向多患者临床队列与肿瘤实验模型的单细胞转录组研究框架。它以具体研究问题与研究设计为入口，将分析方法、样本级证据、敏感性评估与研究图表连接为可复用的研究任务。
 
-The standard path has four explicit actions. Review does not modify the input;
-execution requires the reviewed policy:
+> **Development status:** this page presents the current framework direction
+> and local development progress. The published GitHub code and detailed docs
+> are an earlier snapshot. The Q1 example, Q2/Q4 additions and revised task
+> cards described below have not yet been synchronized to GitHub; cloning this
+> repository does not currently provide those additions. This README update
+> is not a code release or a scientific-validation milestone.
 
-```python
-import scLucid as scl
+[![scLucid overview: research questions and study design connect to reusable tasks, shared analysis capabilities and evidence-linked outputs. Q7–Q9 are planned.](docs/assets/sclucid_question_driven_framework.png)](docs/assets/sclucid_question_driven_framework.png)
 
-adata = scl.read_10x("path/to/filtered_feature_bc_matrix/", species="human")
-context = scl.ProjectContext(
-    dataset_type="tumor_tissue",
-    sample_key="sample",
-    input_provenance="filtered_counts",
-)
+*Framework map: tasks are selected and combined for the study; they are not a
+mandatory Q1-to-Q9 pipeline. The map includes intended capabilities as well as
+bounded implementations. All plotted values are schematic. See
+[Research questions](#research-questions) for the scope of each task. Click the
+image to view it at full resolution.*
 
-qc_review = scl.recommend_qc_policy(adata, context=context)
-qc_result = scl.apply_qc_policy(adata, qc_review.policy)
+**[Get started](#get-started)** · **[Research questions](#research-questions)** ·
+**[Worked Q1 example](#run-a-research-task)** · **[Documentation](docs/README.md)** ·
+**[Roadmap](docs/roadmap/index.md)**
 
-pp_review = scl.recommend_preprocess_policy(
-    qc_result.adata,
-    context,
-    consumer="exploration",
-)
-pp_result = scl.apply_preprocess_policy(qc_result.adata, pp_review.policy)
-```
+## Research questions
 
-`scl.read_10x` handles both Cell Ranger directories and `.h5` files, copies the
-counts to `layers["counts"]` automatically, and attaches your dataset context
-(species / tissue / cancer type) so downstream stages pick it up without extra
-arguments.
+The question defines the comparison, required evidence and useful outputs.
+A cancer type, treatment or cell population supplies the project context.
 
-The compatibility workflows (`run_qc`, `run_preprocessing`, and `run_pipeline`)
-remain available for one minor release. See the
-[evidence-calibrated workflow](docs/user/evidence_calibrated_workflow.md) for
-the new contract and migration boundary.
+| Task | Question it is designed to address |
+| --- | --- |
+| **Q1 · Composition and state change** | Do conditions or real follow-up visits differ in cellular composition, within-population programs, or both? |
+| **Q2 · Ecosystem relationships** | Which tumor and microenvironment features co-vary across samples, and which relationships replicate? |
+| **Q3 · Tissue references** | How do tumor, adjacent and healthy tissue differ under a compatible reference design? |
+| **Q4 · Recurrent programs** | Which expression programs recur across patients and independent studies? |
+| **Q5 · Clone–state relationships** | How do genetic clones, receptor clonotypes or lineage labels relate to expression states? |
+| **Q6 · Model fidelity and transport** | Which human disease features are represented in a model, and which model findings transfer to humans? |
+| **Q7 · Target prioritization** | Which targets merit experiments given patient coverage and normal-tissue expression risk? |
+| **Q8 · Perturbation response** | How might a specified intervention affect a defined population, and which predictions merit experimental testing? |
+| **Q9 · Clinical feature transport** | Do frozen single-cell features transfer to independent clinical cohorts and retain their intended outcome relevance? |
 
-## Why scLucid
+**Current scope at a glance — this catalog does not imply nine completed workflows:**
 
-| Principle | What It Means |
-|-----------|---------------|
-| **Decision-first** | Review is read-only; a fingerprinted policy is applied only after an explicit decision. |
-| **Audit-ready by default** | Decisions, parameters, warnings, contracts, reviewer tables, and review summaries are stored under `adata.uns["sclucid"]` and can be exported to an HTML audit report. |
-| **Explicit inference semantics** | Results distinguish exploratory, descriptive, and sample-level inferences so exploratory signals are not overstated. |
-| **Tumor project orientation** | Sample failure, fragile lineages, stress, ambient RNA, doublets, and integration confounding are separate evidence heads. |
-| **Ecosystem-aware, not ecosystem-replacing** | Mature Python/R tools can be wrapped or validated when useful, but scLucid keeps a lightweight core and records method-specific evidence. |
-| **Context-aware decisions** | Dataset context, tumor biology, and analysis intent are treated as part of the decision record rather than hidden analyst assumptions. |
+- **Q1 · Worked example in local development:** independent or genuinely paired two-condition
+  comparisons, with scoped CRC application and reuse evidence.
+- **Q2 / Q4 · Bounded local prototypes:** ecosystem relationships and recurrent
+  programs, respectively; independent scientific validation remains unfinished.
+- **Q3 / Q5 / Q6 · Later or external-evidence tasks:** reference comparisons,
+  clone–state relationships and model fidelity require further task development.
+- **Q7–Q9 · Planned:** no complete executable tasks declared. Virtual-cell
+  models are candidate methods within Q8, subject to context-specific evaluation.
 
-## Installation
+Detailed maturity, supported branches and stop rules are maintained in the
+local task cards pending publication. Q1's scoped execution and reuse also
+remain distinct from independent scientific validation.
 
-The toolkit is modular. Install the lightweight core and add extras as needed.
+## How the framework works
 
-```bash
-# Standard installation (core QC, preprocessing, analysis, and plotting)
-pip install sclucid
+1. **Define the question and design.** Declare the biological unit, specimens,
+   conditions, real pairing or time points, and the comparison of interest.
+2. **Prepare eligible inputs.** Review counts, QC, expression representations
+   and cell identities. Preserve provenance when using externally prepared data.
+3. **Select and combine tasks.** Reuse methods appropriate to the design. For
+   example, Q4 can define program features for Q1, while Q2 can examine their
+   sample-level relationships with the microenvironment.
+4. **Inspect the evidence.** Read effects, uncertainty, coverage, sensitivity
+   and non-estimable results alongside linked source tables and figures.
+   Add independent functional, spatial or clinical evidence where the claim
+   requires it.
 
-# Optional analysis extras (CellTypist, cosg, etc.)
-pip install "sclucid[analysis]"
+Tasks share QC, preprocessing, annotation, statistical analysis, tumor-program
+and visualization capabilities. Mature ecosystem tools can supply optional
+methods and evidence. Task composition depends on compatible inputs and
+measurement definitions; it does not require every task or modality.
 
-# Optional advanced tools (scVelo, infercnvpy, scVI-related workflows)
-pip install "sclucid[tools]"
+## What scLucid brings to a project
 
-# Optional bulk RNA-seq evidence modules
-pip install "sclucid[bulk]"
+| Principle | Practical consequence |
+| --- | --- |
+| **Question-led analysis** | Study design and intended outputs guide which methods to use. |
+| **Composition and state stay distinct** | Population abundance and within-population expression answer separate questions and retain their own denominators. |
+| **Biological units stay explicit** | Patients or animals, specimens and cells have different roles; more cells do not create more independent replicates. |
+| **Reviewable decisions** | QC and preprocessing expose a recommendation before an explicit policy is applied, with parameters, warnings and provenance retained. |
+| **Evidence-linked interpretation** | Task outputs connect estimates and figures to source rows, sensitivities and unresolved evidence gaps. |
+| **Reusable foundations** | Stepwise examples and existing APIs support project-specific analyses; optional dependencies are added when needed. |
 
-# Optional spatial transcriptomics evidence modules
-pip install "sclucid[spatial]"
+These are design commitments and scoped implementation features. Comparative
+benefits require their own evaluation; no universal performance advantage is
+claimed.
 
-# Install everything
-pip install "sclucid[all]"
-```
+## Get started
 
-Install the latest development version from GitHub:
+### Install
 
-```bash
-pip install "git+https://github.com/yelu61/scLucid.git"
-```
-
-For editable development:
+For an editable installation of the published GitHub snapshot:
 
 ```bash
 git clone https://github.com/yelu61/scLucid.git
 cd scLucid
-pip install -e ".[all]"
+pip install -e ".[analysis,de]"
 ```
 
-## A 5-Minute Example
+For a published package installation:
+
+```bash
+pip install sclucid
+```
+
+The Python import is **`import scLucid as scl`** (capital `L`), matching the
+source package directory `src/scLucid/`.
+
+Optional extras cover annotation and clustering (`analysis`), differential
+expression (`de`), experimental cNMF programs (`programs`, local development), integration,
+CNV, velocity, bulk and spatial support. Install only those required by the
+chosen workflow; see the [installation guide](docs/user/installation.md).
+Uncommitted local work is available only in its local editable checkout, and
+published packages may differ from the current development documentation.
+
+The `velocity` extra supports optional RNA-velocity methods. Their possible
+role in candidate state-transition analyses combining Q1/Q4/Q5
+is a design direction, not a validated transition workflow. Velocity or
+pseudotime alone does not establish lineage, reversibility or resistance.
+
+### Prepare a dataset
+
+Start from an AnnData object with verified count provenance and real sample
+metadata. In this example, `sample`, `patient` and `condition` are existing
+columns in `adata.obs`; replace them with the corresponding project columns.
+The input must retain raw counts in `layers["counts"]`.
 
 ```python
+import scanpy as sc
 import scLucid as scl
 
-# Load data (Cell Ranger dir, .h5, or .h5ad)
-adata = scl.read_10x(
-    "data/pbmc3k/filtered_feature_bc_matrix/",
-    species="human",
-    tissue="PBMC",
-)
-
-# Run the supported core workflow
+adata = sc.read_h5ad("data/cohort_counts.h5ad")
 context = scl.ProjectContext(
-    dataset_type="pbmc_or_blood",
+    dataset_type="tumor_tissue",
+    species="human",
     sample_key="sample",
-    study_objective="broad cell atlas",
-)
-plan = scl.plan_analysis(adata, context=context)
-adata_final = scl.run_pipeline(
-    adata,
-    plan=plan,
-    show_progress=True,
+    experimental_unit_key="patient",
+    condition_key="condition",
+    input_provenance="filtered_counts",
 )
 
-# Read the prioritized decisions before interpreting results
-review = scl.review_run(adata_final)
-print(review.to_frame())
-print(review.show_next_actions())
-
-# Export an auditable HTML report
-scl.export_audit_report(adata_final, "results/audit_report.html")
-
-# Visualize results with a publication-ready style
-from scLucid import FONT_NATURE
-scl.set_figure_params(dpi=300, font_style=FONT_NATURE)
-scl.pl.plot_embedding(adata_final, color_by="cell_type_auto", show=False)
-
-import matplotlib.pyplot as plt
-plt.savefig("results.pdf", dpi=600, bbox_inches="tight")
+# Review the recommendation, reason and required next action.
+qc_review = scl.recommend_qc_policy(adata, context=context)
+print(qc_review.status, qc_review.reason, qc_review.next_action)
 ```
 
-## Development Boundary
+After reviewing the recommendation and resolving any blocking issue, explicitly
+apply the policy and review the next stage:
 
-scLucid is built as an evidence-driven tumor single-cell workflow system, not as
-a claim that every automated result is superior to Scanpy, Seurat, scran,
-inferCNV, CopyKAT, CellTypist, or other mature tools.
+```python
+qc_result = scl.apply_qc_policy(adata, qc_review.policy)
 
-The stable promise is narrower: make assumptions visible, preserve biological
-caution, label inference boundaries, and keep enough review evidence for another
-analyst to audit the workflow.
+pp_review = scl.recommend_preprocess_policy(
+    qc_result.adata, context, consumer="exploration"
+)
+print(pp_review.status, pp_review.reason, pp_review.next_action)
 
-Portable scientific-reasoning and researcher-perspective skills remain
-upstream of the package and evolve independently. They may provide a neutral
-`ReasoningBrief`, but they are not scLucid dependencies and their identities or
-opinions are never treated as execution evidence. See the
-[scientific reasoning contracts](docs/user/scientific_reasoning_contracts.md)
-for the draft boundary.
+# Apply after reviewing this stage's policy and unresolved issues.
+pp_result = scl.apply_preprocess_policy(qc_result.adata, pp_review.policy)
+```
 
-Current module maturity, implementation plans, validation status, and roadmap
-details live in `docs/`, especially `docs/README.md`, `docs/user/`,
-`docs/api/`, and `docs/roadmap/`.
+Declare `paired_key` when genuine pairing exists and `batch_key` only for a
+known technical batch. `recommend_*` leaves its input unchanged; `apply_*`
+checks the reviewed input fingerprint and returns the output in `result.adata`.
+The exploration representation above is preparation for inspection; each
+downstream statistical method still needs its appropriate expression input.
+See the [review/apply workflow](docs/user/evidence_calibrated_workflow.md) and
+[data contracts](docs/user/data_contracts.md).
 
-## Core Differentiators
+### Run a research task
 
-scLucid's long-term value is not a larger list of wrappers. Its core
-competition is interpretability and scientific restraint around tumor
-single-cell workflows:
+**Local development preview:** this example and its task card are not yet in
+the published GitHub snapshot. The command and output layout below describe
+the development checkout containing `examples/02_key_api/q1_composition_state.py`.
 
-- **Reviewable decisions**: QC, preprocessing, and analysis steps leave behind
-  structured review records that explain what was recommended, what was applied,
-  and what still needs human review.
-- **Tumor-aware caution**: high mitochondrial content, stress programs,
-  doublets, batch correction, malignancy calls, and TME signals are treated as
-  biological-risk decisions rather than simple automatic filters.
-- **Layer and inference contracts**: expression layers, embeddings,
-  annotations, and DE/proportion results are labeled with their intended use so
-  exploratory cell-level findings are not mistaken for sample-level claims.
-- **Evidence bridges**: single-cell results are designed to connect with bulk,
-  spatial, marker, CNV, and external reference evidence without hiding the
-  confidence boundary.
-- **Falsifiable workflow records**: outputs should make it possible to ask what
-  would change under a different QC, preprocessing, annotation, or inference
-  choice, instead of presenting one automated path as final.
+The Q1 worked example separates
+captured-cell composition from fixed within-population score changes. It is a
+stepwise Python script driven by a JSON study specification; the command below
+runs those same steps from the terminal.
 
-Implementation details, field names, design plans, and roadmaps live in
-`docs/`, especially `docs/README.md`, `docs/api/`, and
-`docs/user/best_practices.md`.
+To continue from `pp_result.adata`, first review the cell-population annotations
+and compute the prespecified program scores using an appropriate expression
+representation. Store the population labels and per-cell scores in the prepared object’s
+`.obs`, then save that annotated object as H5AD. In the JSON specification, point
+`input_path` to this file, map the metadata and score columns, and record the
+score definitions and provenance. Preprocessing alone does not supply these
+annotations or scores, and the Q1 script does not infer them.
 
-## Choose Your Analysis Mode
+In that development checkout, read the Q1 task card in
+`docs/CLAIM_EVIDENCE_MAP.md` before creating the project specification.
+Set `SCLUCID_Q1_OUT` to a new or empty
+directory; existing results are protected from overwrite.
 
-| Goal | Layer | Entry Point | Best For |
-|------|-------|-------------|----------|
-| Guided first pass | **Workflow** | `scl.plan_analysis()`, `scl.run_pipeline()`, `scl.review_run()` | Beginners, standard projects, reproducible baselines |
-| One stage | **Stage workflow** | `scl.run_qc()`, `scl.pp.run_preprocessing()`, `scl.analysis.run_standard_analysis()` | Analysts rerunning one decision boundary |
-| Composable steps | **Simple API** | `scl.qc.calculate_qc_metric()`, `scl.pp.normalize_data()`, etc. | Analysts who need parameter control |
-| Full transparency | **Advanced** | `examples/03_advanced_notebooks/Step1A-QC_Audit.ipynb` | Review-grade audits |
+```bash
+SCLUCID_Q1_SPEC=/path/to/q1_spec.json \
+SCLUCID_Q1_OUT=/path/to/new_results \
+python examples/02_key_api/q1_composition_state.py
+```
+
+A completed run writes the following linked outputs directly to
+`SCLUCID_Q1_OUT`:
+
+```text
+new_results/
+├── sample_design.csv               # Specimens, biological units and conditions
+├── population_features.csv         # Sample/population abundance, scores and eligibility
+├── abundance_state_effects.csv     # Separate abundance/state rows, intervals and test status
+├── sensitivity_full.csv            # Full-data comparison for the sensitivity analysis
+├── sensitivity_omissions.csv       # Every leave-one-unit-out result, including failures
+├── sensitivity_summary.csv         # Effect shifts and influential omissions
+├── specification.json              # Study specification used for this run
+├── figure_legends.txt              # Design, denominators and interpretation limits
+├── sample_observations_*.{pdf,svg,png}
+├── effects_*.{pdf,svg,png}
+└── run.json                        # Execution record, provenance and output hashes
+```
+
+Here `*` denotes a contrast/population/score page identifier; each figure page
+is saved in all three formats. Abundance and state estimates are separate rows
+in one effects table. Coverage and eligibility are retained in the source
+tables and figure-page records. `run.json` records execution completion
+separately from scientific performance (`NOT_EVALUATED`).
+
+The current entrypoint supports
+independent or genuinely paired two-condition comparisons. Adjusted,
+multi-visit and treatment-benefit models are outside that entrypoint's scope.
+For composition alone, use the proportion/comparison APIs without inventing a
+state score.
+
+For the currently published interactive examples, see the
+[notebook guide](docs/user/notebooks.md). Existing plan/pipeline
+and stage APIs remain available with their own execution contracts; see
+[usage layers](docs/user/usage_layers.md).
+
+## Evidence and development boundaries
+
+scLucid is under active development. A runnable example, an engineering check
+and independent scientific validation establish different things. QC and
+preprocessing remain **`REVIEW`** under their existing scientific and
+real-project usability gates; scoped task execution does not promote the
+whole framework to validated status.
+
+- **Associations retain their meaning.** Co-variation does not establish
+  functional communication, spatial proximity or causality.
+- **Expression retains its limits.** Cell identity alone does not establish
+  malignancy; an RNA program or target score does not establish drug response,
+  a therapeutic window or clinical utility.
+- **Additional evidence is conditional.** Spatial, lineage, protein,
+  perturbation and clinical-outcome data extend a task only when available,
+  compatible and relevant to the claim.
+- **Generalization is evaluated separately.** Human and mouse studies,
+  discovery and independent evaluation, and measurement transfer and outcome
+  prediction require their own evidence.
+
+Current implementation and evaluation records are maintained in the
+[claim–evidence map](docs/CLAIM_EVIDENCE_MAP.md),
+[maturity guide](docs/user/qc_preprocess_maturity.md) and
+[roadmap](docs/roadmap/index.md).
 
 ## Documentation
 
-* **Quick Start**: [docs/user/quickstart.md](docs/user/quickstart.md)
-* **Installation Guide**: [docs/user/installation.md](docs/user/installation.md)
-* **Best Practices**: [docs/user/best_practices.md](docs/user/best_practices.md)
-* **Project Context**: [docs/user/project_context.md](docs/user/project_context.md)
-* **Reviewing Results**: [docs/user/reviewing_results.md](docs/user/reviewing_results.md)
-* **Parameter Profiles**: [docs/user/parameter_profiles.md](docs/user/parameter_profiles.md)
-* **Core Data Contracts**: [docs/user/data_contracts.md](docs/user/data_contracts.md)
-* **API Reference**: [docs/api/](docs/api/)
-* **Strategic Plan**: [docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md](docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md)
-* **Roadmap**: [docs/roadmap/](docs/roadmap/)
-* **Plugin Development**: [docs/dev/PLUGIN_DEVELOPMENT_GUIDE.md](docs/dev/PLUGIN_DEVELOPMENT_GUIDE.md)
-* **R Parity Matrix**: [docs/user/r_parity.md](docs/user/r_parity.md)
-* **PBMC Golden Path**: [scripts/run_pbmc_golden_path.py](scripts/run_pbmc_golden_path.py)
-* **Analysis Acceptance Runner**: [scripts/run_analysis_acceptance.py](scripts/run_analysis_acceptance.py)
+These links lead to the currently published documentation snapshot. Its
+positioning, roadmap and task coverage predate the local development described
+above and will be synchronized with the corresponding code.
 
-## What scLucid Is Not
-
-- It is not a claim that every scLucid result is automatically better than
-  Scanpy, Seurat, or specialist tools.
-- It is not a broad multi-omics platform that tries to cover every published
-  method.
-- It is not a general spatial transcriptomics platform.
-- It is not a black-box automated annotation engine.
-
-scLucid's bet is narrower and more useful: make tumor single-cell workflows
-clearer, safer to interpret, easier to audit, and easier to connect with bulk,
-spatial, clinical, and mature ecosystem evidence.
+| Start here | Reference |
+| --- | --- |
+| Learn the framework | [Documentation home](docs/README.md) · [Positioning and design](docs/SCLUCID_STRATEGIC_IMPLEMENTATION_PLAN.md) |
+| Choose a question | [Q1–Q9 overview and scope](#research-questions) |
+| Prepare and inspect data | [Quickstart](docs/user/quickstart.md) · [Project context](docs/user/project_context.md) · [Reviewing results](docs/user/reviewing_results.md) |
+| Work through an analysis | [Examples](docs/user/examples.md) · [Notebooks](docs/user/notebooks.md) · [Best practices](docs/user/best_practices.md) |
+| Use specific functions | [API reference](docs/api/) · [Data contracts](docs/user/data_contracts.md) |
+| Check scope and progress | [Roadmap](docs/roadmap/index.md) · [Documentation policy](docs/CURRENT_IMPLEMENTATION_AND_DOCS_POLICY.md) |
 
 ## Contributing
 
-We welcome contributions from the community! Please check out our
-[Contributing Guidelines](CONTRIBUTING.md) and the issue tracker.
+Contributions that improve task usability, evidence quality, reproducibility or
+documentation are welcome. See the [contributing guide](docs/CONTRIBUTING.md)
+and [issue tracker](https://github.com/yelu61/scLucid/issues).
 
-## License
+## Citation and license
 
-`scLucid` is licensed under the MIT License.
+Until a formal methods paper is available, cite the repository and report the
+package version or commit used for your analysis. A manuscript citation will be
+added when available.
 
-## How to Cite
-
-If you use `scLucid` in your research before a formal methods paper is available,
-please cite the GitHub repository and include the package version used in your
-analysis. A manuscript citation will be added once available.
+scLucid is released under the [MIT License](LICENSE).
