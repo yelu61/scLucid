@@ -8,13 +8,19 @@
 
 **Start with a research question. Connect study design, analysis and evidence.**
 
-scLucid is a Python framework for tumor single-cell transcriptomics in
-multi-patient clinical cohorts and experimental tumor models. It organizes
-recurring research questions into reusable tasks that connect eligible inputs,
-shared analysis methods, sample-level evidence, sensitivity checks and research
-figures. Each task makes its assumptions and interpretation limits explicit.
+scLucid is a Python research framework that starts from tumor single-cell data
+and connects biological and clinical questions to study design, reusable analysis
+tasks and reviewable evidence. Its intended use is to help researchers decide
+what their data can answer, select compatible analyses, inspect sample-level
+results and identify the evidence needed for stronger conclusions. Spatial,
+bulk, clinical and perturbation evidence can contribute to the same question
+when their measurement and study designs are compatible.
 
-**中文定位：** scLucid 是面向多患者临床队列与肿瘤实验模型的单细胞转录组研究框架。它以具体研究问题与研究设计为入口，将分析方法、样本级证据、敏感性评估与研究图表连接为可复用的研究任务。
+**中文定位：** scLucid 是以单细胞数据为起点、面向肿瘤研究问题的分析与证据组织框架。它旨在帮助研究者将生物学或临床现象转化为可检验问题，判断数据与设计能回答什么，组合分析任务，并形成可追溯、可复核且解释边界明确的患者／动物级证据。
+
+This is the product direction. Research-entry cards and cross-source evidence
+rules are currently documentation-guided; they are not an automated question
+translator or a completed multimodal workflow.
 
 > **Development status:** this page presents the current framework direction
 > and local development progress. The published GitHub code and detailed docs
@@ -23,13 +29,16 @@ figures. Each task makes its assumptions and interpretation limits explicit.
 > repository does not currently provide those additions. This README update
 > is not a code release or a scientific-validation milestone.
 
-[![scLucid overview: research questions and study design connect to reusable tasks, shared analysis capabilities and evidence-linked outputs. Q7–Q9 are planned.](docs/assets/sclucid_question_driven_framework.png)](docs/assets/sclucid_question_driven_framework.png)
+[![scLucid v7: six research entries, conditional task selection and evidence returned to the original question](docs/assets/sclucid_question_driven_framework.png)](docs/assets/sclucid_question_driven_framework.png)
 
-*Framework map: tasks are selected and combined for the study; they are not a
-mandatory Q1-to-Q9 pipeline. The map includes intended capabilities as well as
-bounded implementations. All plotted values are schematic. See
-[Research questions](#research-questions) for the scope of each task. Click the
-image to view it at full resolution.*
+*Framework v7: R01–R06 define overlapping research contexts; Q1–Q9 supply shared,
+bounded analytical evidence. The R02 example illustrates conditional selection,
+not a mandatory pipeline. Optional Q4 supplies frozen program definitions for
+Q1 scores; freezing is not independent validation. Q5 additionally requires
+appropriate genetic/lineage evidence and a separately supported implementation.
+Task roles and development maturity are separate. All plots are schematic.
+Click the image to enlarge it, or open the
+[vector source](docs/assets/sclucid_question_driven_framework.svg).*
 
 **[Get started](#get-started)** · **[Research questions](#research-questions)** ·
 **[Worked Q1 example](#run-a-research-task)** · **[Documentation](docs/README.md)** ·
@@ -37,8 +46,54 @@ image to view it at full resolution.*
 
 ## Research questions
 
-The question defines the comparison, required evidence and useful outputs.
-A cancer type, treatment or cell population supplies the project context.
+Researchers can start from patient heterogeneity; treatment response, residual
+disease and recurrence; ecosystem/spatial organization; progression and
+metastasis; intervention priorities; or clinical measurement and stratification.
+The local research-entry cards translate these overlapping contexts into design
+requirements and task choices. R01/R02 have detailed local documentation;
+R03–R06 are overview entries. Those detailed cards remain pending publication.
+The definitions and bounded example below summarize their role.
+
+**Research question → testable subquestions and design eligibility → selected Q
+tasks → evidence synthesis answering the original question.** Q1–Q9 retain their
+IDs as reusable analytical tasks. Their outputs return to the research entry
+for interpretation, including unanswered parts and next validation.
+The overview image shows six research contexts and one bounded R02 mapping
+example. Entry-documentation status does not change task implementation maturity.
+
+### Research entries and Q tasks have different responsibilities
+
+| Layer | What it specifies | What counts as a useful result |
+| --- | --- | --- |
+| **Research entry (R01–R06)** | A biological/clinical concern, population, intended use, competing explanations and the evidence needed to answer it | An evidence-backed answer to the instantiated research question, with unresolved alternatives and a next step |
+| **Analysis task (Q1–Q9)** | A bounded analytical question, eligible design/input, reusable methods, output meaning and interpretation limits | Correct, reviewable estimates or summaries for the specified task/version/design branch; unsupported or non-estimable results remain visible |
+
+**中文边界：研究入口定义“在什么研究情境下，要回答什么、需要哪些证据”；Q 任务定义“在明确的数据与设计条件下，能够产出哪一种分析证据”。** Q 是分析任务的组织与验证单元；研究场景是选择、组合和评价这些任务的情境。场景中的研究问题仍须具体化，不能用一个场景名称替代研究设计。
+
+The relationship is **conditional and many-to-many**. One entry may use one or
+several Q tasks; the same Q can support several entries. A task is not one
+algorithm, and an entry is not a second implementation of the tasks. Passing
+each selected Q does not establish that the original research question is
+answered. “Clinical/scenario layer” refers to R entries here; C1–C3 are reserved
+for candidate paper contributions, not entry IDs.
+
+For example, **“Which states are associated with residual disease or differences
+in treatment response?”** must first be decomposed:
+
+| Testable subquestion | Task choice and condition | Boundary |
+| --- | --- | --- |
+| Do captured-cell composition or fixed within-population scores differ between eligible conditions? | Q1; the local example supports independent or genuine paired two-condition designs | A pre/post difference alone does not identify a treatment effect or resistance mechanism |
+| Are new program definitions needed, and do candidate programs recur across patients? | Q4 prototype only when discovery is needed; frozen program definitions supply Q1 scores | Freezing is not independent validation; discovery patients are not independent validation patients |
+| Do the measured state and microenvironment features co-vary across samples? | Optional Q2 prototype with compatible unit/feature definitions | Sample association does not establish spatial contact or signaling |
+| Are state differences related to genetic clones or lineage labels? | Conditional Q5 with appropriate evidence; not a complete executable task | Expression snapshots alone do not establish state conversion |
+
+Without response labels, the response-association part remains unanswered;
+without valid pairing, a within-patient change claim is unavailable. The final
+review states which parts were supported, contradicted or not assessed, rather
+than reporting only a list of completed tasks. Full design branches and maturity are maintained in local entry/task cards
+pending publication; the image and this overview do not add executable tasks.
+
+### Reusable Q task catalog
 
 | Task | Question it is designed to address |
 | --- | --- |
@@ -69,17 +124,18 @@ remain distinct from independent scientific validation.
 
 ## How the framework works
 
-1. **Define the question and design.** Declare the biological unit, specimens,
-   conditions, real pairing or time points, and the comparison of interest.
+1. **Define the research question and its subquestions.** State the intended
+   use, competing explanations and required evidence. Declare biological units,
+   specimens, conditions, real pairing/time and the identifiable comparison.
 2. **Prepare eligible inputs.** Review counts, QC, expression representations
    and cell identities. Preserve provenance when using externally prepared data.
 3. **Select and combine tasks.** Reuse methods appropriate to the design. For
    example, Q4 can define program features for Q1, while Q2 can examine their
    sample-level relationships with the microenvironment.
-4. **Inspect the evidence.** Read effects, uncertainty, coverage, sensitivity
+4. **Return the evidence to the research question.** Read effects, uncertainty, coverage, sensitivity
    and non-estimable results alongside linked source tables and figures.
-   Add independent functional, spatial or clinical evidence where the claim
-   requires it.
+   State the supported answer, unresolved alternatives and missing evidence.
+   Add independent functional, spatial or clinical evidence where required.
 
 Tasks share QC, preprocessing, annotation, statistical analysis, tumor-program
 and visualization capabilities. Mature ecosystem tools can supply optional
